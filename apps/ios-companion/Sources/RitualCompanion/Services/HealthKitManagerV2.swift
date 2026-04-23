@@ -79,6 +79,27 @@ final class HealthKitManagerV2: @unchecked Sendable {
         .walkingStepLength: .appleWatchOnly,
         .walkingAsymmetry: .appleWatchOnly,
     ]
+
+    private static let bucketedGranularMetricTypes: Set<String> = [
+        MetricType.steps.rawValue,
+        MetricType.activeEnergy.rawValue,
+        MetricType.basalEnergy.rawValue,
+        MetricType.distance.rawValue,
+        MetricType.flightsClimbed.rawValue,
+        MetricType.exerciseTime.rawValue,
+        MetricType.standTime.rawValue,
+    ]
+
+    private static let intervalGranularMetricTypes: Set<String> = [
+        MetricType.sleepSession.rawValue,
+        MetricType.sleepAsleep.rawValue,
+        MetricType.sleepAwake.rawValue,
+        MetricType.sleepREM.rawValue,
+        MetricType.sleepDeep.rawValue,
+        MetricType.sleepCore.rawValue,
+        MetricType.workout.rawValue,
+        MetricType.mindfulMinutes.rawValue,
+    ]
     
     /// Types we want to read from HealthKit
     private let readTypes: Set<HKSampleType> = {
@@ -143,6 +164,27 @@ final class HealthKitManagerV2: @unchecked Sendable {
         let modified: [NormalizedMetric]
         let newAnchor: HKQueryAnchor?
         let metricType: String
+    }
+
+    private func granularSyncWindowDays(for metricType: String, requestedDaysBack: Int) -> Int {
+        if Self.intervalGranularMetricTypes.contains(metricType) {
+            return min(requestedDaysBack, 365)
+        }
+        return min(requestedDaysBack, 30)
+    }
+
+    private static func shouldProjectToHabitLogs(
+        metricType: String,
+        aggregationKind: MetricAggregationKind
+    ) -> Bool {
+        switch aggregationKind {
+        case .daily:
+            return true
+        case .interval:
+            return metricType.hasPrefix("sleep") || metricType == MetricType.workout.rawValue || metricType == MetricType.mindfulMinutes.rawValue
+        case .point, .bucket15m, .bucket1h:
+            return false
+        }
     }
     
     // MARK: - Authorization
@@ -499,7 +541,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
             sourceBundleId: sourceBundleId,
             sourceDeviceName: sourceDeviceName,
             attributedDate: attributedDate,
-            recordedAt: Date()
+            recordedAt: Date(),
+            aggregationKind: .point,
+            rollupWindowMinutes: nil,
+            sampleCount: nil,
+            shouldProjectToHabitLogs: shouldProjectToHabitLogs(metricType: metricType, aggregationKind: .point)
         )
     }
     
@@ -612,6 +658,10 @@ final class HealthKitManagerV2: @unchecked Sendable {
             sourceDeviceName: sourceDeviceName,
             attributedDate: attributedDate,
             recordedAt: Date(),
+            aggregationKind: .interval,
+            rollupWindowMinutes: nil,
+            sampleCount: nil,
+            shouldProjectToHabitLogs: shouldProjectToHabitLogs(metricType: metricType, aggregationKind: .interval),
             rawPayload: rawPayload
         )
     }
@@ -651,6 +701,10 @@ final class HealthKitManagerV2: @unchecked Sendable {
             sourceDeviceName: sourceDeviceName,
             attributedDate: attributedDate,
             recordedAt: Date(),
+            aggregationKind: .interval,
+            rollupWindowMinutes: nil,
+            sampleCount: nil,
+            shouldProjectToHabitLogs: true,
             rawPayload: rawPayload
         )
     }
@@ -854,6 +908,212 @@ final class HealthKitManagerV2: @unchecked Sendable {
         let startDate = calendar.date(byAdding: .day, value: -daysBack, to: startOfToday) ?? startOfToday
         return try await fetchDailyAggregatedMetrics(for: metricType, startDate: startDate, endDate: now)
     }
+
+    func fetchMetrics(
+        for metricType: String,
+        syncMode: MetricSyncMode,
+        daysBack: Int
+    ) async throws -> [NormalizedMetric] {
+        switch syncMode {
+        case .off:
+            return []
+        case .dailyOnly:
+            return try await fetchDailyAggregatedMetrics(for: metricType, daysBack: daysBack)
+        case .granular:
+            let calendar = Calendar.current
+            let now = Date()
+            let startOfToday = calendar.startOfDay(for: now)
+            let effectiveDaysBack = granularSyncWindowDays(for: metricType, requestedDaysBack: daysBack)
+            let startDate = calendar.date(byAdding: .day, value: -effectiveDaysBack, to: startOfToday) ?? startOfToday
+            return try await fetchGranularMetrics(for: metricType, startDate: startDate, endDate: now)
+        }
+    }
+
+    func fetchMetrics(
+        for metricType: String,
+        syncMode: MetricSyncMode,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> [NormalizedMetric] {
+        switch syncMode {
+        case .off:
+            return []
+        case .dailyOnly:
+            return try await fetchDailyAggregatedMetrics(for: metricType, startDate: startDate, endDate: endDate)
+        case .granular:
+            return try await fetchGranularMetrics(for: metricType, startDate: startDate, endDate: endDate)
+        }
+    }
+
+    func performBackfill(
+        for metricSyncModes: [String: MetricSyncMode],
+        daysBack: Int = 730,
+        progressHandler: ((Int, Int) -> Void)? = nil
+    ) async throws -> [NormalizedMetric] {
+        let enabledMetricTypes = metricSyncModes
+            .filter { $0.value != .off }
+            .map(\.key)
+            .sorted()
+
+        var allMetrics: [NormalizedMetric] = []
+
+        #if DEBUG
+        print("📊 Starting policy-aware backfill for \(enabledMetricTypes.count) metrics over \(daysBack) days...")
+        #endif
+
+        for (index, metricType) in enabledMetricTypes.enumerated() {
+            progressHandler?(index, enabledMetricTypes.count)
+            anchorStorage.clearAnchor(for: metricType)
+
+            let syncMode = metricSyncModes[metricType] ?? .dailyOnly
+
+            do {
+                let metrics = try await fetchMetrics(for: metricType, syncMode: syncMode, daysBack: daysBack)
+                allMetrics.append(contentsOf: metrics)
+                #if DEBUG
+                print("   ✓ \(metricType) [\(syncMode.rawValue)]: \(metrics.count) metrics")
+                #endif
+            } catch {
+                #if DEBUG
+                print("   ⚠️ Failed to backfill \(metricType) [\(syncMode.rawValue)]: \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        progressHandler?(enabledMetricTypes.count, enabledMetricTypes.count)
+        return allMetrics
+    }
+
+    private func fetchGranularMetrics(
+        for metricType: String,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> [NormalizedMetric] {
+        if Self.bucketedGranularMetricTypes.contains(metricType) {
+            return try await fetchBucketedMetrics(
+                for: metricType,
+                startDate: startDate,
+                endDate: endDate,
+                windowMinutes: 15
+            )
+        }
+
+        return try await fetchHistoricalMetrics(for: metricType, from: startDate, to: endDate)
+    }
+
+    private func fetchBucketedMetrics(
+        for metricType: String,
+        startDate: Date,
+        endDate: Date,
+        windowMinutes: Int
+    ) async throws -> [NormalizedMetric] {
+        guard let quantityType = healthKitType(for: metricType) as? HKQuantityType else {
+            throw HealthKitError.queryFailed("Bucketed fetch requires quantity type for \(metricType)")
+        }
+
+        let calendar = Calendar.current
+        let normalizedStart = min(startDate, endDate)
+        let normalizedEnd = max(startDate, endDate)
+        let anchorDate = calendar.startOfDay(for: normalizedStart)
+        let aggregation = aggregationType(for: metricType)
+        let predicate = HKQuery.predicateForSamples(withStart: normalizedStart, end: normalizedEnd, options: .strictStartDate)
+
+        var interval = DateComponents()
+        interval.minute = windowMinutes
+
+        let options: HKStatisticsOptions
+        switch aggregation {
+        case .cumulativeSum:
+            options = .cumulativeSum
+        case .discreteAverage:
+            options = .discreteAverage
+        case .discreteMin:
+            options = .discreteMin
+        case .discreteMax:
+            options = .discreteMax
+        case .duration:
+            options = .cumulativeSum
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKStatisticsCollectionQuery(
+                quantityType: quantityType,
+                quantitySamplePredicate: predicate,
+                options: options,
+                anchorDate: anchorDate,
+                intervalComponents: interval
+            )
+
+            query.initialResultsHandler = { _, results, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let statsCollection = results else {
+                    continuation.resume(returning: [])
+                    return
+                }
+
+                let isoFormatter = ISO8601DateFormatter()
+                let aggregationKind: MetricAggregationKind = windowMinutes == 60 ? .bucket1h : .bucket15m
+
+                var metrics: [NormalizedMetric] = []
+
+                statsCollection.enumerateStatistics(from: normalizedStart, to: normalizedEnd) { statistics, _ in
+                    let quantity: HKQuantity?
+                    switch aggregation {
+                    case .cumulativeSum:
+                        quantity = statistics.sumQuantity()
+                    case .discreteAverage:
+                        quantity = statistics.averageQuantity()
+                    case .discreteMin:
+                        quantity = statistics.minimumQuantity()
+                    case .discreteMax:
+                        quantity = statistics.maximumQuantity()
+                    case .duration:
+                        quantity = statistics.sumQuantity()
+                    }
+
+                    guard let quantity else { return }
+                    let (value, unit) = Self.extractValueFromQuantity(quantity, metricType: metricType)
+                    guard value > 0, let metricTypeEnum = MetricType(rawValue: metricType) else { return }
+
+                    let bucketStart = statistics.startDate
+                    let bucketEnd = statistics.endDate
+                    let externalId = "bucket_\(windowMinutes)m_\(metricType)_\(isoFormatter.string(from: bucketStart))"
+
+                    metrics.append(
+                        NormalizedMetric(
+                            source: .appleHealth,
+                            metricType: metricTypeEnum,
+                            startTime: bucketStart,
+                            endTime: bucketEnd,
+                            value: value,
+                            unit: unit,
+                            externalId: externalId,
+                            sourceBundleId: "com.apple.health.bucketed",
+                            sourceDeviceName: "Apple Health (\(windowMinutes)m Buckets)",
+                            attributedDate: bucketStart,
+                            recordedAt: Date(),
+                            aggregationKind: aggregationKind,
+                            rollupWindowMinutes: windowMinutes,
+                            sampleCount: nil,
+                            shouldProjectToHabitLogs: false,
+                            rawPayload: [
+                                "aggregation": AnyCodable(aggregationKind.rawValue),
+                                "window_minutes": AnyCodable(windowMinutes),
+                            ]
+                        )
+                    )
+                }
+
+                continuation.resume(returning: metrics)
+            }
+
+            healthStore.execute(query)
+        }
+    }
     
     /// Convert HKStatistics (daily aggregate) to NormalizedMetric
     private static func convertStatisticsToMetric(
@@ -906,6 +1166,10 @@ final class HealthKitManagerV2: @unchecked Sendable {
             sourceDeviceName: "Apple Health (Daily)",
             attributedDate: dayStart,  // Day start for daily aggregates
             recordedAt: Date(),
+            aggregationKind: .daily,
+            rollupWindowMinutes: 1440,
+            sampleCount: nil,
+            shouldProjectToHabitLogs: true,
             rawPayload: ["aggregation": AnyCodable(String(describing: aggregation))]
         )
     }
@@ -1016,6 +1280,10 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 sourceDeviceName: "Apple Health (Daily)",
                 attributedDate: dayStart,
                 recordedAt: Date(),
+                aggregationKind: .daily,
+                rollupWindowMinutes: 1440,
+                sampleCount: nil,
+                shouldProjectToHabitLogs: true,
                 rawPayload: ["aggregation": AnyCodable("daily_sum")]
             )
         }.sorted { $0.startTime < $1.startTime }
@@ -1054,38 +1322,12 @@ final class HealthKitManagerV2: @unchecked Sendable {
     /// Perform a full backfill using DAILY AGGREGATES (much smaller data volume)
     /// This is the recommended method for initial sync and periodic refreshes
     func performDailyAggregatedBackfill(for metricTypes: [String], daysBack: Int = 730, progressHandler: ((Int, Int) -> Void)? = nil) async throws -> [NormalizedMetric] {
-        var allMetrics: [NormalizedMetric] = []
-        
-        #if DEBUG
-        print("📊 Starting daily aggregated backfill for \(metricTypes.count) metrics over \(daysBack) days...")
-        #endif
-        
-        for (index, metricType) in metricTypes.enumerated() {
-            progressHandler?(index, metricTypes.count)
-            
-            // Clear anchor since we're doing a fresh aggregated fetch
-            anchorStorage.clearAnchor(for: metricType)
-            
-            do {
-                let metrics = try await fetchDailyAggregatedMetrics(for: metricType, daysBack: daysBack)
-                allMetrics.append(contentsOf: metrics)
-                #if DEBUG
-                print("   ✓ \(metricType): \(metrics.count) daily values")
-                #endif
-            } catch {
-                #if DEBUG
-                print("   ⚠️ Failed to fetch \(metricType): \(error.localizedDescription)")
-                #endif
-            }
-        }
-        
-        progressHandler?(metricTypes.count, metricTypes.count)
-        
-        #if DEBUG
-        print("📊 Daily aggregated backfill complete: \(allMetrics.count) total daily values")
-        print("   (Compare to ~50,000+ raw samples - this is much more efficient!)")
-        #endif
-        return allMetrics
+        let syncModes = Dictionary(uniqueKeysWithValues: metricTypes.map { ($0, MetricSyncMode.dailyOnly) })
+        return try await performBackfill(
+            for: syncModes,
+            daysBack: daysBack,
+            progressHandler: progressHandler
+        )
     }
     
     // MARK: - Legacy Full Backfill (RAW SAMPLES - NOT RECOMMENDED)
@@ -1094,38 +1336,12 @@ final class HealthKitManagerV2: @unchecked Sendable {
     /// WARNING: This fetches RAW samples which can be 50,000+ records. Use performDailyAggregatedBackfill instead.
     @available(*, deprecated, message: "Use performDailyAggregatedBackfill instead to avoid excessive raw samples")
     func performFullBackfill(for metricTypes: [String], daysBack: Int = 30, progressHandler: ((Int, Int) -> Void)? = nil) async throws -> [NormalizedMetric] {
-        var allMetrics: [NormalizedMetric] = []
-        
-        let calendar = Calendar.current
-        let now = Date()
-        let startDate = calendar.date(byAdding: .day, value: -daysBack, to: now)!
-        
-        for (index, metricType) in metricTypes.enumerated() {
-            progressHandler?(index, metricTypes.count)
-            
-            // Reset anchor for full fetch
-            anchorStorage.clearAnchor(for: metricType)
-            
-            do {
-                let metrics = try await fetchHistoricalMetrics(
-                    for: metricType,
-                    from: startDate,
-                    to: now
-                )
-                allMetrics.append(contentsOf: metrics)
-            } catch {
-                #if DEBUG
-                print("⚠️ Failed to backfill \(metricType): \(error)")
-                #endif
-            }
-        }
-        
-        progressHandler?(metricTypes.count, metricTypes.count)
-        
-        #if DEBUG
-        print("📊 Full backfill complete: \(allMetrics.count) metrics for \(daysBack) days")
-        #endif
-        return allMetrics
+        let syncModes = Dictionary(uniqueKeysWithValues: metricTypes.map { ($0, MetricSyncMode.granular) })
+        return try await performBackfill(
+            for: syncModes,
+            daysBack: daysBack,
+            progressHandler: progressHandler
+        )
     }
     
     private func fetchHistoricalMetrics(for metricType: String, from startDate: Date, to endDate: Date) async throws -> [NormalizedMetric] {

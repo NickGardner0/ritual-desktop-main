@@ -20,14 +20,14 @@ export async function GET(request: NextRequest) {
     });
 
     if (!response.ok) {
-      return NextResponse.json({ selected_metrics: [] });
+      return NextResponse.json({ selected_metrics: [], preferences: {} });
     }
 
     const data = await response.json();
     return NextResponse.json(data);
   } catch (error) {
     console.error('Error fetching metric preferences:', error);
-    return NextResponse.json({ selected_metrics: [] });
+    return NextResponse.json({ selected_metrics: [], preferences: {} });
   }
 }
 

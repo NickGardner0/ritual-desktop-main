@@ -5,13 +5,148 @@ import os
 import json
 import base64
 from datetime import datetime, timedelta
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
+
+VALID_METRIC_SYNC_MODES = {"off", "daily_only", "granular"}
+
+
+def _parse_csv_list(raw_value: Optional[str]) -> list[str]:
+    if not raw_value:
+        return []
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def _parse_iso_datetime(raw_value: Optional[str], *, field_name: str) -> Optional[datetime]:
+    if not raw_value:
+        return None
+    try:
+        return datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid ISO8601 timestamp") from exc
+
+
+def _coerce_settings_payload(settings_json: Any) -> dict[str, Any]:
+    if isinstance(settings_json, dict):
+        return settings_json
+    if isinstance(settings_json, str):
+        try:
+            parsed = json.loads(settings_json)
+        except Exception:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _normalize_metric_preferences_v2(
+    settings: Optional[dict[str, Any]],
+    allowed_metric_types: set[str],
+) -> dict[str, dict[str, str]]:
+    normalized_preferences: dict[str, dict[str, str]] = {}
+    settings = settings or {}
+
+    raw_v2 = settings.get("metric_preferences_v2")
+    if isinstance(raw_v2, dict):
+        for metric_type, raw_preference in raw_v2.items():
+            if metric_type not in allowed_metric_types:
+                continue
+            sync_mode = ""
+            if isinstance(raw_preference, dict):
+                sync_mode = str(raw_preference.get("sync_mode", "")).strip().lower()
+            elif isinstance(raw_preference, str):
+                sync_mode = raw_preference.strip().lower()
+            if sync_mode in VALID_METRIC_SYNC_MODES:
+                normalized_preferences[metric_type] = {"sync_mode": sync_mode}
+
+    if normalized_preferences:
+        return normalized_preferences
+
+    raw_selected = settings.get("metric_preferences", [])
+    if isinstance(raw_selected, list):
+        for metric_type in raw_selected:
+            if isinstance(metric_type, str) and metric_type in allowed_metric_types:
+                normalized_preferences[metric_type] = {"sync_mode": "daily_only"}
+
+    return normalized_preferences
+
+
+def _selected_metrics_from_preferences(
+    preferences: dict[str, dict[str, str]]
+) -> list[str]:
+    return sorted(
+        metric_type
+        for metric_type, preference in preferences.items()
+        if preference.get("sync_mode") in {"daily_only", "granular"}
+    )
+
+
+def _build_tracked_metrics_contract(
+    preferences: dict[str, dict[str, str]],
+    habit_metric_types: set[str],
+) -> dict[str, dict[str, str]]:
+    metrics: dict[str, dict[str, str]] = {
+        metric_type: {"sync_mode": preference.get("sync_mode", "daily_only")}
+        for metric_type, preference in preferences.items()
+        if preference.get("sync_mode") in {"daily_only", "granular"}
+    }
+
+    for metric_type in sorted(habit_metric_types):
+        metrics.setdefault(metric_type, {"sync_mode": "daily_only"})
+
+    return metrics
+
+
+def _parse_metric_preferences_payload(
+    body: dict[str, Any],
+    allowed_metric_types: set[str],
+) -> dict[str, dict[str, str]]:
+    if not isinstance(body, dict):
+        raise ValueError("request body must be an object")
+
+    if "preferences" in body:
+        raw_preferences = body.get("preferences")
+        if not isinstance(raw_preferences, dict):
+            raise ValueError("preferences must be an object")
+
+        normalized_preferences: dict[str, dict[str, str]] = {}
+        invalid_metric_types = [
+            metric_type for metric_type in raw_preferences.keys() if metric_type not in allowed_metric_types
+        ]
+        if invalid_metric_types:
+            raise ValueError(f"Unknown metric types: {sorted(invalid_metric_types)}")
+
+        for metric_type, raw_preference in raw_preferences.items():
+            if not isinstance(raw_preference, dict):
+                raise ValueError(f"Preference for '{metric_type}' must be an object")
+            sync_mode = str(raw_preference.get("sync_mode", "")).strip().lower()
+            if sync_mode not in VALID_METRIC_SYNC_MODES:
+                raise ValueError(
+                    f"Preference for '{metric_type}' must include sync_mode in {sorted(VALID_METRIC_SYNC_MODES)}"
+                )
+            normalized_preferences[metric_type] = {"sync_mode": sync_mode}
+        return normalized_preferences
+
+    raw_selected = body.get("selected_metrics", [])
+    if not isinstance(raw_selected, list):
+        raise ValueError("selected_metrics must be an array")
+
+    invalid_metric_types = [
+        metric_type
+        for metric_type in raw_selected
+        if not isinstance(metric_type, str) or metric_type not in allowed_metric_types
+    ]
+    if invalid_metric_types:
+        raise ValueError(f"Unknown metric types: {sorted(str(metric_type) for metric_type in invalid_metric_types)}")
+
+    return {
+        metric_type: {"sync_mode": "daily_only"}
+        for metric_type in dict.fromkeys(raw_selected)
+    }
 
 
 class WearableSyncSettingsUpdateRequest(BaseModel):
@@ -42,6 +177,7 @@ def create_wearables_router(
     from database.models import WearableConnectionDB, WhoopIntegrationDB
     from services.unified_wearables_service import (
         wearable_connection_service,
+        wearable_projection_service,
         wearable_query_service,
         wearable_sync_service,
     )
@@ -57,7 +193,10 @@ def create_wearables_router(
     from schemas.wearables_unified import (
         WearableConnectionActionResponse,
         WearableConnectionsResponse,
+        WearableDailyTotalsResponse,
+        WearableSeriesResponse,
         WearableSyncResponse,
+        WearableTimelineResponse,
     )
 
     def _serialize_connection(item: dict[str, Any]) -> dict[str, Any]:
@@ -88,6 +227,10 @@ def create_wearables_router(
             "value": sample.value,
             "unit": sample.unit,
             "aggregation_kind": sample.aggregation_kind,
+            "rollup_level": getattr(sample, "rollup_level", None),
+            "rollup_window_minutes": getattr(sample, "rollup_window_minutes", None),
+            "sample_count": getattr(sample, "sample_count", None),
+            "should_project_to_habit_logs": getattr(sample, "should_project_to_habit_logs", None),
             "confidence": sample.confidence,
             "timezone": sample.timezone,
             "source_id": sample.source_id,
@@ -498,6 +641,93 @@ def create_wearables_router(
             limit=limit,
         )
         return {"samples": [_serialize_sample(sample) for sample in samples], "count": len(samples)}
+
+    @router.get("/api/wearables/timeline", response_model=WearableTimelineResponse)
+    async def get_wearable_timeline(
+        providers: Optional[str] = None,
+        metric_types: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 200,
+        cursor: Optional[str] = None,
+        include_manual_logs: bool = True,
+        include_deleted: bool = False,
+        current_user = Depends(get_current_user),
+    ):
+        del cursor  # Cursor wiring can be added once the dashboard consumes it.
+        if not 1 <= limit <= 500:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+        try:
+            parsed_start = _parse_iso_datetime(start_time, field_name="start_time")
+            parsed_end = _parse_iso_datetime(end_time, field_name="end_time")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        items, next_cursor = await wearable_query_service.get_timeline(
+            user_id=current_user["id"],
+            providers=_parse_csv_list(providers),
+            metric_types=_parse_csv_list(metric_types),
+            start_time=parsed_start,
+            end_time=parsed_end,
+            include_manual_logs=include_manual_logs,
+            include_deleted=include_deleted,
+            limit=limit,
+        )
+        return {"items": items, "next_cursor": next_cursor}
+
+    @router.get("/api/wearables/series", response_model=WearableSeriesResponse)
+    async def get_wearable_series(
+        metric_type: str,
+        provider: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        resolution: str = "raw",
+        limit: int = 2000,
+        current_user = Depends(get_current_user),
+    ):
+        if resolution not in {"raw", "15m", "1h", "daily"}:
+            raise HTTPException(status_code=400, detail="resolution must be one of raw, 15m, 1h, daily")
+        if not 1 <= limit <= 5000:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
+        try:
+            parsed_start = _parse_iso_datetime(start_time, field_name="start_time")
+            parsed_end = _parse_iso_datetime(end_time, field_name="end_time")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        points = await wearable_query_service.get_series(
+            user_id=current_user["id"],
+            metric_type=metric_type,
+            provider=provider,
+            start_time=parsed_start,
+            end_time=parsed_end,
+            resolution=resolution,
+            limit=limit,
+        )
+        return {"metric_type": metric_type, "resolution": resolution, "points": points}
+
+    @router.get("/api/wearables/daily-totals", response_model=WearableDailyTotalsResponse)
+    async def get_wearable_daily_totals(
+        start_date: str,
+        end_date: str,
+        metric_types: Optional[str] = None,
+        providers: Optional[str] = None,
+        current_user = Depends(get_current_user),
+    ):
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="start_date and end_date must be YYYY-MM-DD") from exc
+
+        days = await wearable_query_service.get_daily_totals(
+            user_id=current_user["id"],
+            metric_types=_parse_csv_list(metric_types),
+            providers=_parse_csv_list(providers),
+            start_date=start_date,
+            end_date=end_date,
+        )
+        return {"days": days}
 
     # ── Health data export (Markdown / JSON / CSV) ─────────────────────
     @router.get("/api/wearables/apple/export")
@@ -1013,50 +1243,38 @@ def create_wearables_router(
             result = await session.execute(stmt)
             conn = result.scalar_one_or_none()
 
-            if not conn or not conn.settings_json:
-                return {"selected_metrics": []}
-
-            settings = json.loads(conn.settings_json) if isinstance(conn.settings_json, str) else conn.settings_json
-            return {"selected_metrics": settings.get("metric_preferences", [])}
+            settings = _coerce_settings_payload(conn.settings_json if conn else None)
+            preferences = _normalize_metric_preferences_v2(settings, _ALL_METRIC_TYPES)
+            return {
+                "preferences": preferences,
+                "selected_metrics": _selected_metrics_from_preferences(preferences),
+            }
 
     # Build a fast lookup from metric type → catalog info
     _METRIC_INFO: dict[str, dict[str, str]] = {}
     for _cat in _METRIC_CATALOG:
         for _m in _cat["metrics"]:
             _METRIC_INFO[_m["type"]] = {"name": _m["name"], "unit": _m["unit"], "category": _cat["category"]}
+    _ALL_METRIC_TYPES = set(_METRIC_INFO.keys())
 
     @router.put("/api/wearables/apple/metric_preferences")
     async def put_metric_preferences(
         body: dict,
         current_user=Depends(get_current_user),
     ):
-        """Update the user's selected metric types. Body: { selected_metrics: string[] }
-
-        Also auto-creates Apple Health habits for newly selected metrics so
-        that incoming data from the iOS companion app is projected into habit
-        logs (without this, data arrives but is silently dropped because no
-        matching habit exists).
-        """
-        import uuid
+        """Update Apple Health metric sync preferences."""
         from database.connection import get_db_session
-        from database.models import HabitDB, WearableConnectionDB
+        from database.models import WearableConnectionDB
         from sqlalchemy import select
 
-        selected = body.get("selected_metrics", [])
-        if not isinstance(selected, list):
-            raise HTTPException(status_code=400, detail="selected_metrics must be an array")
+        try:
+            preferences = _parse_metric_preferences_payload(body, _ALL_METRIC_TYPES)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-        # Validate metric types
-        all_types = {m["type"] for cat in _METRIC_CATALOG for m in cat["metrics"]}
-        invalid = [t for t in selected if t not in all_types]
-        if invalid:
-            raise HTTPException(status_code=400, detail=f"Unknown metric types: {invalid}")
-
-        selected_set = set(selected)
-        created_habits: list[str] = []
+        selected_metrics = _selected_metrics_from_preferences(preferences)
 
         async with get_db_session() as session:
-            # --- Update connection preferences ---
             stmt = select(WearableConnectionDB).where(
                 WearableConnectionDB.user_id == current_user["id"],
                 WearableConnectionDB.provider == "apple_health",
@@ -1067,58 +1285,16 @@ def create_wearables_router(
             if not conn:
                 raise HTTPException(status_code=404, detail="No Apple Health connection found")
 
-            settings = {}
-            if conn.settings_json:
-                try:
-                    settings = json.loads(conn.settings_json)
-                except Exception:
-                    settings = {}
-
-            settings["metric_preferences"] = selected
+            settings = _coerce_settings_payload(conn.settings_json)
+            settings["metric_preferences_v2"] = preferences
+            settings["metric_preferences"] = selected_metrics
             conn.settings_json = json.dumps(settings)
-
-            # --- Auto-create habits for selected metrics ---
-            habits_result = await session.execute(
-                select(HabitDB).where(
-                    HabitDB.user_id == current_user["id"],
-                    HabitDB.integration_source == "apple_health",
-                    HabitDB.metric_type.isnot(None),
-                )
-            )
-            existing_metric_types = {
-                h.metric_type for h in habits_result.scalars().all()
-            }
-
-            for metric_type in selected_set:
-                if metric_type in existing_metric_types:
-                    continue  # habit already exists
-                info = _METRIC_INFO.get(metric_type)
-                if not info:
-                    continue
-                habit = HabitDB(
-                    id=str(uuid.uuid4()),
-                    user_id=current_user["id"],
-                    name=info["name"],
-                    category=info["category"],
-                    icon=None,
-                    is_custom=False,
-                    integration_source="apple_health",
-                    unit_type=info["unit"],
-                    sensor_type="Apple Watch",
-                    metric_type=metric_type,
-                )
-                session.add(habit)
-                created_habits.append(metric_type)
-                logger.info(
-                    "Auto-created Apple Health habit '%s' (%s) for user %s",
-                    info["name"], metric_type, current_user["id"],
-                )
-
             await session.commit()
 
         return {
-            "selected_metrics": selected,
-            "created_habits": created_habits,
+            "preferences": preferences,
+            "selected_metrics": selected_metrics,
+            "created_habits": [],
         }
 
     # ── Export Schedule ──────────────────────────────────────────────────
@@ -1330,25 +1506,59 @@ def create_wearables_router(
                 conn_result = await session.execute(conn_stmt)
                 conn = conn_result.scalar_one_or_none()
 
-                pref_types: set[str] = set()
-                if conn and conn.settings_json:
-                    try:
-                        settings = json.loads(conn.settings_json)
-                        pref_types = set(settings.get("metric_preferences", []))
-                    except Exception:
-                        pass
+                settings = _coerce_settings_payload(conn.settings_json if conn else None)
+                preferences = _normalize_metric_preferences_v2(settings, _ALL_METRIC_TYPES)
+                pref_types = set(_selected_metrics_from_preferences(preferences))
 
-                # Union of both sources
-                all_types = sorted(habit_types | pref_types)
+                metrics = _build_tracked_metrics_contract(preferences, habit_types)
+                all_types = sorted(metrics.keys())
 
                 return {
                     "metric_types": all_types,
-                    "habits": habits_list
+                    "metrics": metrics,
+                    "habits": habits_list,
+                    "preferences": preferences,
                 }
 
         except Exception as e:
             logger.error(f"❌ Get tracked metrics error: {str(e)}")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.get("/api/habits/{habit_id}/projection-policy")
+    async def get_habit_projection_policy(
+        habit_id: str,
+        current_user=Depends(get_current_user),
+    ):
+        policy = await wearable_projection_service.get_projection_policy(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+        )
+        if policy is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        return policy
+
+    @router.put("/api/habits/{habit_id}/projection-policy")
+    async def put_habit_projection_policy(
+        habit_id: str,
+        body: dict,
+        current_user=Depends(get_current_user),
+    ):
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="request body must be an object")
+
+        projection_source_priority = body.get("projection_source_priority", [])
+        if not isinstance(projection_source_priority, list):
+            raise HTTPException(status_code=400, detail="projection_source_priority must be an array")
+
+        policy = await wearable_projection_service.update_projection_policy(
+            user_id=current_user["id"],
+            habit_id=habit_id,
+            projection_source_priority=projection_source_priority,
+            canonical_metric_type=body.get("canonical_metric_type"),
+        )
+        if policy is None:
+            raise HTTPException(status_code=404, detail="Habit not found")
+        return policy
     
     
     @router.post("/api/wearables/apple/ingest", response_model=AppleIngestResponse)

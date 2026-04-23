@@ -11,6 +11,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import dynamic from 'next/dynamic';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format, startOfDay, endOfDay } from 'date-fns';
+import { useQuery } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
@@ -26,6 +27,16 @@ import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
+import {
+  buildWearableDailyRows,
+  getWearableDateRange,
+  getWearableMetricType,
+  getWearableProviderForHabit,
+  isWearableBackedHabit,
+  summarizeWearableDailyRows,
+  usesAverageDisplay,
+  type WearableDailyTotal,
+} from '@/lib/wearables-dashboard';
 import type {
   ComputerDailyResponseRow as ComputerDailyRow,
   ComputerSummaryResponse as ComputerSummaryState,
@@ -60,9 +71,15 @@ interface HabitMetricStatsData {
   trackedDays: number;
 }
 
+interface HabitMetricDailyPoint {
+  date: string;
+  value: number;
+}
+
 interface HabitMetricData {
   display: string;
   stats: HabitMetricStatsData;
+  dailySeries?: HabitMetricDailyPoint[];
 }
 
 const EMPTY_OVERVIEW_LOGS: any[] = [];
@@ -240,6 +257,105 @@ export function OverviewView({
       && snapshot.domains.length === 0;
   }, [computerSnapshotQuery.data]);
   const computerActivityResolved = !user?.id || computerSnapshotQuery.isFetched || computerSnapshotQuery.isSuccess;
+  const wearableHabits = useMemo(
+    () => habits.filter((habit) => isWearableBackedHabit(habit)),
+    [habits],
+  );
+  const wearableDailyTotalsQuery = useQuery({
+    queryKey: [
+      'overview-wearable-daily-totals',
+      user?.id,
+      dateRange?.from?.toISOString() || 'all',
+      dateRange?.to?.toISOString() || 'all',
+      wearableHabits
+        .map((habit) => `${getWearableProviderForHabit(habit) || 'preferred'}:${getWearableMetricType(habit) || ''}:${habit.id || ''}`)
+        .sort()
+        .join('|'),
+    ],
+    queryFn: async () => {
+      const { startDate, endDate } = getWearableDateRange(dateRange);
+      const groupedMetrics = new Map<string, Set<string>>();
+
+      for (const habit of wearableHabits) {
+        const metricType = getWearableMetricType(habit);
+        if (!metricType) continue;
+        const provider = getWearableProviderForHabit(habit) || '__preferred__';
+        const existing = groupedMetrics.get(provider) || new Set<string>();
+        existing.add(metricType);
+        groupedMetrics.set(provider, existing);
+      }
+
+      const responses = await Promise.all(
+        Array.from(groupedMetrics.entries()).map(async ([provider, metricTypes]) => {
+          const params = new URLSearchParams({
+            start_date: startDate,
+            end_date: endDate,
+            metric_types: Array.from(metricTypes).join(','),
+          });
+          if (provider !== '__preferred__') {
+            params.set('providers', provider);
+          }
+
+          const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`, {
+            cache: 'no-store',
+            credentials: 'include',
+          });
+          if (!response.ok) {
+            throw new Error(`Failed to fetch wearable daily totals (${provider})`);
+          }
+          const payload = await response.json();
+          return {
+            provider,
+            days: Array.isArray(payload?.days) ? (payload.days as WearableDailyTotal[]) : [],
+          };
+        }),
+      );
+
+      return responses.reduce<Record<string, WearableDailyTotal[]>>((acc, entry) => {
+        acc[entry.provider] = entry.days;
+        return acc;
+      }, {});
+    },
+    enabled: Boolean(user?.id) && wearableHabits.length > 0,
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+  const wearableMetricDataByHabitId = useMemo(() => {
+    const next = new Map<string, HabitMetricData>();
+    const totalsByProvider = wearableDailyTotalsQuery.data || {};
+
+    for (const habit of wearableHabits) {
+      const habitId = habit.id || '';
+      const metricType = getWearableMetricType(habit);
+      if (!habitId || !metricType) continue;
+
+      const providerKey = getWearableProviderForHabit(habit) || '__preferred__';
+      const dailyRows = buildWearableDailyRows(totalsByProvider[providerKey] || [], metricType);
+      const summary = summarizeWearableDailyRows(dailyRows);
+      if (summary.daysWithData === 0) continue;
+
+      const unitLabel = habit.unit_type || summary.unit || 'sessions';
+      const displayValue = usesAverageDisplay(habit.metric_type, habit.unit_type, habit.name)
+        ? summary.average
+        : summary.total;
+
+      next.set(habitId, {
+        display: formatMetricDisplay(displayValue, unitLabel),
+        stats: {
+          unitLabel,
+          sumFormatted: formatMetricDisplay(summary.total, unitLabel),
+          avgFormatted: formatMetricDisplay(summary.average, unitLabel),
+          minFormatted: formatMetricDisplay(summary.min, unitLabel),
+          maxFormatted: formatMetricDisplay(summary.max, unitLabel),
+          stdDevFormatted: formatMetricDisplay(summary.stdDev, unitLabel),
+          daysWithData: summary.daysWithData,
+          trackedDays: dailyRows.length,
+        },
+      });
+    }
+
+    return next;
+  }, [wearableDailyTotalsQuery.data, wearableHabits]);
 
   const traceSyncComputation = useCallback(<T,>(
     name: string,
@@ -629,6 +745,10 @@ export function OverviewView({
       const useAvgDisplay = isAverageDisplayMetric(habit);
       const displayValue = useAvgDisplay ? average : totalValue;
 
+      const dailySeries: HabitMetricDailyPoint[] = Array.from(dailyValues.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([date, value]) => ({ date, value }));
+
       return {
         display: formatMetricDisplay(displayValue, unitLabel),
         stats: {
@@ -641,6 +761,7 @@ export function OverviewView({
           daysWithData: values.filter((value) => value > 0).length,
           trackedDays,
         },
+        dailySeries,
       };
     };
 
@@ -729,6 +850,12 @@ export function OverviewView({
         continue;
       }
 
+      const wearableMetricData = wearableMetricDataByHabitId.get(habitId);
+      if (wearableMetricData) {
+        next.set(habitId, wearableMetricData);
+        continue;
+      }
+
       const localMetricData = buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []);
 
       // In ranged mode, derive the overview metrics directly from the locally
@@ -775,6 +902,7 @@ export function OverviewView({
     isAverageDisplayMetric,
     isSleepLikeHabit,
     metricEntriesByHabitId,
+    wearableMetricDataByHabitId,
     computerSnapshotQuery.isPlaceholderData,
     traceSyncComputation,
   ]);

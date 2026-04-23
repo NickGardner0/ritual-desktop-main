@@ -22,6 +22,7 @@ from database.connection import get_db_session
 from database.models import (
     HabitDB,
     HabitLogDB,
+    HabitProjectionPolicyDB,
     WearableConnectionDB,
     WearableDeviceDB,
     WearableEventDB,
@@ -446,97 +447,214 @@ class WearableProjectionService:
         if normalized_metric.startswith("sleep_"):
             metric_hint = normalized_metric.replace("sleep_", "").replace("_", " ")
             return "sleep" in habit_name and metric_hint in habit_name
+        if normalized_metric == "workout":
+            return "workout" in habit_name or "exercise" in habit_name
+        if normalized_metric in {"heart_rate", "hr"}:
+            return "heart rate" in habit_name
+        if normalized_metric == "steps":
+            return "step" in habit_name or "walk" in habit_name
         return False
 
-    # Metric type → human-readable name/unit for auto-created habits
-    _METRIC_DISPLAY: Dict[str, Dict[str, str]] = {
-        "steps": {"name": "Steps", "unit": "count", "category": "Activity"},
-        "active_energy": {"name": "Active Energy", "unit": "kcal", "category": "Activity"},
-        "basal_energy": {"name": "Basal Energy", "unit": "kcal", "category": "Activity"},
-        "distance": {"name": "Distance", "unit": "meters", "category": "Activity"},
-        "flights_climbed": {"name": "Flights Climbed", "unit": "count", "category": "Activity"},
-        "exercise_time": {"name": "Exercise Time", "unit": "minutes", "category": "Activity"},
-        "stand_time": {"name": "Stand Time", "unit": "minutes", "category": "Activity"},
-        "hr": {"name": "Heart Rate", "unit": "bpm", "category": "Heart"},
-        "hrv": {"name": "HRV", "unit": "ms", "category": "Heart"},
-        "resting_hr": {"name": "Resting Heart Rate", "unit": "bpm", "category": "Heart"},
-        "walking_hr": {"name": "Walking Heart Rate", "unit": "bpm", "category": "Heart"},
-        "sleep_session": {"name": "Sleep Session", "unit": "hours", "category": "Sleep"},
-        "sleep_asleep": {"name": "Asleep", "unit": "hours", "category": "Sleep"},
-        "sleep_awake": {"name": "Awake", "unit": "hours", "category": "Sleep"},
-        "sleep_rem": {"name": "REM Sleep", "unit": "hours", "category": "Sleep"},
-        "sleep_deep": {"name": "Deep Sleep", "unit": "hours", "category": "Sleep"},
-        "sleep_core": {"name": "Core Sleep", "unit": "hours", "category": "Sleep"},
-        "respiratory_rate": {"name": "Respiratory Rate", "unit": "breaths/min", "category": "Respiratory"},
-        "oxygen_saturation": {"name": "Oxygen Saturation", "unit": "%", "category": "Respiratory"},
-        "body_mass": {"name": "Weight", "unit": "kg", "category": "Body Measurements"},
-        "workout": {"name": "Workouts", "unit": "minutes", "category": "Workouts"},
-        "mindful_minutes": {"name": "Mindful Minutes", "unit": "minutes", "category": "Mindfulness"},
-    }
+    def _canonical_metric_type(self, metric_type: Optional[str]) -> Optional[str]:
+        normalized_metric = (metric_type or "").strip().lower()
+        if not normalized_metric:
+            return None
+        for canonical_metric, aliases in self.LEGACY_METRIC_EQUIVALENTS.items():
+            if normalized_metric == canonical_metric or normalized_metric in aliases:
+                return canonical_metric
+        return normalized_metric
 
-    async def _auto_create_habit_if_preferred(
+    def _default_canonical_metric_type_for_habit(self, habit: HabitDB) -> Optional[str]:
+        habit_metric = self._canonical_metric_type(getattr(habit, "metric_type", None))
+        if habit_metric:
+            return habit_metric
+
+        habit_name = (habit.name or "").strip().lower()
+        if "sleep" in habit_name:
+            return "sleep_total"
+        if "workout" in habit_name or "exercise" in habit_name:
+            return "workout"
+        if "heart rate" in habit_name:
+            return "heart_rate"
+        if "step" in habit_name or "walk" in habit_name:
+            return "steps"
+        return None
+
+    def _normalize_projection_source_priority(
+        self,
+        values: Optional[Iterable[str]],
+        *,
+        default: Optional[Iterable[str]] = None,
+    ) -> List[str]:
+        normalized: List[str] = []
+        for value in values or []:
+            item = str(value or "").strip().lower()
+            if item and item not in normalized:
+                normalized.append(item)
+        if normalized:
+            return normalized
+        return [
+            item
+            for item in (str(entry or "").strip().lower() for entry in (default or []))
+            if item
+        ]
+
+    def _default_projection_source_priority_for_habit(self, habit: HabitDB) -> List[str]:
+        canonical_metric_type = self._default_canonical_metric_type_for_habit(habit)
+        integration_source = (getattr(habit, "integration_source", None) or "manual").strip().lower()
+
+        if canonical_metric_type == "sleep_total" and integration_source == "whoop":
+            return ["whoop", "apple_health"]
+        if canonical_metric_type == "workout" and integration_source == "manual":
+            return ["manual"]
+        if integration_source:
+            return [integration_source]
+        return ["manual"]
+
+    def _decode_projection_source_priority(
+        self,
+        projection_source_priority_json: Optional[str],
+    ) -> List[str]:
+        if not projection_source_priority_json:
+            return []
+        try:
+            raw_value = json.loads(projection_source_priority_json)
+        except Exception:
+            return []
+        if not isinstance(raw_value, list):
+            return []
+        return [value for value in raw_value if isinstance(value, str)]
+
+    def _serialize_projection_policy(
+        self,
+        habit: HabitDB,
+        policy: Optional[HabitProjectionPolicyDB] = None,
+    ) -> Dict[str, Any]:
+        default_canonical_metric_type = self._default_canonical_metric_type_for_habit(habit)
+        default_priority = self._default_projection_source_priority_for_habit(habit)
+        projection_source_priority = self._normalize_projection_source_priority(
+            self._decode_projection_source_priority(
+                policy.projection_source_priority_json if policy else None
+            ),
+            default=default_priority,
+        )
+        return {
+            "habit_id": habit.id,
+            "canonical_metric_type": (
+                (policy.canonical_metric_type if policy else None) or default_canonical_metric_type
+            ),
+            "projection_source_priority": projection_source_priority,
+        }
+
+    async def _get_or_create_projection_policy(
         self,
         session: Any,
         *,
+        habit: HabitDB,
+    ) -> HabitProjectionPolicyDB:
+        result = await session.execute(
+            select(HabitProjectionPolicyDB).where(HabitProjectionPolicyDB.habit_id == habit.id)
+        )
+        policy = result.scalar_one_or_none()
+        default_canonical_metric_type = self._default_canonical_metric_type_for_habit(habit)
+        default_priority = self._default_projection_source_priority_for_habit(habit)
+
+        if policy is None:
+            policy = HabitProjectionPolicyDB(
+                id=str(uuid.uuid4()),
+                user_id=habit.user_id,
+                habit_id=habit.id,
+                canonical_metric_type=default_canonical_metric_type,
+                projection_source_priority_json=json.dumps(default_priority),
+            )
+            session.add(policy)
+            await session.flush()
+            return policy
+
+        updated = False
+        if not policy.canonical_metric_type and default_canonical_metric_type:
+            policy.canonical_metric_type = default_canonical_metric_type
+            updated = True
+
+        normalized_priority = self._normalize_projection_source_priority(
+            self._decode_projection_source_priority(policy.projection_source_priority_json),
+            default=default_priority,
+        )
+        normalized_priority_json = json.dumps(normalized_priority)
+        if policy.projection_source_priority_json != normalized_priority_json:
+            policy.projection_source_priority_json = normalized_priority_json
+            updated = True
+
+        if updated:
+            await session.flush()
+        return policy
+
+    async def get_projection_policy(
+        self,
+        *,
         user_id: str,
+        habit_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        async with get_db_session() as session:
+            habit = await session.get(HabitDB, habit_id)
+            if habit is None or habit.user_id != user_id:
+                return None
+            policy = await self._get_or_create_projection_policy(session, habit=habit)
+            await session.commit()
+            return self._serialize_projection_policy(habit, policy)
+
+    async def update_projection_policy(
+        self,
+        *,
+        user_id: str,
+        habit_id: str,
+        projection_source_priority: Optional[Iterable[str]],
+        canonical_metric_type: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        async with get_db_session() as session:
+            habit = await session.get(HabitDB, habit_id)
+            if habit is None or habit.user_id != user_id:
+                return None
+
+            policy = await self._get_or_create_projection_policy(session, habit=habit)
+            default_priority = self._default_projection_source_priority_for_habit(habit)
+            normalized_priority = self._normalize_projection_source_priority(
+                projection_source_priority,
+                default=default_priority,
+            )
+            policy.projection_source_priority_json = json.dumps(normalized_priority)
+            policy.canonical_metric_type = (
+                self._canonical_metric_type(canonical_metric_type)
+                or policy.canonical_metric_type
+                or self._default_canonical_metric_type_for_habit(habit)
+            )
+            await session.commit()
+            await session.refresh(policy)
+            return self._serialize_projection_policy(habit, policy)
+
+    async def _habit_accepts_projection(
+        self,
+        session: Any,
+        *,
+        habit: HabitDB,
         provider: str,
         metric_type: str,
-    ) -> Optional[HabitDB]:
-        """Auto-create a habit when data arrives for a metric the user selected
-        but no corresponding habit exists yet. Returns the new habit or None."""
-        import json as _json
-        import uuid
+    ) -> bool:
+        if not self._habit_matches_metric_type(habit, metric_type):
+            return False
 
-        if provider != "apple_health":
-            return None
+        policy = await self._get_or_create_projection_policy(session, habit=habit)
+        serialized_policy = self._serialize_projection_policy(habit, policy)
+        canonical_metric_type = self._canonical_metric_type(metric_type)
+        if (
+            serialized_policy["canonical_metric_type"]
+            and canonical_metric_type
+            and serialized_policy["canonical_metric_type"] != canonical_metric_type
+        ):
+            return False
 
-        # Check if this metric is in the user's preferences
-        from database.models import WearableConnectionDB
-
-        conn_result = await session.execute(
-            select(WearableConnectionDB).where(
-                WearableConnectionDB.user_id == user_id,
-                WearableConnectionDB.provider == "apple_health",
-            )
-        )
-        conn = conn_result.scalar_one_or_none()
-        if not conn or not conn.settings_json:
-            return None
-
-        try:
-            settings = _json.loads(conn.settings_json)
-        except Exception:
-            return None
-
-        prefs = set(settings.get("metric_preferences", []))
-        normalized = metric_type.strip().lower()
-        if normalized not in prefs:
-            return None
-
-        info = self._METRIC_DISPLAY.get(normalized)
-        if not info:
-            # Unknown metric type — can't auto-create
-            return None
-
-        habit = HabitDB(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            name=info["name"],
-            category=info["category"],
-            icon=None,
-            is_custom=False,
-            integration_source="apple_health",
-            unit_type=info["unit"],
-            sensor_type="Apple Watch",
-            metric_type=normalized,
-        )
-        session.add(habit)
-        await session.flush()  # get the ID assigned
-        logger.info(
-            "Auto-created Apple Health habit '%s' (%s) for user %s during ingest",
-            info["name"], normalized, user_id,
-        )
-        return habit
+        projection_source_priority = serialized_policy["projection_source_priority"]
+        return bool(projection_source_priority) and provider.strip().lower() == projection_source_priority[0]
 
     async def project_sample(
         self,
@@ -545,6 +663,8 @@ class WearableProjectionService:
         provider: str,
         sample: WearableSampleDB,
     ) -> None:
+        if sample.should_project_to_habit_logs in {False, 0}:
+            return
         date_value = sample.attributed_date
         if not date_value:
             reference_dt = sample.start_time or sample.recorded_at or sample.end_time
@@ -690,27 +810,19 @@ class WearableProjectionService:
         async with get_db_session() as session:
             tinybird_payloads: List[Dict[str, Any]] = []
             habits_result = await session.execute(
-                select(HabitDB).where(
-                    HabitDB.user_id == user_id,
-                    HabitDB.integration_source == provider,
-                )
+                select(HabitDB).where(HabitDB.user_id == user_id)
             )
-            habits = [
-                habit
-                for habit in habits_result.scalars().all()
-                if self._habit_matches_metric_type(habit, metric_type)
-            ]
+            habits: List[HabitDB] = []
+            for habit in habits_result.scalars().all():
+                if await self._habit_accepts_projection(
+                    session,
+                    habit=habit,
+                    provider=provider,
+                    metric_type=metric_type,
+                ):
+                    habits.append(habit)
             if not habits:
-                # Auto-create a habit if the user has this metric in their
-                # preferences but no habit exists yet (e.g., data arrived
-                # before the PUT /metric_preferences call propagated).
-                habit = await self._auto_create_habit_if_preferred(
-                    session, user_id=user_id, provider=provider, metric_type=metric_type,
-                )
-                if habit:
-                    habits = [habit]
-                else:
-                    return
+                return
 
             for habit in habits:
                 existing_result = await session.execute(
@@ -796,6 +908,117 @@ class WearableProjectionService:
 
 
 class WearableQueryService:
+    CUMULATIVE_METRICS = {
+        "steps",
+        "active_energy",
+        "basal_energy",
+        "distance",
+        "flights_climbed",
+        "exercise_time",
+        "stand_time",
+        "dietary_energy",
+        "dietary_protein",
+        "dietary_carbs",
+        "dietary_fat",
+        "dietary_fiber",
+        "dietary_sugar",
+        "dietary_water",
+        "dietary_caffeine",
+        "sleep_total",
+        "sleep_awake",
+        "sleep_rem",
+        "sleep_deep",
+        "sleep_light",
+        "workout",
+        "mindful_minutes",
+    }
+    MIN_METRICS = {"resting_heart_rate"}
+
+    @staticmethod
+    def _isoformat(value: Optional[datetime]) -> Optional[str]:
+        return value.isoformat() if value else None
+
+    @staticmethod
+    def _safe_json_loads(value: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not value:
+            return None
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return {"raw": value}
+        return parsed if isinstance(parsed, dict) else {"value": parsed}
+
+    @classmethod
+    def _source_device_name_from_sample(cls, sample: WearableSampleDB) -> Optional[str]:
+        attributes = cls._safe_json_loads(sample.attributes_json)
+        if isinstance(attributes, dict):
+            return attributes.get("source_device_name")
+        return None
+
+    @classmethod
+    def _source_device_name_from_event(cls, event: WearableEventDB) -> Optional[str]:
+        details = cls._safe_json_loads(event.details_json)
+        if isinstance(details, dict):
+            return details.get("source_device_name")
+        return None
+
+    @staticmethod
+    def _parse_habit_log_completed_at(log: HabitLogDB) -> str:
+        if log.completed_at:
+            return log.completed_at
+        return f"{log.date}T00:00:00"
+
+    @classmethod
+    def _timeline_sort_key(cls, item: Dict[str, Any]) -> Tuple[str, str]:
+        return (item.get("timestamp") or "", item.get("id") or "")
+
+    @classmethod
+    def _aggregate_metric_values(cls, metric_type: str, values: List[float]) -> Tuple[Optional[float], Optional[str]]:
+        if not values:
+            return None, None
+        if metric_type in cls.MIN_METRICS:
+            return min(values), "daily_min"
+        if metric_type in cls.CUMULATIVE_METRICS:
+            return sum(values), "daily_total"
+        return (sum(values) / len(values)), "daily_average"
+
+    @classmethod
+    def _select_provider_rows(
+        cls,
+        grouped_rows: Dict[str, List[Any]],
+        preferred_provider: Optional[str],
+    ) -> Tuple[List[Any], Optional[str]]:
+        if preferred_provider and preferred_provider in grouped_rows:
+            return grouped_rows[preferred_provider], preferred_provider
+        if len(grouped_rows) == 1:
+            provider = next(iter(grouped_rows.keys()))
+            return grouped_rows[provider], provider
+
+        selected: List[Any] = []
+        for rows in grouped_rows.values():
+            selected.extend(rows)
+        return selected, "mixed" if grouped_rows else None
+
+    async def _preferred_provider_by_metric(
+        self,
+        session: Any,
+        *,
+        user_id: str,
+    ) -> Dict[str, str]:
+        result = await session.execute(
+            select(HabitDB, HabitProjectionPolicyDB)
+            .join(HabitProjectionPolicyDB, HabitProjectionPolicyDB.habit_id == HabitDB.id, isouter=True)
+            .where(HabitDB.user_id == user_id)
+        )
+        preferred_by_metric: Dict[str, str] = {}
+        for habit, policy in result.all():
+            serialized = wearable_projection_service._serialize_projection_policy(habit, policy)
+            metric_type = serialized.get("canonical_metric_type")
+            priority = serialized.get("projection_source_priority") or []
+            if metric_type and priority and metric_type not in preferred_by_metric:
+                preferred_by_metric[metric_type] = priority[0]
+        return preferred_by_metric
+
     async def get_samples(
         self,
         *,
@@ -849,6 +1072,379 @@ class WearableQueryService:
             query = query.order_by(WearableEventDB.start_time.desc()).limit(limit)
             result = await session.execute(query)
             return list(result.scalars().all())
+
+    async def get_timeline(
+        self,
+        *,
+        user_id: str,
+        providers: Optional[List[str]] = None,
+        metric_types: Optional[List[str]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        include_manual_logs: bool = True,
+        include_deleted: bool = False,
+        limit: int = 200,
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        async with get_db_session() as session:
+            query_limit = max(limit * 2, 200)
+            provider_filter = [item for item in (providers or []) if item]
+            metric_filter = [item for item in (metric_types or []) if item]
+
+            sample_query = select(WearableSampleDB).where(WearableSampleDB.user_id == user_id)
+            if provider_filter:
+                sample_query = sample_query.where(WearableSampleDB.provider.in_(provider_filter))
+            if metric_filter:
+                sample_query = sample_query.where(WearableSampleDB.metric_type.in_(metric_filter))
+            if start_time:
+                sample_query = sample_query.where(func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time) >= start_time)
+            if end_time:
+                sample_query = sample_query.where(func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.end_time) <= end_time)
+            if not include_deleted:
+                sample_query = sample_query.where(WearableSampleDB.deleted_at.is_(None))
+            sample_query = sample_query.order_by(
+                func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time).desc(),
+                WearableSampleDB.id.desc(),
+            ).limit(query_limit)
+            samples = list((await session.execute(sample_query)).scalars().all())
+
+            event_query = select(WearableEventDB).where(WearableEventDB.user_id == user_id)
+            if provider_filter:
+                event_query = event_query.where(WearableEventDB.provider.in_(provider_filter))
+            if metric_filter:
+                event_query = event_query.where(WearableEventDB.event_type.in_(metric_filter))
+            if start_time:
+                event_query = event_query.where(WearableEventDB.start_time >= start_time)
+            if end_time:
+                event_query = event_query.where(WearableEventDB.end_time <= end_time)
+            if not include_deleted:
+                event_query = event_query.where(WearableEventDB.deleted_at.is_(None))
+            event_query = event_query.order_by(WearableEventDB.start_time.desc(), WearableEventDB.id.desc()).limit(query_limit)
+            events = list((await session.execute(event_query)).scalars().all())
+
+            items: List[Dict[str, Any]] = []
+
+            for sample in samples:
+                timestamp = self._isoformat(sample.recorded_at or sample.start_time or sample.end_time)
+                if not timestamp:
+                    continue
+                items.append(
+                    {
+                        "id": sample.id,
+                        "kind": "wearable_sample",
+                        "provider": sample.provider,
+                        "metric_type": sample.metric_type,
+                        "title": sample.metric_type.replace("_", " ").title(),
+                        "timestamp": timestamp,
+                        "start_time": self._isoformat(sample.start_time),
+                        "end_time": self._isoformat(sample.end_time),
+                        "attributed_date": sample.attributed_date,
+                        "value": sample.value,
+                        "unit": sample.unit,
+                        "aggregation_kind": sample.aggregation_kind,
+                        "rollup_level": sample.rollup_level,
+                        "rollup_window_minutes": sample.rollup_window_minutes,
+                        "source_device_name": self._source_device_name_from_sample(sample),
+                    }
+                )
+
+            for event in events:
+                timestamp = self._isoformat(event.start_time)
+                if not timestamp:
+                    continue
+                items.append(
+                    {
+                        "id": event.id,
+                        "kind": "wearable_event",
+                        "provider": event.provider,
+                        "metric_type": event.event_type,
+                        "event_type": event.event_type,
+                        "title": event.title or event.event_type.replace("_", " ").title(),
+                        "timestamp": timestamp,
+                        "start_time": self._isoformat(event.start_time),
+                        "end_time": self._isoformat(event.end_time),
+                        "attributed_date": event.attributed_date,
+                        "value": event.summary_value,
+                        "unit": event.summary_unit,
+                        "aggregation_kind": "interval",
+                        "source_device_name": self._source_device_name_from_event(event),
+                    }
+                )
+
+            if include_manual_logs:
+                log_query = select(HabitLogDB).join(HabitDB, HabitDB.id == HabitLogDB.habit_id).where(
+                    HabitDB.user_id == user_id,
+                    HabitLogDB.origin_record_kind.is_(None),
+                )
+                if start_time:
+                    log_query = log_query.where(HabitLogDB.date >= start_time.strftime("%Y-%m-%d"))
+                if end_time:
+                    log_query = log_query.where(HabitLogDB.date <= end_time.strftime("%Y-%m-%d"))
+                if metric_filter:
+                    log_query = log_query.where(HabitDB.metric_type.in_(metric_filter))
+                log_query = log_query.order_by(HabitLogDB.completed_at.desc(), HabitLogDB.id.desc()).limit(query_limit)
+                logs = list((await session.execute(log_query)).scalars().all())
+                for log in logs:
+                    items.append(
+                        {
+                            "id": log.id,
+                            "kind": "habit_log",
+                            "habit_id": log.habit_id,
+                            "habit_name": log.habit_name,
+                            "title": log.habit_name,
+                            "timestamp": self._parse_habit_log_completed_at(log),
+                            "start_time": log.completed_at,
+                            "end_time": log.completed_at,
+                            "attributed_date": log.date,
+                            "value": log.amount,
+                            "unit": None,
+                            "status": log.status,
+                            "notes": log.notes,
+                        }
+                    )
+
+            items.sort(key=self._timeline_sort_key, reverse=True)
+            next_cursor = None
+            if len(items) > limit:
+                trailing_item = items[limit]
+                next_cursor = f"{trailing_item['timestamp']}|{trailing_item['id']}"
+            return items[:limit], next_cursor
+
+    async def get_series(
+        self,
+        *,
+        user_id: str,
+        metric_type: str,
+        provider: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        resolution: str = "raw",
+        limit: int = 2000,
+    ) -> List[Dict[str, Any]]:
+        async with get_db_session() as session:
+            preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
+            selected_provider = provider or preferred_provider_by_metric.get(metric_type)
+
+            if resolution == "daily":
+                totals = await self.get_daily_totals(
+                    user_id=user_id,
+                    metric_types=[metric_type],
+                    providers=[selected_provider] if selected_provider else None,
+                    start_date=(start_time or datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d"),
+                    end_date=(end_time or datetime.now(timezone.utc)).strftime("%Y-%m-%d"),
+                )
+                points: List[Dict[str, Any]] = []
+                for item in totals:
+                    metric_payload = item["metrics"].get(metric_type)
+                    if not metric_payload:
+                        continue
+                    points.append(
+                        {
+                            "timestamp": item["date"],
+                            "start_time": item["date"],
+                            "end_time": item["date"],
+                            "value": metric_payload["value"],
+                            "unit": metric_payload.get("unit"),
+                            "provider": metric_payload.get("provider"),
+                            "metric_type": metric_type,
+                            "aggregation_kind": metric_payload.get("aggregation"),
+                            "rollup_level": "daily",
+                            "rollup_window_minutes": 1440,
+                            "attributed_date": item["date"],
+                            "source_device_name": None,
+                        }
+                    )
+                return points
+
+            sample_query = select(WearableSampleDB).where(
+                WearableSampleDB.user_id == user_id,
+                WearableSampleDB.metric_type == metric_type,
+            )
+            if selected_provider:
+                sample_query = sample_query.where(WearableSampleDB.provider == selected_provider)
+            if start_time:
+                sample_query = sample_query.where(func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time) >= start_time)
+            if end_time:
+                sample_query = sample_query.where(func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.end_time) <= end_time)
+            sample_query = sample_query.where(WearableSampleDB.deleted_at.is_(None))
+
+            if resolution == "15m":
+                sample_query = sample_query.where(WearableSampleDB.rollup_level == "bucket_15m")
+            elif resolution == "1h":
+                sample_query = sample_query.where(WearableSampleDB.rollup_level == "bucket_1h")
+            else:
+                sample_query = sample_query.where(WearableSampleDB.rollup_level == "raw")
+
+            sample_query = sample_query.order_by(
+                func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time).asc(),
+                WearableSampleDB.id.asc(),
+            ).limit(limit)
+            samples = list((await session.execute(sample_query)).scalars().all())
+            if samples:
+                return [
+                    {
+                        "timestamp": self._isoformat(sample.recorded_at or sample.start_time or sample.end_time),
+                        "start_time": self._isoformat(sample.start_time),
+                        "end_time": self._isoformat(sample.end_time),
+                        "value": sample.value,
+                        "unit": sample.unit,
+                        "provider": sample.provider,
+                        "metric_type": sample.metric_type,
+                        "aggregation_kind": sample.aggregation_kind,
+                        "rollup_level": sample.rollup_level,
+                        "rollup_window_minutes": sample.rollup_window_minutes,
+                        "attributed_date": sample.attributed_date,
+                        "source_device_name": self._source_device_name_from_sample(sample),
+                    }
+                    for sample in samples
+                    if sample.recorded_at or sample.start_time or sample.end_time
+                ]
+
+            event_query = select(WearableEventDB).where(
+                WearableEventDB.user_id == user_id,
+                WearableEventDB.event_type == metric_type,
+                WearableEventDB.deleted_at.is_(None),
+            )
+            if selected_provider:
+                event_query = event_query.where(WearableEventDB.provider == selected_provider)
+            if start_time:
+                event_query = event_query.where(WearableEventDB.start_time >= start_time)
+            if end_time:
+                event_query = event_query.where(WearableEventDB.end_time <= end_time)
+            event_query = event_query.order_by(WearableEventDB.start_time.asc(), WearableEventDB.id.asc()).limit(limit)
+            events = list((await session.execute(event_query)).scalars().all())
+            return [
+                {
+                    "timestamp": self._isoformat(event.start_time),
+                    "start_time": self._isoformat(event.start_time),
+                    "end_time": self._isoformat(event.end_time),
+                    "value": float(event.summary_value or 0.0),
+                    "unit": event.summary_unit,
+                    "provider": event.provider,
+                    "metric_type": event.event_type,
+                    "aggregation_kind": "interval",
+                    "rollup_level": "raw",
+                    "rollup_window_minutes": None,
+                    "attributed_date": event.attributed_date,
+                    "source_device_name": self._source_device_name_from_event(event),
+                }
+                for event in events
+            ]
+
+    async def get_daily_totals(
+        self,
+        *,
+        user_id: str,
+        metric_types: Optional[List[str]] = None,
+        providers: Optional[List[str]] = None,
+        start_date: str,
+        end_date: str,
+    ) -> List[Dict[str, Any]]:
+        async with get_db_session() as session:
+            preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
+            provider_filter = [item for item in (providers or []) if item]
+            metric_filter = [item for item in (metric_types or []) if item]
+
+            sample_query = select(WearableSampleDB).where(
+                WearableSampleDB.user_id == user_id,
+                WearableSampleDB.deleted_at.is_(None),
+                WearableSampleDB.attributed_date.is_not(None),
+                WearableSampleDB.attributed_date >= start_date,
+                WearableSampleDB.attributed_date <= end_date,
+            )
+            if provider_filter:
+                sample_query = sample_query.where(WearableSampleDB.provider.in_(provider_filter))
+            if metric_filter:
+                sample_query = sample_query.where(WearableSampleDB.metric_type.in_(metric_filter))
+            samples = list((await session.execute(sample_query)).scalars().all())
+
+            event_query = select(WearableEventDB).where(
+                WearableEventDB.user_id == user_id,
+                WearableEventDB.deleted_at.is_(None),
+                WearableEventDB.attributed_date.is_not(None),
+                WearableEventDB.attributed_date >= start_date,
+                WearableEventDB.attributed_date <= end_date,
+            )
+            if provider_filter:
+                event_query = event_query.where(WearableEventDB.provider.in_(provider_filter))
+            if metric_filter:
+                event_query = event_query.where(WearableEventDB.event_type.in_(metric_filter))
+            events = list((await session.execute(event_query)).scalars().all())
+
+            grouped_samples: Dict[Tuple[str, str, str], List[WearableSampleDB]] = {}
+            for sample in samples:
+                key = (sample.attributed_date or "", sample.metric_type, sample.provider)
+                grouped_samples.setdefault(key, []).append(sample)
+
+            grouped_events: Dict[Tuple[str, str, str], List[WearableEventDB]] = {}
+            for event in events:
+                key = (event.attributed_date or "", event.event_type, event.provider)
+                grouped_events.setdefault(key, []).append(event)
+
+            metric_keys = set((date_value, metric_type) for date_value, metric_type, _provider in grouped_samples.keys())
+            metric_keys.update((date_value, metric_type) for date_value, metric_type, _provider in grouped_events.keys())
+
+            per_day: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+            for date_value, metric_type in sorted(metric_keys):
+                providers_for_samples: Dict[str, List[WearableSampleDB]] = {
+                    provider_name: rows
+                    for (sample_date, sample_metric, provider_name), rows in grouped_samples.items()
+                    if sample_date == date_value and sample_metric == metric_type
+                }
+                providers_for_events: Dict[str, List[WearableEventDB]] = {
+                    provider_name: rows
+                    for (event_date, event_metric, provider_name), rows in grouped_events.items()
+                    if event_date == date_value and event_metric == metric_type
+                }
+
+                preferred_provider = preferred_provider_by_metric.get(metric_type)
+                if provider_filter and len(provider_filter) == 1:
+                    preferred_provider = provider_filter[0]
+
+                selected_sample_rows, selected_sample_provider = self._select_provider_rows(
+                    providers_for_samples,
+                    preferred_provider,
+                )
+                selected_event_rows, selected_event_provider = self._select_provider_rows(
+                    providers_for_events,
+                    preferred_provider,
+                )
+
+                daily_rows = [row for row in selected_sample_rows if row.rollup_level == "daily" or row.aggregation_kind == "daily"]
+                non_daily_rows = [row for row in selected_sample_rows if row not in daily_rows]
+
+                chosen_values: List[float] = []
+                unit: Optional[str] = None
+                provider_name: Optional[str] = None
+
+                if daily_rows:
+                    chosen_values = [float(row.value) for row in daily_rows]
+                    unit = daily_rows[0].unit
+                    provider_name = selected_sample_provider
+                elif non_daily_rows:
+                    chosen_values = [float(row.value) for row in non_daily_rows]
+                    unit = non_daily_rows[0].unit
+                    provider_name = selected_sample_provider
+                elif selected_event_rows:
+                    chosen_values = [float(row.summary_value or 0.0) for row in selected_event_rows if row.summary_value is not None]
+                    unit = selected_event_rows[0].summary_unit
+                    provider_name = selected_event_provider
+
+                aggregated_value, aggregation_label = self._aggregate_metric_values(metric_type, chosen_values)
+                if aggregated_value is None:
+                    continue
+
+                per_day.setdefault(date_value, {})[metric_type] = {
+                    "value": aggregated_value,
+                    "unit": unit,
+                    "aggregation": aggregation_label,
+                    "provider": provider_name,
+                }
+
+            return [
+                {"date": date_value, "metrics": metrics}
+                for date_value, metrics in sorted(per_day.items(), key=lambda item: item[0])
+            ]
 
     async def get_sync_runs(self, *, user_id: str, provider: Optional[str] = None, limit: int = 50) -> List[WearableSyncRunDB]:
         async with get_db_session() as session:
@@ -1108,6 +1704,20 @@ class WearableSyncService:
             recorded_at = None
             if metric.recorded_at:
                 recorded_at = datetime.fromisoformat(metric.recorded_at.replace("Z", "+00:00"))
+            aggregation_kind = metric.aggregation_kind or (
+                "interval" if metric.start_time != metric.end_time else "point"
+            )
+            if aggregation_kind == "daily":
+                rollup_level = "daily"
+            elif aggregation_kind == "bucket_15m":
+                rollup_level = "bucket_15m"
+            elif aggregation_kind == "bucket_1h":
+                rollup_level = "bucket_1h"
+            else:
+                rollup_level = "raw"
+            should_project_to_habit_logs = (
+                True if metric.should_project_to_habit_logs is None else bool(metric.should_project_to_habit_logs)
+            )
 
             if metric.metric_type.value in {"sleep_session", "workout"}:
                 event_id, created = await self._upsert_event(
@@ -1153,7 +1763,11 @@ class WearableSyncService:
                 attributed_date=metric.attributed_date,
                 value=metric.value,
                 unit=metric.unit.value,
-                aggregation_kind="interval" if metric.start_time != metric.end_time else "point",
+                aggregation_kind=aggregation_kind,
+                rollup_level=rollup_level,
+                rollup_window_minutes=metric.rollup_window_minutes,
+                sample_count=metric.sample_count,
+                should_project_to_habit_logs=should_project_to_habit_logs,
                 confidence=metric.confidence,
                 timezone=metric.timezone,
                 attributes_json=self.normalization.sample_attributes(

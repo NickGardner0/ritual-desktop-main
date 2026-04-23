@@ -32,6 +32,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         static let lastErrorTime = "BackgroundSyncV2.lastErrorTime"
         static let syncCount = "BackgroundSyncV2.syncCount"
         static let trackedMetricTypes = "BackgroundSyncV2.trackedMetricTypes"
+        static let trackedMetricSyncModes = "BackgroundSyncV2.trackedMetricSyncModes"
         static let syncHistory = "BackgroundSyncV2.syncHistory"
     }
     
@@ -126,6 +127,20 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     var cachedMetricTypes: [String] {
         get { UserDefaults.standard.stringArray(forKey: StorageKeys.trackedMetricTypes) ?? [] }
         set { UserDefaults.standard.set(newValue, forKey: StorageKeys.trackedMetricTypes) }
+    }
+
+    var cachedMetricSyncModes: [String: String] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: StorageKeys.trackedMetricSyncModes) else {
+                return [:]
+            }
+            return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: StorageKeys.trackedMetricSyncModes)
+            }
+        }
     }
 
     var syncHistory: [SyncHistoryEntry] {
@@ -313,6 +328,34 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
     }
 
+    private func syncModesByMetricType(from response: TrackedMetricsResponse) -> [String: String] {
+        response.syncModesByMetricType.mapValues { $0.rawValue }
+    }
+
+    private struct MetricSyncPlan {
+        let metricType: String
+        let syncMode: MetricSyncMode
+    }
+
+    private func syncMode(for metricType: String, syncModes: [String: String]) -> MetricSyncMode {
+        guard let rawValue = syncModes[metricType], let mode = MetricSyncMode(rawValue: rawValue) else {
+            return .dailyOnly
+        }
+        return mode
+    }
+
+    private func syncPlans(metricTypes: [String], syncModes: [String: String]) -> [MetricSyncPlan] {
+        validateMetricTypes(metricTypes).compactMap { metricType in
+            let mode = syncMode(for: metricType, syncModes: syncModes)
+            guard mode != .off else { return nil }
+            return MetricSyncPlan(metricType: metricType, syncMode: mode)
+        }
+    }
+
+    private func syncPlans(from response: TrackedMetricsResponse) -> [MetricSyncPlan] {
+        syncPlans(metricTypes: response.metricTypes, syncModes: syncModesByMetricType(from: response))
+    }
+
     func disableAllObservers() {
         for query in observerQueries {
             healthStore.stop(query)
@@ -424,30 +467,40 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         // Determine which metrics to sync
-        let metricTypes: [String]
+        let metricPlans: [MetricSyncPlan]
         if let specific = specificMetricType {
-            metricTypes = [specific]
+            metricPlans = syncPlans(
+                metricTypes: [specific],
+                syncModes: cachedMetricSyncModes.merging([specific: MetricSyncMode.dailyOnly.rawValue]) { current, _ in current }
+            )
         } else {
             // Refresh tracked metrics from server
             do {
                 let response = try await apiClient.fetchTrackedMetrics()
-                metricTypes = validateMetricTypes(response.metricTypes)
-                
-                if cachedMetricTypes != metricTypes {
-                    cachedMetricTypes = metricTypes
-                    await enableBackgroundDelivery(forMetricTypes: metricTypes)
+                let syncModes = syncModesByMetricType(from: response)
+                if cachedMetricSyncModes != syncModes {
+                    cachedMetricSyncModes = syncModes
                 }
+
+                let plans = syncPlans(from: response)
+                let enabledMetricTypes = plans.map(\.metricType)
+
+                if cachedMetricTypes != enabledMetricTypes {
+                    cachedMetricTypes = enabledMetricTypes
+                    await enableBackgroundDelivery(forMetricTypes: enabledMetricTypes)
+                }
+                metricPlans = plans
             } catch {
                 #if DEBUG
                 print("⚠️ Failed to fetch tracked metrics, using cached: \(error)")
                 #endif
-                metricTypes = cachedMetricTypes
+                metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
             }
         }
 
-        historyMetricTypes = metricTypes
+        historyMetricTypes = metricPlans.map(\.metricType)
         
-        guard !metricTypes.isEmpty else {
+        guard !metricPlans.isEmpty else {
             #if DEBUG
             print("📊 No metrics to sync")
             #endif
@@ -457,7 +510,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         #if DEBUG
-        print("🔄 Starting DAILY AGGREGATED sync for \(metricTypes.count) metric types...")
+        print("🔄 Starting wearable sync for \(metricPlans.count) metric types...")
         #endif
         
         // First, flush any pending offline queue items
@@ -469,18 +522,19 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         let daysBack = resolvedIncrementalDaysBack()
         historyWindowDays = daysBack
         
-        for metricType in metricTypes {
+        for plan in metricPlans {
             do {
-                let metrics = try await healthKitManager.fetchDailyAggregatedMetrics(
-                    for: metricType,
+                let metrics = try await healthKitManager.fetchMetrics(
+                    for: plan.metricType,
+                    syncMode: plan.syncMode,
                     daysBack: daysBack
                 )
                 allMetrics.append(contentsOf: metrics)
             } catch {
                 #if DEBUG
-                print("⚠️ Failed to fetch daily aggregates for \(metricType): \(error.localizedDescription)")
+                print("⚠️ Failed to fetch \(plan.syncMode.rawValue) metrics for \(plan.metricType): \(error.localizedDescription)")
                 #endif
-                historyFailedMetricTypes.insert(metricType)
+                historyFailedMetricTypes.insert(plan.metricType)
             }
         }
         
@@ -502,7 +556,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         // Batch size limit (backend accepts max 500, use 400 for safety)
         let batchSize = 400
-        let pendingAnchors = await capturePendingAnchors(for: metricTypes)
+        let pendingAnchors = await capturePendingAnchors(for: metricPlans.map(\.metricType))
         let pendingAnchorTokens = healthKitManager.makeAnchorTokens(pendingAnchors)
         
         // Try to send to backend in batches
@@ -740,20 +794,24 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #endif
         }
 
-        let metricTypes: [String]
+        let metricPlans: [MetricSyncPlan]
         do {
             let response = try await apiClient.fetchTrackedMetrics()
-            metricTypes = validateMetricTypes(response.metricTypes)
+            let syncModes = syncModesByMetricType(from: response)
+            if cachedMetricSyncModes != syncModes {
+                cachedMetricSyncModes = syncModes
+            }
+            metricPlans = syncPlans(from: response)
         } catch {
             #if DEBUG
             print("⚠️ Failed to fetch tracked metrics for retry, using cached: \(error)")
             #endif
-            metricTypes = cachedMetricTypes
+            metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
         }
 
-        historyMetricTypes = metricTypes
+        historyMetricTypes = metricPlans.map(\.metricType)
 
-        guard !metricTypes.isEmpty else {
+        guard !metricPlans.isEmpty else {
             recordHistory(succeeded: false, errorMessage: "No metric types configured")
             postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
             return 0
@@ -761,10 +819,11 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
 
         var retryMetrics: [NormalizedMetric] = []
 
-        for metricType in metricTypes {
+        for plan in metricPlans {
             do {
-                let metrics = try await healthKitManager.fetchDailyAggregatedMetrics(
-                    for: metricType,
+                let metrics = try await healthKitManager.fetchMetrics(
+                    for: plan.metricType,
+                    syncMode: plan.syncMode,
                     daysBack: maxIncrementalDaysBack
                 )
 
@@ -775,9 +834,9 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
 
                 retryMetrics.append(contentsOf: filtered)
             } catch {
-                historyFailedMetricTypes.insert(metricType)
+                historyFailedMetricTypes.insert(plan.metricType)
                 #if DEBUG
-                print("⚠️ Failed to fetch retry metrics for \(metricType): \(error.localizedDescription)")
+                print("⚠️ Failed to fetch retry metrics for \(plan.metricType): \(error.localizedDescription)")
                 #endif
             }
         }
@@ -955,15 +1014,19 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #endif
         }
 
-        let metricTypes: [String]
+        let metricPlans: [MetricSyncPlan]
         do {
             let response = try await apiClient.fetchTrackedMetrics()
-            metricTypes = validateMetricTypes(response.metricTypes)
+            let syncModes = syncModesByMetricType(from: response)
+            if cachedMetricSyncModes != syncModes {
+                cachedMetricSyncModes = syncModes
+            }
+            metricPlans = syncPlans(from: response)
         } catch {
-            metricTypes = cachedMetricTypes
+            metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
         }
 
-        guard !metricTypes.isEmpty else {
+        guard !metricPlans.isEmpty else {
             postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
             return RetryDateRangeResult(
                 attemptedDays: attemptedDayKeys.count,
@@ -977,10 +1040,11 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         var retryMetrics: [NormalizedMetric] = []
         var dataLoadFailedDays = Set<String>()
 
-        for metricType in metricTypes {
+        for plan in metricPlans {
             do {
-                let metrics = try await healthKitManager.fetchDailyAggregatedMetrics(
-                    for: metricType,
+                let metrics = try await healthKitManager.fetchMetrics(
+                    for: plan.metricType,
+                    syncMode: plan.syncMode,
                     startDate: normalizedStart,
                     endDate: normalizedEnd
                 )
@@ -991,7 +1055,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 retryMetrics.append(contentsOf: filtered)
             } catch {
                 #if DEBUG
-                print("⚠️ Failed to load \(metricType) for date-range retry: \(error.localizedDescription)")
+                print("⚠️ Failed to load \(plan.metricType) for date-range retry: \(error.localizedDescription)")
                 #endif
                 dataLoadFailedDays.formUnion(attemptedDayKeys)
             }
@@ -1148,21 +1212,26 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
     }
     
-    /// Perform a full backfill using DAILY AGGREGATES (recommended for initial setup)
-    /// This sends daily totals instead of raw samples (e.g., 700 daily values vs 50,000 raw samples)
+    /// Perform a policy-aware backfill.
+    /// Daily-only metrics keep long-range daily totals, while granular metrics use
+    /// narrower high-resolution windows to avoid exploding payload size.
     func performFullBackfill(daysBack: Int = 730, progressHandler: ((Int, Int) -> Void)? = nil) async throws -> Int {
         guard await apiClient.hasStoredCredentials else {
             throw APIError.notRegistered
         }
+
+        let metricSyncModes = Dictionary(
+            uniqueKeysWithValues: cachedMetricTypes.map { metricType in
+                (metricType, syncMode(for: metricType, syncModes: cachedMetricSyncModes))
+            }
+        )
         
         #if DEBUG
-        print("📊 Starting DAILY AGGREGATED backfill for \(daysBack) days...")
-        print("   (This sends ~\(daysBack) daily values per metric instead of thousands of raw samples)")
+        print("📊 Starting policy-aware backfill for \(metricSyncModes.count) metrics...")
         #endif
         
-        // Use the new daily aggregated backfill method
-        let metrics = try await healthKitManager.performDailyAggregatedBackfill(
-            for: cachedMetricTypes,
+        let metrics = try await healthKitManager.performBackfill(
+            for: metricSyncModes,
             daysBack: daysBack,
             progressHandler: progressHandler
         )
@@ -1181,7 +1250,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         }
         
         #if DEBUG
-        print("📦 Backfill: \(metrics.count) DAILY metrics in \(batches.count) batch(es)")
+        print("📦 Backfill: \(metrics.count) metrics in \(batches.count) batch(es)")
         #endif
         
         var totalSuccess = 0
@@ -1189,7 +1258,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         for (index, batch) in batches.enumerated() {
             #if DEBUG
-            print("📤 Backfill batch \(index + 1)/\(batches.count): \(batch.count) daily metrics")
+            print("📤 Backfill batch \(index + 1)/\(batches.count): \(batch.count) metrics")
             #endif
             
             do {
@@ -1425,6 +1494,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         info += "- Total syncs: \(syncCount)\n"
         info += "- Active observers: \(observerQueries.count)\n"
         info += "- Cached metric types: \(cachedMetricTypes.joined(separator: ", "))\n"
+        info += "- Cached sync modes: \(cachedMetricSyncModes)\n"
         info += "- Offline queue: \(offlineQueue.pendingCount) pending\n"
         info += "\n\(anchorStorage.debugInfo)"
         info += "\n\(offlineQueue.debugInfo)"

@@ -214,17 +214,28 @@ const tableColumns: ColumnDef<HabitLog>[] = [
     cell: ({ row, table }) => {
       const meta = table.options.meta as HabitLogTableMeta;
       const log = row.original;
+      const isEditable = log.editable !== false && Boolean(log.habit_id);
       return (
-        <InlineDateEditor
-          date={log.date}
-          completedAt={log.completed_at}
-          integrationSource={log.integration_source}
-          metricType={log.metric_type}
-          timePrecision={log.time_precision}
-          density={meta.density}
-          isUpdating={Boolean(meta.updatingLogIds[log.id])}
-          onSave={(nextDate) => meta.onQuickEdit(log, { date: nextDate })}
-        />
+        isEditable ? (
+          <InlineDateEditor
+            date={log.date}
+            completedAt={log.completed_at}
+            integrationSource={log.integration_source}
+            metricType={log.metric_type}
+            timePrecision={log.time_precision}
+            density={meta.density}
+            isUpdating={Boolean(meta.updatingLogIds[log.id])}
+            onSave={(nextDate) => meta.onQuickEdit(log, { date: nextDate })}
+          />
+        ) : (
+          <DateCell
+            date={log.date}
+            completed_at={log.completed_at}
+            integration_source={log.integration_source}
+            metric_type={log.metric_type}
+            time_precision={log.time_precision}
+          />
+        )
       );
     },
   },
@@ -343,15 +354,20 @@ const tableColumns: ColumnDef<HabitLog>[] = [
     cell: ({ row, table }) => {
       const meta = table.options.meta as HabitLogTableMeta;
       const log = row.original;
+      const isEditable = log.editable !== false && Boolean(log.habit_id);
       return (
-        <InlineSourceEditor
-          source={log.integration_source}
-          habitName={log.habit_name}
-          sourceOptions={meta.sourceOptions}
-          density={meta.density}
-          isUpdating={Boolean(meta.updatingLogIds[log.id])}
-          onSelect={(nextSource) => meta.onQuickEdit(log, { integration_source: nextSource })}
-        />
+        isEditable ? (
+          <InlineSourceEditor
+            source={log.integration_source}
+            habitName={log.habit_name}
+            sourceOptions={meta.sourceOptions}
+            density={meta.density}
+            isUpdating={Boolean(meta.updatingLogIds[log.id])}
+            onSelect={(nextSource) => meta.onQuickEdit(log, { integration_source: nextSource })}
+          />
+        ) : (
+          <SourceCell source={log.integration_source} habitName={log.habit_name} />
+        )
       );
     },
   },

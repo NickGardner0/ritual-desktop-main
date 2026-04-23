@@ -22,6 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  getWearableMetricType,
+  humanizeWearableMetric,
+  type WearableMetricPreferences,
+  type WearableMetricSyncMode,
+} from '@/lib/wearables-dashboard';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
@@ -50,11 +56,153 @@ function formatRelativeTime(dateValue: string | null | undefined): string {
   return date.toLocaleString();
 }
 
+function normalizeProjectionSource(value: string | null | undefined): string | null {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized || null;
+}
+
+function formatProjectionSource(source: string | null | undefined): string {
+  const normalized = normalizeProjectionSource(source);
+  return (normalized && SOURCE_LABELS[normalized]) || 'Source';
+}
+
+function isAppleProjectionMetric(metricType: string | null | undefined): boolean {
+  const normalized = String(metricType || '').trim().toLowerCase();
+  return APPLE_SOURCE_PRIORITY_METRIC_TYPES.has(normalized);
+}
+
+function orderProjectionSources(sources: Iterable<string>, preferredOrder: string[] = []): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
+
+  const pushSource = (source: string | null | undefined) => {
+    const normalized = normalizeProjectionSource(source);
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    ordered.push(normalized);
+  };
+
+  preferredOrder.forEach(pushSource);
+  SOURCE_ORDER.forEach(pushSource);
+  Array.from(sources).sort().forEach(pushSource);
+
+  return ordered;
+}
+
+function getProjectionCandidateSources(
+  habit: HabitSummary,
+  policy?: HabitProjectionPolicy | null,
+): string[] {
+  const metricType = getWearableMetricType(habit);
+  const policyPriority = policy?.projection_source_priority || [];
+  const candidateSources = new Set<string>(
+    policyPriority
+      .map((source) => normalizeProjectionSource(source))
+      .filter((source): source is string => Boolean(source)),
+  );
+
+  const habitSource = normalizeProjectionSource(habit.integration_source);
+  if (habitSource) candidateSources.add(habitSource);
+
+  if (metricType) {
+    if (metricType.startsWith('sleep')) {
+      candidateSources.add('whoop');
+      candidateSources.add('apple_health');
+    } else if (metricType === 'workout' || metricType === 'mindful_minutes') {
+      candidateSources.add('manual');
+      candidateSources.add('apple_health');
+    } else if (isAppleProjectionMetric(metricType)) {
+      candidateSources.add('apple_health');
+    }
+  }
+
+  if (candidateSources.size === 0) {
+    candidateSources.add('apple_health');
+  }
+
+  return orderProjectionSources(candidateSources, policyPriority);
+}
+
+function buildProjectionPriorityOptions(
+  habit: HabitSummary,
+  policy?: HabitProjectionPolicy | null,
+): ProjectionPriorityOption[] {
+  const sources = getProjectionCandidateSources(habit, policy);
+  const options = new Map<string, ProjectionPriorityOption>();
+
+  const addOption = (priority: string[], label: string) => {
+    const normalizedPriority = priority
+      .map((source) => normalizeProjectionSource(source))
+      .filter((source): source is string => Boolean(source));
+    if (normalizedPriority.length === 0) return;
+    const value = normalizedPriority.join('|');
+    if (!options.has(value)) {
+      options.set(value, {
+        value,
+        label,
+        priority: normalizedPriority,
+      });
+    }
+  };
+
+  for (const source of sources) {
+    addOption([source], `${formatProjectionSource(source)} only`);
+  }
+
+  if (sources.length > 1) {
+    for (const primarySource of sources) {
+      addOption(
+        [primarySource, ...sources.filter((source) => source !== primarySource)],
+        `${formatProjectionSource(primarySource)} first`,
+      );
+    }
+  }
+
+  const currentPriority = (policy?.projection_source_priority || [])
+    .map((source) => normalizeProjectionSource(source))
+    .filter((source): source is string => Boolean(source));
+  if (currentPriority.length > 0) {
+    addOption(
+      currentPriority,
+      currentPriority.length === 1
+        ? `${formatProjectionSource(currentPriority[0])} only`
+        : `${formatProjectionSource(currentPriority[0])} first`,
+    );
+  }
+
+  return Array.from(options.values());
+}
+
+function formatProjectionPrioritySummary(priority: string[] | null | undefined): string {
+  const normalizedPriority = (priority || [])
+    .map((source) => normalizeProjectionSource(source))
+    .filter((source): source is string => Boolean(source));
+  if (normalizedPriority.length === 0) return 'No priority set';
+  return normalizedPriority.map((source) => formatProjectionSource(source)).join(' → ');
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 type AppleWatchTab = 'overview' | 'metrics' | 'export' | 'settings';
+
+type HabitProjectionSource = 'apple_health' | 'manual' | 'whoop' | 'oura' | 'garmin' | 'fitbit';
+
+interface HabitSummary {
+  id: string;
+  name: string;
+  integration_source?: string | null;
+  metric_type?: string | null;
+  unit_type?: string | null;
+  category?: string | null;
+}
+
+interface HabitProjectionPolicy {
+  habit_id: string;
+  canonical_metric_type?: string | null;
+  projection_source_priority: string[];
+}
 
 interface ExportSchedule {
   enabled: boolean;
@@ -91,6 +239,58 @@ interface MetricCategory {
   category: string;
   metrics: MetricEntry[];
 }
+
+interface ProjectionPriorityOption {
+  value: string;
+  label: string;
+  priority: string[];
+}
+
+const APPLE_SOURCE_PRIORITY_METRIC_TYPES = new Set([
+  'steps',
+  'active_energy',
+  'basal_energy',
+  'distance',
+  'flights_climbed',
+  'exercise_time',
+  'stand_time',
+  'hr',
+  'heart_rate',
+  'hrv',
+  'resting_hr',
+  'resting_heart_rate',
+  'walking_hr',
+  'respiratory_rate',
+  'oxygen_saturation',
+  'sleep_total',
+  'sleep_duration',
+  'sleep_session',
+  'sleep_asleep',
+  'sleep_awake',
+  'sleep_rem',
+  'sleep_deep',
+  'sleep_core',
+  'workout',
+  'mindful_minutes',
+]);
+
+const SOURCE_LABELS: Record<string, string> = {
+  apple_health: 'Apple Health',
+  manual: 'Manual',
+  whoop: 'Whoop',
+  oura: 'Oura',
+  garmin: 'Garmin',
+  fitbit: 'Fitbit',
+};
+
+const SOURCE_ORDER: HabitProjectionSource[] = [
+  'manual',
+  'whoop',
+  'oura',
+  'garmin',
+  'fitbit',
+  'apple_health',
+];
 
 // ---------------------------------------------------------------------------
 // Hooks
@@ -162,11 +362,19 @@ export function AppleWatchSettings() {
   const [tab, setTab] = useState<AppleWatchTab>('overview');
 
   const [metricCatalog, setMetricCatalog] = useState<MetricCategory[]>([]);
-  const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(new Set());
+  const [metricPreferences, setMetricPreferences] = useState<WearableMetricPreferences>({});
   const [metricsLoaded, setMetricsLoaded] = useState(false);
+  const [projectionHabits, setProjectionHabits] = useState<HabitSummary[]>([]);
+  const [projectionPolicies, setProjectionPolicies] = useState<Record<string, HabitProjectionPolicy>>({});
+  const [projectionLoaded, setProjectionLoaded] = useState(false);
+  const [projectionLoading, setProjectionLoading] = useState(false);
 
   const [metricSaveStatus, setMetricSaveStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const metricSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const projectionSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const [projectionSaveStatus, setProjectionSaveStatus] = useState<
+    Record<string, { type: 'success' | 'error'; message: string }>
+  >({});
 
   const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'csv'>('markdown');
   const [exportWriteMode, setExportWriteMode] = useState<'overwrite' | 'append' | 'skip'>('overwrite');
@@ -205,13 +413,58 @@ export function AppleWatchSettings() {
       }
       if (prefsRes.ok) {
         const data = await prefsRes.json();
-        setSelectedMetrics(new Set(data.selected_metrics || []));
+        setMetricPreferences(data.preferences || {});
       }
       setMetricsLoaded(true);
     } catch (err) {
       console.error('Failed to load metric catalog:', err);
     }
   }, [metricsLoaded, getToken]);
+
+  const loadProjectionPolicies = useCallback(async () => {
+    if (projectionLoaded || projectionLoading) return;
+    try {
+      setProjectionLoading(true);
+      const token = await getToken();
+      if (!token) return;
+      const headers = { Authorization: `Bearer ${token}` };
+      const habitsRes = await fetch('/api/habits', { headers });
+      if (!habitsRes.ok) {
+        throw new Error('Failed to fetch habits');
+      }
+
+      const habits = ((await habitsRes.json()) as HabitSummary[])
+        .filter((habit) => isAppleProjectionMetric(getWearableMetricType(habit)))
+        .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
+
+      setProjectionHabits(habits);
+
+      if (habits.length === 0) {
+        setProjectionPolicies({});
+        setProjectionLoaded(true);
+        return;
+      }
+
+      const policyEntries = await Promise.all(
+        habits.map(async (habit) => {
+          const res = await fetch(`/api/habits/${habit.id}/projection-policy`, { headers });
+          if (!res.ok) {
+            throw new Error(`Failed to fetch projection policy for ${habit.name}`);
+          }
+          const data = (await res.json()) as HabitProjectionPolicy;
+          return [habit.id, data] as const;
+        }),
+      );
+
+      setProjectionPolicies(Object.fromEntries(policyEntries));
+      setProjectionLoaded(true);
+    } catch (err) {
+      console.error('Failed to load habit projection policies:', err);
+      setProjectionLoaded(true);
+    } finally {
+      setProjectionLoading(false);
+    }
+  }, [getToken, projectionLoaded, projectionLoading]);
 
   const loadExportSchedule = useCallback(async () => {
     if (scheduleLoaded) return;
@@ -256,41 +509,161 @@ export function AppleWatchSettings() {
     if (!metricsLoaded) loadMetricCatalogAndPreferences();
     if (!scheduleLoaded) loadExportSchedule();
     if (!historyLoaded) loadExportHistory();
-  }, [connected, metricsLoaded, scheduleLoaded, historyLoaded, loadMetricCatalogAndPreferences, loadExportSchedule, loadExportHistory]);
+    if (!projectionLoaded && !projectionLoading) loadProjectionPolicies();
+  }, [
+    connected,
+    metricsLoaded,
+    scheduleLoaded,
+    historyLoaded,
+    projectionLoaded,
+    projectionLoading,
+    loadMetricCatalogAndPreferences,
+    loadExportSchedule,
+    loadExportHistory,
+    loadProjectionPolicies,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (metricSaveTimerRef.current) {
+        clearTimeout(metricSaveTimerRef.current);
+      }
+      for (const timer of Object.values(projectionSaveTimersRef.current)) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
 
   // ------ actions ------
 
-  async function saveMetricPreferences(selected: string[]) {
+  const enabledMetricCount = Object.values(metricPreferences).filter(
+    (preference) => preference?.sync_mode === 'daily_only' || preference?.sync_mode === 'granular',
+  ).length;
+
+  const getMetricSyncMode = useCallback(
+    (metricType: string): WearableMetricSyncMode => {
+      const syncMode = metricPreferences[metricType]?.sync_mode;
+      if (syncMode === 'daily_only' || syncMode === 'granular' || syncMode === 'off') {
+        return syncMode;
+      }
+      return 'off';
+    },
+    [metricPreferences],
+  );
+
+  async function saveMetricPreferences(preferences: WearableMetricPreferences) {
     const token = await getToken();
     if (!token) throw new Error('Not authenticated');
     const res = await fetch('/api/wearables/apple/metric-preferences', {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ selected_metrics: selected }),
+      body: JSON.stringify({ preferences }),
     });
     if (!res.ok) throw new Error('Failed to save');
-    setSelectedMetrics(new Set(selected));
+    const data = await res.json();
+    setMetricPreferences(data.preferences || preferences);
   }
 
-  async function handleMetricToggle(metricType: string, enabled: boolean) {
-    const next = new Set(selectedMetrics);
-    if (enabled) {
-      next.add(metricType);
-    } else {
-      next.delete(metricType);
-    }
-    setSelectedMetrics(next);
+  async function saveProjectionPolicy(
+    habitId: string,
+    projectionSourcePriority: string[],
+    canonicalMetricType?: string | null,
+  ) {
+    const token = await getToken();
+    if (!token) throw new Error('Not authenticated');
+    const res = await fetch(`/api/habits/${habitId}/projection-policy`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        canonical_metric_type: canonicalMetricType || null,
+        projection_source_priority: projectionSourcePriority,
+      }),
+    });
+    if (!res.ok) throw new Error('Failed to save source priority');
+    return (await res.json()) as HabitProjectionPolicy;
+  }
+
+  async function handleMetricModeChange(metricType: string, syncMode: WearableMetricSyncMode) {
+    const nextPreferences: WearableMetricPreferences = {
+      ...metricPreferences,
+      [metricType]: { sync_mode: syncMode },
+    };
+    setMetricPreferences(nextPreferences);
 
     try {
-      await saveMetricPreferences(Array.from(next));
-      setMetricSaveStatus({ type: 'success', message: `${next.size} selected` });
+      await saveMetricPreferences(nextPreferences);
+      const nextEnabledCount = Object.values(nextPreferences).filter(
+        (preference) => preference?.sync_mode === 'daily_only' || preference?.sync_mode === 'granular',
+      ).length;
+      setMetricSaveStatus({ type: 'success', message: `${nextEnabledCount} enabled` });
     } catch {
-      setSelectedMetrics(selectedMetrics);
+      setMetricPreferences(metricPreferences);
       setMetricSaveStatus({ type: 'error', message: 'Failed to save' });
     }
 
     if (metricSaveTimerRef.current) clearTimeout(metricSaveTimerRef.current);
     metricSaveTimerRef.current = setTimeout(() => setMetricSaveStatus(null), 2000);
+  }
+
+  async function handleProjectionPriorityChange(habit: HabitSummary, nextValue: string) {
+    const options = buildProjectionPriorityOptions(habit, projectionPolicies[habit.id]);
+    const selectedOption = options.find((option) => option.value === nextValue);
+    if (!selectedOption) return;
+
+    const previousPolicy = projectionPolicies[habit.id];
+    const optimisticPolicy: HabitProjectionPolicy = {
+      habit_id: habit.id,
+      canonical_metric_type:
+        previousPolicy?.canonical_metric_type || getWearableMetricType(habit),
+      projection_source_priority: selectedOption.priority,
+    };
+
+    setProjectionPolicies((prev) => ({
+      ...prev,
+      [habit.id]: optimisticPolicy,
+    }));
+
+    try {
+      const savedPolicy = await saveProjectionPolicy(
+        habit.id,
+        selectedOption.priority,
+        optimisticPolicy.canonical_metric_type,
+      );
+      setProjectionPolicies((prev) => ({
+        ...prev,
+        [habit.id]: savedPolicy,
+      }));
+      setProjectionSaveStatus((prev) => ({
+        ...prev,
+        [habit.id]: { type: 'success', message: formatProjectionPrioritySummary(savedPolicy.projection_source_priority) },
+      }));
+    } catch (error) {
+      console.error('Failed to save habit projection policy:', error);
+      setProjectionPolicies((prev) => {
+        const next = { ...prev };
+        if (previousPolicy) {
+          next[habit.id] = previousPolicy;
+        } else {
+          delete next[habit.id];
+        }
+        return next;
+      });
+      setProjectionSaveStatus((prev) => ({
+        ...prev,
+        [habit.id]: { type: 'error', message: 'Failed to save' },
+      }));
+    }
+
+    if (projectionSaveTimersRef.current[habit.id]) {
+      clearTimeout(projectionSaveTimersRef.current[habit.id]);
+    }
+    projectionSaveTimersRef.current[habit.id] = setTimeout(() => {
+      setProjectionSaveStatus((prev) => {
+        const next = { ...prev };
+        delete next[habit.id];
+        return next;
+      });
+    }, 2500);
   }
 
   function applyExportDatePreset(preset: 'yesterday' | '7d' | '30d' | 'custom') {
@@ -606,7 +979,7 @@ export function AppleWatchSettings() {
           {connected ? (
             <div className="divide-y divide-gray-100">
               <InfoRow label="Last sync" value={formatRelativeTime(lastSync)} />
-              <InfoRow label="Tracked metrics" value={`${selectedMetrics.size} selected`} />
+              <InfoRow label="Tracked metrics" value={`${enabledMetricCount} enabled`} />
               <InfoRow label="Device" value={statusData?.deviceName || 'iPhone'} />
             </div>
           ) : (
@@ -625,21 +998,35 @@ export function AppleWatchSettings() {
       {/* ================================================================ */}
       {tab === 'metrics' && connected && (
         <div className="space-y-3">
+          <p className="text-[12px] text-gray-500">
+            Overview always stays daily. Granular metrics also show richer detail in Logs and Metrics.
+          </p>
           {flatMetrics.length > 0 ? (
             <div className="divide-y divide-gray-100">
               {flatMetrics.map((metric) => {
-                const isEnabled = selectedMetrics.has(metric.type);
+                const syncMode = getMetricSyncMode(metric.type);
                 return (
                   <div key={metric.type} className="flex items-center justify-between py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] text-gray-900 leading-tight">{metric.name}</p>
                       <p className="mt-0.5 text-[11px] text-gray-400">{metric.unit}</p>
                     </div>
-                    <GreenToggle
-                      checked={isEnabled}
-                      onChange={(next) => handleMetricToggle(metric.type, next)}
-                      ariaLabel={metric.name}
-                    />
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        ['off', 'Off'],
+                        ['daily_only', 'Daily'],
+                        ['granular', 'Granular'],
+                      ] as const).map(([mode, label]) => (
+                        <SegmentButton
+                          key={mode}
+                          active={syncMode === mode}
+                          onClick={() => handleMetricModeChange(metric.type, mode)}
+                          small
+                        >
+                          {label}
+                        </SegmentButton>
+                      ))}
+                    </div>
                   </div>
                 );
               })}
@@ -890,6 +1277,82 @@ export function AppleWatchSettings() {
               <span className="text-[13px] text-gray-500">Last sync</span>
               <span className="text-[13px] text-gray-900">{formatRelativeTime(lastSync)}</span>
             </div>
+          </div>
+
+          <div className="border-t border-gray-100" />
+
+          <div className="space-y-3">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Habit source priority</p>
+              <p className="mt-1 text-[12px] text-gray-500">
+                Choose which source is allowed to feed each Apple Health-related habit. Overview stays daily; this only changes
+                which source projects into the habit totals.
+              </p>
+            </div>
+
+            {projectionLoading ? (
+              <div className="flex items-center gap-2 py-6 text-[13px] text-gray-400">
+                <BrailleSpinner /> Loading habits...
+              </div>
+            ) : projectionHabits.length > 0 ? (
+              <div className="divide-y divide-gray-100 rounded-sm border border-gray-100 bg-white">
+                {projectionHabits.map((habit) => {
+                  const policy = projectionPolicies[habit.id];
+                  const options = buildProjectionPriorityOptions(habit, policy);
+                  const currentPriority = policy?.projection_source_priority || [];
+                  const currentValue =
+                    options.find((option) => option.value === currentPriority.join('|'))?.value
+                    || options[0]?.value
+                    || '';
+                  const metricType = getWearableMetricType(habit);
+                  const saveStatus = projectionSaveStatus[habit.id];
+
+                  return (
+                    <div key={habit.id} className="flex items-start justify-between gap-4 px-4 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13px] font-medium text-gray-900">{habit.name}</p>
+                        <p className="mt-0.5 text-[11px] text-gray-400">
+                          {humanizeWearableMetric(metricType)} · Default source {formatProjectionSource(habit.integration_source || 'manual')}
+                        </p>
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          Current priority: {formatProjectionPrioritySummary(currentPriority)}
+                        </p>
+                        {saveStatus && (
+                          <p className={cn('mt-1 text-[11px]', saveStatus.type === 'success' ? 'text-green-600' : 'text-red-500')}>
+                            {saveStatus.message}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="w-[170px] shrink-0">
+                        {options.length > 1 ? (
+                          <Select value={currentValue} onValueChange={(value) => handleProjectionPriorityChange(habit, value)}>
+                            <SelectTrigger className="h-8 text-[13px] rounded-sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {options.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-500">
+                            {options[0]?.label || 'Apple Health only'}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-sm border border-dashed border-gray-200 px-4 py-4 text-[13px] text-gray-500">
+                No Apple Health-related habits to configure yet.
+              </div>
+            )}
           </div>
 
           <div className="border-t border-gray-100" />

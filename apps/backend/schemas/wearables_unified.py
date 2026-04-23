@@ -92,6 +92,10 @@ class WearableSampleRead(BaseModel):
     value: float
     unit: str
     aggregation_kind: str
+    rollup_level: Optional[str] = None
+    rollup_window_minutes: Optional[int] = None
+    sample_count: Optional[int] = None
+    should_project_to_habit_logs: Optional[bool] = None
     confidence: Optional[float] = None
     timezone: Optional[str] = None
     source_id: Optional[str] = None
@@ -160,3 +164,68 @@ class WearableQueryParams(BaseModel):
     end_time: Optional[datetime] = None
     include_deleted: bool = False
     limit: int = Field(100, ge=1, le=500)
+
+
+class WearableTimelineItemRead(BaseModel):
+    id: str
+    kind: str
+    provider: Optional[str] = None
+    metric_type: Optional[str] = None
+    event_type: Optional[str] = None
+    habit_id: Optional[str] = None
+    habit_name: Optional[str] = None
+    title: Optional[str] = None
+    timestamp: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    attributed_date: Optional[str] = None
+    value: Optional[float] = None
+    unit: Optional[str] = None
+    aggregation_kind: Optional[str] = None
+    rollup_level: Optional[str] = None
+    rollup_window_minutes: Optional[int] = None
+    status: Optional[str] = None
+    notes: Optional[str] = None
+    source_device_name: Optional[str] = None
+
+
+class WearableTimelineResponse(BaseModel):
+    items: List[WearableTimelineItemRead]
+    next_cursor: Optional[str] = None
+
+
+class WearableSeriesPointRead(BaseModel):
+    timestamp: str
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    value: float
+    unit: Optional[str] = None
+    provider: Optional[str] = None
+    metric_type: str
+    aggregation_kind: Optional[str] = None
+    rollup_level: Optional[str] = None
+    rollup_window_minutes: Optional[int] = None
+    attributed_date: Optional[str] = None
+    source_device_name: Optional[str] = None
+
+
+class WearableSeriesResponse(BaseModel):
+    metric_type: str
+    resolution: str
+    points: List[WearableSeriesPointRead]
+
+
+class WearableDailyMetricValueRead(BaseModel):
+    value: float
+    unit: Optional[str] = None
+    aggregation: Optional[str] = None
+    provider: Optional[str] = None
+
+
+class WearableDailyTotalRead(BaseModel):
+    date: str
+    metrics: Dict[str, WearableDailyMetricValueRead]
+
+
+class WearableDailyTotalsResponse(BaseModel):
+    days: List[WearableDailyTotalRead]

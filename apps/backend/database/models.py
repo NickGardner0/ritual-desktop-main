@@ -353,6 +353,10 @@ class WearableSampleDB(Base):
     value = Column(Float, nullable=False)
     unit = Column(String, nullable=False)
     aggregation_kind = Column(String, nullable=False, default="point")
+    rollup_level = Column(String, nullable=False, default="raw")
+    rollup_window_minutes = Column(Integer, nullable=True)
+    sample_count = Column(Integer, nullable=True)
+    should_project_to_habit_logs = Column(Boolean, nullable=False, default=True)
     confidence = Column(Float, nullable=True)
     timezone = Column(String, nullable=True)
     attributes_json = Column(Text, nullable=True)
@@ -370,6 +374,8 @@ class WearableSampleDB(Base):
         Index("idx_wearable_samples_user_metric_recorded", "user_id", "metric_type", "recorded_at"),
         Index("idx_wearable_samples_user_provider_date", "user_id", "provider", "attributed_date"),
         Index("idx_wearable_samples_user_provider_external", "user_id", "provider", "external_id"),
+        Index("idx_wearable_samples_user_metric_start", "user_id", "metric_type", "start_time"),
+        Index("idx_wearable_samples_user_metric_date_rollup", "user_id", "metric_type", "attributed_date", "rollup_level"),
     )
 
 
@@ -406,6 +412,27 @@ class WearableEventDB(Base):
     __table_args__ = (
         Index("idx_wearable_events_user_type_start", "user_id", "event_type", "start_time"),
         Index("idx_wearable_events_user_provider_external", "user_id", "provider", "external_id"),
+        Index("idx_wearable_events_user_type_date_start", "user_id", "event_type", "attributed_date", "start_time"),
+    )
+
+
+class HabitProjectionPolicyDB(Base):
+    """Per-habit projection priority for canonical wearable records."""
+    __tablename__ = "habit_projection_policies"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    habit_id = Column(String, ForeignKey("habits.id"), nullable=False)
+    canonical_metric_type = Column(String, nullable=True)
+    projection_source_priority_json = Column(Text, nullable=False, default="[]")
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("UserDB")
+    habit = relationship("HabitDB")
+
+    __table_args__ = (
+        Index("idx_habit_projection_policies_habit", "habit_id", unique=True),
     )
 
 
@@ -662,6 +689,7 @@ class UserUIPreferencesDB(Base):
 
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
     habit_text_color = Column(String, nullable=True)
+    overview_view_mode = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

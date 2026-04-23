@@ -111,6 +111,15 @@ enum MetricUnit: String, Codable {
     case metersPerSecond = "m_per_s"
 }
 
+/// Aggregation/resolution of the recorded metric.
+enum MetricAggregationKind: String, Codable {
+    case point
+    case interval
+    case bucket15m = "bucket_15m"
+    case bucket1h = "bucket_1h"
+    case daily
+}
+
 /// Canonical normalized metric format for all wearable data sources
 struct NormalizedMetric: Codable {
     // Identity
@@ -140,6 +149,10 @@ struct NormalizedMetric: Codable {
     
     // Metadata
     let recordedAt: String?  // ISO8601
+    let aggregationKind: MetricAggregationKind
+    let rollupWindowMinutes: Int?
+    let sampleCount: Int?
+    let shouldProjectToHabitLogs: Bool
     let rawPayload: [String: AnyCodable]?
     
     enum CodingKeys: String, CodingKey {
@@ -157,6 +170,10 @@ struct NormalizedMetric: Codable {
         case sourceDeviceName = "source_device_name"
         case attributedDate = "attributed_date"
         case recordedAt = "recorded_at"
+        case aggregationKind = "aggregation_kind"
+        case rollupWindowMinutes = "rollup_window_minutes"
+        case sampleCount = "sample_count"
+        case shouldProjectToHabitLogs = "should_project_to_habit_logs"
         case rawPayload = "raw_payload"
     }
     
@@ -175,6 +192,10 @@ struct NormalizedMetric: Codable {
         sourceDeviceName: String? = nil,
         attributedDate: Date? = nil,
         recordedAt: Date? = nil,
+        aggregationKind: MetricAggregationKind = .point,
+        rollupWindowMinutes: Int? = nil,
+        sampleCount: Int? = nil,
+        shouldProjectToHabitLogs: Bool = true,
         rawPayload: [String: AnyCodable]? = nil
     ) {
         self.source = source
@@ -201,6 +222,10 @@ struct NormalizedMetric: Codable {
         }
         
         self.recordedAt = recordedAt.map { ISO8601DateFormatter().string(from: $0) }
+        self.aggregationKind = aggregationKind
+        self.rollupWindowMinutes = rollupWindowMinutes
+        self.sampleCount = sampleCount
+        self.shouldProjectToHabitLogs = shouldProjectToHabitLogs
         self.rawPayload = rawPayload
     }
 }

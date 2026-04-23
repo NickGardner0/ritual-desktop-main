@@ -147,6 +147,24 @@ class NormalizedMetricSchema(BaseModel):
     
     # Metadata
     recorded_at: Optional[str] = Field(None, description="ISO8601 timestamp when captured on device")
+    aggregation_kind: Optional[Literal["point", "interval", "bucket_15m", "bucket_1h", "daily"]] = Field(
+        None,
+        description="Resolution of the metric payload",
+    )
+    rollup_window_minutes: Optional[int] = Field(
+        None,
+        ge=1,
+        description="Bucket size in minutes for rolled-up metrics",
+    )
+    sample_count: Optional[int] = Field(
+        None,
+        ge=0,
+        description="Number of source samples contributing to a rollup",
+    )
+    should_project_to_habit_logs: Optional[bool] = Field(
+        True,
+        description="Whether this record should be flattened into habit_logs",
+    )
     raw_payload: Optional[Any] = Field(None, description="Original payload for debugging")
     
     @field_validator('start_time', 'end_time', 'recorded_at')

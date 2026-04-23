@@ -101,6 +101,7 @@ export function LogDetailPanel({
   const displayTime = formatHabitLogDisplayTime(log);
   const displayValue = formatLogValue(log);
   const normalizedCategory = normalizeCategoryLabel(log.category);
+  const isEditable = log.editable !== false && Boolean(log.habit_id);
 
   return (
     <Sheet open={open} onOpenChange={(nextOpen) => !nextOpen && onClose()}>
@@ -164,7 +165,7 @@ export function LogDetailPanel({
           </DetailRow>
 
           <DetailRow label="Status">
-            {onQuickEdit ? (
+            {onQuickEdit && isEditable ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -220,7 +221,7 @@ export function LogDetailPanel({
           </DetailRow>
 
           <DetailRow label="Source">
-            {onQuickEdit && availableSources.length > 0 ? (
+            {onQuickEdit && isEditable && availableSources.length > 0 ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button

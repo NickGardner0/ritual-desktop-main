@@ -52,6 +52,39 @@ class WearableProjectionTests(unittest.TestCase):
 
         self.assertTrue(projection._habit_matches_metric_type(habit, "sleep_total"))
 
+    def test_manual_workout_name_matches_workout_metric(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Workout", metric_type=None)
+
+        self.assertTrue(projection._habit_matches_metric_type(habit, "workout"))
+
+    def test_default_projection_policy_prefers_whoop_for_sleep(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Sleep Duration", metric_type="sleep_session", integration_source="whoop")
+
+        self.assertEqual(
+            projection._default_projection_source_priority_for_habit(habit),
+            ["whoop", "apple_health"],
+        )
+
+    def test_default_projection_policy_keeps_manual_workout_manual(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Workout", metric_type=None, integration_source=None)
+
+        self.assertEqual(
+            projection._default_projection_source_priority_for_habit(habit),
+            ["manual"],
+        )
+
+    def test_default_projection_policy_prefers_apple_for_existing_apple_habit(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Daily Steps", metric_type="steps", integration_source="apple_health")
+
+        self.assertEqual(
+            projection._default_projection_source_priority_for_habit(habit),
+            ["apple_health"],
+        )
+
 
 class WearableProviderAdapterTests(unittest.TestCase):
     def test_whoop_adapter_builds_auth_url(self):

@@ -32,6 +32,10 @@ class AppleIngestContractTests(unittest.TestCase):
                     "attributed_date": "2026-02-26",
                     "source_bundle_id": "com.apple.health.aggregated",
                     "source_device_name": "Apple Health (Daily)",
+                    "aggregation_kind": "daily",
+                    "rollup_window_minutes": 1440,
+                    "sample_count": 96,
+                    "should_project_to_habit_logs": True,
                 }
             ],
             "deleted": [],
@@ -47,6 +51,10 @@ class AppleIngestContractTests(unittest.TestCase):
         self.assertEqual(request.schema_version, 2)
         self.assertEqual(len(request.added), 1)
         self.assertEqual(request.anchors["steps"], "anchor-token-base64")
+        self.assertEqual(request.added[0].aggregation_kind, "daily")
+        self.assertEqual(request.added[0].rollup_window_minutes, 1440)
+        self.assertEqual(request.added[0].sample_count, 96)
+        self.assertTrue(request.added[0].should_project_to_habit_logs)
 
     def test_signature_canonical_contract_matches_ios(self):
         canonical = self.service.build_canonical_string(

@@ -798,13 +798,70 @@ struct EmptyResponse: Decodable {
 
 // MARK: - Tracked Metrics Response
 
+enum MetricSyncMode: String, Codable {
+    case off
+    case dailyOnly = "daily_only"
+    case granular
+}
+
+struct TrackedMetricSyncPreference: Codable {
+    let syncMode: MetricSyncMode
+
+    enum CodingKeys: String, CodingKey {
+        case syncMode = "sync_mode"
+    }
+
+    init(syncMode: MetricSyncMode) {
+        self.syncMode = syncMode
+    }
+}
+
 struct TrackedMetricsResponse: Decodable {
     let metricTypes: [String]
     let habits: [TrackedHabit]
-    
+    let metrics: [String: TrackedMetricSyncPreference]
+
     enum CodingKeys: String, CodingKey {
         case metricTypes = "metric_types"
+        case metrics
+        case preferences
         case habits
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        habits = try container.decodeIfPresent([TrackedHabit].self, forKey: .habits) ?? []
+
+        let decodedMetrics =
+            try container.decodeIfPresent([String: TrackedMetricSyncPreference].self, forKey: .metrics) ?? [:]
+        let decodedPreferences =
+            try container.decodeIfPresent([String: TrackedMetricSyncPreference].self, forKey: .preferences) ?? [:]
+        let legacyMetricTypes = try container.decodeIfPresent([String].self, forKey: .metricTypes) ?? []
+
+        if !decodedMetrics.isEmpty {
+            metrics = decodedMetrics
+            metricTypes = decodedMetrics.keys.sorted()
+            return
+        }
+
+        if !decodedPreferences.isEmpty {
+            let enabledMetrics = decodedPreferences.filter { $0.value.syncMode != .off }
+            metrics = enabledMetrics
+            metricTypes = enabledMetrics.keys.sorted()
+            return
+        }
+
+        metrics = Dictionary(
+            uniqueKeysWithValues: legacyMetricTypes.map {
+                ($0, TrackedMetricSyncPreference(syncMode: .dailyOnly))
+            }
+        )
+        metricTypes = legacyMetricTypes
+    }
+
+    var syncModesByMetricType: [String: MetricSyncMode] {
+        metrics.mapValues(\.syncMode)
     }
 }
 

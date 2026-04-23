@@ -65,6 +65,16 @@ import {
   type MetricDailyRow,
   type MetricHabitLike,
 } from '@/components/analytics/metrics-derived';
+import {
+  buildWearableDailyRows,
+  getWearableDateRange,
+  getWearableMetricType,
+  getWearableProviderForHabit,
+  isWearableBackedHabit,
+  summarizeWearableDailyRows,
+  type WearableDailyTotal,
+  type WearableSeriesPoint,
+} from '@/lib/wearables-dashboard';
 import type { HabitSparkSource } from '@/components/analytics/habit-mini-charts-section';
 import {
   auditLocalStorage,
@@ -341,6 +351,47 @@ function buildLocalMetricSummary(
     current_value: average,
     days_with_data: values.length,
   };
+}
+
+function buildWearableMetricDailyRowsForHabit(
+  habit: HabitData,
+  days: WearableDailyTotal[],
+  minDateInclusive?: string,
+  maxDateInclusive?: string,
+): MetricDailyRow[] {
+  const metricType = getWearableMetricType(habit);
+  if (!metricType) return [];
+
+  return buildWearableDailyRows(days, metricType)
+    .filter((row) => {
+      if (minDateInclusive && row.date < minDateInclusive) return false;
+      if (maxDateInclusive && row.date > maxDateInclusive) return false;
+      return true;
+    })
+    .map((row) => ({
+      habit_id: habit.habit_id,
+      date: row.date,
+      daily_value: row.value,
+      total_amount: row.value,
+      unit: habit.unit_type || row.unit || getMetricUnitLabel(habit),
+      completed_count: row.value > 0 ? 1 : 0,
+      completed_at: `${row.date}T00:00:00Z`,
+    }));
+}
+
+function buildWearableMetricSeriesRows(
+  habit: HabitData,
+  points: WearableSeriesPoint[],
+): MetricDailyRow[] {
+  return points.map((point) => ({
+    habit_id: habit.habit_id,
+    date: String(point.attributed_date || point.timestamp).slice(0, 10),
+    daily_value: Number(point.value || 0),
+    total_amount: Number(point.value || 0),
+    unit: habit.unit_type || point.unit || getMetricUnitLabel(habit),
+    completed_count: Number(point.value || 0) > 0 ? 1 : 0,
+    completed_at: point.start_time || point.timestamp,
+  }));
 }
 
 function hasUsableMetricSummary(summary?: Record<string, any> | null): boolean {
@@ -653,6 +704,15 @@ export function MetricsView({
     () => availableHabits.filter((habit) => !isComputerHabitName(habit.habit_name)),
     [availableHabits],
   );
+  const habitById = React.useMemo(() => {
+    const next = new Map<string, HabitData>();
+    for (const habit of availableHabits) {
+      if (habit.habit_id) {
+        next.set(habit.habit_id, habit);
+      }
+    }
+    return next;
+  }, [availableHabits]);
   const filteredHabitIds = React.useMemo(
     () => filteredHabits.map((habit: HabitData) => habit.habit_id).filter((id: string): id is string => !!id),
     [filteredHabits],
@@ -703,6 +763,53 @@ export function MetricsView({
     }
     return grouped;
   }, [habitLogs]);
+
+  const fetchWearableDailyTotalsForHabits = useCallback(
+    async (habitIds: string[], startDate: string, endDate: string) => {
+      const groupedMetrics = new Map<string, Set<string>>();
+
+      for (const habitId of habitIds) {
+        const habit = habitById.get(habitId);
+        if (!habit || !isWearableBackedHabit(habit)) continue;
+        const metricType = getWearableMetricType(habit);
+        if (!metricType) continue;
+        const provider = getWearableProviderForHabit(habit) || '__preferred__';
+        const existing = groupedMetrics.get(provider) || new Set<string>();
+        existing.add(metricType);
+        groupedMetrics.set(provider, existing);
+      }
+
+      const responses = await Promise.all(
+        Array.from(groupedMetrics.entries()).map(async ([provider, metricTypes]) => {
+          const params = new URLSearchParams({
+            start_date: startDate,
+            end_date: endDate,
+            metric_types: Array.from(metricTypes).join(','),
+          });
+          if (provider !== '__preferred__') {
+            params.set('providers', provider);
+          }
+
+          const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch wearable daily totals (${provider})`);
+          }
+
+          const payload = await response.json();
+          return {
+            provider,
+            days: Array.isArray(payload?.days) ? (payload.days as WearableDailyTotal[]) : [],
+          };
+        }),
+      );
+
+      return responses.reduce<Record<string, WearableDailyTotal[]>>((acc, entry) => {
+        acc[entry.provider] = entry.days;
+        return acc;
+      }, {});
+    },
+    [habitById],
+  );
 
   useEffect(() => {
     if (lastSyncedBarListRangeKeyRef.current === dateRangeSyncKey) return;
@@ -1120,9 +1227,11 @@ export function MetricsView({
       }
       setAnalyticsError(null);
 
-      const params = new URLSearchParams();
       const dailyParams = new URLSearchParams();
       const summaryParams = new URLSearchParams();
+      let dailyStartDateForFetch: string;
+      let summaryStartDateForFetch: string;
+      let endDateForFetch: string;
 
       if (!useWideRange) {
         const startDate = format(dateRange!.from!, 'yyyy-MM-dd');
@@ -1133,6 +1242,9 @@ export function MetricsView({
         const windowMs = dateRange!.to!.getTime() - dateRange!.from!.getTime();
         const priorFromDate = new Date(dateRange!.from!.getTime() - windowMs);
         const dailyStartDate = format(priorFromDate, 'yyyy-MM-dd');
+        dailyStartDateForFetch = dailyStartDate;
+        summaryStartDateForFetch = startDate;
+        endDateForFetch = endDate;
         dailyParams.set('start_date', dailyStartDate);
         dailyParams.set('end_date', endDate);
         summaryParams.set('start_date', startDate);
@@ -1140,6 +1252,10 @@ export function MetricsView({
       } else {
         // Keep "All time" totals, but cap sparkline history so the initial metrics
         // grid does not have to download years of daily rows for every habit.
+        const now = new Date();
+        dailyStartDateForFetch = format(subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS), 'yyyy-MM-dd');
+        summaryStartDateForFetch = format(subDays(now, DEFAULT_METRICS_SUMMARY_DAYS), 'yyyy-MM-dd');
+        endDateForFetch = format(now, 'yyyy-MM-dd');
         dailyParams.set('days_back', String(DEFAULT_METRICS_SPARKLINE_DAYS));
         summaryParams.set('days_back', String(DEFAULT_METRICS_SUMMARY_DAYS));
       }
@@ -1256,6 +1372,42 @@ export function MetricsView({
           }
         }
 
+        const wearableHabitIds = habitsToFetch.filter((habitId) => {
+          const habit = habitById.get(habitId);
+          return Boolean(habit && isWearableBackedHabit(habit));
+        });
+
+        if (wearableHabitIds.length > 0) {
+          const wearableDailyTotals = await fetchWearableDailyTotalsForHabits(
+            wearableHabitIds,
+            dailyStartDateForFetch,
+            endDateForFetch,
+          );
+
+          for (const habitId of wearableHabitIds) {
+            const habit = habitById.get(habitId);
+            if (!habit) continue;
+            const providerKey = getWearableProviderForHabit(habit) || '__preferred__';
+            const dailyRows = buildWearableMetricDailyRowsForHabit(
+              habit,
+              wearableDailyTotals[providerKey] || [],
+              dailyStartDateForFetch,
+              endDateForFetch,
+            );
+            const summaryRows = buildWearableMetricDailyRowsForHabit(
+              habit,
+              wearableDailyTotals[providerKey] || [],
+              summaryStartDateForFetch,
+              endDateForFetch,
+            );
+            dataByHabit[habitId] = dailyRows;
+            const summary = buildLocalMetricSummary(habit, summaryRows);
+            if (summary) {
+              summaryMap[habitId] = summary;
+            }
+          }
+        }
+
         if (cancelled) return;
         setAnalyticsData(dataByHabit);
         setSummaryMetrics(summaryMap);
@@ -1321,6 +1473,42 @@ export function MetricsView({
             const rows = response?.data || response?.daily_data || [];
             fallbackDailyByHabit[habitId] = mapDailyBreakdownRows(habitId, rows);
           });
+
+          const wearableHabitIds = habitsToFetch.filter((habitId) => {
+            const habit = habitById.get(habitId);
+            return Boolean(habit && isWearableBackedHabit(habit));
+          });
+
+          if (wearableHabitIds.length > 0) {
+            const wearableDailyTotals = await fetchWearableDailyTotalsForHabits(
+              wearableHabitIds,
+              format(dailyFrom, 'yyyy-MM-dd'),
+              format(to, 'yyyy-MM-dd'),
+            );
+
+            for (const habitId of wearableHabitIds) {
+              const habit = habitById.get(habitId);
+              if (!habit) continue;
+              const providerKey = getWearableProviderForHabit(habit) || '__preferred__';
+              const dailyRows = buildWearableMetricDailyRowsForHabit(
+                habit,
+                wearableDailyTotals[providerKey] || [],
+                format(dailyFrom, 'yyyy-MM-dd'),
+                format(to, 'yyyy-MM-dd'),
+              );
+              const summaryRows = buildWearableMetricDailyRowsForHabit(
+                habit,
+                wearableDailyTotals[providerKey] || [],
+                format(summaryFrom, 'yyyy-MM-dd'),
+                format(to, 'yyyy-MM-dd'),
+              );
+              fallbackDailyByHabit[habitId] = dailyRows;
+              const summary = buildLocalMetricSummary(habit, summaryRows);
+              if (summary) {
+                fallbackSummaryMap[habitId] = summary;
+              }
+            }
+          }
 
           if (cancelled) return;
           setSummaryMetrics(fallbackSummaryMap);
@@ -1391,10 +1579,12 @@ export function MetricsView({
     realtimeRefreshTick,
     user?.id,
     getToken,
+    habitById,
     initialAnalyticsData,
     initialSummaryMetrics,
     hasInitialMetricsAnalytics,
     hasInitialMetricsSummary,
+    fetchWearableDailyTotalsForHabits,
   ]);
 
   useEffect(() => {
@@ -1493,6 +1683,36 @@ export function MetricsView({
           }
         }
 
+        const wearableHabitIds = habitsToFetch.filter((habitId) => {
+          const habit = habitById.get(habitId);
+          return Boolean(habit && isWearableBackedHabit(habit));
+        });
+
+        if (wearableHabitIds.length > 0) {
+          const wearableDailyTotals = await fetchWearableDailyTotalsForHabits(
+            wearableHabitIds,
+            startDate,
+            endDate,
+          );
+
+          for (const habitId of wearableHabitIds) {
+            const habit = habitById.get(habitId);
+            if (!habit) continue;
+            const providerKey = getWearableProviderForHabit(habit) || '__preferred__';
+            const dailyRows = buildWearableMetricDailyRowsForHabit(
+              habit,
+              wearableDailyTotals[providerKey] || [],
+              startDate,
+              endDate,
+            );
+            nextDailyByHabit[habitId] = dailyRows;
+            const summary = buildLocalMetricSummary(habit, dailyRows);
+            if (summary) {
+              nextSummaryByHabit[habitId] = summary;
+            }
+          }
+        }
+
         setBarListAnalyticsData(nextDailyByHabit);
         setBarListSummaryMetrics(nextSummaryByHabit);
         stopTimer({
@@ -1528,7 +1748,9 @@ export function MetricsView({
   }, [
     barListRange,
     filteredHabitIds.join(','),
+    fetchWearableDailyTotalsForHabits,
     getToken,
+    habitById,
     isUserLoaded,
     realtimeRefreshTick,
     selectedHabits.join(','),
@@ -1832,6 +2054,36 @@ export function MetricsView({
         const startDate = format(from, 'yyyy-MM-dd');
         const endDate = format(to, 'yyyy-MM-dd');
 
+        if (expandedHabitData && isWearableBackedHabit(expandedHabitData)) {
+          const metricType = getWearableMetricType(expandedHabitData);
+          if (metricType) {
+            const params = new URLSearchParams({
+              metric_type: metricType,
+              start_time: `${startDate}T00:00:00Z`,
+              end_time: `${endDate}T23:59:59Z`,
+              resolution: 'daily',
+              limit: '4000',
+            });
+            const provider = getWearableProviderForHabit(expandedHabitData);
+            if (provider) {
+              params.set('provider', provider);
+            }
+
+            const response = await fetch(`/api/wearables/series?${params.toString()}`);
+            if (!response.ok) {
+              throw new Error(`Failed to load wearable series (${response.status})`);
+            }
+
+            const payload = await response.json();
+            setExpandedSyncContext({ source: 'wearables-series' });
+            setExpandedLogs(buildWearableMetricSeriesRows(
+              expandedHabitData,
+              Array.isArray(payload?.points) ? (payload.points as WearableSeriesPoint[]) : [],
+            ));
+            return;
+          }
+        }
+
         if (shouldPreferPythonBreakdown) {
           const token = await getToken();
           if (token) {
@@ -1938,6 +2190,35 @@ export function MetricsView({
         const endDate = format(to, 'yyyy-MM-dd');
         const compareHabit = availableHabits.find((h: HabitData) => h.habit_id === compareHabitId);
 
+        if (compareHabit && isWearableBackedHabit(compareHabit)) {
+          const metricType = getWearableMetricType(compareHabit);
+          if (metricType) {
+            const params = new URLSearchParams({
+              metric_type: metricType,
+              start_time: `${startDate}T00:00:00Z`,
+              end_time: `${endDate}T23:59:59Z`,
+              resolution: 'daily',
+              limit: '4000',
+            });
+            const provider = getWearableProviderForHabit(compareHabit);
+            if (provider) {
+              params.set('provider', provider);
+            }
+
+            const response = await fetch(`/api/wearables/series?${params.toString()}`);
+            if (!response.ok) {
+              throw new Error(`Failed to load wearable comparison series (${response.status})`);
+            }
+
+            const payload = await response.json();
+            setComparisonLogs(buildWearableMetricSeriesRows(
+              compareHabit,
+              Array.isArray(payload?.points) ? (payload.points as WearableSeriesPoint[]) : [],
+            ));
+            return;
+          }
+        }
+
         if (isSleepLikeHabit(compareHabit)) {
           const token = await getToken();
           if (token) {
@@ -1983,7 +2264,16 @@ export function MetricsView({
     };
 
     fetchComparisonLogs();
-  }, [compareHabitId, expandedTimeRange, expandedHabit, hasCustomDateRange, dateRange?.from?.toISOString(), dateRange?.to?.toISOString()]);
+  }, [
+    compareHabitId,
+    expandedTimeRange,
+    expandedHabit,
+    hasCustomDateRange,
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+    availableHabits,
+    getToken,
+  ]);
 
   useEffect(() => {
     if (expandedHabit !== COMPUTER_ACTIVITY_CARD_ID) return;

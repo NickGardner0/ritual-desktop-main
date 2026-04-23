@@ -398,6 +398,11 @@ async def _run_migrations(session):
         ("sms_preferences", "allowed_interrupt_kinds", "ALTER TABLE sms_preferences ADD COLUMN allowed_interrupt_kinds TEXT NOT NULL DEFAULT 'distraction_spiral'"),
         ("sms_preferences", "max_interrupts_per_day", "ALTER TABLE sms_preferences ADD COLUMN max_interrupts_per_day INTEGER NOT NULL DEFAULT 2"),
         ("sms_preferences", "min_hours_between_interrupts", "ALTER TABLE sms_preferences ADD COLUMN min_hours_between_interrupts INTEGER NOT NULL DEFAULT 4"),
+        ("wearable_samples", "rollup_level", "ALTER TABLE wearable_samples ADD COLUMN rollup_level TEXT NOT NULL DEFAULT 'raw'"),
+        ("wearable_samples", "rollup_window_minutes", "ALTER TABLE wearable_samples ADD COLUMN rollup_window_minutes INTEGER"),
+        ("wearable_samples", "sample_count", "ALTER TABLE wearable_samples ADD COLUMN sample_count INTEGER"),
+        ("wearable_samples", "should_project_to_habit_logs", "ALTER TABLE wearable_samples ADD COLUMN should_project_to_habit_logs INTEGER NOT NULL DEFAULT 1"),
+        ("user_ui_preferences", "overview_view_mode", "ALTER TABLE user_ui_preferences ADD COLUMN overview_view_mode TEXT"),
     ]
     
     for table, column, sql in migrations:
@@ -506,6 +511,10 @@ async def _run_migrations(session):
                 value REAL NOT NULL,
                 unit TEXT NOT NULL,
                 aggregation_kind TEXT NOT NULL DEFAULT 'point',
+                rollup_level TEXT NOT NULL DEFAULT 'raw',
+                rollup_window_minutes INTEGER,
+                sample_count INTEGER,
+                should_project_to_habit_logs INTEGER NOT NULL DEFAULT 1,
                 confidence REAL,
                 timezone TEXT,
                 attributes_json TEXT,
@@ -517,6 +526,22 @@ async def _run_migrations(session):
                 FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
                 FOREIGN KEY(source_id) REFERENCES wearable_sources(id),
                 FOREIGN KEY(raw_payload_id) REFERENCES wearable_raw_payloads(id)
+            )
+            """,
+        ),
+        (
+            "habit_projection_policies",
+            """
+            CREATE TABLE IF NOT EXISTS habit_projection_policies (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                habit_id TEXT NOT NULL,
+                canonical_metric_type TEXT,
+                projection_source_priority_json TEXT NOT NULL DEFAULT '[]',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE
             )
             """,
         ),
@@ -810,6 +835,7 @@ async def _run_migrations(session):
             CREATE TABLE IF NOT EXISTS user_ui_preferences (
                 user_id TEXT PRIMARY KEY,
                 habit_text_color TEXT,
+                overview_view_mode TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(id)
@@ -835,8 +861,12 @@ async def _run_migrations(session):
         ("idx_wearable_samples_user_metric_recorded", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_metric_recorded ON wearable_samples (user_id, metric_type, recorded_at)"),
         ("idx_wearable_samples_user_provider_date", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_provider_date ON wearable_samples (user_id, provider, attributed_date)"),
         ("idx_wearable_samples_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_provider_external ON wearable_samples (user_id, provider, external_id)"),
+        ("idx_wearable_samples_user_metric_start", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_metric_start ON wearable_samples (user_id, metric_type, start_time)"),
+        ("idx_wearable_samples_user_metric_date_rollup", "CREATE INDEX IF NOT EXISTS idx_wearable_samples_user_metric_date_rollup ON wearable_samples (user_id, metric_type, attributed_date, rollup_level)"),
         ("idx_wearable_events_user_type_start", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_type_start ON wearable_events (user_id, event_type, start_time)"),
         ("idx_wearable_events_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_provider_external ON wearable_events (user_id, provider, external_id)"),
+        ("idx_wearable_events_user_type_date_start", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_type_date_start ON wearable_events (user_id, event_type, attributed_date, start_time)"),
+        ("idx_habit_projection_policies_habit", "CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_projection_policies_habit ON habit_projection_policies (habit_id)"),
         ("idx_wearable_sync_cursors_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_sync_cursors_unique ON wearable_sync_cursors (connection_id, COALESCE(source_id, ''), cursor_key)"),
         ("idx_wearable_raw_payloads_provider_received", "CREATE INDEX IF NOT EXISTS idx_wearable_raw_payloads_provider_received ON wearable_raw_payloads (provider, received_at)"),
         ("idx_heart_rate_sessions_user_started", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_started ON heart_rate_sessions (user_id, started_at)"),

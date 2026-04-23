@@ -25,7 +25,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 export type HabitLog = {
   id: string;
-  habit_id: string;
+  habit_id?: string;
   habit_name: string;
   category: string;
   icon?: string;
@@ -40,6 +40,13 @@ export type HabitLog = {
   metric_type?: string;
   time_precision?: 'exact' | 'day';
   metadata?: Record<string, any>;
+  editable?: boolean;
+  record_kind?: 'habit_log' | 'wearable_sample' | 'wearable_event';
+  start_time?: string;
+  end_time?: string;
+  rollup_level?: string | null;
+  aggregation_kind?: string | null;
+  source_device_name?: string | null;
 };
 
 export type FilterState = {
@@ -695,6 +702,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   );
   const selectedCount = Object.keys(sanitizedRowSelection).length;
   const selectedLogs = scopedLogs.filter((log) => sanitizedRowSelection[log.id]);
+  const deletableSelectedLogs = selectedLogs.filter((log) => log.editable !== false && log.habit_id);
 
   const exportLogsToCsv = useCallback((logsToExport: HabitLog[]) => {
     if (!logsToExport.length) return;
@@ -749,10 +757,10 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   }, []);
 
   const handleDeleteSelected = useCallback(() => {
-    const ids = Object.keys(sanitizedRowSelection);
+    const ids = deletableSelectedLogs.map((log) => log.id);
     if (!ids.length || deleteMutation.isPending) return;
     deleteMutation.mutate(ids);
-  }, [sanitizedRowSelection, deleteMutation]);
+  }, [deletableSelectedLogs, deleteMutation]);
 
   return (
     <div className="flex flex-col h-full">
@@ -906,7 +914,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
                   <button
                     type="button"
                     className="h-7 px-2.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5"
-                    disabled={deleteMutation.isPending}
+                    disabled={deleteMutation.isPending || deletableSelectedLogs.length === 0}
                   >
                     {deleteMutation.isPending ? (
                       <BrailleSpinner className="text-sm text-red-600" />
@@ -920,7 +928,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete selected logs?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      This will permanently delete {selectedCount} selected log{selectedCount === 1 ? '' : 's'}.
+                      This will permanently delete {deletableSelectedLogs.length} editable log{deletableSelectedLogs.length === 1 ? '' : 's'}.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
