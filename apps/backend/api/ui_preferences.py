@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 class UIPreferencesUpdateRequest(BaseModel):
     habit_text_color: Optional[str] = None
+    overview_view_mode: Optional[str] = None
 
 
 def create_ui_preferences_router(get_current_user):
@@ -38,6 +39,8 @@ def create_ui_preferences_router(get_current_user):
         fields = {}
         if "habit_text_color" in fields_set:
             fields["habit_text_color"] = body.habit_text_color
+        if "overview_view_mode" in fields_set:
+            fields["overview_view_mode"] = body.overview_view_mode
 
         if not fields:
             prefs = await ui_preferences_service.get_or_create(current_user["id"])

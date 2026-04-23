@@ -2,35 +2,25 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  type DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { StatsTooltip } from '@/components/stats-tooltip';
-import type { Habit } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { PerplexityMiniSparkChart } from '@/components/charts/PerplexityMiniSparkChart';
 import { getHabitDisplayName } from '@/lib/computer-time-habit';
 import { useUIPreferences } from '@/hooks/use-ui-preferences';
+import type { Habit } from '@/contexts/HabitsContext';
 import { HabitEditDialog } from '@/components/analytics/habit-edit-dialog';
 
-interface SortableHabitItemProps {
+export interface HabitDailyPoint {
+  date: string;
+  value: number;
+}
+
+export interface OverviewMetricCardProps {
   habit: Habit;
   getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
   getHabitMetricClassName: (habit: Habit) => string;
-  /** Pre-computed hovered value for THIS specific habit (undefined if not hovered) */
   hoveredValue: number | undefined;
   isTooltipOpen: boolean;
   setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
@@ -43,6 +33,7 @@ interface SortableHabitItemProps {
     stdDevFormatted: string;
     trackedDays: number;
   };
+  getHabitDailySeries: (habit: Habit) => HabitDailyPoint[];
   onUpdateHabitDetails: (
     habitId: string | undefined,
     updates: { name?: string; unit_type?: string },
@@ -52,7 +43,7 @@ interface SortableHabitItemProps {
   isDeleting: boolean;
 }
 
-const SortableHabitItem = React.memo(function SortableHabitItem({
+export const OverviewMetricCard = React.memo(function OverviewMetricCard({
   habit,
   getHabitMetricDisplay,
   getHabitMetricClassName,
@@ -60,23 +51,20 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isTooltipOpen,
   setActiveTooltip,
   getHabitMetricStats,
+  getHabitDailySeries,
   onUpdateHabitDetails,
   isUpdatingHabit,
   confirmDelete,
   isDeleting,
-}: SortableHabitItemProps) {
+}: OverviewMetricCardProps) {
   const displayName = getHabitDisplayName(habit.name);
   const { habitTextColor } = useUIPreferences();
   const metricTriggerRef = React.useRef<HTMLDivElement>(null);
   const metricClickTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: habit.id || '' });
+
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: habit.id || '',
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -150,62 +138,69 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     setIsEditingDetails(true);
   };
 
+  const display = getHabitMetricDisplay(habit, hoveredValue);
+  const splitAt = display.lastIndexOf(' ');
+  const value = splitAt === -1 ? display : display.slice(0, splitAt);
+  const unit = splitAt === -1 ? '' : display.slice(splitAt + 1);
+
+  const dailySeries = getHabitDailySeries(habit);
+  const sparkValues = dailySeries.map((point) => point.value).filter((v) => Number.isFinite(v));
+  const hasSparkline = sparkValues.length >= 2;
+
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] rounded-[6px] px-1 py-0 bg-[var(--content-bg)] hover:bg-[#f6f6f5] cursor-grab active:cursor-grabbing ${
+        className={`group relative flex min-w-0 flex-col rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-3 min-h-[120px] cursor-grab active:cursor-grabbing transition-colors duration-200 hover:border-[rgba(39,37,30,0.16)] hover:bg-[rgba(39,37,30,0.015)] ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
-        <div className="min-w-0 flex items-center">
-          <span className="text-[17.5px] font-normal truncate leading-[1.04] text-gray-900">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            confirmDelete(habit.id);
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          disabled={isDeleting}
+          className={`absolute right-2 top-2 z-20 p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
+            isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          }`}
+          title="Delete habit"
+          aria-label="Delete habit"
+        >
+          {isDeleting ? (
+            <BrailleSpinner className="text-xs text-gray-500" />
+          ) : (
+            <X className="w-3 h-3" />
+          )}
+        </button>
+
+        <div className="min-w-0">
+          <span className="block truncate text-[13px] font-normal text-[rgba(39,37,30,0.62)]">
             {displayName}
           </span>
         </div>
+
         <div
           ref={metricTriggerRef}
-          className="flex items-center justify-self-end gap-1 cursor-default relative tooltip-container flex-shrink-0"
+          className="relative mt-1 flex cursor-default items-baseline gap-1.5 tooltip-container"
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
+          onPointerDown={(event) => event.stopPropagation()}
         >
-          {(() => {
-            const display = getHabitMetricDisplay(habit, hoveredValue);
-            const splitAt = display.lastIndexOf(' ');
-            const value = splitAt === -1 ? display : display.slice(0, splitAt);
-            const unit = splitAt === -1 ? '' : display.slice(splitAt + 1);
-            return (
-              <span className="text-[17.5px] font-normal select-none leading-[1.04]">
-                <span
-                  className={`${getHabitMetricClassName(habit)} tabular-nums`}
-                  style={{ color: habitTextColor }}
-                >
-                  {value}
-                </span>
-                {unit && <span className="ml-1 text-gray-900">{unit}</span>}
-              </span>
-            );
-          })()}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              confirmDelete(habit.id);
-            }}
-            disabled={isDeleting}
-            className={`p-1 text-gray-400 hover:text-gray-600 transition-opacity disabled:opacity-50 ${
-              isTooltipOpen || isDeleting ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-            }`}
-            title="Delete habit"
+          <span
+            className={`text-[26px] font-normal leading-[1.1] tabular-nums truncate ${getHabitMetricClassName(habit)}`}
+            style={{ color: habitTextColor }}
           >
-            {isDeleting ? (
-              <BrailleSpinner className="text-xs text-gray-500" />
-            ) : (
-              <X className="w-3 h-3" />
-            )}
-          </button>
+            {value}
+          </span>
+          {unit ? (
+            <span className="text-[13px] font-normal text-gray-600 truncate">{unit}</span>
+          ) : null}
+
           <StatsTooltip open={isTooltipOpen} triggerRef={metricTriggerRef}>
             {isTooltipOpen ? (() => {
               const s = getHabitMetricStats(habit);
@@ -238,6 +233,14 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
             })() : null}
           </StatsTooltip>
         </div>
+
+        <div className="mt-auto pt-3">
+          {hasSparkline ? (
+            <PerplexityMiniSparkChart values={sparkValues} trend="neutral" height={34} />
+          ) : (
+            <div className="h-[34px]" aria-hidden="true" />
+          )}
+        </div>
       </div>
 
       <HabitEditDialog
@@ -261,106 +264,4 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   );
 });
 
-export interface SortableHabitListProps {
-  habits: Habit[];
-  onReorder: (habits: Habit[]) => void;
-  getHabitMetricDisplay: (habit: Habit, hoveredValue?: number) => string;
-  getHabitMetricClassName: (habit: Habit) => string;
-  scrubberHoveredDate: string | null;
-  scrubberHoveredValues: Record<string, number> | null;
-  activeTooltip: string | null;
-  setActiveTooltip: React.Dispatch<React.SetStateAction<string | null>>;
-  getHabitMetricStats: (habit: Habit) => {
-    unitLabel: string;
-    sumFormatted: string;
-    avgFormatted: string;
-    minFormatted: string;
-    maxFormatted: string;
-    stdDevFormatted: string;
-    trackedDays: number;
-  };
-  onUpdateHabitDetails: (
-    habitId: string | undefined,
-    updates: { name?: string; unit_type?: string },
-  ) => Promise<void>;
-  updatingHabitId: string | null | undefined;
-  confirmDelete: (habitId: string | undefined) => void;
-  deletingHabit: string | null;
-}
-
-function SortableHabitListInner({
-  habits,
-  onReorder,
-  getHabitMetricDisplay,
-  getHabitMetricClassName,
-  scrubberHoveredDate,
-  scrubberHoveredValues,
-  activeTooltip,
-  setActiveTooltip,
-  getHabitMetricStats,
-  onUpdateHabitDetails,
-  updatingHabitId,
-  confirmDelete,
-  deletingHabit,
-}: SortableHabitListProps) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 8 },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (over && active.id !== over.id) {
-      const oldIndex = habits.findIndex((h) => h.id === active.id);
-      const newIndex = habits.findIndex((h) => h.id === over.id);
-      onReorder(arrayMove(habits, oldIndex, newIndex));
-    }
-  };
-
-  return (
-    <DndContext
-      sensors={sensors}
-      collisionDetection={closestCenter}
-      onDragEnd={handleDragEnd}
-    >
-      <SortableContext
-        items={habits.map(h => h.id || '')}
-        strategy={verticalListSortingStrategy}
-      >
-        <div>
-          {habits.map((habit) => {
-            const habitId = habit.id || '';
-            return (
-              <SortableHabitItem
-                key={habitId}
-                habit={habit}
-                getHabitMetricDisplay={getHabitMetricDisplay}
-                getHabitMetricClassName={getHabitMetricClassName}
-                hoveredValue={
-                  scrubberHoveredDate && scrubberHoveredValues
-                    ? scrubberHoveredValues[habitId]
-                    : undefined
-                }
-                isTooltipOpen={activeTooltip === habitId}
-                setActiveTooltip={setActiveTooltip}
-                getHabitMetricStats={getHabitMetricStats}
-                onUpdateHabitDetails={onUpdateHabitDetails}
-                isUpdatingHabit={updatingHabitId === habitId}
-                confirmDelete={confirmDelete}
-                isDeleting={deletingHabit === habitId}
-              />
-            );
-          })}
-        </div>
-      </SortableContext>
-    </DndContext>
-  );
-}
-
-export const SortableHabitList = React.memo(SortableHabitListInner);
-
-export default SortableHabitList;
+export default OverviewMetricCard;

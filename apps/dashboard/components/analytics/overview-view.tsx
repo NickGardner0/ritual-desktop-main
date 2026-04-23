@@ -351,6 +351,7 @@ export function OverviewView({
           daysWithData: summary.daysWithData,
           trackedDays: dailyRows.length,
         },
+        dailySeries: dailyRows.map((row) => ({ date: row.date, value: row.value })),
       });
     }
 
@@ -846,6 +847,10 @@ export function OverviewView({
             daysWithData: values.filter((value) => value > 0).length,
             trackedDays,
           },
+          dailySeries: rows
+            .filter((row) => Boolean(row.day))
+            .map((row) => ({ date: row.day as string, value: Number(row.active_hours || 0) }))
+            .sort((a, b) => a.date.localeCompare(b.date)),
         });
         continue;
       }
@@ -944,6 +949,10 @@ export function OverviewView({
       daysWithData: 0,
       trackedDays: 0,
     };
+  }, [habitMetricDataById]);
+
+  const getHabitDailySeries = useCallback((habit: Habit): HabitMetricDailyPoint[] => {
+    return habitMetricDataById.get(habit.id || '')?.dailySeries ?? [];
   }, [habitMetricDataById]);
 
   const handleUpdateHabitDetails = useCallback(
@@ -1051,6 +1060,7 @@ export function OverviewView({
         activeTooltip={activeTooltip}
         setActiveTooltip={setActiveTooltip}
         getHabitMetricStats={getHabitMetricStats}
+        getHabitDailySeries={getHabitDailySeries}
         onUpdateHabitDetails={handleUpdateHabitDetails}
         updatingHabitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
         confirmDelete={confirmDelete}
