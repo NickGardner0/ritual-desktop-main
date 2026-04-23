@@ -74,7 +74,7 @@ async def send_message(
                 headers=_sendblue_headers(),
                 json=payload,
             )
-        if response.status_code in (200, 201):
+        if response.status_code in (200, 201, 202):
             logger.info("Sendblue message sent to %s", normalized)
             return True
         logger.error("Sendblue message failed (%s): %s", response.status_code, response.text)

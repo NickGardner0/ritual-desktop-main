@@ -1335,6 +1335,322 @@ type SmsToolExecution = {
   result: string;
 };
 
+function formatSmsShortDate(value: string): string | null {
+  if (!value || typeof value !== 'string') return null;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function formatSmsDateRange(start?: string | null, end?: string | null): string | null {
+  const startLabel = start ? formatSmsShortDate(start) : null;
+  const endLabel = end ? formatSmsShortDate(end) : null;
+  if (!startLabel && !endLabel) return null;
+  if (!startLabel) return endLabel;
+  if (!endLabel || start === end) return startLabel;
+
+  const [startMonth, startDay] = startLabel.split(' ');
+  const [endMonth, endDay] = endLabel.split(' ');
+  if (startMonth && endMonth && startMonth === endMonth) {
+    return `${startMonth} ${startDay}-${endDay}`;
+  }
+  return `${startLabel} to ${endLabel}`;
+}
+
+function countInclusiveDays(start?: string | null, end?: string | null): number | null {
+  if (!start || !end) return null;
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return Math.max(1, Math.round((endMs - startMs) / 86400000) + 1);
+}
+
+function formatSmsNumber(value: number, digits = 2): string {
+  if (!Number.isFinite(value)) return '0';
+  return Number(value.toFixed(digits)).toString();
+}
+
+function formatSmsValue(value: number, unit?: string | null): string {
+  const normalized = String(unit || '').toLowerCase();
+  const compact = formatSmsNumber(value);
+  if (normalized.includes('hour')) return `${compact}h`;
+  if (normalized.includes('minute')) return `${compact} min`;
+  if (normalized.includes('second')) return `${compact}s`;
+  if (normalized.includes('milligram')) return `${compact}mg`;
+  if (normalized.includes('ounce')) return `${compact} oz`;
+  if (normalized.includes('mile')) return `${compact} mi`;
+  if (normalized.includes('step')) return `${compact} steps`;
+  return unit ? `${compact} ${unit}` : compact;
+}
+
+function uniqueSmsStrings(values: Array<unknown>): string[] {
+  const seen = new Set<string>();
+  const results: string[] = [];
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const cleaned = value.trim().replace(/\s+/g, ' ');
+    if (!cleaned) continue;
+    const dedupeKey = cleaned.toLowerCase();
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
+    results.push(cleaned);
+  }
+  return results;
+}
+
+function cleanSmsSentence(value: string): string {
+  return value
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s+([.,!?;:])/g, '$1')
+    .trim()
+    .replace(/^[•\-–—]\s*/, '')
+    .replace(/[.!?;,:\s]+$/g, '');
+}
+
+function sanitizeSmsSegment(raw: string): string {
+  const stripped = String(raw || '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/__(.*?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\r\n/g, '\n');
+
+  const pieces = stripped
+    .split('\n')
+    .map((line) => cleanSmsSentence(line))
+    .filter((line) => {
+      if (!line) return false;
+      if (/^-{3,}$/.test(line)) return false;
+      if (/^here['’]s a (quick )?rundown/i.test(line)) return false;
+      if (/^if you need more details/i.test(line)) return false;
+      if (/^feel free to ask/i.test(line)) return false;
+      if (/^no heart rate data/i.test(line)) return false;
+      if (/^there were no scheduled events/i.test(line)) return false;
+      if (/suggests an interest in/i.test(line)) return false;
+      return true;
+    });
+
+  return pieces.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+function maybeBuildDeterministicSmsHabitReadReply(toolExecutions: SmsToolExecution[]): string | null {
+  if (!toolExecutions.some((execution) => execution.name === 'getHabitStats')) {
+    return null;
+  }
+
+  const allowedToolNames = new Set(['getHabitStats', 'getDailyBreakdown']);
+  if (toolExecutions.some((execution) => !allowedToolNames.has(execution.name))) {
+    return null;
+  }
+
+  const statsExecution = [...toolExecutions].reverse().find((execution) => execution.name === 'getHabitStats');
+  const breakdownExecution = [...toolExecutions].reverse().find((execution) => execution.name === 'getDailyBreakdown');
+  if (!statsExecution) return null;
+
+  const stats = safeJsonParse<Record<string, unknown>>(statsExecution.result);
+  const breakdown = breakdownExecution
+    ? safeJsonParse<Record<string, unknown>>(breakdownExecution.result)
+    : null;
+
+  if (!stats || stats.error || stats.success === false) {
+    return null;
+  }
+
+  const statsHabit = (stats.habit && typeof stats.habit === 'object')
+    ? stats.habit as Record<string, unknown>
+    : null;
+  const breakdownHabit = (breakdown?.habit && typeof breakdown.habit === 'object')
+    ? breakdown.habit as Record<string, unknown>
+    : null;
+
+  const habitName = typeof statsHabit?.name === 'string'
+    ? statsHabit.name
+    : typeof breakdownHabit?.name === 'string'
+      ? breakdownHabit.name
+      : null;
+  if (!habitName) return null;
+
+  const statsRange = (stats.date_range && typeof stats.date_range === 'object')
+    ? stats.date_range as Record<string, unknown>
+    : null;
+  const breakdownRange = (breakdown?.date_range && typeof breakdown.date_range === 'object')
+    ? breakdown.date_range as Record<string, unknown>
+    : null;
+  const startDate = typeof statsRange?.start === 'string'
+    ? statsRange.start
+    : typeof breakdownRange?.start === 'string'
+      ? breakdownRange.start
+      : null;
+  const endDate = typeof statsRange?.end === 'string'
+    ? statsRange.end
+    : typeof breakdownRange?.end === 'string'
+      ? breakdownRange.end
+      : null;
+  const rangeLabel = formatSmsDateRange(startDate, endDate);
+
+  const unit = typeof statsHabit?.unit === 'string'
+    ? statsHabit.unit
+    : typeof breakdownHabit?.unit === 'string'
+      ? breakdownHabit.unit
+      : null;
+  const averageValue = Number(
+    typeof stats.average_per_day === 'number'
+      ? stats.average_per_day
+      : typeof stats.average === 'number'
+        ? stats.average
+        : Number.NaN,
+  );
+  const daysWithData = Number(
+    typeof stats.days_with_data === 'number'
+      ? stats.days_with_data
+      : typeof breakdown?.days_with_data === 'number'
+        ? breakdown.days_with_data
+        : Number.NaN,
+  );
+  const totalDays = countInclusiveDays(startDate, endDate);
+
+  const breakdownRows = Array.isArray(breakdown?.data)
+    ? breakdown.data
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null;
+          const row = entry as Record<string, unknown>;
+          const date = typeof row.date === 'string' ? row.date : null;
+          const value = typeof row.value === 'number' ? row.value : Number.NaN;
+          if (!date || !Number.isFinite(value)) return null;
+          return { date, value };
+        })
+        .filter((entry): entry is { date: string; value: number } => Boolean(entry))
+    : [];
+
+  const highest = breakdownRows.reduce<{ date: string; value: number } | null>(
+    (best, current) => (!best || current.value > best.value ? current : best),
+    null,
+  );
+  const lowest = breakdownRows.reduce<{ date: string; value: number } | null>(
+    (best, current) => (!best || current.value < best.value ? current : best),
+    null,
+  );
+
+  const openingBits = [
+    rangeLabel ? `${rangeLabel}:` : null,
+    `${habitName} logged on ${Number.isFinite(daysWithData) ? daysWithData : 0}${totalDays ? ` of ${totalDays}` : ''} ${totalDays === 1 ? 'day' : 'days'}`,
+  ].filter(Boolean);
+
+  const summaryParts = [
+    `${openingBits.join(' ')}.`,
+    Number.isFinite(averageValue)
+      ? `Average was ${formatSmsValue(averageValue, unit)} per day with data.`
+      : null,
+    highest && lowest && highest.date !== lowest.date
+      ? `Highest was ${formatSmsValue(highest.value, unit)} on ${formatSmsShortDate(highest.date)}; lowest was ${formatSmsValue(lowest.value, unit)} on ${formatSmsShortDate(lowest.date)}.`
+      : highest
+        ? `Peak was ${formatSmsValue(highest.value, unit)} on ${formatSmsShortDate(highest.date)}.`
+        : null,
+  ].filter(Boolean);
+
+  return summaryParts.join(' ');
+}
+
+function maybeBuildDeterministicSmsActivityReply(toolExecutions: SmsToolExecution[]): string | null {
+  if (!toolExecutions.some((execution) => execution.name === 'getActivitySummary')) {
+    return null;
+  }
+
+  const allowedToolNames = new Set(['getActivitySummary', 'getDailyBiometrics', 'getCalendarEvents']);
+  if (toolExecutions.some((execution) => !allowedToolNames.has(execution.name))) {
+    return null;
+  }
+
+  const activityExecution = [...toolExecutions].reverse().find((execution) => execution.name === 'getActivitySummary');
+  if (!activityExecution) return null;
+
+  const parsed = safeJsonParse<Record<string, unknown>>(activityExecution.result);
+  if (!parsed || parsed.error || parsed.success === false) {
+    return null;
+  }
+
+  const storyPlan = (parsed.story_plan && typeof parsed.story_plan === 'object')
+    ? parsed.story_plan as Record<string, unknown>
+    : null;
+  const mainEvent = (storyPlan?.main_event && typeof storyPlan.main_event === 'object')
+    ? storyPlan.main_event as Record<string, unknown>
+    : null;
+  const mainTitle = cleanSmsSentence(
+    typeof mainEvent?.title === 'string'
+      ? mainEvent.title
+      : typeof mainEvent?.label === 'string'
+        ? mainEvent.label
+        : '',
+  );
+
+  const semanticWorkItems = Array.isArray(parsed.semantic_work_items) ? parsed.semantic_work_items : [];
+  const itemTitles = semanticWorkItems.map((item) => {
+    if (!item || typeof item !== 'object') return null;
+    const row = item as Record<string, unknown>;
+    return typeof row.title === 'string'
+      ? row.title
+      : typeof row.label === 'string'
+        ? row.label
+        : typeof row.task === 'string'
+          ? row.task
+          : null;
+  });
+
+  const taskCandidates = uniqueSmsStrings([
+    ...(Array.isArray(storyPlan?.concrete_tasks_completed) ? storyPlan.concrete_tasks_completed : []),
+    ...(Array.isArray(storyPlan?.specific_tasks) ? storyPlan.specific_tasks : []),
+    ...itemTitles,
+  ]).map(cleanSmsSentence).filter((item) => {
+    if (!item) return false;
+    if (mainTitle && item.toLowerCase() === mainTitle.toLowerCase()) return false;
+    if (item.length < 8) return false;
+    if (/notifications\s*\/\s*x/i.test(item)) return false;
+    if (/suggests an interest in/i.test(item)) return false;
+    if (/no heart rate data/i.test(item)) return false;
+    if (/no scheduled events/i.test(item)) return false;
+    return true;
+  });
+
+  const fallbackSummary = typeof parsed.calendar_style_summary === 'string'
+    ? parsed.calendar_style_summary
+    : typeof parsed.rich_activity_summary === 'string'
+      ? parsed.rich_activity_summary
+      : '';
+  const fallbackSentences = sanitizeSmsSegment(fallbackSummary)
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+
+  const sentences: string[] = [];
+  if (mainTitle) {
+    sentences.push(`Today centered on ${mainTitle}.`);
+  }
+  for (const task of taskCandidates.slice(0, 2)) {
+    sentences.push(`${task}.`);
+  }
+  if (sentences.length === 0) {
+    sentences.push(...fallbackSentences);
+  }
+
+  const normalized = sentences
+    .map((sentence) => sanitizeSmsSegment(sentence))
+    .filter(Boolean);
+
+  return normalized.length > 0 ? normalized.join(' ') : null;
+}
+
+function maybeBuildDeterministicSmsReadReply(toolExecutions: SmsToolExecution[]): string | null {
+  return (
+    maybeBuildDeterministicSmsHabitReadReply(toolExecutions)
+    || maybeBuildDeterministicSmsActivityReply(toolExecutions)
+  );
+}
+
 function buildFallbackSmsLogReply(parsed: Record<string, unknown>): string | null {
   const habitName = typeof parsed.habit_name === 'string' ? parsed.habit_name : '';
   if (!habitName) return null;
@@ -1534,12 +1850,22 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
     }
 
     const deterministicSmsReply = maybeBuildDeterministicSmsLogReply(smsToolExecutions);
-    const finalText = deterministicSmsReply || assistantMessage.content || 'Sorry, I couldn\'t process that. Try again?';
+    const deterministicSmsReadReply = maybeBuildDeterministicSmsReadReply(smsToolExecutions);
+    const finalText = deterministicSmsReply
+      || deterministicSmsReadReply
+      || assistantMessage.content
+      || 'Sorry, I couldn\'t process that. Try again?';
     const abArm = isSmsV2PromptActive() ? 'v2' : 'v1';
-    const messages = splitSmsSegments(finalText);
+    const sanitizedMessages = splitSmsSegments(finalText)
+      .map((segment) => sanitizeSmsSegment(segment))
+      .filter(Boolean);
+    const messages = sanitizedMessages.length > 0
+      ? sanitizedMessages
+      : [sanitizeSmsSegment(finalText) || 'Sorry, I couldn\'t process that. Try again?'];
+    const normalizedText = messages.join('\n---\n');
 
     console.log(
-      `📱 [${elapsed(t0)}] SMS response ready (${finalText.length} chars, ${messages.length} segment${messages.length === 1 ? '' : 's'}, ${toolCallsMade.length} tools, arm=${abArm})`,
+      `📱 [${elapsed(t0)}] SMS response ready (${normalizedText.length} chars, ${messages.length} segment${messages.length === 1 ? '' : 's'}, ${toolCallsMade.length} tools, arm=${abArm})`,
     );
 
     return new Response(
@@ -1548,7 +1874,7 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
         // splitting on the delimiter if `messages` is missing, so this stays
         // safe during rolling deploys where sender + orchestrator versions
         // may briefly mismatch.
-        text: finalText,
+        text: normalizedText,
         // New field (Phase 1 T1.2): array of 1–4 segments to send as separate
         // texts with a small delay between. Empty array would be treated as
         // failure by the sender; splitSmsSegments guarantees >=1 segment.

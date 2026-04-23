@@ -73,3 +73,31 @@ class SendblueServiceTests(unittest.IsolatedAsyncioTestCase):
                 sendblue_service.get_ritual_vcard_url(),
                 "https://api.ritual.test/api/contact/ritual.vcf",
             )
+
+    async def test_send_message_treats_202_accepted_as_success(self):
+        _FakeAsyncClient.calls = []
+
+        class _AcceptedAsyncClient(_FakeAsyncClient):
+            async def post(self, url, headers=None, json=None):
+                _FakeAsyncClient.calls.append(
+                    {
+                        "url": url,
+                        "headers": headers,
+                        "json": json,
+                    }
+                )
+                return _FakeResponse(status_code=202, text="accepted")
+
+        with patch.object(sendblue_service, "SENDBLUE_API_KEY", "test-key"), patch.object(
+            sendblue_service, "SENDBLUE_API_SECRET", "test-secret"
+        ), patch.object(
+            sendblue_service,
+            "SENDBLUE_FROM_NUMBER",
+            "+1 (835) 276-1673",
+        ), patch("services.sendblue_service.httpx.AsyncClient", _AcceptedAsyncClient):
+            sent = await sendblue_service.send_message(
+                phone_number="631-555-1234",
+                text="Welcome to Ritual.",
+            )
+
+        self.assertTrue(sent)

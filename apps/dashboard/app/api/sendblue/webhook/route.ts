@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 const BACKEND_URL =
   process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
+const WEBHOOK_PROXY_TIMEOUT_MS = Number(
+  process.env.SENDBLUE_WEBHOOK_PROXY_TIMEOUT_MS || 45000,
+);
+
+export const maxDuration = 60;
 
 /**
  * Forward Sendblue webhook to Python backend.
@@ -27,7 +32,7 @@ export async function POST(request: NextRequest) {
         "x-webhook-secret": webhookSecret,
       },
       body,
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(WEBHOOK_PROXY_TIMEOUT_MS),
     });
 
     const data = await backendResponse.json();
