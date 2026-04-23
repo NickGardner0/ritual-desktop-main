@@ -10,6 +10,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+from time import monotonic
 from typing import Optional
 
 import httpx
@@ -37,7 +38,33 @@ SENDBLUE_WEBHOOK_SECRET = os.getenv("SENDBLUE_WEBHOOK_SECRET", "")
 DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://desktop.ritualdb.com")
 INTERNAL_SMS_CHAT_SECRET = os.getenv("INTERNAL_SMS_CHAT_SECRET", "")
 INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
-ORCHESTRATOR_TIMEOUT = 15.0  # seconds
+
+
+def _load_orchestrator_timeout() -> float:
+    raw = (os.getenv("SMS_ORCHESTRATOR_TIMEOUT_SECONDS") or "").strip()
+    if not raw:
+        return 30.0
+
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "Invalid SMS_ORCHESTRATOR_TIMEOUT_SECONDS=%r; falling back to 30.0s",
+            raw,
+        )
+        return 30.0
+
+    if value <= 0:
+        logger.warning(
+            "Non-positive SMS_ORCHESTRATOR_TIMEOUT_SECONDS=%r; falling back to 30.0s",
+            raw,
+        )
+        return 30.0
+
+    return value
+
+
+ORCHESTRATOR_TIMEOUT = _load_orchestrator_timeout()  # seconds
 
 
 async def _send_sms(
@@ -488,6 +515,7 @@ async def _call_orchestrator(
 ) -> dict:
     """Call the Vercel SMS chat endpoint and return the response."""
     url = f"{DASHBOARD_BASE_URL}/api/chat/sms"
+    started_at = monotonic()
 
     payload = {
         "user_id": user_id,
@@ -504,15 +532,51 @@ async def _call_orchestrator(
         "x-backend-token": INTERNAL_BACKEND_TOKEN,
     }
 
-    async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT) as client:
-        response = await client.post(url, json=payload, headers=headers)
+    logger.info(
+        "Calling SMS orchestrator for user %s at %s (history=%d, media=%d, timeout=%.1fs)",
+        user_id,
+        url,
+        len(recent_messages),
+        len(media_urls),
+        ORCHESTRATOR_TIMEOUT,
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=ORCHESTRATOR_TIMEOUT) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        elapsed_ms = int((monotonic() - started_at) * 1000)
+        raise RuntimeError(
+            "Orchestrator request timed out after "
+            f"{elapsed_ms}ms (timeout={ORCHESTRATOR_TIMEOUT:.1f}s, url={url})"
+        ) from exc
+    except httpx.HTTPError as exc:
+        elapsed_ms = int((monotonic() - started_at) * 1000)
+        raise RuntimeError(
+            "Orchestrator request failed after "
+            f"{elapsed_ms}ms ({exc.__class__.__name__}: {exc})"
+        ) from exc
+
+    elapsed_ms = int((monotonic() - started_at) * 1000)
+    logger.info(
+        "SMS orchestrator responded for user %s in %dms with status %d",
+        user_id,
+        elapsed_ms,
+        response.status_code,
+    )
 
     if response.status_code != 200:
         raise RuntimeError(
-            f"Orchestrator returned {response.status_code}: {response.text[:200]}"
+            "Orchestrator returned "
+            f"{response.status_code} after {elapsed_ms}ms: {response.text[:200]}"
         )
 
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Orchestrator returned invalid JSON after {elapsed_ms}ms: {response.text[:200]}"
+        ) from exc
 
 
 async def _legacy_fuzzy_logging_fallback(
