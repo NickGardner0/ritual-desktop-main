@@ -8,7 +8,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1
 const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
-export const DEFAULT_HABIT_TEXT_COLOR = '#111827';
+export const DEFAULT_HABIT_TEXT_COLOR = '#000000';
 
 export interface UIPreferences {
   habit_text_color: string | null;

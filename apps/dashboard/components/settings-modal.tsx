@@ -298,9 +298,9 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   {/* Habit text color — Overview page only */}
                   <div className="flex items-start justify-between py-2.5">
                     <div className="pr-4">
-                      <p className="text-[13px] font-medium text-gray-900">Habit text color</p>
+                      <p className="text-[13px] font-medium text-gray-900">Metric number color</p>
                       <p className="text-[13px] text-gray-500">
-                        Applies to habit names and metric values on the Overview page.
+                        Applies to the number portion of each metric on the Overview page.
                       </p>
                       {habitTextLowContrast && (
                         <p className="mt-1 text-[12px] text-amber-600">

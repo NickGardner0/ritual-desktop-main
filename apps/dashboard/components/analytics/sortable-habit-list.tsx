@@ -258,10 +258,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
         {...listeners}
       >
         <div className="min-w-0 flex items-center">
-          <span
-            className="text-[17.5px] font-normal truncate leading-[1.04]"
-            style={{ color: habitTextColor }}
-          >
+          <span className="text-[17.5px] font-normal truncate leading-[1.04] text-gray-900">
             {displayName}
           </span>
         </div>
@@ -271,14 +268,23 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >
-          <span
-            className="text-[17.5px] font-normal select-none tabular-nums leading-[1.04]"
-            style={{ color: habitTextColor }}
-          >
-            <span className={getHabitMetricClassName(habit)} style={{ color: habitTextColor }}>
-              {getHabitMetricDisplay(habit, hoveredValue)}
-            </span>
-          </span>
+          {(() => {
+            const display = getHabitMetricDisplay(habit, hoveredValue);
+            const splitAt = display.lastIndexOf(' ');
+            const value = splitAt === -1 ? display : display.slice(0, splitAt);
+            const unit = splitAt === -1 ? '' : display.slice(splitAt + 1);
+            return (
+              <span className="text-[17.5px] font-normal select-none leading-[1.04]">
+                <span
+                  className={`${getHabitMetricClassName(habit)} tabular-nums`}
+                  style={{ color: habitTextColor }}
+                >
+                  {value}
+                </span>
+                {unit && <span className="ml-1 text-gray-900">{unit}</span>}
+              </span>
+            );
+          })()}
           <button
             onClick={(e) => {
               e.stopPropagation();
