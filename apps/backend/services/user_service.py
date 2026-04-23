@@ -28,6 +28,7 @@ _USER_SAFE_COLUMNS = (
     UserDB.onboarding_completed,
     UserDB.created_at,
     UserDB.updated_at,
+    UserDB.timezone,
     UserDB.sms_welcome_sent_at,
 )
 
@@ -77,7 +78,8 @@ class UserService:
             onboarding_completed=row[9],
             created_at=row[10],
             updated_at=row[11],
-            sms_welcome_sent_at=row[12],
+            timezone=row[12],
+            sms_welcome_sent_at=row[13],
         )
     
     async def get_user_profile(self, user_id: str) -> Optional[UserDB]:

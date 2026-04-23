@@ -43,6 +43,7 @@ def _user_row(
     onboarding_completed: bool = False,
     created_at: datetime | None = None,
     updated_at: datetime | None = None,
+    timezone_name: str | None = None,
     sms_welcome_sent_at: datetime | None = None,
 ):
     return (
@@ -58,6 +59,7 @@ def _user_row(
         onboarding_completed,
         created_at,
         updated_at,
+        timezone_name,
         sms_welcome_sent_at,
     )
 
