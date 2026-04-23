@@ -146,13 +146,14 @@ export const OverviewMetricCard = React.memo(function OverviewMetricCard({
   const dailySeries = getHabitDailySeries(habit);
   const sparkValues = dailySeries.map((point) => point.value).filter((v) => Number.isFinite(v));
   const hasSparkline = sparkValues.length >= 2;
+  const cardStats = getHabitMetricStats(habit);
 
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group relative flex min-w-0 flex-col rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 py-3 min-h-[120px] cursor-grab active:cursor-grabbing transition-colors duration-200 hover:border-[rgba(39,37,30,0.16)] hover:bg-[rgba(39,37,30,0.015)] ${
+        className={`group relative flex min-w-0 flex-col rounded-sm border border-[rgba(39,37,30,0.08)] bg-white px-4 pt-3 pb-2.5 min-h-[108px] cursor-grab active:cursor-grabbing transition-colors duration-200 hover:border-[rgba(39,37,30,0.16)] hover:bg-[rgba(39,37,30,0.015)] ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
@@ -179,26 +180,28 @@ export const OverviewMetricCard = React.memo(function OverviewMetricCard({
         </button>
 
         <div className="min-w-0">
-          <span className="block truncate text-[13px] font-normal text-[rgba(39,37,30,0.62)]">
+          <span className="block truncate text-[12.5px] font-normal tracking-[-0.08px] text-[rgba(39,37,30,0.58)]">
             {displayName}
           </span>
         </div>
 
         <div
           ref={metricTriggerRef}
-          className="relative mt-1 flex cursor-default items-baseline gap-1.5 tooltip-container"
+          className="relative mt-0.5 flex cursor-default items-baseline gap-1.5 tooltip-container"
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
           onPointerDown={(event) => event.stopPropagation()}
         >
           <span
-            className={`text-[26px] font-normal leading-[1.1] tabular-nums truncate ${getHabitMetricClassName(habit)}`}
+            className={`text-[22px] font-normal leading-[1.15] tabular-nums truncate ${getHabitMetricClassName(habit)}`}
             style={{ color: habitTextColor }}
           >
             {value}
           </span>
           {unit ? (
-            <span className="text-[13px] font-normal text-gray-600 truncate">{unit}</span>
+            <span className="text-[12.5px] font-normal text-[rgba(39,37,30,0.58)] truncate">
+              {unit}
+            </span>
           ) : null}
 
           <StatsTooltip open={isTooltipOpen} triggerRef={metricTriggerRef}>
@@ -234,11 +237,17 @@ export const OverviewMetricCard = React.memo(function OverviewMetricCard({
           </StatsTooltip>
         </div>
 
-        <div className="mt-auto pt-3">
+        <div className="mt-auto pt-2">
           {hasSparkline ? (
-            <PerplexityMiniSparkChart values={sparkValues} trend="neutral" height={34} />
+            <PerplexityMiniSparkChart values={sparkValues} trend="neutral" height={30} />
+          ) : cardStats.trackedDays > 0 ? (
+            <div className="flex items-baseline gap-1 text-[11px] font-normal text-[rgba(39,37,30,0.45)] tabular-nums truncate">
+              <span>Avg {cardStats.avgFormatted}</span>
+              <span aria-hidden="true">·</span>
+              <span>{cardStats.trackedDays.toLocaleString()} {cardStats.trackedDays === 1 ? 'day' : 'days'}</span>
+            </div>
           ) : (
-            <div className="h-[34px]" aria-hidden="true" />
+            <div className="h-[14px]" aria-hidden="true" />
           )}
         </div>
       </div>

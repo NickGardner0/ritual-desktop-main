@@ -198,7 +198,7 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className="pt-6 flex-1 overflow-auto pb-4">
+      <div className={`pt-6 flex-1 overflow-auto ${isCardView ? 'pb-40' : 'pb-4'}`}>
         {isCardView ? (
           <div className="max-w-[1200px] mx-auto w-full px-1">
             <SortableHabitGrid

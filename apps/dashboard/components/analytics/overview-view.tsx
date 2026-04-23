@@ -886,6 +886,7 @@ export function OverviewView({
             daysWithData: stats.days_with_data,
             trackedDays: Number(stats.days_with_data || 0),
           },
+          dailySeries: localMetricData.dailySeries,
         });
         continue;
       }
