@@ -21,6 +21,8 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
 import { ViewModeToggle, ViewMode } from './view-mode-toggle';
@@ -379,58 +381,40 @@ function UnifiedAnalyticsContent({
       {!isFullScreenChat && viewMode !== 'chat' && headerRightSlot && createPortal(
         <>
           {viewMode === 'overview' && (
-            <>
-              <div className="inline-flex items-center rounded-sm border border-gray-300 bg-white p-0.5 h-8">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
                 <button
-                  type="button"
-                  onClick={() => {
-                    void setOverviewViewMode('list');
-                  }}
-                  aria-pressed={!isSummaryView}
-                  aria-label="List view"
-                  title="List view"
-                  className={`inline-flex h-[26px] w-[26px] items-center justify-center rounded-[3px] transition-colors ${
-                    !isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                  }`}
+                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
+                  aria-label="Overview menu"
                 >
-                  <List className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void setOverviewViewMode('summary');
-                  }}
-                  aria-pressed={isSummaryView}
-                  aria-label="Summary view"
-                  title="Summary view"
-                  className={`inline-flex h-[26px] w-[26px] items-center justify-center rounded-[3px] transition-colors ${
-                    isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
-                    aria-label="Add"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6}>
-                  <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add habit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setShowImportModal(true)}>
-                    <Download className="w-4 h-4 mr-2" />
-                    Import data
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={6} className="w-44">
+                <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
+                  View
+                </DropdownMenuLabel>
+                <DropdownMenuItem onClick={() => { void setOverviewViewMode('list'); }}>
+                  <List className="w-3.5 h-3.5 mr-2" />
+                  <span>List</span>
+                  {!isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { void setOverviewViewMode('summary'); }}>
+                  <LayoutGrid className="w-3.5 h-3.5 mr-2" />
+                  <span>Card</span>
+                  {isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
+                  <Plus className="w-3.5 h-3.5 mr-2" />
+                  Add habit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowImportModal(true)}>
+                  <Download className="w-3.5 h-3.5 mr-2" />
+                  Import data
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
           <DateRangePicker
             className="w-auto"
