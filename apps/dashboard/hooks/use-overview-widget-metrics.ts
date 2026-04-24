@@ -23,6 +23,8 @@ export interface OverviewWidgetMetrics {
     lastWeekCount: number;
     /** Null when lastWeekCount is 0 (percent change undefined). */
     deltaPct: number | null;
+    /** Log counts for the past 7 days, oldest to newest. Always 7 entries. */
+    dailyCounts: number[];
   };
   streak: {
     days: number;
@@ -34,10 +36,14 @@ export interface OverviewWidgetMetrics {
   sleep: {
     lastNightHours: number | null;
     sevenDayAvgHours: number | null;
+    /** 7-day series in hours. Entries are 0 for days without data. */
+    dailySeries: number[];
   };
   computerTime: {
     yesterdayHours: number | null;
     sevenDayHours: number | null;
+    /** 7-day series in hours, oldest to newest. */
+    dailySeries: number[];
   };
   isLoading: boolean;
 }
@@ -142,12 +148,21 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
       if (habit.id) habitsById.set(habit.id, habit);
     }
 
+    // Build an ordered list of the last 7 day ISO strings (oldest -> newest)
+    const last7DayIsos: string[] = [];
+    for (let i = 6; i >= 0; i -= 1) {
+      last7DayIsos.push(toLocalIsoDate(subDays(today, i)));
+    }
+    const last7IndexByIso = new Map<string, number>();
+    last7DayIsos.forEach((iso, idx) => last7IndexByIso.set(iso, idx));
+
     let todayLogCount = 0;
     const todayLogsByHabit = new Map<string, number>();
     let thisWeekCount = 0;
     const thisWeekByHabit = new Map<string, number>();
     let lastWeekCount = 0;
     const dateSet = new Set<string>();
+    const weekDailyCounts = new Array<number>(7).fill(0);
 
     for (const log of habitLogs) {
       if (log.status !== 'completed') continue;
@@ -164,8 +179,10 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
       }
 
       // Last 7 days = todayIso, todayIso-1, ... , todayIso-6 → strictly greater than (today-7)
-      if (localDate > sevenDaysAgoIso && localDate <= todayIso) {
+      const weekIdx = last7IndexByIso.get(localDate);
+      if (weekIdx !== undefined) {
         thisWeekCount += 1;
+        weekDailyCounts[weekIdx] += 1;
         if (log.habit_id) {
           thisWeekByHabit.set(log.habit_id, (thisWeekByHabit.get(log.habit_id) || 0) + 1);
         }
@@ -208,6 +225,7 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
     // Computer Time: filter the fixed-range snapshot's daily rows.
     let yesterdayHours: number | null = null;
     let computerSevenDayHours: number | null = null;
+    const computerDailySeries = new Array<number>(7).fill(0);
     const computerDaily = computerSnapshot.data?.daily ?? [];
     if (computerDaily.length > 0) {
       let sum = 0;
@@ -220,7 +238,9 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
           yesterdayHours = hours;
           touchedAnyDay = true;
         }
-        if (day > sevenDaysAgoIso && day <= todayIso) {
+        const idx = last7IndexByIso.get(day);
+        if (idx !== undefined) {
+          computerDailySeries[idx] = hours;
           sum += hours;
           touchedAnyDay = true;
         }
@@ -232,6 +252,7 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
 
     // Sleep: latest day with valid sleep value + average over the window.
     const sleepDays = sleepQuery.data ?? [];
+    const sleepDailySeries = new Array<number>(7).fill(0);
     let lastNightHours: number | null = null;
     let latestSleepDate = '';
     let sleepSum = 0;
@@ -246,6 +267,12 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
         latestSleepDate = day.date;
         lastNightHours = hours;
       }
+      if (day.date) {
+        const idx = last7IndexByIso.get(day.date);
+        if (idx !== undefined) {
+          sleepDailySeries[idx] = hours;
+        }
+      }
     }
 
     const sevenDayAvgHours = sleepCount > 0 ? sleepSum / sleepCount : null;
@@ -259,16 +286,22 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
         thisWeekCount,
         lastWeekCount,
         deltaPct,
+        dailyCounts: weekDailyCounts,
       },
       streak: { days: streakDays },
       mostTracked: {
         habitName: mostTracked?.name ?? null,
         count: mostTracked?.count ?? 0,
       },
-      sleep: { lastNightHours, sevenDayAvgHours },
+      sleep: {
+        lastNightHours,
+        sevenDayAvgHours,
+        dailySeries: sleepDailySeries,
+      },
       computerTime: {
         yesterdayHours,
         sevenDayHours: computerSevenDayHours,
+        dailySeries: computerDailySeries,
       },
       isLoading:
         habitsLoading ||
