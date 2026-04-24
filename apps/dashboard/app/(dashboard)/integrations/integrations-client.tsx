@@ -3869,13 +3869,24 @@ export function IntegrationsClient() {
 
   return (
     <>
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center">
+      <div className="mb-6 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full max-w-[280px]">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          <Input
+            value={integrationSearch}
+            onChange={(event) => setIntegrationSearch(event.target.value)}
+            placeholder="Search"
+            className="h-8 rounded-sm border-gray-300 pl-8 text-[13px] shadow-none"
+            aria-label="Search integrations"
+          />
+        </div>
+
         <div className="inline-flex w-fit rounded-sm border border-gray-300 bg-white">
           <button
             type="button"
             onClick={() => setIntegrationFilter('all')}
             className={cn(
-              'rounded-l-sm px-4 py-2 text-sm transition-colors',
+              'rounded-l-sm px-3 py-1.5 text-[13px] transition-colors',
               integrationFilter === 'all'
                 ? 'bg-[#F3F3F3] text-gray-900'
                 : 'bg-white text-gray-500 hover:bg-[#F8F8F8]'
@@ -3887,7 +3898,7 @@ export function IntegrationsClient() {
             type="button"
             onClick={() => setIntegrationFilter('connected')}
             className={cn(
-              'rounded-r-sm border-l border-gray-300 px-4 py-2 text-sm transition-colors',
+              'rounded-r-sm border-l border-gray-300 px-3 py-1.5 text-[13px] transition-colors',
               integrationFilter === 'connected'
                 ? 'bg-[#F3F3F3] text-gray-900'
                 : 'bg-white text-gray-500 hover:bg-[#F8F8F8]'
@@ -3895,17 +3906,6 @@ export function IntegrationsClient() {
           >
             Connected
           </button>
-        </div>
-
-        <div className="relative w-full max-w-md">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            value={integrationSearch}
-            onChange={(event) => setIntegrationSearch(event.target.value)}
-            placeholder={`Search ${integrationCards.length} integrations`}
-            className="h-10 rounded-sm border-gray-300 pl-9 shadow-none"
-            aria-label="Search integrations"
-          />
         </div>
       </div>
 

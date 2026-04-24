@@ -9,15 +9,6 @@ import {
   ResponsiveContainer,
   YAxis,
 } from 'recharts';
-import {
-  CalendarCheck,
-  BarChart3,
-  Flame,
-  Award,
-  Moon,
-  Monitor,
-  type LucideIcon,
-} from 'lucide-react';
 import { useOverviewWidgetMetrics } from '@/hooks/use-overview-widget-metrics';
 
 // ---- Chart subcomponents -------------------------------------------------
@@ -75,11 +66,9 @@ function MiniLineChart({ data }: { data: number[] }) {
 // ---- Card shell ----------------------------------------------------------
 
 interface SummaryCardProps {
-  icon: LucideIcon;
   title: string;
   /**
    * Narrative children can include <strong> spans for inline emphasis on values.
-   * Rendered as 1-2 lines at 13px.
    */
   narrative: React.ReactNode;
   /** Large number/word displayed below the narrative. Mutually exclusive with `chart`. */
@@ -93,7 +82,6 @@ interface SummaryCardProps {
 }
 
 function SummaryCard({
-  icon: Icon,
   title,
   narrative,
   value,
@@ -102,37 +90,34 @@ function SummaryCard({
   emptyState = false,
 }: SummaryCardProps) {
   return (
-    <div className="flex h-full min-h-[188px] flex-col rounded-sm border border-[#e6e6e6] bg-white px-5 py-4">
-      <div className="flex items-center gap-1.5">
-        <Icon className="h-3 w-3 text-[rgba(39,37,30,0.58)]" strokeWidth={1.75} />
-        <span className="text-[12.5px] font-normal leading-none text-[rgba(39,37,30,0.58)]">
-          {title}
-        </span>
-      </div>
+    <div className="flex h-full min-h-[150px] flex-col rounded-sm border border-[#e6e6e6] bg-white px-4 py-3.5">
+      <span className="text-[12px] font-normal leading-none tracking-[-0.01em] text-[rgba(39,37,30,0.5)]">
+        {title}
+      </span>
 
       {emptyState ? (
         <div className="mt-auto flex flex-col justify-end">
-          <span className="text-[13px] font-normal text-[rgba(39,37,30,0.42)]">
+          <span className="text-[12.5px] font-normal text-[rgba(39,37,30,0.42)]">
             Not tracked yet
           </span>
         </div>
       ) : (
         <>
-          <p className="mt-4 text-[13px] font-normal leading-[1.4] text-[#27251E]">
+          <p className="mt-3 text-[12.5px] font-normal leading-[1.45] tracking-[-0.005em] text-[#27251E]">
             {narrative}
           </p>
 
-          <div className="mt-auto pt-3">
+          <div className="mt-auto pt-2.5">
             {chart ? (
-              <div className="h-[58px] w-full">{chart}</div>
+              <div className="h-[44px] w-full">{chart}</div>
             ) : value ? (
-              <div className="text-[26px] font-normal leading-tight tabular-nums text-[#27251E] truncate">
+              <div className="text-[22px] font-normal leading-[1.15] tracking-[-0.02em] tabular-nums text-[#27251E] truncate">
                 {value}
               </div>
             ) : null}
 
             {footer ? (
-              <div className="mt-2 text-[11.5px] font-normal text-[rgba(39,37,30,0.48)] tabular-nums truncate">
+              <div className="mt-1.5 text-[11px] font-normal text-[rgba(39,37,30,0.45)] tabular-nums truncate">
                 {footer}
               </div>
             ) : null}
@@ -300,16 +285,14 @@ export function OverviewSummaryCards() {
       : undefined;
 
   return (
-    <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div className="grid w-full grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
       <SummaryCard
-        icon={CalendarCheck}
         title="Today"
         narrative={todayNarrative}
         value={todayValue}
       />
 
       <SummaryCard
-        icon={BarChart3}
         title="This week"
         narrative={weekNarrative}
         chart={weekHasData ? <MiniBarChart data={metrics.week.dailyCounts} /> : undefined}
@@ -317,14 +300,12 @@ export function OverviewSummaryCards() {
       />
 
       <SummaryCard
-        icon={Flame}
         title="Active streak"
         narrative={streakNarrative}
         value={streakValue}
       />
 
       <SummaryCard
-        icon={Award}
         title="Most tracked this week"
         narrative={mostTrackedNarrative}
         value={mostTrackedValue}
@@ -333,7 +314,6 @@ export function OverviewSummaryCards() {
       />
 
       <SummaryCard
-        icon={Moon}
         title="Sleep"
         narrative={sleepNarrative}
         chart={sleepHasChart ? <MiniLineChart data={metrics.sleep.dailySeries} /> : undefined}
@@ -342,7 +322,6 @@ export function OverviewSummaryCards() {
       />
 
       <SummaryCard
-        icon={Monitor}
         title="Computer Time"
         narrative={computerNarrative}
         chart={computerHasChart ? <MiniLineChart data={metrics.computerTime.dailySeries} /> : undefined}

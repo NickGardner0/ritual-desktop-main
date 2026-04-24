@@ -3,7 +3,15 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
+import { Plus, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
@@ -129,62 +137,41 @@ function OverviewInitialSectionInner({
           ) : null}
 
           <div className="flex items-center space-x-1 relative z-10">
-            <div className="mr-1 inline-flex items-center rounded-sm border border-gray-300 bg-white p-0.5 h-9">
-              <button
-                type="button"
-                onClick={() => {
-                  void setOverviewViewMode('list');
-                }}
-                aria-pressed={!isSummaryView}
-                aria-label="List view"
-                title="List view"
-                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
-                  !isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                }`}
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void setOverviewViewMode('summary');
-                }}
-                aria-pressed={isSummaryView}
-                aria-label="Summary view"
-                title="Summary view"
-                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
-                  isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                }`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="relative group">
-              <button
-                onClick={onShowSelectionModal}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
-                aria-label="Add Habit"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                Add
-              </div>
-            </div>
-
-            <div className="relative group">
-              <button
-                onClick={onShowImportModal}
-                className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
-                aria-label="Import Data"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              <div className="absolute top-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                Import
-              </div>
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="Overview menu"
+                  className="h-9 px-3 py-2 border border-gray-300 bg-white text-black hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] transition-colors rounded-sm flex items-center justify-center"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
+                  View
+                </DropdownMenuLabel>
+                <DropdownMenuItem onSelect={() => { void setOverviewViewMode('list'); }}>
+                  <List className="mr-2 h-3.5 w-3.5" />
+                  <span>List</span>
+                  {!isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { void setOverviewViewMode('summary'); }}>
+                  <LayoutGrid className="mr-2 h-3.5 w-3.5" />
+                  <span>Card</span>
+                  {isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={onShowSelectionModal}>
+                  <Plus className="mr-2 h-3.5 w-3.5" />
+                  <span>Add habit</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onShowImportModal}>
+                  <Upload className="mr-2 h-3.5 w-3.5" />
+                  <span>Import data</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
             <DateRangePicker
               className="w-auto"
