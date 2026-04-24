@@ -9,9 +9,17 @@ const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
 export const DEFAULT_HABIT_TEXT_COLOR = '#000000';
+export const DEFAULT_OVERVIEW_VIEW_MODE: OverviewViewMode = 'list';
+
+export type OverviewViewMode = 'list' | 'summary';
+
+function isOverviewViewMode(value: unknown): value is OverviewViewMode {
+  return value === 'list' || value === 'summary';
+}
 
 export interface UIPreferences {
   habit_text_color: string | null;
+  overview_view_mode: OverviewViewMode | null;
 }
 
 function readCachedPreferences(): UIPreferences | undefined {
@@ -24,6 +32,9 @@ function readCachedPreferences(): UIPreferences | undefined {
     return {
       habit_text_color:
         typeof parsed.habit_text_color === 'string' ? parsed.habit_text_color : null,
+      overview_view_mode: isOverviewViewMode(parsed.overview_view_mode)
+        ? parsed.overview_view_mode
+        : null,
     };
   } catch {
     return undefined;
@@ -59,6 +70,9 @@ export function useUIPreferences() {
       const prefs: UIPreferences = {
         habit_text_color:
           typeof data?.habit_text_color === 'string' ? data.habit_text_color : null,
+        overview_view_mode: isOverviewViewMode(data?.overview_view_mode)
+          ? data.overview_view_mode
+          : null,
       };
       writeCachedPreferences(prefs);
       return prefs;
@@ -69,10 +83,14 @@ export function useUIPreferences() {
   });
 
   const habitTextColor = query.data?.habit_text_color ?? DEFAULT_HABIT_TEXT_COLOR;
+  const overviewViewMode: OverviewViewMode =
+    query.data?.overview_view_mode ?? DEFAULT_OVERVIEW_VIEW_MODE;
 
   const setHabitTextColor = useCallback(
     async (color: string | null) => {
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
       const next: UIPreferences = {
+        ...previous,
         habit_text_color: color,
       };
       queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
@@ -95,12 +113,44 @@ export function useUIPreferences() {
         throw new Error(`Failed to save UI preferences (${response.status})`);
       }
     },
-    [getToken, queryClient, user?.id],
+    [getToken, queryClient, query.data, user?.id],
+  );
+
+  const setOverviewViewMode = useCallback(
+    async (mode: OverviewViewMode) => {
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
+      const next: UIPreferences = {
+        ...previous,
+        overview_view_mode: mode,
+      };
+      queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
+      writeCachedPreferences(next);
+
+      const token = await getToken();
+      if (!token) return;
+
+      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ overview_view_mode: mode }),
+      });
+
+      if (!response.ok) {
+        queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
+        throw new Error(`Failed to save UI preferences (${response.status})`);
+      }
+    },
+    [getToken, queryClient, query.data, user?.id],
   );
 
   return {
     habitTextColor,
     setHabitTextColor,
+    overviewViewMode,
+    setOverviewViewMode,
     isLoading: query.isLoading,
   };
 }

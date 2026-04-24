@@ -3,12 +3,13 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
+import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
 import type { Habit } from '@/contexts/HabitsContext';
 import type { SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
+import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
@@ -17,6 +18,11 @@ const DateRangePicker = dynamic(
 
 const SortableHabitList = dynamic(
   () => import('@/components/analytics/sortable-habit-list').then((m) => ({ default: m.SortableHabitList })),
+  { ssr: false },
+);
+
+const OverviewSummaryCards = dynamic(
+  () => import('@/components/analytics/overview-summary-cards').then((m) => ({ default: m.OverviewSummaryCards })),
   { ssr: false },
 );
 
@@ -92,6 +98,9 @@ function OverviewInitialSectionInner({
   onShowSelectionModal,
   onShowImportModal,
 }: OverviewInitialSectionProps) {
+  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
+  const isSummaryView = overviewViewMode === 'summary';
+
   const handleScrubberSelect = React.useCallback((date: string | null) => {
     onScrubberSelect(date);
     if (date) {
@@ -120,6 +129,37 @@ function OverviewInitialSectionInner({
           ) : null}
 
           <div className="flex items-center space-x-1 relative z-10">
+            <div className="mr-1 inline-flex items-center rounded-sm border border-gray-300 bg-white p-0.5 h-9">
+              <button
+                type="button"
+                onClick={() => {
+                  void setOverviewViewMode('list');
+                }}
+                aria-pressed={!isSummaryView}
+                aria-label="List view"
+                title="List view"
+                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
+                  !isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
+                }`}
+              >
+                <List className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void setOverviewViewMode('summary');
+                }}
+                aria-pressed={isSummaryView}
+                aria-label="Summary view"
+                title="Summary view"
+                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
+                  isSummaryView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+            </div>
+
             <div className="relative group">
               <button
                 onClick={onShowSelectionModal}
@@ -155,24 +195,30 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className="pt-6 flex-1 overflow-auto pb-4">
-        <div className="max-w-[408px] mx-auto w-full">
-          <SortableHabitList
-            habits={orderedHabits}
-            onReorder={onReorder}
-            getHabitMetricDisplay={getHabitMetricDisplay}
-            getHabitMetricClassName={getHabitMetricClassName}
-            scrubberHoveredDate={scrubberHoveredDate}
-            scrubberHoveredValues={scrubberHoveredValues}
-            activeTooltip={activeTooltip}
-            setActiveTooltip={setActiveTooltip}
-            getHabitMetricStats={getHabitMetricStats}
-            onUpdateHabitDetails={onUpdateHabitDetails}
-            updatingHabitId={updatingHabitId}
-            confirmDelete={confirmDelete}
-            deletingHabit={deletingHabit}
-          />
-        </div>
+      <div className={`pt-6 flex-1 overflow-auto ${isSummaryView ? 'pb-24' : 'pb-4'}`}>
+        {isSummaryView ? (
+          <div className="max-w-[960px] mx-auto w-full px-1">
+            <OverviewSummaryCards />
+          </div>
+        ) : (
+          <div className="max-w-[408px] mx-auto w-full">
+            <SortableHabitList
+              habits={orderedHabits}
+              onReorder={onReorder}
+              getHabitMetricDisplay={getHabitMetricDisplay}
+              getHabitMetricClassName={getHabitMetricClassName}
+              scrubberHoveredDate={scrubberHoveredDate}
+              scrubberHoveredValues={scrubberHoveredValues}
+              activeTooltip={activeTooltip}
+              setActiveTooltip={setActiveTooltip}
+              getHabitMetricStats={getHabitMetricStats}
+              onUpdateHabitDetails={onUpdateHabitDetails}
+              updatingHabitId={updatingHabitId}
+              confirmDelete={confirmDelete}
+              deletingHabit={deletingHabit}
+            />
+          </div>
+        )}
       </div>
     </>
   );

@@ -12,7 +12,7 @@ from database.models import UserUIPreferencesDB
 
 HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
-VALID_OVERVIEW_VIEW_MODES = {"list", "card"}
+VALID_OVERVIEW_VIEW_MODES = {"list", "summary"}
 
 
 def _normalize_hex(value: Optional[str]) -> Optional[str]:
