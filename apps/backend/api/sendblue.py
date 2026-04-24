@@ -39,6 +39,7 @@ SENDBLUE_WEBHOOK_SECRET = os.getenv("SENDBLUE_WEBHOOK_SECRET", "")
 DASHBOARD_BASE_URL = os.getenv("DASHBOARD_BASE_URL", "https://desktop.ritualdb.com")
 INTERNAL_SMS_CHAT_SECRET = os.getenv("INTERNAL_SMS_CHAT_SECRET", "")
 INTERNAL_BACKEND_TOKEN = os.getenv("INTERNAL_BACKEND_TOKEN", "")
+RITUAL_LANDING_PAGE_URL = os.getenv("RITUAL_LANDING_PAGE_URL", "https://ritualdb.com")
 
 
 def _load_orchestrator_timeout() -> float:
@@ -392,8 +393,8 @@ async def sendblue_webhook(request: Request):
         logger.warning("No Ritual user found for phone: %s", sender_phone)
         await _send_sms(
             sender_phone,
-            "This phone number isn't linked to a Ritual account. "
-            "Add your phone number in Ritual to start logging habits via text."
+            "Welcome to Ritual, to link this phone number and start interacting "
+            f"with the app through SMS, please download the desktop app: {RITUAL_LANDING_PAGE_URL}"
         )
         return {"status": "ok", "error": "user_not_found"}
 
