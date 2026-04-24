@@ -14,9 +14,11 @@ from services.sendblue_service import get_ritual_vcard_url
 from services.sms_delivery_service import send_message, send_segments_and_persist
 
 WELCOME_TEXT = (
-    "I’m Ritual SMS Copilot. You can text me things like \"worked out 45 min\", "
-    "\"how was my sleep this week?\", or \"what distracted me today?\" I’ll log it, "
-    "reflect it back, and text you when your data points to something useful."
+    "Welcome to Ritual. The desktop app helps you track computer use, connect "
+    "wearables, and turn your data into useful daily insights. You can also text me "
+    "here over SMS/iMessage with things like \"worked out 45 min\", \"how was my "
+    "sleep this week?\", or \"what distracted me today?\" and I’ll log it, reflect "
+    "it back, and surface useful patterns."
 )
 
 VCARD_PROMPT = "Save this contact so you always know it's Ritual:"

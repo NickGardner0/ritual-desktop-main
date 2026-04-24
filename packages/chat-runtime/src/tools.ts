@@ -282,8 +282,9 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         type: 'object',
         properties: {
           habitName: { type: 'string', description: 'Name of the habit to log, matching one of the user\'s existing habits (case-insensitive fuzzy match is OK)' },
-          amount: { type: 'number', description: 'Numeric value to log (e.g. 30 for "30mg", 3 for "3 miles"). Null for boolean/checkbox habits.' },
-          note: { type: 'string', description: 'Optional note to attach to the log entry (e.g. the original user message)' },
+          amount: { type: 'number', description: 'Numeric value to log in the SAME unit the user stated (e.g. 30 for "30mg", 3 for "3 miles", 1 for "1 hour"). Do not pre-convert hours to minutes. Null for boolean/checkbox habits.' },
+          unitType: { type: 'string', description: 'Optional unit exactly as the user stated it (e.g. "hours", "minutes", "miles", "mg"). Preserve the user\'s unit instead of converting it.' },
+          note: { type: 'string', description: 'Optional note to attach to the log entry. For SMS logging, pass the user\'s original message verbatim when possible.' },
         },
         required: ['habitName'],
       },

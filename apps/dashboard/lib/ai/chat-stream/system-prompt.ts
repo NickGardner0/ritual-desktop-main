@@ -232,6 +232,7 @@ WRITE intent (only here may you call logHabit / createHabit):
 - Imperative verbs: "log", "add", "record", "track", "start tracking", "create a habit for"
 - Past-tense self-report of an action just completed: "just ran 3 miles", "I meditated for 10 min", "drank 20oz water"
 - No question mark, no interrogative word, clearly reporting something the user did
+- When calling logHabit, preserve the user's stated unit. Do not convert "1 hour" into 60 or "3 miles" into kilometers yourself.
 
 IF AMBIGUOUS → treat as READ. A missed log is recoverable (user retries). A wrong log corrupts the user's data history.
 
@@ -265,6 +266,7 @@ WRITE intent (only here may you call logHabit / createHabit):
 - Bare value + unit: "30mg caffeine", "8h sleep", "45 min run"
 - Past-tense action just completed: "ran 5k this morning", "meditated 10 min"
 - Explicit verb: "log", "add", "record", "track", "create a habit for"
+- When calling logHabit, preserve the user's stated unit. Do not convert hours to minutes or miles to kilometers yourself.
 
 IF AMBIGUOUS → treat as READ. A missed log is recoverable. A wrong log corrupts
 the user's data history.

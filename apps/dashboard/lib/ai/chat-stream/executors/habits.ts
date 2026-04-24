@@ -38,6 +38,166 @@ function getLocalDateString(timezone?: string): string {
   return `${year}-${month}-${day}`;
 }
 
+const UNIT_CANONICAL: Record<string, string> = {
+  min: 'minutes',
+  mins: 'minutes',
+  minute: 'minutes',
+  hr: 'hours',
+  hrs: 'hours',
+  hour: 'hours',
+  sec: 'seconds',
+  secs: 'seconds',
+  second: 'seconds',
+  mi: 'miles',
+  mile: 'miles',
+  km: 'kilometers',
+  kilometer: 'kilometers',
+  step: 'steps',
+  page: 'pages',
+  milligram: 'mg',
+  milligrams: 'mg',
+  gram: 'grams',
+  kilogram: 'kilograms',
+  kilograms: 'kilograms',
+  milliliter: 'milliliters',
+  milliliters: 'milliliters',
+  liter: 'liters',
+  liters: 'liters',
+  ounce: 'ounces',
+  ounces: 'ounces',
+};
+
+const QUANTIFIED_UNIT_PATTERN =
+  /(\d[\d,]*(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|seconds?|secs?|sec|s|miles?|mi|kilometers?|kilometer|km|steps?|pages?|page|mg|milligrams?|g|grams?|kg|kilograms?|ml|milliliters?|l|liters?|oz|ounces?)\b/gi;
+
+function normalizeUnit(unit?: string | null): string {
+  if (!unit) return 'count';
+  const lower = unit.toLowerCase().trim();
+  return UNIT_CANONICAL[lower] || lower;
+}
+
+function checkUnitCompatibility(fromUnit?: string | null, toUnit?: string | null): { compatible: boolean; error?: string } {
+  const from = normalizeUnit(fromUnit);
+  const to = normalizeUnit(toUnit);
+
+  if (from === to || from === 'count' || to === 'count') {
+    return { compatible: true };
+  }
+
+  const timeUnits = new Set(['seconds', 'minutes', 'hours']);
+  if (timeUnits.has(from) && timeUnits.has(to)) {
+    return { compatible: true };
+  }
+
+  const distanceUnits = new Set(['meters', 'kilometers', 'miles']);
+  if (distanceUnits.has(from) && distanceUnits.has(to)) {
+    return { compatible: true };
+  }
+
+  return { compatible: false, error: `Cannot convert ${fromUnit || 'count'} to ${toUnit || 'count'}` };
+}
+
+function convertValue(value: number, fromUnit?: string | null, toUnit?: string | null): { value: number; converted: boolean } {
+  const from = normalizeUnit(fromUnit);
+  const to = normalizeUnit(toUnit);
+
+  if (from === to) {
+    return { value, converted: false };
+  }
+
+  if (from === 'minutes' && to === 'hours') return { value: value / 60, converted: true };
+  if (from === 'hours' && to === 'minutes') return { value: value * 60, converted: true };
+  if (from === 'seconds' && to === 'minutes') return { value: value / 60, converted: true };
+  if (from === 'seconds' && to === 'hours') return { value: value / 3600, converted: true };
+  if (from === 'minutes' && to === 'seconds') return { value: value * 60, converted: true };
+  if (from === 'hours' && to === 'seconds') return { value: value * 3600, converted: true };
+
+  if (from === 'kilometers' && to === 'miles') return { value: value * 0.621371, converted: true };
+  if (from === 'miles' && to === 'kilometers') return { value: value * 1.60934, converted: true };
+
+  return { value, converted: false };
+}
+
+function extractCompatibleMeasurementFromNote(note?: string, habitUnit?: string | null): { value: number; unit: string } | null {
+  if (!note) return null;
+
+  const normalizedHabitUnit = normalizeUnit(habitUnit);
+  const matches = Array.from(note.matchAll(QUANTIFIED_UNIT_PATTERN))
+    .map((match) => {
+      const value = Number(match[1].replace(/,/g, ''));
+      if (!Number.isFinite(value)) return null;
+      return {
+        value,
+        unit: normalizeUnit(match[2]),
+      };
+    })
+    .filter((match): match is { value: number; unit: string } => Boolean(match));
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const exact = matches.find((match) => match.unit === normalizedHabitUnit);
+  if (exact) {
+    return exact;
+  }
+
+  return matches.find((match) => checkUnitCompatibility(match.unit, normalizedHabitUnit).compatible) || null;
+}
+
+function isObviouslyAbsurdAmount(amount: number, habitUnit?: string | null): boolean {
+  const unit = normalizeUnit(habitUnit);
+  if (unit === 'hours') return amount > 24;
+  if (unit === 'minutes') return amount > 1440;
+  if (unit === 'seconds') return amount > 86400;
+  return false;
+}
+
+function normalizeLogAmount(rawAmount: number | null | undefined, params: {
+  unitType?: string;
+  note?: string;
+}, habitUnit?: string | null): {
+  amount: number | null;
+  correctionSource?: 'note' | 'unit';
+  error?: string;
+} {
+  if (rawAmount === undefined || rawAmount === null) {
+    return { amount: null };
+  }
+
+  const noteMeasurement = extractCompatibleMeasurementFromNote(params.note, habitUnit);
+  if (noteMeasurement) {
+    const compat = checkUnitCompatibility(noteMeasurement.unit, habitUnit);
+    if (!compat.compatible) {
+      return { amount: null, error: compat.error };
+    }
+    return {
+      amount: convertValue(noteMeasurement.value, noteMeasurement.unit, habitUnit).value,
+      correctionSource: 'note',
+    };
+  }
+
+  if (params.unitType) {
+    const compat = checkUnitCompatibility(params.unitType, habitUnit);
+    if (!compat.compatible) {
+      return { amount: null, error: compat.error };
+    }
+    return {
+      amount: convertValue(rawAmount, params.unitType, habitUnit).value,
+      correctionSource: 'unit',
+    };
+  }
+
+  if (isObviouslyAbsurdAmount(rawAmount, habitUnit)) {
+    return {
+      amount: null,
+      error: `That value looks too large for a ${habitUnit || 'time-based'} habit. Please include the unit explicitly, like "1 hour workout".`,
+    };
+  }
+
+  return { amount: rawAmount };
+}
+
 // ---------------------------------------------------------------------------
 // executeGetHabitStats
 // ---------------------------------------------------------------------------
@@ -261,6 +421,7 @@ export async function executeGetStreaks(token: string, params: {
 export async function executeLogHabit(token: string, params: {
   habitName: string;
   amount?: number;
+  unitType?: string;
   note?: string;
 }, timezone?: string) {
   console.log('📝 logHabit called:', params);
@@ -293,14 +454,19 @@ export async function executeLogHabit(token: string, params: {
       });
     }
 
+    const normalized = normalizeLogAmount(params.amount, params, matched.unit_type);
+    if (normalized.error) {
+      return JSON.stringify({ error: normalized.error });
+    }
+
     // Step 3: Log the entry
     const today = getLocalDateString(timezone);
     const logBody: Record<string, unknown> = {
       date: today,
       status: 'completed',
     };
-    if (params.amount !== undefined && params.amount !== null) {
-      logBody.amount = params.amount;
+    if (normalized.amount !== undefined && normalized.amount !== null) {
+      logBody.amount = normalized.amount;
     }
     if (params.note) {
       logBody.notes = params.note;
@@ -312,7 +478,7 @@ export async function executeLogHabit(token: string, params: {
       logBody,
     );
 
-    let smsConfirmation = `Logged ${matched.name}${params.amount !== undefined && params.amount !== null ? `: ${params.amount}${matched.unit_type ? ` ${matched.unit_type}` : ''}` : ''}.`;
+    let smsConfirmation = `Logged ${matched.name}${normalized.amount !== undefined && normalized.amount !== null ? `: ${normalized.amount}${matched.unit_type ? ` ${matched.unit_type}` : ''}` : ''}.`;
     let smsConfirmationMeta: Record<string, unknown> | null = null;
 
     const internalUserId = getInternalUserId(token);
@@ -325,7 +491,7 @@ export async function executeLogHabit(token: string, params: {
           {
             user_id: internalUserId,
             habit_id: matched.id,
-            amount: params.amount ?? null,
+            amount: normalized.amount ?? null,
             note: params.note,
             logged_at: new Date().toISOString(),
           },
@@ -348,7 +514,7 @@ export async function executeLogHabit(token: string, params: {
       success: true,
       habit_name: matched.name,
       habit_id: matched.id,
-      amount: params.amount ?? null,
+      amount: normalized.amount ?? null,
       date: today,
       log: result,
       sms_confirmation: smsConfirmation,

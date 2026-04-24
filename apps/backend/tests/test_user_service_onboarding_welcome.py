@@ -3,7 +3,7 @@ import sys
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -65,6 +65,95 @@ def _user_row(
 
 
 class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ensure_user_exists_sends_welcome_for_new_phone_signup(self):
+        service = UserService()
+        session = AsyncMock()
+        session.add = Mock()
+        session.execute = AsyncMock(side_effect=[_Result(first=None), None])
+
+        with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
+        ) as send_welcome:
+            user = await service.ensure_user_exists(
+                user_id="user-1",
+                email="nick@example.com",
+                full_name="Nick Gardner",
+                phone_number="631-745-0064",
+            )
+
+        send_welcome.assert_awaited_once_with(
+            user_id="user-1",
+            phone_number="+16317450064",
+            full_name="Nick Gardner",
+        )
+        self.assertEqual(user.phone_number, "+16317450064")
+        self.assertIsInstance(user.sms_welcome_sent_at, datetime)
+        self.assertEqual(session.commit.await_count, 2)
+
+    async def test_ensure_user_exists_sends_welcome_when_phone_synced_from_clerk(self):
+        service = UserService()
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _Result(first=_user_row(user_id="user-1", phone_number=None, sms_welcome_sent_at=None)),
+                None,
+                None,
+            ]
+        )
+
+        with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
+        ) as send_welcome:
+            user = await service.ensure_user_exists(
+                user_id="user-1",
+                email="nick@example.com",
+                full_name="Nick Gardner",
+                phone_number="631-745-0064",
+            )
+
+        send_welcome.assert_awaited_once_with(
+            user_id="user-1",
+            phone_number="+16317450064",
+            full_name="Nick Gardner",
+        )
+        self.assertEqual(user.phone_number, "+16317450064")
+        self.assertIsInstance(user.sms_welcome_sent_at, datetime)
+        self.assertEqual(session.commit.await_count, 2)
+
+    async def test_ensure_user_exists_skips_welcome_when_already_sent(self):
+        service = UserService()
+        sent_at = datetime.now(timezone.utc)
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _Result(
+                    first=_user_row(
+                        user_id="user-1",
+                        phone_number="+16317450064",
+                        sms_welcome_sent_at=sent_at,
+                    )
+                ),
+            ]
+        )
+
+        with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
+        ) as send_welcome:
+            user = await service.ensure_user_exists(
+                user_id="user-1",
+                email="nick@example.com",
+                full_name="Nick Gardner",
+                phone_number="631-745-0064",
+            )
+
+        send_welcome.assert_not_awaited()
+        self.assertEqual(user.phone_number, "+16317450064")
+        self.assertEqual(user.sms_welcome_sent_at, sent_at)
+        self.assertEqual(session.commit.await_count, 0)
+
     async def test_update_onboarding_sends_welcome_once_when_phone_present(self):
         service = UserService()
         existing_user = SimpleNamespace(
