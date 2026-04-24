@@ -100,7 +100,15 @@ interface CardSeries {
   total: number
   change?: number
   daysWithData: number
-  data: { date: string; t: number; label: string; value: number }[]
+  data: {
+    date: string
+    t: number
+    label: string
+    value: number
+    sleepOnset?: string | null
+    sleepEnd?: string | null
+    time?: string | null
+  }[]
 }
 
 function buildCardSeries(source: HabitSparkSource, range: RangeKey): CardSeries {
@@ -127,6 +135,16 @@ function buildCardSeries(source: HabitSparkSource, range: RangeKey): CardSeries 
   const meta = barData.find((d) => d.habitId === source.habitId)
 
   const dailyMap = new Map<string, number>()
+  const sleepMetadataMap = new Map<
+    string,
+    {
+      sleepOnset?: string | null
+      sleepEnd?: string | null
+      time?: string | null
+      completedAt?: string | null
+      score: number
+    }
+  >()
   if (isComputer) {
     for (const row of source.computerActivityDaily ?? []) {
       if (!row.day) continue
@@ -140,16 +158,39 @@ function buildCardSeries(source: HabitSparkSource, range: RangeKey): CardSeries 
       if (!log.date) continue
       const v = Number(log.daily_value ?? log.value ?? log.total_amount ?? 0)
       dailyMap.set(log.date, (dailyMap.get(log.date) ?? 0) + v)
+
+      const sleepOnset = (log.sleep_onset ?? null) as string | null
+      const sleepEnd = (log.sleep_end ?? null) as string | null
+      const time = (log.time ?? log.completed_at ?? null) as string | null
+      const score = Number(Boolean(sleepOnset)) + Number(Boolean(sleepEnd)) + Number(Boolean(time))
+      if (score > 0) {
+        const existing = sleepMetadataMap.get(log.date)
+        const existingTs = existing?.completedAt ? new Date(existing.completedAt).getTime() : 0
+        const candidateTs = log.completed_at ? new Date(log.completed_at).getTime() : 0
+        if (!existing || score > existing.score || (score === existing.score && candidateTs > existingTs)) {
+          sleepMetadataMap.set(log.date, {
+            sleepOnset,
+            sleepEnd,
+            time,
+            completedAt: log.completed_at ?? null,
+            score,
+          })
+        }
+      }
     }
   }
 
   const data = days.map((day) => {
     const key = toKey(day)
+    const sleepMetadata = sleepMetadataMap.get(key)
     return {
       date: key,
       t: day.getTime(),
       label: showShortLabel ? format(day, 'M/d') : format(day, 'MMM d'),
       value: dailyMap.get(key) ?? 0,
+      sleepOnset: sleepMetadata?.sleepOnset ?? null,
+      sleepEnd: sleepMetadata?.sleepEnd ?? null,
+      time: sleepMetadata?.time ?? null,
     }
   })
 

@@ -32,6 +32,7 @@ export type MetricDailyRow = {
   sleep_end?: string | null;
   time?: string | null;
   completed_at?: string | null;
+  metadata?: Record<string, unknown> | string | null;
   active_hours?: number;
   events_count?: number;
   apps_count?: number;

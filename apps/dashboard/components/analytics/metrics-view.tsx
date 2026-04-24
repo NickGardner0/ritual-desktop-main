@@ -289,6 +289,57 @@ function getMetricLogNumericValue(habit: HabitData, log: { duration?: number | n
   return 1;
 }
 
+function extractSleepMetadataFromLog(log: {
+  metadata?: unknown;
+  sleep_onset?: string | null;
+  sleepOnset?: string | null;
+  sleep_end?: string | null;
+  sleepEnd?: string | null;
+  time?: string | null;
+  completed_at?: string | null;
+}) {
+  let parsedMeta: Record<string, unknown> = {};
+  if (log.metadata) {
+    if (typeof log.metadata === 'string') {
+      try {
+        parsedMeta = JSON.parse(log.metadata);
+      } catch {
+        parsedMeta = {};
+      }
+    } else if (typeof log.metadata === 'object') {
+      parsedMeta = { ...(log.metadata as Record<string, unknown>) };
+    }
+  }
+
+  const sleepOnset = (
+    parsedMeta.sleep_onset
+    ?? parsedMeta.sleepOnset
+    ?? log.sleep_onset
+    ?? log.sleepOnset
+    ?? null
+  ) as string | null;
+  const sleepEnd = (
+    parsedMeta.sleep_end
+    ?? parsedMeta.sleepEnd
+    ?? log.sleep_end
+    ?? log.sleepEnd
+    ?? null
+  ) as string | null;
+  const time = (
+    parsedMeta.time
+    ?? log.time
+    ?? log.completed_at
+    ?? null
+  ) as string | null;
+
+  return {
+    metadata: parsedMeta,
+    sleepOnset,
+    sleepEnd,
+    time,
+  };
+}
+
 function buildLocalMetricDailyRows(
   habit: HabitData,
   logs: Array<{
@@ -297,6 +348,12 @@ function buildLocalMetricDailyRows(
     status?: string | null;
     duration?: number | null;
     amount?: number | null;
+    metadata?: unknown;
+    sleep_onset?: string | null;
+    sleepOnset?: string | null;
+    sleep_end?: string | null;
+    sleepEnd?: string | null;
+    time?: string | null;
   }>,
   minDateInclusive?: string,
   maxDateInclusive?: string,
@@ -305,6 +362,17 @@ function buildLocalMetricDailyRows(
 
   const useMaxPerDay = isSleepLikeHabit(habit);
   const dailyValues = new Map<string, number>();
+  const dailySleepMetadata = new Map<
+    string,
+    {
+      sleep_onset?: string | null;
+      sleep_end?: string | null;
+      time?: string | null;
+      completed_at?: string | null;
+      metadata?: Record<string, unknown>;
+      score: number;
+    }
+  >();
 
   for (const log of logs) {
     if (!isCompletedMetricLogStatus(log.status)) continue;
@@ -316,18 +384,49 @@ function buildLocalMetricDailyRows(
     const value = getMetricLogNumericValue(habit, log);
     const previous = dailyValues.get(day) || 0;
     dailyValues.set(day, useMaxPerDay ? Math.max(previous, value) : previous + value);
+
+    if (useMaxPerDay) {
+      const { metadata, sleepOnset, sleepEnd, time } = extractSleepMetadataFromLog(log);
+      const score =
+        Number(Boolean(sleepOnset))
+        + Number(Boolean(sleepEnd))
+        + Number(Boolean(time));
+      if (score > 0) {
+        const existing = dailySleepMetadata.get(day);
+        const existingTs = existing?.completed_at ? new Date(existing.completed_at).getTime() : 0;
+        const candidateTs = log.completed_at ? new Date(log.completed_at).getTime() : 0;
+        if (!existing || score > existing.score || (score === existing.score && candidateTs > existingTs)) {
+          dailySleepMetadata.set(day, {
+            sleep_onset: sleepOnset,
+            sleep_end: sleepEnd,
+            time,
+            completed_at: log.completed_at ?? null,
+            metadata,
+            score,
+          });
+        }
+      }
+    }
   }
 
   return Array.from(dailyValues.entries())
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([date, value]) => ({
-      habit_id: habit.habit_id,
-      date,
-      daily_value: value,
-      total_amount: value,
-      unit: getMetricUnitLabel(habit),
-      completed_count: value > 0 ? 1 : 0,
-    }));
+    .map(([date, value]) => {
+      const sleepMetadata = dailySleepMetadata.get(date);
+      return {
+        habit_id: habit.habit_id,
+        date,
+        daily_value: value,
+        total_amount: value,
+        unit: getMetricUnitLabel(habit),
+        completed_count: value > 0 ? 1 : 0,
+        sleep_onset: sleepMetadata?.sleep_onset ?? null,
+        sleep_end: sleepMetadata?.sleep_end ?? null,
+        time: sleepMetadata?.time ?? null,
+        completed_at: sleepMetadata?.completed_at ?? null,
+        metadata: sleepMetadata?.metadata ?? null,
+      };
+    });
 }
 
 function buildLocalMetricSummary(
