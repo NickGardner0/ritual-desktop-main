@@ -36,25 +36,38 @@ class WearableQueryServiceTests(unittest.TestCase):
 
     def test_select_provider_rows_prefers_matching_provider(self):
         grouped_rows = {
-            "whoop": [SimpleNamespace(id="w1")],
-            "apple_health": [SimpleNamespace(id="a1"), SimpleNamespace(id="a2")],
+            "whoop": [SimpleNamespace(id="w1", provider="whoop", source_id="s1")],
+            "apple_health": [
+                SimpleNamespace(id="a1", provider="apple_health", source_id="s2"),
+                SimpleNamespace(id="a2", provider="apple_health", source_id="s3"),
+            ],
+        }
+        source_map = {
+            "s2": SimpleNamespace(id="s2", provider="apple_health", source_kind="device", device_name="Apple Watch", device_model=None, device_type="watch", platform="ios", priority_rank=10, source_bundle_id=None, metadata_json=None),
+            "s3": SimpleNamespace(id="s3", provider="apple_health", source_kind="device", device_name="iPhone", device_model=None, device_type="phone", platform="ios", priority_rank=50, source_bundle_id=None, metadata_json=None),
         }
 
-        rows, provider = self.service._select_provider_rows(grouped_rows, "apple_health")
+        rows, provider, selected_source = self.service._select_provider_rows(grouped_rows, "apple_health", source_map)
 
         self.assertEqual(provider, "apple_health")
-        self.assertEqual([row.id for row in rows], ["a1", "a2"])
+        self.assertEqual([row.id for row in rows], ["a1"])
+        self.assertEqual(selected_source["device_name"], "Apple Watch")
 
-    def test_select_provider_rows_falls_back_to_mixed_without_preference(self):
+    def test_select_provider_rows_uses_source_priority_without_preference(self):
         grouped_rows = {
-            "whoop": [SimpleNamespace(id="w1")],
-            "apple_health": [SimpleNamespace(id="a1")],
+            "whoop": [SimpleNamespace(id="w1", provider="whoop", source_id="s1")],
+            "apple_health": [SimpleNamespace(id="a1", provider="apple_health", source_id="s2")],
+        }
+        source_map = {
+            "s1": SimpleNamespace(id="s1", provider="whoop", source_kind="device", device_name="Whoop Strap", device_model=None, device_type="patch", platform=None, priority_rank=40, source_bundle_id=None, metadata_json=None),
+            "s2": SimpleNamespace(id="s2", provider="apple_health", source_kind="device", device_name="Apple Watch", device_model=None, device_type="watch", platform="ios", priority_rank=10, source_bundle_id=None, metadata_json=None),
         }
 
-        rows, provider = self.service._select_provider_rows(grouped_rows, None)
+        rows, provider, selected_source = self.service._select_provider_rows(grouped_rows, None, source_map)
 
-        self.assertEqual(provider, "mixed")
-        self.assertEqual({row.id for row in rows}, {"w1", "a1"})
+        self.assertEqual(provider, "apple_health")
+        self.assertEqual([row.id for row in rows], ["a1"])
+        self.assertEqual(selected_source["priority_rank"], 10)
 
     def test_wearable_query_params_accepts_timeline_page_limit(self):
         params = WearableQueryParams(limit=5000)

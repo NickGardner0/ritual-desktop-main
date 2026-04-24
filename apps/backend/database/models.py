@@ -325,6 +325,7 @@ class WearableRawPayloadDB(Base):
     payload_json = Column(Text, nullable=False)
     received_at = Column(DateTime, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=True)
+    normalization_error_json = Column(Text, nullable=True)
 
     user = relationship("UserDB")
     connection = relationship("WearableConnectionDB")
@@ -477,6 +478,67 @@ class WearableSyncRunDB(Base):
     metadata_json = Column(Text, nullable=True)
 
     connection = relationship("WearableConnectionDB")
+
+
+class WearableIngestJobBatchDB(Base):
+    """Batch grouping for queued wearable ingest jobs."""
+    __tablename__ = "wearable_ingest_job_batches"
+
+    id = Column(String, primary_key=True)
+    provider = Column(String, nullable=True)
+    requested_by_user_id = Column(String, ForeignKey("users.id"), nullable=True)
+    trigger = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="queued")  # queued, running, succeeded, failed, canceled
+    total_jobs = Column(Integer, nullable=False, default=0)
+    completed_jobs = Column(Integer, nullable=False, default=0)
+    failed_jobs = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    requested_by_user = relationship("UserDB")
+
+
+class WearableIngestJobDB(Base):
+    """DB-backed queue of heavy wearable ingest jobs."""
+    __tablename__ = "wearable_ingest_jobs"
+
+    id = Column(String, primary_key=True)
+    batch_id = Column(String, ForeignKey("wearable_ingest_job_batches.id"), nullable=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    job_type = Column(String, nullable=False)  # provider_backfill, raw_payload_replay, apple_legacy_backfill
+    trigger = Column(String, nullable=False, default="manual")
+    status = Column(String, nullable=False, default="queued")  # queued, running, succeeded, failed, canceled
+    metric_scope_json = Column(Text, nullable=True)
+    start_date = Column(String, nullable=True)
+    end_date = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error_json = Column(Text, nullable=True)
+    idempotency_key = Column(String, nullable=True)
+    sync_run_id = Column(String, ForeignKey("wearable_sync_runs.id"), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    last_attempt_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    batch = relationship("WearableIngestJobBatchDB")
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+    sync_run = relationship("WearableSyncRunDB")
+
+    __table_args__ = (
+        Index("idx_wearable_ingest_jobs_status_created", "status", "created_at"),
+        Index("idx_wearable_ingest_jobs_user_provider", "user_id", "provider"),
+        Index("idx_wearable_ingest_jobs_idempotency", "idempotency_key", unique=True),
+    )
 
 
 class FinancialConnectionDB(Base):

@@ -816,6 +816,67 @@ async def _sms_copilot_loop() -> None:
         await asyncio.sleep(300)
 
 
+async def _wearable_ingest_job_loop() -> None:
+    """Process queued wearable backfill/replay jobs in-process."""
+    await asyncio.sleep(60)
+    logger.info("🧵 Wearable ingest job loop started (runs every 15 seconds)")
+
+    while True:
+        try:
+            from services.wearable_ingest_job_service import wearable_ingest_job_service
+
+            result = await wearable_ingest_job_service.process_next_job()
+            if result:
+                logger.info(
+                    "🧵 Wearable ingest job processed: job_id=%s status=%s",
+                    result.get("job_id"),
+                    result.get("status"),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Wearable ingest job loop failed: %s", exc)
+
+        await asyncio.sleep(15)
+
+
+async def _wearable_maintenance_loop() -> None:
+    """Compact historical wearable rows and purge expired raw payloads nightly."""
+    await asyncio.sleep(90)
+    logger.info("🧹 Wearable maintenance loop started (runs every 24 hours)")
+
+    while True:
+        try:
+            from services.unified_wearables_service import wearable_sync_service
+            from services.wearable_maintenance_service import wearable_maintenance_service
+
+            run = await wearable_sync_service.start_sync_run(
+                provider="system",
+                trigger="maintenance",
+                metadata={"task": "wearable_maintenance"},
+            )
+            result = await wearable_maintenance_service.run_once()
+            items_written = sum(
+                int(block.get("written", 0))
+                for block in result.values()
+                if isinstance(block, dict)
+            )
+            items_deleted = int(result.get("raw_payloads", {}).get("deleted_payloads", 0))
+            await wearable_sync_service.finish_sync_run(
+                run.id,
+                status="success",
+                items_written=items_written,
+                items_deleted=items_deleted,
+            )
+            logger.info("🧹 Wearable maintenance complete: %s", result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Wearable maintenance loop failed: %s", exc)
+
+        await asyncio.sleep(86400)
+
+
 async def _post_startup_initialization() -> None:
     """Run nonessential startup work after readiness is available."""
     logger = logging.getLogger("uvicorn")
@@ -864,9 +925,13 @@ async def _post_startup_initialization() -> None:
         app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
         app.state.report_scheduler_task = asyncio.create_task(_report_scheduler_loop())
         app.state.sms_copilot_task = asyncio.create_task(_sms_copilot_loop())
+        app.state.wearable_ingest_job_task = asyncio.create_task(_wearable_ingest_job_loop())
+        app.state.wearable_maintenance_task = asyncio.create_task(_wearable_maintenance_loop())
         logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
         logger.info("📨 Report scheduler started")
         logger.info("📲 SMS copilot scheduler started")
+        logger.info("🧵 Wearable ingest job worker started")
+        logger.info("🧹 Wearable maintenance scheduler started")
     else:
         logger.info("⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)")
 
@@ -896,6 +961,8 @@ async def startup_event():
     app.state.scheduler_task = None
     app.state.report_scheduler_task = None
     app.state.sms_copilot_task = None
+    app.state.wearable_ingest_job_task = None
+    app.state.wearable_maintenance_task = None
     if ENABLE_STARTUP_MAINTENANCE_TASK:
         app.state.startup_maintenance_task = asyncio.create_task(
             _delayed_post_startup_initialization()
@@ -924,7 +991,23 @@ async def shutdown_event():
     scheduler_task = getattr(app.state, "scheduler_task", None)
     report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
     sms_copilot_task = getattr(app.state, "sms_copilot_task", None)
-    tasks = [t for t in [worker_task, retention_task, semantic_task, startup_maintenance_task, scheduler_task, report_scheduler_task, sms_copilot_task] if t is not None]
+    wearable_ingest_job_task = getattr(app.state, "wearable_ingest_job_task", None)
+    wearable_maintenance_task = getattr(app.state, "wearable_maintenance_task", None)
+    tasks = [
+        t
+        for t in [
+            worker_task,
+            retention_task,
+            semantic_task,
+            startup_maintenance_task,
+            scheduler_task,
+            report_scheduler_task,
+            sms_copilot_task,
+            wearable_ingest_job_task,
+            wearable_maintenance_task,
+        ]
+        if t is not None
+    ]
     for task in tasks:
         task.cancel()
     if tasks:

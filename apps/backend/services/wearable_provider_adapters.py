@@ -178,10 +178,16 @@ def list_provider_defs() -> list[dict[str, Any]]:
                 "display_name": definition.display_name,
                 "auth_method": definition.auth_method,
                 "supports_sync": True,
+                "delivery_modes": list(definition.delivery_modes),
                 "supports_webhook": definition.supports_webhook,
                 "supports_import_fallback": definition.supports_import_fallback,
                 "supports_metric_selection": definition.supports_metric_selection,
                 "supports_backfill": definition.supports_backfill,
+                "supports_async_backfill": definition.supports_async_backfill,
+                "supports_live_sync_mode_selection": definition.supports_live_sync_mode_selection,
+                "max_historical_days": definition.max_historical_days,
+                "default_live_sync_mode": definition.default_live_sync_mode,
+                "supports_anchor_confirmed_ingest": definition.supports_anchor_confirmed_ingest,
             }
         )
     return items

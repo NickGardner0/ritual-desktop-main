@@ -402,6 +402,7 @@ async def _run_migrations(session):
         ("wearable_samples", "rollup_window_minutes", "ALTER TABLE wearable_samples ADD COLUMN rollup_window_minutes INTEGER"),
         ("wearable_samples", "sample_count", "ALTER TABLE wearable_samples ADD COLUMN sample_count INTEGER"),
         ("wearable_samples", "should_project_to_habit_logs", "ALTER TABLE wearable_samples ADD COLUMN should_project_to_habit_logs INTEGER NOT NULL DEFAULT 1"),
+        ("wearable_raw_payloads", "normalization_error_json", "ALTER TABLE wearable_raw_payloads ADD COLUMN normalization_error_json TEXT"),
         ("user_ui_preferences", "overview_view_mode", "ALTER TABLE user_ui_preferences ADD COLUMN overview_view_mode TEXT"),
     ]
     
@@ -612,6 +613,61 @@ async def _run_migrations(session):
                 error_json TEXT,
                 metadata_json TEXT,
                 FOREIGN KEY(connection_id) REFERENCES wearable_connections(id)
+            )
+            """,
+        ),
+        (
+            "wearable_ingest_job_batches",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_ingest_job_batches (
+                id TEXT PRIMARY KEY,
+                provider TEXT,
+                requested_by_user_id TEXT,
+                trigger TEXT,
+                status TEXT NOT NULL DEFAULT 'queued',
+                total_jobs INTEGER NOT NULL DEFAULT 0,
+                completed_jobs INTEGER NOT NULL DEFAULT 0,
+                failed_jobs INTEGER NOT NULL DEFAULT 0,
+                metadata_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_at DATETIME,
+                completed_at DATETIME,
+                FOREIGN KEY(requested_by_user_id) REFERENCES users(id)
+            )
+            """,
+        ),
+        (
+            "wearable_ingest_jobs",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_ingest_jobs (
+                id TEXT PRIMARY KEY,
+                batch_id TEXT,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                provider TEXT NOT NULL,
+                job_type TEXT NOT NULL,
+                trigger TEXT NOT NULL DEFAULT 'manual',
+                status TEXT NOT NULL DEFAULT 'queued',
+                metric_scope_json TEXT,
+                start_date TEXT,
+                end_date TEXT,
+                payload_json TEXT,
+                result_json TEXT,
+                error_json TEXT,
+                idempotency_key TEXT,
+                sync_run_id TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 3,
+                last_attempt_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_at DATETIME,
+                completed_at DATETIME,
+                FOREIGN KEY(batch_id) REFERENCES wearable_ingest_job_batches(id),
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
+                FOREIGN KEY(sync_run_id) REFERENCES wearable_sync_runs(id)
             )
             """,
         ),
@@ -869,6 +925,9 @@ async def _run_migrations(session):
         ("idx_habit_projection_policies_habit", "CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_projection_policies_habit ON habit_projection_policies (habit_id)"),
         ("idx_wearable_sync_cursors_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_sync_cursors_unique ON wearable_sync_cursors (connection_id, COALESCE(source_id, ''), cursor_key)"),
         ("idx_wearable_raw_payloads_provider_received", "CREATE INDEX IF NOT EXISTS idx_wearable_raw_payloads_provider_received ON wearable_raw_payloads (provider, received_at)"),
+        ("idx_wearable_ingest_jobs_status_created", "CREATE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_status_created ON wearable_ingest_jobs (status, created_at)"),
+        ("idx_wearable_ingest_jobs_user_provider", "CREATE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_user_provider ON wearable_ingest_jobs (user_id, provider)"),
+        ("idx_wearable_ingest_jobs_idempotency", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_idempotency ON wearable_ingest_jobs (idempotency_key) WHERE idempotency_key IS NOT NULL"),
         ("idx_heart_rate_sessions_user_started", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_started ON heart_rate_sessions (user_id, started_at)"),
         ("idx_heart_rate_sessions_user_status", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_status ON heart_rate_sessions (user_id, status)"),
         ("idx_heart_rate_samples_user_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_user_received ON heart_rate_samples (user_id, received_at)"),

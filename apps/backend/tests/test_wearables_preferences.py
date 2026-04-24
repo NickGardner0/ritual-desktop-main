@@ -77,8 +77,32 @@ class MetricPreferenceHelpersTests(unittest.TestCase):
         self.assertEqual(
             metrics,
             {
-                "sleep_session": {"sync_mode": "daily_only"},
-                "steps": {"sync_mode": "granular"},
+                "sleep_session": {
+                    "sync_mode": "daily_only",
+                    "sync_plan": {
+                        "provider": "apple_health",
+                        "metric_type": "sleep_session",
+                        "sync_mode": "daily_only",
+                        "delivery_mode": "client_sdk",
+                        "backfill_mode": "manual_queue",
+                        "safe_history_days": 730,
+                        "projects_to_habit_logs": True,
+                        "capability_provider": "apple_health",
+                    },
+                },
+                "steps": {
+                    "sync_mode": "granular",
+                    "sync_plan": {
+                        "provider": "apple_health",
+                        "metric_type": "steps",
+                        "sync_mode": "granular",
+                        "delivery_mode": "client_sdk",
+                        "backfill_mode": "manual_queue",
+                        "safe_history_days": 30,
+                        "projects_to_habit_logs": False,
+                        "capability_provider": "apple_health",
+                    },
+                },
             },
         )
 

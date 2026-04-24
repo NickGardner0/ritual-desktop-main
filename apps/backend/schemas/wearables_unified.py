@@ -23,6 +23,20 @@ class WearableAuthMethod(str, Enum):
     IMPORT = "import"
 
 
+class WearableDeliveryMode(str, Enum):
+    CLIENT_SDK = "client_sdk"
+    REST_PULL = "rest_pull"
+    WEBHOOK_STREAM = "webhook_stream"
+    WEBHOOK_PING = "webhook_ping"
+    FILE_IMPORT = "file_import"
+
+
+class WearableLiveSyncMode(str, Enum):
+    OFF = "off"
+    DAILY_ONLY = "daily_only"
+    GRANULAR = "granular"
+
+
 class WearableConnectionStatus(str, Enum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -35,10 +49,27 @@ class WearableCapability(BaseModel):
     display_name: str
     auth_method: WearableAuthMethod
     supports_sync: bool = True
+    delivery_modes: List[WearableDeliveryMode] = Field(default_factory=list)
     supports_webhook: bool = False
     supports_import_fallback: bool = False
     supports_metric_selection: bool = True
     supports_backfill: bool = True
+    supports_async_backfill: bool = False
+    supports_live_sync_mode_selection: bool = False
+    max_historical_days: Optional[int] = None
+    default_live_sync_mode: WearableLiveSyncMode = WearableLiveSyncMode.DAILY_ONLY
+    supports_anchor_confirmed_ingest: bool = False
+
+
+class WearableSyncPlanRead(BaseModel):
+    provider: WearableProviderName
+    metric_type: str
+    sync_mode: WearableLiveSyncMode
+    delivery_mode: WearableDeliveryMode
+    backfill_mode: str
+    safe_history_days: int
+    projects_to_habit_logs: bool = True
+    capability_provider: Optional[WearableProviderName] = None
 
 
 class WearableConnectionRead(BaseModel):
@@ -61,6 +92,8 @@ class WearableConnectionRead(BaseModel):
     latest_upstream_sleep_date: Optional[str] = None
     is_upstream_stale: bool = False
     stale_message: Optional[str] = None
+    capability: Optional[WearableCapability] = None
+    sync_plans: List[WearableSyncPlanRead] = Field(default_factory=list)
 
 
 class WearableSourceRead(BaseModel):
@@ -207,11 +240,14 @@ class WearableSeriesPointRead(BaseModel):
     rollup_window_minutes: Optional[int] = None
     attributed_date: Optional[str] = None
     source_device_name: Optional[str] = None
+    selected_source: Optional[Dict[str, Any]] = None
 
 
 class WearableSeriesResponse(BaseModel):
     metric_type: str
     resolution: str
+    resolved_resolution: Optional[str] = None
+    selected_source: Optional[Dict[str, Any]] = None
     points: List[WearableSeriesPointRead]
 
 
@@ -220,6 +256,7 @@ class WearableDailyMetricValueRead(BaseModel):
     unit: Optional[str] = None
     aggregation: Optional[str] = None
     provider: Optional[str] = None
+    selected_source: Optional[Dict[str, Any]] = None
 
 
 class WearableDailyTotalRead(BaseModel):
@@ -229,3 +266,63 @@ class WearableDailyTotalRead(BaseModel):
 
 class WearableDailyTotalsResponse(BaseModel):
     days: List[WearableDailyTotalRead]
+
+
+class WearableIngestJobRead(BaseModel):
+    id: str
+    batch_id: Optional[str] = None
+    user_id: str
+    provider: WearableProviderName
+    job_type: str
+    trigger: str
+    status: str
+    metric_scope: Optional[Dict[str, Any]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    attempts: int = 0
+    max_attempts: int = 3
+    payload: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[Dict[str, Any]] = None
+    idempotency_key: Optional[str] = None
+    sync_run_id: Optional[str] = None
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class WearableIngestJobBatchRead(BaseModel):
+    id: str
+    provider: Optional[WearableProviderName] = None
+    requested_by_user_id: Optional[str] = None
+    trigger: Optional[str] = None
+    status: str
+    total_jobs: int = 0
+    completed_jobs: int = 0
+    failed_jobs: int = 0
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class WearableIngestJobsResponse(BaseModel):
+    jobs: List[WearableIngestJobRead]
+    count: int
+
+
+class WearableRawPayloadRead(BaseModel):
+    id: str
+    user_id: str
+    provider: WearableProviderName
+    direction: str
+    external_id: Optional[str] = None
+    payload_sha256: str
+    received_at: str
+    expires_at: Optional[str] = None
+    normalization_error: Optional[Dict[str, Any]] = None
+
+
+class WearableRawPayloadsResponse(BaseModel):
+    payloads: List[WearableRawPayloadRead]
+    count: int

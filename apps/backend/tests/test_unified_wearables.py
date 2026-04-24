@@ -14,9 +14,14 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from services.unified_wearables_service import WearableNormalizationService, WearableProjectionService
+from services.unified_wearables_service import (
+    WearableNormalizationService,
+    WearableProjectionService,
+    build_wearable_sync_plan,
+    _default_source_priority_rank,
+)
 from services.garmin_service import GarminService
-from services.wearable_provider_adapters import GarminAdapter, OuraAdapter, WhoopAdapter
+from services.wearable_provider_adapters import GarminAdapter, OuraAdapter, WhoopAdapter, list_provider_defs
 
 
 def _decode_state(encoded: str) -> dict:
@@ -149,6 +154,42 @@ class WearableProviderAdapterTests(unittest.TestCase):
     def test_garmin_service_extracts_provider_user_id(self):
         payload = {"meta": {"userId": "garmin-user-1"}}
         self.assertEqual(GarminService.extract_provider_user_id(payload), "garmin-user-1")
+
+    def test_provider_defs_include_delivery_modes_and_anchor_support(self):
+        providers = {item["provider"]: item for item in list_provider_defs()}
+        self.assertEqual(providers["apple_health"]["delivery_modes"], ["client_sdk"])
+        self.assertTrue(providers["apple_health"]["supports_anchor_confirmed_ingest"])
+        self.assertTrue(providers["garmin"]["supports_async_backfill"])
+
+
+class WearableCapabilityPlanningTests(unittest.TestCase):
+    def test_build_sync_plan_for_granular_steps_uses_client_sdk_defaults(self):
+        plan = build_wearable_sync_plan(
+            provider="apple_health",
+            metric_type="steps",
+            sync_mode="granular",
+            projects_to_habit_logs=False,
+        )
+
+        self.assertEqual(
+            plan,
+            {
+                "provider": "apple_health",
+                "metric_type": "steps",
+                "sync_mode": "granular",
+                "delivery_mode": "client_sdk",
+                "backfill_mode": "manual_queue",
+                "safe_history_days": 30,
+                "projects_to_habit_logs": False,
+                "capability_provider": "apple_health",
+            },
+        )
+
+    def test_default_source_priority_prefers_watch_over_phone(self):
+        self.assertLess(
+            _default_source_priority_rank(source_kind="device", device_type="watch", device_name="Apple Watch", platform="ios"),
+            _default_source_priority_rank(source_kind="device", device_type="phone", device_name="iPhone", platform="ios"),
+        )
 
 
 if __name__ == "__main__":

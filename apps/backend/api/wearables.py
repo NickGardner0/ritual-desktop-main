@@ -43,6 +43,15 @@ def _coerce_settings_payload(settings_json: Any) -> dict[str, Any]:
     return {}
 
 
+def _require_internal_key(internal_key: Optional[str]) -> None:
+    expected_internal_key = os.getenv("INTERNAL_API_KEY")
+    if not expected_internal_key:
+        logger.error("INTERNAL_API_KEY is not configured")
+        raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+    if internal_key != expected_internal_key:
+        raise HTTPException(status_code=403, detail="Invalid internal API key")
+
+
 def _normalize_metric_preferences_v2(
     settings: Optional[dict[str, Any]],
     allowed_metric_types: set[str],
@@ -88,15 +97,38 @@ def _selected_metrics_from_preferences(
 def _build_tracked_metrics_contract(
     preferences: dict[str, dict[str, str]],
     habit_metric_types: set[str],
-) -> dict[str, dict[str, str]]:
-    metrics: dict[str, dict[str, str]] = {
-        metric_type: {"sync_mode": preference.get("sync_mode", "daily_only")}
+) -> dict[str, dict[str, Any]]:
+    from services.unified_wearables_service import build_wearable_sync_plan
+
+    metrics: dict[str, dict[str, Any]] = {
+        metric_type: {
+            "sync_mode": preference.get("sync_mode", "daily_only"),
+            "sync_plan": build_wearable_sync_plan(
+                provider="apple_health",
+                metric_type=metric_type,
+                sync_mode=preference.get("sync_mode", "daily_only"),
+                projects_to_habit_logs=False,
+            ),
+        }
         for metric_type, preference in preferences.items()
         if preference.get("sync_mode") in {"daily_only", "granular"}
     }
 
     for metric_type in sorted(habit_metric_types):
-        metrics.setdefault(metric_type, {"sync_mode": "daily_only"})
+        metrics.setdefault(
+            metric_type,
+            {
+                "sync_mode": "daily_only",
+                "sync_plan": build_wearable_sync_plan(
+                    provider="apple_health",
+                    metric_type=metric_type,
+                    sync_mode="daily_only",
+                    projects_to_habit_logs=True,
+                ),
+            },
+        )
+        if "sync_plan" in metrics[metric_type]:
+            metrics[metric_type]["sync_plan"]["projects_to_habit_logs"] = True
 
     return metrics
 
@@ -181,7 +213,9 @@ def create_wearables_router(
         wearable_query_service,
         wearable_sync_service,
     )
+    from services.wearable_ingest_job_service import wearable_ingest_job_service
     from services.wearable_provider_adapters import get_provider_adapter, list_provider_defs
+    from services.wearable_maintenance_service import wearable_maintenance_service
     from schemas.wearables_apple import (
         DeviceRegisterRequest,
         DeviceRegisterResponse,
@@ -194,6 +228,8 @@ def create_wearables_router(
         WearableConnectionActionResponse,
         WearableConnectionsResponse,
         WearableDailyTotalsResponse,
+        WearableIngestJobsResponse,
+        WearableRawPayloadsResponse,
         WearableSeriesResponse,
         WearableSyncResponse,
         WearableTimelineResponse,
@@ -529,12 +565,7 @@ def create_wearables_router(
         payload: ScheduledWearableSyncRequest,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
-        expected_internal_key = os.getenv("INTERNAL_API_KEY")
-        if not expected_internal_key:
-            logger.error("INTERNAL_API_KEY is not configured")
-            raise HTTPException(status_code=503, detail="Service temporarily unavailable")
-        if internal_key != expected_internal_key:
-            raise HTTPException(status_code=403, detail="Invalid internal API key")
+        _require_internal_key(internal_key)
 
         if provider == "apple_health":
             return {
@@ -618,6 +649,108 @@ def create_wearables_router(
             "total_users": len(sync_results),
             "successful_syncs": successful_syncs,
             "results": sync_results,
+        }
+
+    @router.post("/api/wearables/{provider}/backfill", response_model=dict)
+    async def enqueue_wearable_backfill(
+        provider: str,
+        body: dict,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        user_id = body.get("user_id")
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise HTTPException(status_code=400, detail="user_id is required")
+        try:
+            job = await wearable_ingest_job_service.enqueue_backfill_job(
+                user_id=user_id,
+                provider=provider,
+                metric_scope=body.get("metric_scope") if isinstance(body.get("metric_scope"), dict) else None,
+                start_date=body.get("start_date"),
+                end_date=body.get("end_date"),
+                trigger=str(body.get("trigger") or "manual_backfill"),
+                requested_by_user_id=body.get("requested_by_user_id"),
+            )
+            return {"success": True, "job_id": job.id, "status": job.status}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/api/wearables/sync-jobs", response_model=WearableIngestJobsResponse)
+    async def get_wearable_sync_jobs(
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        jobs = await wearable_ingest_job_service.list_jobs(
+            user_id=user_id,
+            provider=provider,
+            status=status,
+            limit=limit,
+        )
+        return {
+            "jobs": [
+                {
+                    "id": job.id,
+                    "batch_id": job.batch_id,
+                    "user_id": job.user_id,
+                    "provider": job.provider,
+                    "job_type": job.job_type,
+                    "trigger": job.trigger,
+                    "status": job.status,
+                    "metric_scope": json.loads(job.metric_scope_json) if job.metric_scope_json else None,
+                    "start_date": job.start_date,
+                    "end_date": job.end_date,
+                    "attempts": int(job.attempts or 0),
+                    "max_attempts": int(job.max_attempts or 0),
+                    "payload": json.loads(job.payload_json) if job.payload_json else None,
+                    "result": json.loads(job.result_json) if job.result_json else None,
+                    "error": json.loads(job.error_json) if job.error_json else None,
+                    "idempotency_key": job.idempotency_key,
+                    "sync_run_id": job.sync_run_id,
+                    "created_at": job.created_at.isoformat(),
+                    "started_at": job.started_at.isoformat() if job.started_at else None,
+                    "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+                }
+                for job in jobs
+            ],
+            "count": len(jobs),
+        }
+
+    @router.get("/api/wearables/sync-jobs/{job_id}", response_model=dict)
+    async def get_wearable_sync_job(
+        job_id: str,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        job = await wearable_ingest_job_service.get_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Wearable ingest job not found")
+        return {
+            "job": {
+                "id": job.id,
+                "batch_id": job.batch_id,
+                "user_id": job.user_id,
+                "provider": job.provider,
+                "job_type": job.job_type,
+                "trigger": job.trigger,
+                "status": job.status,
+                "metric_scope": json.loads(job.metric_scope_json) if job.metric_scope_json else None,
+                "start_date": job.start_date,
+                "end_date": job.end_date,
+                "attempts": int(job.attempts or 0),
+                "max_attempts": int(job.max_attempts or 0),
+                "payload": json.loads(job.payload_json) if job.payload_json else None,
+                "result": json.loads(job.result_json) if job.result_json else None,
+                "error": json.loads(job.error_json) if job.error_json else None,
+                "idempotency_key": job.idempotency_key,
+                "sync_run_id": job.sync_run_id,
+                "created_at": job.created_at.isoformat(),
+                "started_at": job.started_at.isoformat() if job.started_at else None,
+                "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            }
         }
 
     @router.get("/api/wearables/samples")
@@ -704,7 +837,17 @@ def create_wearables_router(
             resolution=resolution,
             limit=limit,
         )
-        return {"metric_type": metric_type, "resolution": resolution, "points": points}
+        resolved_resolution = points[0].get("rollup_level") if points else resolution
+        if resolved_resolution in {None, ""}:
+            resolved_resolution = resolution
+        selected_source = points[0].get("selected_source") if points else None
+        return {
+            "metric_type": metric_type,
+            "resolution": resolution,
+            "resolved_resolution": resolved_resolution,
+            "selected_source": selected_source,
+            "points": points,
+        }
 
     @router.get("/api/wearables/daily-totals", response_model=WearableDailyTotalsResponse)
     async def get_wearable_daily_totals(
@@ -925,6 +1068,107 @@ def create_wearables_router(
             limit=limit,
         )
         return {"sync_runs": [_serialize_sync_run(run) for run in runs], "count": len(runs)}
+
+    @router.get("/api/wearables/raw-payloads", response_model=WearableRawPayloadsResponse)
+    async def get_wearable_raw_payloads(
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        start_time: Optional[str] = None,
+        end_time: Optional[str] = None,
+        limit: int = 100,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        try:
+            parsed_start = _parse_iso_datetime(start_time, field_name="start_time")
+            parsed_end = _parse_iso_datetime(end_time, field_name="end_time")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        payloads = await wearable_sync_service.list_raw_payloads(
+            user_id=user_id,
+            provider=provider,
+            start_time=parsed_start,
+            end_time=parsed_end,
+            limit=limit,
+        )
+        return {
+            "payloads": [
+                {
+                    "id": payload.id,
+                    "user_id": payload.user_id,
+                    "provider": payload.provider,
+                    "direction": payload.direction,
+                    "external_id": payload.external_id,
+                    "payload_sha256": payload.payload_sha256,
+                    "received_at": payload.received_at.isoformat(),
+                    "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+                    "normalization_error": json.loads(payload.normalization_error_json)
+                    if payload.normalization_error_json
+                    else None,
+                }
+                for payload in payloads
+            ],
+            "count": len(payloads),
+        }
+
+    @router.get("/api/wearables/raw-payloads/errors", response_model=WearableRawPayloadsResponse)
+    async def get_wearable_raw_payload_errors(
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        limit: int = 100,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        payloads = await wearable_sync_service.list_raw_payloads(
+            user_id=user_id,
+            provider=provider,
+            has_error=True,
+            limit=limit,
+        )
+        return {
+            "payloads": [
+                {
+                    "id": payload.id,
+                    "user_id": payload.user_id,
+                    "provider": payload.provider,
+                    "direction": payload.direction,
+                    "external_id": payload.external_id,
+                    "payload_sha256": payload.payload_sha256,
+                    "received_at": payload.received_at.isoformat(),
+                    "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
+                    "normalization_error": json.loads(payload.normalization_error_json)
+                    if payload.normalization_error_json
+                    else None,
+                }
+                for payload in payloads
+            ],
+            "count": len(payloads),
+        }
+
+    @router.post("/api/wearables/raw-payloads/{payload_id}/replay", response_model=dict)
+    async def replay_wearable_raw_payload(
+        payload_id: str,
+        body: dict,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        try:
+            job = await wearable_ingest_job_service.enqueue_raw_payload_replay(
+                payload_id=payload_id,
+                requested_by_user_id=body.get("requested_by_user_id"),
+            )
+            return {"success": True, "job_id": job.id, "status": job.status}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/api/wearables/internal/maintenance/run", response_model=dict)
+    async def run_wearable_maintenance(
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        result = await wearable_maintenance_service.run_once()
+        return {"success": True, "result": result}
 
     @router.get("/api/wearables/oauth/{provider}/callback")
     async def wearable_oauth_callback(
@@ -1512,12 +1756,17 @@ def create_wearables_router(
 
                 metrics = _build_tracked_metrics_contract(preferences, habit_types)
                 all_types = sorted(metrics.keys())
+                capability = next(
+                    (item for item in list_provider_defs() if item["provider"] == "apple_health"),
+                    None,
+                )
 
                 return {
                     "metric_types": all_types,
                     "metrics": metrics,
                     "habits": habits_list,
                     "preferences": preferences,
+                    "provider_capability": capability,
                 }
 
         except Exception as e:

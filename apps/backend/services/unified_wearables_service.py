@@ -26,6 +26,8 @@ from database.models import (
     WearableConnectionDB,
     WearableDeviceDB,
     WearableEventDB,
+    WearableIngestJobBatchDB,
+    WearableIngestJobDB,
     WearableMetricDB,
     WearableRawPayloadDB,
     WearableSampleDB,
@@ -43,10 +45,16 @@ class ProviderCapabilityDef:
     provider: str
     display_name: str
     auth_method: str
+    delivery_modes: Tuple[str, ...] = ("rest_pull",)
     supports_webhook: bool = False
     supports_import_fallback: bool = False
     supports_metric_selection: bool = True
     supports_backfill: bool = True
+    supports_async_backfill: bool = False
+    supports_live_sync_mode_selection: bool = False
+    max_historical_days: Optional[int] = None
+    default_live_sync_mode: str = "daily_only"
+    supports_anchor_confirmed_ingest: bool = False
     is_available: bool = True
 
 
@@ -55,33 +63,169 @@ PROVIDER_CAPABILITIES: Dict[str, ProviderCapabilityDef] = {
         provider="apple_health",
         display_name="Apple Health",
         auth_method="sdk",
+        delivery_modes=("client_sdk",),
         supports_import_fallback=True,
+        supports_async_backfill=False,
+        supports_live_sync_mode_selection=True,
+        max_historical_days=730,
+        default_live_sync_mode="daily_only",
+        supports_anchor_confirmed_ingest=True,
     ),
     "whoop": ProviderCapabilityDef(
         provider="whoop",
         display_name="Whoop",
         auth_method="oauth",
+        delivery_modes=("rest_pull",),
+        supports_async_backfill=True,
+        max_historical_days=365,
     ),
     "garmin": ProviderCapabilityDef(
         provider="garmin",
         display_name="Garmin",
         auth_method="oauth",
+        delivery_modes=("webhook_stream", "rest_pull"),
         supports_webhook=True,
         supports_import_fallback=True,
+        supports_async_backfill=True,
+        max_historical_days=365,
     ),
     "oura": ProviderCapabilityDef(
         provider="oura",
         display_name="Oura",
         auth_method="oauth",
+        delivery_modes=("rest_pull",),
         supports_import_fallback=True,
+        supports_async_backfill=True,
+        max_historical_days=365,
     ),
     "fitbit": ProviderCapabilityDef(
         provider="fitbit",
         display_name="Fitbit",
         auth_method="oauth",
+        delivery_modes=("rest_pull",),
+        supports_async_backfill=True,
+        max_historical_days=365,
         is_available=False,
     ),
 }
+
+RAW_PAYLOAD_TTL_DAYS = int(os.getenv("WEARABLE_RAW_PAYLOAD_TTL_DAYS", "14") or "14")
+RAW_RETENTION_DAYS = int(os.getenv("WEARABLE_RAW_SAMPLE_RETENTION_DAYS", "30") or "30")
+BUCKET_15M_RETENTION_DAYS = int(os.getenv("WEARABLE_BUCKET_15M_RETENTION_DAYS", "180") or "180")
+BUCKET_1H_RETENTION_DAYS = int(os.getenv("WEARABLE_BUCKET_1H_RETENTION_DAYS", "730") or "730")
+
+SOURCE_KIND_PRIORITY_RANKS: Dict[str, int] = {
+    "watch": 10,
+    "ring": 20,
+    "chest_strap": 30,
+    "patch": 40,
+    "phone": 50,
+    "import": 60,
+    "account": 70,
+    "device": 80,
+    "unknown": 100,
+}
+
+PROVIDER_PRIORITY_RANKS: Dict[str, int] = {
+    "whoop": 10,
+    "oura": 20,
+    "garmin": 30,
+    "apple_health": 40,
+    "fitbit": 50,
+    "manual": 60,
+}
+
+STEPS_LIKE_METRICS = {
+    "steps",
+    "distance",
+    "active_energy",
+    "basal_energy",
+    "exercise_time",
+    "stand_time",
+    "flights_climbed",
+}
+HEART_LIKE_METRICS = {
+    "heart_rate",
+    "hrv",
+    "resting_heart_rate",
+    "walking_heart_rate",
+    "respiratory_rate",
+    "oxygen_saturation",
+}
+EVENT_LIKE_METRICS = {
+    "sleep_total",
+    "sleep_light",
+    "sleep_rem",
+    "sleep_deep",
+    "workout",
+    "mindful_minutes",
+}
+
+
+def _infer_delivery_mode(provider: str) -> str:
+    definition = PROVIDER_CAPABILITIES.get(provider)
+    if not definition:
+        return "rest_pull"
+    return definition.delivery_modes[0] if definition.delivery_modes else "rest_pull"
+
+
+def _infer_backfill_mode(provider: str, *, sync_mode: str) -> str:
+    if provider == "apple_health":
+        return "manual_queue" if sync_mode != "off" else "none"
+    definition = PROVIDER_CAPABILITIES.get(provider)
+    if definition and definition.supports_async_backfill:
+        return "queued"
+    if definition and definition.supports_backfill:
+        return "sync"
+    return "none"
+
+
+def _safe_history_days(provider: str, metric_type: str, sync_mode: str) -> int:
+    if sync_mode == "off":
+        return 0
+    if provider == "apple_health":
+        if sync_mode == "daily_only":
+            return 730
+        if metric_type in STEPS_LIKE_METRICS:
+            return 30
+        if metric_type in HEART_LIKE_METRICS:
+            return 30
+        if metric_type in EVENT_LIKE_METRICS:
+            return 365
+        return 30
+    definition = PROVIDER_CAPABILITIES.get(provider)
+    return int(definition.max_historical_days or 365) if definition else 365
+
+
+def _default_source_priority_rank(
+    *,
+    source_kind: str,
+    device_type: Optional[str] = None,
+    device_name: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> int:
+    normalized_device_type = (device_type or "").strip().lower()
+    normalized_name = (device_name or "").strip().lower()
+    normalized_platform = (platform or "").strip().lower()
+    normalized_source_kind = (source_kind or "").strip().lower()
+
+    if "watch" in normalized_device_type or "watch" in normalized_name:
+        return SOURCE_KIND_PRIORITY_RANKS["watch"]
+    if "ring" in normalized_device_type or "ring" in normalized_name:
+        return SOURCE_KIND_PRIORITY_RANKS["ring"]
+    if "chest" in normalized_device_type or "strap" in normalized_device_type:
+        return SOURCE_KIND_PRIORITY_RANKS["chest_strap"]
+    if "patch" in normalized_device_type:
+        return SOURCE_KIND_PRIORITY_RANKS["patch"]
+    if "phone" in normalized_device_type or "iphone" in normalized_name or normalized_platform in {"ios", "android"}:
+        return SOURCE_KIND_PRIORITY_RANKS["phone"]
+    if normalized_source_kind == "import":
+        return SOURCE_KIND_PRIORITY_RANKS["import"]
+    if normalized_source_kind == "account":
+        return SOURCE_KIND_PRIORITY_RANKS["account"]
+    if normalized_source_kind == "device":
+        return SOURCE_KIND_PRIORITY_RANKS["device"]
+    return SOURCE_KIND_PRIORITY_RANKS["unknown"]
 
 
 class WearableNormalizationService:
@@ -181,6 +325,26 @@ class WearableNormalizationService:
             if unit == "seconds":
                 return int(value), None
         return None, value
+
+
+def build_wearable_sync_plan(
+    *,
+    provider: str,
+    metric_type: str,
+    sync_mode: str,
+    projects_to_habit_logs: bool,
+) -> Dict[str, Any]:
+    definition = PROVIDER_CAPABILITIES.get(provider)
+    return {
+        "provider": provider,
+        "metric_type": metric_type,
+        "sync_mode": sync_mode,
+        "delivery_mode": _infer_delivery_mode(provider),
+        "backfill_mode": _infer_backfill_mode(provider, sync_mode=sync_mode),
+        "safe_history_days": _safe_history_days(provider, metric_type, sync_mode),
+        "projects_to_habit_logs": projects_to_habit_logs,
+        "capability_provider": definition.provider if definition else provider,
+    }
 
 
 class WearableConnectionService:
@@ -309,6 +473,9 @@ class WearableConnectionService:
                 .group_by(WearableEventDB.provider)
             )
             latest_sleep_dates = {row[0]: row[1] for row in sleep_latest_result.fetchall()}
+            provider_capabilities = {
+                item["provider"]: item for item in await self.list_provider_capabilities()
+            }
 
             items = []
             for connection in connections:
@@ -347,6 +514,35 @@ class WearableConnectionService:
                         is_upstream_stale = True
                         stale_message = f"Whoop has not returned sleep after {latest_upstream_sleep_date} yet."
 
+                explicit_preferences = settings.get("metric_preferences_v2", {})
+                explicit_metrics = {
+                    metric_type: preference
+                    for metric_type, preference in explicit_preferences.items()
+                    if isinstance(metric_type, str) and isinstance(preference, dict)
+                }
+                tracked_metrics = sorted(
+                    set(tracked_by_provider.get(connection.provider, []))
+                    | {
+                        metric_type
+                        for metric_type, preference in explicit_metrics.items()
+                        if str(preference.get("sync_mode", "")).strip().lower() in {"daily_only", "granular"}
+                    }
+                )
+                sync_plans = []
+                for metric_type in tracked_metrics:
+                    sync_mode = "daily_only"
+                    if metric_type in explicit_metrics:
+                        sync_mode = str(explicit_metrics[metric_type].get("sync_mode", "daily_only")).strip().lower() or "daily_only"
+                    sync_plans.append(
+                        build_wearable_sync_plan(
+                            provider=connection.provider,
+                            metric_type=metric_type,
+                            sync_mode=sync_mode,
+                            projects_to_habit_logs=metric_type in set(tracked_by_provider.get(connection.provider, [])),
+                        )
+                    )
+                capability = provider_capabilities.get(connection.provider)
+
                 items.append(
                     {
                         "id": connection.id,
@@ -361,7 +557,7 @@ class WearableConnectionService:
                         "last_error_json": json.loads(connection.last_error_json)
                         if connection.last_error_json
                         else None,
-                        "tracked_metrics": sorted(set(tracked_by_provider.get(connection.provider, []))),
+                        "tracked_metrics": tracked_metrics,
                         "source_count": source_counts.get(connection.id, 0),
                         "auto_sync_enabled": auto_sync_enabled,
                         "sync_hour": sync_hour,
@@ -372,6 +568,8 @@ class WearableConnectionService:
                         "latest_upstream_sleep_date": latest_upstream_sleep_date,
                         "is_upstream_stale": is_upstream_stale,
                         "stale_message": stale_message,
+                        "capability": capability,
+                        "sync_plans": sync_plans,
                     }
                 )
 
@@ -403,10 +601,16 @@ class WearableConnectionService:
                     "display_name": definition.display_name,
                     "auth_method": definition.auth_method,
                     "supports_sync": True,
+                    "delivery_modes": list(definition.delivery_modes),
                     "supports_webhook": definition.supports_webhook,
                     "supports_import_fallback": definition.supports_import_fallback,
                     "supports_metric_selection": definition.supports_metric_selection,
                     "supports_backfill": definition.supports_backfill,
+                    "supports_async_backfill": definition.supports_async_backfill,
+                    "supports_live_sync_mode_selection": definition.supports_live_sync_mode_selection,
+                    "max_historical_days": definition.max_historical_days,
+                    "default_live_sync_mode": definition.default_live_sync_mode,
+                    "supports_anchor_confirmed_ingest": definition.supports_anchor_confirmed_ingest,
                 }
             )
         return items
@@ -982,22 +1186,124 @@ class WearableQueryService:
             return sum(values), "daily_total"
         return (sum(values) / len(values)), "daily_average"
 
+    @staticmethod
+    def _serialize_source(source: Optional[WearableSourceDB]) -> Optional[Dict[str, Any]]:
+        if source is None:
+            return None
+        metadata = None
+        if source.metadata_json:
+            try:
+                metadata = json.loads(source.metadata_json)
+            except Exception:
+                metadata = {"raw": source.metadata_json}
+        return {
+            "id": source.id,
+            "provider": source.provider,
+            "source_kind": source.source_kind,
+            "device_name": source.device_name,
+            "device_model": source.device_model,
+            "device_type": source.device_type,
+            "platform": source.platform,
+            "priority_rank": source.priority_rank,
+            "source_bundle_id": source.source_bundle_id,
+            "metadata": metadata,
+        }
+
+    async def _source_map(
+        self,
+        session: Any,
+        *,
+        user_id: str,
+        source_ids: Iterable[Optional[str]],
+    ) -> Dict[str, WearableSourceDB]:
+        ids = sorted({source_id for source_id in source_ids if source_id})
+        if not ids:
+            return {}
+        result = await session.execute(
+            select(WearableSourceDB).where(
+                WearableSourceDB.user_id == user_id,
+                WearableSourceDB.id.in_(ids),
+            )
+        )
+        return {source.id: source for source in result.scalars().all()}
+
+    @staticmethod
+    def _row_source_priority(row: Any, source_map: Dict[str, WearableSourceDB]) -> Tuple[int, int]:
+        source = source_map.get(getattr(row, "source_id", None))
+        source_rank = source.priority_rank if source is not None else SOURCE_KIND_PRIORITY_RANKS["unknown"]
+        provider_rank = PROVIDER_PRIORITY_RANKS.get(getattr(row, "provider", None), 999)
+        return source_rank, provider_rank
+
+    def _best_ranked_rows(
+        self,
+        rows: List[Any],
+        source_map: Dict[str, WearableSourceDB],
+    ) -> Tuple[List[Any], Optional[WearableSourceDB]]:
+        if not rows:
+            return [], None
+        ranked_rows = sorted(rows, key=lambda row: self._row_source_priority(row, source_map))
+        best_rank = self._row_source_priority(ranked_rows[0], source_map)
+        selected = [row for row in ranked_rows if self._row_source_priority(row, source_map) == best_rank]
+        selected_source = source_map.get(getattr(selected[0], "source_id", None))
+        return selected, selected_source
+
     @classmethod
     def _select_provider_rows(
         cls,
         grouped_rows: Dict[str, List[Any]],
         preferred_provider: Optional[str],
-    ) -> Tuple[List[Any], Optional[str]]:
+        source_map: Optional[Dict[str, WearableSourceDB]] = None,
+    ) -> Tuple[List[Any], Optional[str], Optional[Dict[str, Any]]]:
+        source_map = source_map or {}
         if preferred_provider and preferred_provider in grouped_rows:
-            return grouped_rows[preferred_provider], preferred_provider
+            ranked_rows = sorted(
+                grouped_rows[preferred_provider],
+                key=lambda row: (
+                    source_map.get(getattr(row, "source_id", None)).priority_rank
+                    if source_map.get(getattr(row, "source_id", None))
+                    else SOURCE_KIND_PRIORITY_RANKS["unknown"],
+                    PROVIDER_PRIORITY_RANKS.get(preferred_provider, 999),
+                ),
+            )
+            if not ranked_rows:
+                return [], preferred_provider, None
+            best_rank = (
+                source_map.get(getattr(ranked_rows[0], "source_id", None)).priority_rank
+                if source_map.get(getattr(ranked_rows[0], "source_id", None))
+                else SOURCE_KIND_PRIORITY_RANKS["unknown"]
+            )
+            selected = [
+                row
+                for row in ranked_rows
+                if (
+                    source_map.get(getattr(row, "source_id", None)).priority_rank
+                    if source_map.get(getattr(row, "source_id", None))
+                    else SOURCE_KIND_PRIORITY_RANKS["unknown"]
+                )
+                == best_rank
+            ]
+            selected_source = source_map.get(getattr(selected[0], "source_id", None)) if selected else None
+            return selected, preferred_provider, cls._serialize_source(selected_source)
         if len(grouped_rows) == 1:
             provider = next(iter(grouped_rows.keys()))
-            return grouped_rows[provider], provider
+            service = cls()
+            selected, selected_source = service._best_ranked_rows(grouped_rows[provider], source_map)
+            return selected, provider, service._serialize_source(selected_source)
 
-        selected: List[Any] = []
-        for rows in grouped_rows.values():
-            selected.extend(rows)
-        return selected, "mixed" if grouped_rows else None
+        provider_candidates: List[Tuple[Tuple[int, int], str, List[Any], Optional[WearableSourceDB]]] = []
+        service = cls()
+        for provider, rows in grouped_rows.items():
+            ranked_rows, selected_source = service._best_ranked_rows(rows, source_map)
+            if not ranked_rows:
+                continue
+            rank = service._row_source_priority(ranked_rows[0], source_map)
+            provider_candidates.append((rank, provider, ranked_rows, selected_source))
+
+        if not provider_candidates:
+            return [], None, None
+        provider_candidates.sort(key=lambda item: item[0])
+        _rank, provider, rows, selected_source = provider_candidates[0]
+        return rows, provider, service._serialize_source(selected_source)
 
     async def _preferred_provider_by_metric(
         self,
@@ -1120,6 +1426,11 @@ class WearableQueryService:
                 event_query = event_query.where(WearableEventDB.deleted_at.is_(None))
             event_query = event_query.order_by(WearableEventDB.start_time.desc(), WearableEventDB.id.desc()).limit(query_limit)
             events = list((await session.execute(event_query)).scalars().all())
+            source_map = await self._source_map(
+                session,
+                user_id=user_id,
+                source_ids=[sample.source_id for sample in samples] + [event.source_id for event in events],
+            )
 
             items: List[Dict[str, Any]] = []
 
@@ -1143,7 +1454,11 @@ class WearableQueryService:
                         "aggregation_kind": sample.aggregation_kind,
                         "rollup_level": sample.rollup_level,
                         "rollup_window_minutes": sample.rollup_window_minutes,
-                        "source_device_name": self._source_device_name_from_sample(sample),
+                        "source_device_name": (
+                            source_map.get(sample.source_id).device_name
+                            if sample.source_id and source_map.get(sample.source_id)
+                            else self._source_device_name_from_sample(sample)
+                        ),
                     }
                 )
 
@@ -1166,7 +1481,11 @@ class WearableQueryService:
                         "value": event.summary_value,
                         "unit": event.summary_unit,
                         "aggregation_kind": "interval",
-                        "source_device_name": self._source_device_name_from_event(event),
+                        "source_device_name": (
+                            source_map.get(event.source_id).device_name
+                            if event.source_id and source_map.get(event.source_id)
+                            else self._source_device_name_from_event(event)
+                        ),
                     }
                 )
 
@@ -1251,6 +1570,7 @@ class WearableQueryService:
                             "rollup_window_minutes": 1440,
                             "attributed_date": item["date"],
                             "source_device_name": None,
+                            "selected_source": metric_payload.get("selected_source"),
                         }
                     )
                 return points
@@ -1266,20 +1586,40 @@ class WearableQueryService:
             if end_time:
                 sample_query = sample_query.where(func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.end_time) <= end_time)
             sample_query = sample_query.where(WearableSampleDB.deleted_at.is_(None))
+            resolution_candidates = {
+                "raw": ["raw", "bucket_15m", "bucket_1h", "daily"],
+                "15m": ["bucket_15m", "bucket_1h", "daily"],
+                "1h": ["bucket_1h", "daily"],
+            }.get(resolution, ["raw", "bucket_15m", "bucket_1h", "daily"])
 
-            if resolution == "15m":
-                sample_query = sample_query.where(WearableSampleDB.rollup_level == "bucket_15m")
-            elif resolution == "1h":
-                sample_query = sample_query.where(WearableSampleDB.rollup_level == "bucket_1h")
-            else:
-                sample_query = sample_query.where(WearableSampleDB.rollup_level == "raw")
+            samples: List[WearableSampleDB] = []
+            resolved_resolution = resolution
+            for rollup_level in resolution_candidates:
+                candidate_query = sample_query.where(WearableSampleDB.rollup_level == rollup_level)
+                candidate_query = candidate_query.order_by(
+                    func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time).asc(),
+                    WearableSampleDB.id.asc(),
+                ).limit(limit)
+                candidate_rows = list((await session.execute(candidate_query)).scalars().all())
+                if candidate_rows:
+                    samples = candidate_rows
+                    resolved_resolution = rollup_level if rollup_level != "raw" else "raw"
+                    break
 
-            sample_query = sample_query.order_by(
-                func.coalesce(WearableSampleDB.recorded_at, WearableSampleDB.start_time).asc(),
-                WearableSampleDB.id.asc(),
-            ).limit(limit)
-            samples = list((await session.execute(sample_query)).scalars().all())
             if samples:
+                source_map = await self._source_map(
+                    session,
+                    user_id=user_id,
+                    source_ids=[sample.source_id for sample in samples],
+                )
+                grouped_by_provider: Dict[str, List[WearableSampleDB]] = {}
+                for sample in samples:
+                    grouped_by_provider.setdefault(sample.provider, []).append(sample)
+                selected_rows, selected_provider, selected_source = self._select_provider_rows(
+                    grouped_by_provider,
+                    selected_provider,
+                    source_map,
+                )
                 return [
                     {
                         "timestamp": self._isoformat(sample.recorded_at or sample.start_time or sample.end_time),
@@ -1287,15 +1627,20 @@ class WearableQueryService:
                         "end_time": self._isoformat(sample.end_time),
                         "value": sample.value,
                         "unit": sample.unit,
-                        "provider": sample.provider,
+                        "provider": selected_provider or sample.provider,
                         "metric_type": sample.metric_type,
                         "aggregation_kind": sample.aggregation_kind,
                         "rollup_level": sample.rollup_level,
                         "rollup_window_minutes": sample.rollup_window_minutes,
                         "attributed_date": sample.attributed_date,
-                        "source_device_name": self._source_device_name_from_sample(sample),
+                        "source_device_name": (
+                            source_map.get(sample.source_id).device_name
+                            if sample.source_id and source_map.get(sample.source_id)
+                            else self._source_device_name_from_sample(sample)
+                        ),
+                        "selected_source": selected_source,
                     }
-                    for sample in samples
+                    for sample in selected_rows
                     if sample.recorded_at or sample.start_time or sample.end_time
                 ]
 
@@ -1312,6 +1657,19 @@ class WearableQueryService:
                 event_query = event_query.where(WearableEventDB.end_time <= end_time)
             event_query = event_query.order_by(WearableEventDB.start_time.asc(), WearableEventDB.id.asc()).limit(limit)
             events = list((await session.execute(event_query)).scalars().all())
+            source_map = await self._source_map(
+                session,
+                user_id=user_id,
+                source_ids=[event.source_id for event in events],
+            )
+            grouped_by_provider: Dict[str, List[WearableEventDB]] = {}
+            for event in events:
+                grouped_by_provider.setdefault(event.provider, []).append(event)
+            selected_rows, selected_provider, selected_source = self._select_provider_rows(
+                grouped_by_provider,
+                selected_provider,
+                source_map,
+            )
             return [
                 {
                     "timestamp": self._isoformat(event.start_time),
@@ -1319,15 +1677,20 @@ class WearableQueryService:
                     "end_time": self._isoformat(event.end_time),
                     "value": float(event.summary_value or 0.0),
                     "unit": event.summary_unit,
-                    "provider": event.provider,
+                    "provider": selected_provider or event.provider,
                     "metric_type": event.event_type,
                     "aggregation_kind": "interval",
                     "rollup_level": "raw",
                     "rollup_window_minutes": None,
                     "attributed_date": event.attributed_date,
-                    "source_device_name": self._source_device_name_from_event(event),
+                    "source_device_name": (
+                        source_map.get(event.source_id).device_name
+                        if event.source_id and source_map.get(event.source_id)
+                        else self._source_device_name_from_event(event)
+                    ),
+                    "selected_source": selected_source,
                 }
-                for event in events
+                for event in selected_rows
             ]
 
     async def get_daily_totals(
@@ -1369,6 +1732,11 @@ class WearableQueryService:
             if metric_filter:
                 event_query = event_query.where(WearableEventDB.event_type.in_(metric_filter))
             events = list((await session.execute(event_query)).scalars().all())
+            source_map = await self._source_map(
+                session,
+                user_id=user_id,
+                source_ids=[sample.source_id for sample in samples] + [event.source_id for event in events],
+            )
 
             grouped_samples: Dict[Tuple[str, str, str], List[WearableSampleDB]] = {}
             for sample in samples:
@@ -1401,13 +1769,15 @@ class WearableQueryService:
                 if provider_filter and len(provider_filter) == 1:
                     preferred_provider = provider_filter[0]
 
-                selected_sample_rows, selected_sample_provider = self._select_provider_rows(
+                selected_sample_rows, selected_sample_provider, selected_sample_source = self._select_provider_rows(
                     providers_for_samples,
                     preferred_provider,
+                    source_map,
                 )
-                selected_event_rows, selected_event_provider = self._select_provider_rows(
+                selected_event_rows, selected_event_provider, selected_event_source = self._select_provider_rows(
                     providers_for_events,
                     preferred_provider,
+                    source_map,
                 )
 
                 daily_rows = [row for row in selected_sample_rows if row.rollup_level == "daily" or row.aggregation_kind == "daily"]
@@ -1439,6 +1809,7 @@ class WearableQueryService:
                     "unit": unit,
                     "aggregation": aggregation_label,
                     "provider": provider_name,
+                    "selected_source": selected_sample_source or selected_event_source,
                 }
 
             return [
@@ -1566,6 +1937,12 @@ class WearableSyncService:
             source.device_type = device_type
             source.platform = platform
             source.source_bundle_id = source_bundle_id
+            source.priority_rank = _default_source_priority_rank(
+                source_kind=source_kind,
+                device_type=device_type,
+                device_name=device_name,
+                platform=platform,
+            )
             source.metadata_json = json.dumps(metadata) if metadata else source.metadata_json
             source.updated_at = datetime.now(timezone.utc)
             await session.commit()
@@ -1581,6 +1958,7 @@ class WearableSyncService:
         payload: Any,
         connection_id: Optional[str] = None,
         external_id: Optional[str] = None,
+        expires_at: Optional[datetime] = None,
     ) -> WearableRawPayloadDB:
         payload_json = payload if isinstance(payload, str) else json.dumps(payload, default=str)
         digest = hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
@@ -1595,11 +1973,143 @@ class WearableSyncService:
                 payload_sha256=digest,
                 payload_json=payload_json,
                 received_at=datetime.now(timezone.utc),
+                expires_at=expires_at or (datetime.now(timezone.utc) + timedelta(days=RAW_PAYLOAD_TTL_DAYS)),
             )
             session.add(record)
             await session.commit()
             await session.refresh(record)
             return record
+
+    async def get_raw_payload(self, payload_id: str) -> Optional[WearableRawPayloadDB]:
+        async with get_db_session() as session:
+            result = await session.execute(select(WearableRawPayloadDB).where(WearableRawPayloadDB.id == payload_id))
+            return result.scalar_one_or_none()
+
+    async def list_raw_payloads(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        has_error: Optional[bool] = None,
+        limit: int = 100,
+    ) -> List[WearableRawPayloadDB]:
+        async with get_db_session() as session:
+            query = select(WearableRawPayloadDB)
+            if user_id:
+                query = query.where(WearableRawPayloadDB.user_id == user_id)
+            if provider:
+                query = query.where(WearableRawPayloadDB.provider == provider)
+            if start_time:
+                query = query.where(WearableRawPayloadDB.received_at >= start_time)
+            if end_time:
+                query = query.where(WearableRawPayloadDB.received_at <= end_time)
+            if has_error is True:
+                query = query.where(WearableRawPayloadDB.normalization_error_json.is_not(None))
+            elif has_error is False:
+                query = query.where(WearableRawPayloadDB.normalization_error_json.is_(None))
+            query = query.order_by(WearableRawPayloadDB.received_at.desc()).limit(limit)
+            result = await session.execute(query)
+            return list(result.scalars().all())
+
+    async def record_raw_payload_error(
+        self,
+        *,
+        payload_id: str,
+        error: Dict[str, Any],
+    ) -> None:
+        async with get_db_session() as session:
+            result = await session.execute(select(WearableRawPayloadDB).where(WearableRawPayloadDB.id == payload_id))
+            payload = result.scalar_one_or_none()
+            if payload is None:
+                return
+            payload.normalization_error_json = json.dumps(error)
+            await session.commit()
+
+    async def clear_raw_payload_error(self, payload_id: str) -> None:
+        async with get_db_session() as session:
+            result = await session.execute(select(WearableRawPayloadDB).where(WearableRawPayloadDB.id == payload_id))
+            payload = result.scalar_one_or_none()
+            if payload is None:
+                return
+            payload.normalization_error_json = None
+            await session.commit()
+
+    async def replay_raw_payload(
+        self,
+        *,
+        payload_id: str,
+    ) -> Dict[str, Any]:
+        payload_record = await self.get_raw_payload(payload_id)
+        if payload_record is None:
+            raise ValueError("Raw payload not found")
+
+        try:
+            payload = json.loads(payload_record.payload_json)
+        except Exception as exc:
+            await self.record_raw_payload_error(
+                payload_id=payload_id,
+                error={"message": "Raw payload is not valid JSON", "detail": str(exc)},
+            )
+            raise ValueError("Raw payload is not valid JSON") from exc
+
+        try:
+            if payload_record.provider == "garmin" and payload_record.direction == "webhook":
+                provider_user_id = payload_record.external_id or "garmin-replay"
+                result = await self.ingest_garmin_payload(
+                    user_id=payload_record.user_id,
+                    provider_user_id=provider_user_id,
+                    payload=payload,
+                    access_token=None,
+                    refresh_token=None,
+                    token_expires_at=None,
+                )
+            elif payload_record.provider == "whoop" and payload_record.direction == "oauth_pull":
+                result = await self.ingest_whoop_data(
+                    user_id=payload_record.user_id,
+                    provider_user_id=payload_record.external_id or "whoop-replay",
+                    recovery_data=payload.get("recovery_data"),
+                    sleep_data=payload.get("sleep_data"),
+                    workout_data=payload.get("workout_data"),
+                    cycle_data=payload.get("cycle_data"),
+                    access_token=None,
+                    refresh_token=None,
+                    token_expires_at=None,
+                )
+            elif payload_record.provider == "oura" and payload_record.direction == "oauth_pull":
+                result = await self.ingest_oura_data(
+                    user_id=payload_record.user_id,
+                    provider_user_id=payload_record.external_id or "oura-replay",
+                    personal_info=payload.get("personal_info"),
+                    access_token=None,
+                    refresh_token=None,
+                    token_expires_at=None,
+                    daily_sleep_records=payload.get("daily_sleep_records") or [],
+                    sleep_records=payload.get("sleep_records") or [],
+                    daily_readiness_records=payload.get("daily_readiness_records") or [],
+                    daily_activity_records=payload.get("daily_activity_records") or [],
+                    workout_records=payload.get("workout_records") or [],
+                    heartrate_records=payload.get("heartrate_records") or [],
+                )
+            else:
+                raise ValueError(
+                    f"Replay is not supported for provider={payload_record.provider} direction={payload_record.direction}"
+                )
+            await self.clear_raw_payload_error(payload_id)
+            return {"success": True, "payload_id": payload_id, "result": result}
+        except Exception as exc:
+            await self.record_raw_payload_error(
+                payload_id=payload_id,
+                error={
+                    "message": "Normalization replay failed",
+                    "detail": str(exc),
+                    "provider": payload_record.provider,
+                    "direction": payload_record.direction,
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            raise
 
     async def update_connection_sync_state(
         self,
@@ -1952,6 +2462,20 @@ class WearableSyncService:
             external_source_id=provider_user_id,
             external_source_name="Whoop Account",
         )
+        await self.store_raw_payload(
+            user_id=user_id,
+            provider="whoop",
+            direction="oauth_pull",
+            payload={
+                "provider_user_id": provider_user_id,
+                "recovery_data": recovery_data,
+                "sleep_data": sleep_data,
+                "workout_data": workout_data,
+                "cycle_data": cycle_data,
+            },
+            connection_id=connection.id,
+            external_id=provider_user_id,
+        )
         counts = {"samples": 0, "events": 0}
 
         if recovery_data and recovery_data.get("records"):
@@ -2024,6 +2548,23 @@ class WearableSyncService:
             external_source_id=provider_user_id,
             external_source_name=(personal_info or {}).get("email") or "Oura Account",
             device_name=(personal_info or {}).get("device_model"),
+        )
+        await self.store_raw_payload(
+            user_id=user_id,
+            provider="oura",
+            direction="oauth_pull",
+            payload={
+                "provider_user_id": provider_user_id,
+                "personal_info": personal_info,
+                "daily_sleep_records": daily_sleep_records,
+                "sleep_records": sleep_records,
+                "daily_readiness_records": daily_readiness_records,
+                "daily_activity_records": daily_activity_records,
+                "workout_records": workout_records,
+                "heartrate_records": heartrate_records,
+            },
+            connection_id=connection.id,
+            external_id=provider_user_id,
         )
 
         counts = {"samples": 0, "events": 0}
