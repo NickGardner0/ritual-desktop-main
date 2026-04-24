@@ -46,6 +46,26 @@ def _json_loads(value: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 class WearableIngestJobService:
+    def _should_emit_completion_outbox_event(self, job: WearableIngestJobDB) -> bool:
+        return job.job_type in {"provider_backfill", "apple_legacy_backfill"}
+
+    def _build_completion_outbox_payload(
+        self,
+        *,
+        job: WearableIngestJobDB,
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        metric_scope = _json_loads(job.metric_scope_json) or {}
+        return {
+            "job_id": job.id,
+            "provider": job.provider,
+            "job_type": job.job_type,
+            "metric_scope": metric_scope,
+            "start_date": job.start_date,
+            "end_date": job.end_date,
+            "result": result,
+        }
+
     async def _get_connection_id(self, *, user_id: str, provider: str) -> Optional[str]:
         connection = await wearable_connection_service.get_connection(user_id, provider)
         return connection.id if connection else None
@@ -397,6 +417,18 @@ class WearableIngestJobService:
                 items_seen=counts["items_seen"],
                 items_written=counts["items_written"],
             )
+            if self._should_emit_completion_outbox_event(job):
+                from services.wearable_event_outbox_service import wearable_event_outbox_service
+
+                await wearable_event_outbox_service.enqueue_event(
+                    user_id=job.user_id,
+                    provider=job.provider,
+                    connection_id=job.connection_id,
+                    event_type="wearable_backfill_completed",
+                    related_record_kind="job",
+                    related_record_id=job.id,
+                    payload=self._build_completion_outbox_payload(job=job, result=result),
+                )
             await self._finish_job(
                 job.id,
                 status="succeeded",

@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 import unittest
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -17,6 +18,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from services.unified_wearables_service import (
     WearableNormalizationService,
     WearableProjectionService,
+    build_wearable_outbox_event_for_event,
+    build_wearable_outbox_event_for_sample,
     build_wearable_sync_plan,
     _default_source_priority_rank,
 )
@@ -190,6 +193,69 @@ class WearableCapabilityPlanningTests(unittest.TestCase):
             _default_source_priority_rank(source_kind="device", device_type="watch", device_name="Apple Watch", platform="ios"),
             _default_source_priority_rank(source_kind="device", device_type="phone", device_name="iPhone", platform="ios"),
         )
+
+
+class WearableOutboxPlanningTests(unittest.TestCase):
+    def test_steps_bucket_sample_builds_steps_bucket_closed_event(self):
+        sample = SimpleNamespace(
+            id="sample-1",
+            provider="apple_health",
+            metric_type="steps",
+            value=182,
+            unit="count",
+            start_time=datetime.fromisoformat("2026-04-24T13:00:00+00:00"),
+            end_time=datetime.fromisoformat("2026-04-24T13:15:00+00:00"),
+            recorded_at=datetime.fromisoformat("2026-04-24T13:15:00+00:00"),
+            attributed_date="2026-04-24",
+            rollup_level="bucket_15m",
+            attributes_json=json.dumps({"source_device_name": "Apple Watch"}),
+            deleted_at=None,
+        )
+
+        outbox_event = build_wearable_outbox_event_for_sample(sample)
+
+        self.assertEqual(outbox_event["event_type"], "steps_bucket_closed")
+        self.assertEqual(outbox_event["payload"]["value"], 182)
+
+    def test_recovery_score_sample_builds_recovery_metric_changed_event(self):
+        sample = SimpleNamespace(
+            id="sample-2",
+            provider="whoop",
+            metric_type="recovery_score",
+            value=81,
+            unit="count",
+            start_time=None,
+            end_time=None,
+            recorded_at=datetime.fromisoformat("2026-04-24T12:00:00+00:00"),
+            attributed_date="2026-04-24",
+            rollup_level="raw",
+            attributes_json=None,
+            deleted_at=None,
+        )
+
+        outbox_event = build_wearable_outbox_event_for_sample(sample)
+
+        self.assertEqual(outbox_event["event_type"], "recovery_metric_changed")
+        self.assertEqual(outbox_event["payload"]["metric_type"], "recovery_score")
+
+    def test_sleep_event_builds_sleep_session_ingested_outbox_event(self):
+        event = SimpleNamespace(
+            id="event-1",
+            provider="whoop",
+            event_type="sleep_total",
+            start_time=datetime.fromisoformat("2026-04-24T02:00:00+00:00"),
+            end_time=datetime.fromisoformat("2026-04-24T09:00:00+00:00"),
+            attributed_date="2026-04-24",
+            summary_value=420,
+            summary_unit="minutes",
+            details_json=json.dumps({"source_device_name": "Whoop Strap"}),
+            deleted_at=None,
+        )
+
+        outbox_event = build_wearable_outbox_event_for_event(event)
+
+        self.assertEqual(outbox_event["event_type"], "sleep_session_ingested")
+        self.assertEqual(outbox_event["payload"]["duration_minutes"], 420)
 
 
 if __name__ == "__main__":

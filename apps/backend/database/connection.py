@@ -488,6 +488,7 @@ async def _run_migrations(session):
                 payload_json TEXT NOT NULL,
                 received_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME,
+                normalization_error_json TEXT,
                 FOREIGN KEY(user_id) REFERENCES users(id),
                 FOREIGN KEY(connection_id) REFERENCES wearable_connections(id)
             )
@@ -668,6 +669,37 @@ async def _run_migrations(session):
                 FOREIGN KEY(user_id) REFERENCES users(id),
                 FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
                 FOREIGN KEY(sync_run_id) REFERENCES wearable_sync_runs(id)
+            )
+            """,
+        ),
+        (
+            "wearable_outbox_events",
+            """
+            CREATE TABLE IF NOT EXISTS wearable_outbox_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                connection_id TEXT,
+                source_id TEXT,
+                provider TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                delivery_target TEXT NOT NULL DEFAULT 'internal',
+                related_record_kind TEXT NOT NULL,
+                related_record_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                payload_json TEXT,
+                result_json TEXT,
+                error_json TEXT,
+                dedupe_key TEXT,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                max_attempts INTEGER NOT NULL DEFAULT 5,
+                available_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_at DATETIME,
+                completed_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id),
+                FOREIGN KEY(connection_id) REFERENCES wearable_connections(id),
+                FOREIGN KEY(source_id) REFERENCES wearable_sources(id)
             )
             """,
         ),
@@ -928,6 +960,9 @@ async def _run_migrations(session):
         ("idx_wearable_ingest_jobs_status_created", "CREATE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_status_created ON wearable_ingest_jobs (status, created_at)"),
         ("idx_wearable_ingest_jobs_user_provider", "CREATE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_user_provider ON wearable_ingest_jobs (user_id, provider)"),
         ("idx_wearable_ingest_jobs_idempotency", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_idempotency ON wearable_ingest_jobs (idempotency_key) WHERE idempotency_key IS NOT NULL"),
+        ("idx_wearable_outbox_events_status_available", "CREATE INDEX IF NOT EXISTS idx_wearable_outbox_events_status_available ON wearable_outbox_events (status, available_at)"),
+        ("idx_wearable_outbox_events_user_provider", "CREATE INDEX IF NOT EXISTS idx_wearable_outbox_events_user_provider ON wearable_outbox_events (user_id, provider)"),
+        ("idx_wearable_outbox_events_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_outbox_events_dedupe ON wearable_outbox_events (dedupe_key) WHERE dedupe_key IS NOT NULL"),
         ("idx_heart_rate_sessions_user_started", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_started ON heart_rate_sessions (user_id, started_at)"),
         ("idx_heart_rate_sessions_user_status", "CREATE INDEX IF NOT EXISTS idx_heart_rate_sessions_user_status ON heart_rate_sessions (user_id, status)"),
         ("idx_heart_rate_samples_user_received", "CREATE INDEX IF NOT EXISTS idx_heart_rate_samples_user_received ON heart_rate_samples (user_id, received_at)"),

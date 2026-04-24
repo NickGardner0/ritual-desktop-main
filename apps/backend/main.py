@@ -877,6 +877,30 @@ async def _wearable_maintenance_loop() -> None:
         await asyncio.sleep(86400)
 
 
+async def _wearable_event_outbox_loop() -> None:
+    """Process queued internal wearable outbox events in-process."""
+    await asyncio.sleep(75)
+    logger.info("📮 Wearable event outbox loop started (runs every 15 seconds)")
+
+    while True:
+        try:
+            from services.wearable_event_outbox_service import wearable_event_outbox_service
+
+            result = await wearable_event_outbox_service.process_next_event()
+            if result:
+                logger.info(
+                    "📮 Wearable outbox event processed: event_id=%s status=%s",
+                    result.get("event_id"),
+                    result.get("status"),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Wearable outbox loop failed: %s", exc)
+
+        await asyncio.sleep(15)
+
+
 async def _post_startup_initialization() -> None:
     """Run nonessential startup work after readiness is available."""
     logger = logging.getLogger("uvicorn")
@@ -927,11 +951,13 @@ async def _post_startup_initialization() -> None:
         app.state.sms_copilot_task = asyncio.create_task(_sms_copilot_loop())
         app.state.wearable_ingest_job_task = asyncio.create_task(_wearable_ingest_job_loop())
         app.state.wearable_maintenance_task = asyncio.create_task(_wearable_maintenance_loop())
+        app.state.wearable_event_outbox_task = asyncio.create_task(_wearable_event_outbox_loop())
         logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
         logger.info("📨 Report scheduler started")
         logger.info("📲 SMS copilot scheduler started")
         logger.info("🧵 Wearable ingest job worker started")
         logger.info("🧹 Wearable maintenance scheduler started")
+        logger.info("📮 Wearable event outbox worker started")
     else:
         logger.info("⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)")
 
@@ -963,6 +989,7 @@ async def startup_event():
     app.state.sms_copilot_task = None
     app.state.wearable_ingest_job_task = None
     app.state.wearable_maintenance_task = None
+    app.state.wearable_event_outbox_task = None
     if ENABLE_STARTUP_MAINTENANCE_TASK:
         app.state.startup_maintenance_task = asyncio.create_task(
             _delayed_post_startup_initialization()
@@ -993,6 +1020,7 @@ async def shutdown_event():
     sms_copilot_task = getattr(app.state, "sms_copilot_task", None)
     wearable_ingest_job_task = getattr(app.state, "wearable_ingest_job_task", None)
     wearable_maintenance_task = getattr(app.state, "wearable_maintenance_task", None)
+    wearable_event_outbox_task = getattr(app.state, "wearable_event_outbox_task", None)
     tasks = [
         t
         for t in [
@@ -1005,6 +1033,7 @@ async def shutdown_event():
             sms_copilot_task,
             wearable_ingest_job_task,
             wearable_maintenance_task,
+            wearable_event_outbox_task,
         ]
         if t is not None
     ]

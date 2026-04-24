@@ -326,3 +326,28 @@ class WearableRawPayloadRead(BaseModel):
 class WearableRawPayloadsResponse(BaseModel):
     payloads: List[WearableRawPayloadRead]
     count: int
+
+
+class WearableOutboxEventRead(BaseModel):
+    id: str
+    user_id: str
+    provider: WearableProviderName
+    event_type: str
+    delivery_target: str
+    related_record_kind: str
+    related_record_id: str
+    status: str
+    attempts: int = 0
+    max_attempts: int = 5
+    payload: Optional[Dict[str, Any]] = None
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[Dict[str, Any]] = None
+    created_at: str
+    available_at: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+class WearableOutboxEventsResponse(BaseModel):
+    events: List[WearableOutboxEventRead]
+    count: int

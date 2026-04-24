@@ -541,6 +541,43 @@ class WearableIngestJobDB(Base):
     )
 
 
+class WearableOutboxEventDB(Base):
+    """Durable internal wearable event outbox for downstream app features."""
+    __tablename__ = "wearable_outbox_events"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    connection_id = Column(String, ForeignKey("wearable_connections.id"), nullable=True)
+    source_id = Column(String, ForeignKey("wearable_sources.id"), nullable=True)
+    provider = Column(String, nullable=False)
+    event_type = Column(String, nullable=False)
+    delivery_target = Column(String, nullable=False, default="internal")
+    related_record_kind = Column(String, nullable=False)  # sample, event, job
+    related_record_id = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="queued")  # queued, running, succeeded, failed, canceled
+    payload_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    error_json = Column(Text, nullable=True)
+    dedupe_key = Column(String, nullable=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=5)
+    available_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = relationship("UserDB")
+    connection = relationship("WearableConnectionDB")
+    source = relationship("WearableSourceDB")
+
+    __table_args__ = (
+        Index("idx_wearable_outbox_events_status_available", "status", "available_at"),
+        Index("idx_wearable_outbox_events_user_provider", "user_id", "provider"),
+        Index("idx_wearable_outbox_events_dedupe", "dedupe_key", unique=True),
+    )
+
+
 class FinancialConnectionDB(Base):
     """Canonical connection state for a financial provider."""
     __tablename__ = "financial_connections"

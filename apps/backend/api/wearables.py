@@ -213,6 +213,7 @@ def create_wearables_router(
         wearable_query_service,
         wearable_sync_service,
     )
+    from services.wearable_event_outbox_service import wearable_event_outbox_service
     from services.wearable_ingest_job_service import wearable_ingest_job_service
     from services.wearable_provider_adapters import get_provider_adapter, list_provider_defs
     from services.wearable_maintenance_service import wearable_maintenance_service
@@ -229,6 +230,7 @@ def create_wearables_router(
         WearableConnectionsResponse,
         WearableDailyTotalsResponse,
         WearableIngestJobsResponse,
+        WearableOutboxEventsResponse,
         WearableRawPayloadsResponse,
         WearableSeriesResponse,
         WearableSyncResponse,
@@ -325,6 +327,27 @@ def create_wearables_router(
             "items_deleted": run.items_deleted or 0,
             "error_json": error_json,
             "metadata_json": metadata_json,
+        }
+
+    def _serialize_outbox_event(item: Any) -> dict[str, Any]:
+        return {
+            "id": item.id,
+            "user_id": item.user_id,
+            "provider": item.provider,
+            "event_type": item.event_type,
+            "delivery_target": item.delivery_target,
+            "related_record_kind": item.related_record_kind,
+            "related_record_id": item.related_record_id,
+            "status": item.status,
+            "attempts": int(item.attempts or 0),
+            "max_attempts": int(item.max_attempts or 0),
+            "payload": json.loads(item.payload_json) if item.payload_json else None,
+            "result": json.loads(item.result_json) if item.result_json else None,
+            "error": json.loads(item.error_json) if item.error_json else None,
+            "created_at": item.created_at.isoformat(),
+            "available_at": item.available_at.isoformat() if item.available_at else None,
+            "started_at": item.started_at.isoformat() if item.started_at else None,
+            "completed_at": item.completed_at.isoformat() if item.completed_at else None,
         }
 
     def _integrations_redirect_base(request: Request) -> str:
@@ -1161,6 +1184,39 @@ def create_wearables_router(
             return {"success": True, "job_id": job.id, "status": job.status}
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.get("/api/wearables/outbox-events", response_model=WearableOutboxEventsResponse)
+    async def get_wearable_outbox_events(
+        user_id: Optional[str] = None,
+        provider: Optional[str] = None,
+        status: Optional[str] = None,
+        event_type: Optional[str] = None,
+        limit: int = 100,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        events = await wearable_event_outbox_service.list_events(
+            user_id=user_id,
+            provider=provider,
+            status=status,
+            event_type=event_type,
+            limit=limit,
+        )
+        return {
+            "events": [_serialize_outbox_event(item) for item in events],
+            "count": len(events),
+        }
+
+    @router.get("/api/wearables/outbox-events/{event_id}", response_model=dict)
+    async def get_wearable_outbox_event(
+        event_id: str,
+        internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
+    ):
+        _require_internal_key(internal_key)
+        event = await wearable_event_outbox_service.get_event(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail="Wearable outbox event not found")
+        return {"event": _serialize_outbox_event(event)}
 
     @router.post("/api/wearables/internal/maintenance/run", response_model=dict)
     async def run_wearable_maintenance(

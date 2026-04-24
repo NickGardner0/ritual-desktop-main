@@ -160,6 +160,10 @@ EVENT_LIKE_METRICS = {
     "workout",
     "mindful_minutes",
 }
+RECOVERY_SIGNAL_METRICS = {"recovery_score", "readiness_score", "body_battery", "strain_score"}
+INTERNAL_WEARABLE_SIGNAL_MAX_AGE_DAYS = int(
+    os.getenv("INTERNAL_WEARABLE_SIGNAL_MAX_AGE_DAYS", "3") or "3"
+)
 
 
 def _infer_delivery_mode(provider: str) -> str:
@@ -344,6 +348,97 @@ def build_wearable_sync_plan(
         "safe_history_days": _safe_history_days(provider, metric_type, sync_mode),
         "projects_to_habit_logs": projects_to_habit_logs,
         "capability_provider": definition.provider if definition else provider,
+    }
+
+
+def _parse_json_blob(value: Optional[str]) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _within_internal_signal_window(reference_time: Optional[datetime]) -> bool:
+    if reference_time is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=timezone.utc)
+    return reference_time >= now - timedelta(days=INTERNAL_WEARABLE_SIGNAL_MAX_AGE_DAYS)
+
+
+def build_wearable_outbox_event_for_sample(sample: Any) -> Optional[Dict[str, Any]]:
+    if getattr(sample, "deleted_at", None) is not None:
+        return None
+
+    reference_time = getattr(sample, "end_time", None) or getattr(sample, "recorded_at", None) or getattr(sample, "start_time", None)
+    if not _within_internal_signal_window(reference_time):
+        return None
+
+    attributes = _parse_json_blob(getattr(sample, "attributes_json", None))
+    if getattr(sample, "metric_type", None) in RECOVERY_SIGNAL_METRICS:
+        return {
+            "event_type": "recovery_metric_changed",
+            "payload": {
+                "sample_id": sample.id,
+                "provider": sample.provider,
+                "metric_type": sample.metric_type,
+                "value": sample.value,
+                "unit": sample.unit,
+                "recorded_at": reference_time.isoformat() if reference_time else None,
+                "attributed_date": getattr(sample, "attributed_date", None),
+                "source_device_name": attributes.get("source_device_name"),
+            },
+        }
+
+    if getattr(sample, "metric_type", None) == "steps" and getattr(sample, "rollup_level", None) == "bucket_15m":
+        return {
+            "event_type": "steps_bucket_closed",
+            "payload": {
+                "sample_id": sample.id,
+                "provider": sample.provider,
+                "metric_type": sample.metric_type,
+                "value": sample.value,
+                "unit": sample.unit,
+                "start_time": sample.start_time.isoformat() if sample.start_time else None,
+                "end_time": sample.end_time.isoformat() if sample.end_time else None,
+                "rollup_level": getattr(sample, "rollup_level", None),
+                "attributed_date": getattr(sample, "attributed_date", None),
+                "source_device_name": attributes.get("source_device_name"),
+            },
+        }
+
+    return None
+
+
+def build_wearable_outbox_event_for_event(event: Any) -> Optional[Dict[str, Any]]:
+    if getattr(event, "deleted_at", None) is not None:
+        return None
+
+    reference_time = getattr(event, "end_time", None) or getattr(event, "start_time", None)
+    if not _within_internal_signal_window(reference_time):
+        return None
+
+    if getattr(event, "event_type", None) != "sleep_total":
+        return None
+
+    details = _parse_json_blob(getattr(event, "details_json", None))
+    return {
+        "event_type": "sleep_session_ingested",
+        "payload": {
+            "event_id": event.id,
+            "provider": event.provider,
+            "event_type": event.event_type,
+            "start_time": event.start_time.isoformat() if event.start_time else None,
+            "end_time": event.end_time.isoformat() if event.end_time else None,
+            "duration_minutes": getattr(event, "summary_value", None),
+            "summary_unit": getattr(event, "summary_unit", None),
+            "attributed_date": getattr(event, "attributed_date", None),
+            "source_device_name": details.get("source_device_name"),
+        },
     }
 
 
@@ -2253,9 +2348,12 @@ class WearableSyncService:
                     },
                     raw_payload_id=raw_record.id if raw_record else None,
                 )
-                event = await self.get_event(event_id)
-                if event and event.deleted_at is None:
-                    await self.projection_service.project_event(user_id=user_id, provider="apple_health", event=event)
+                await self._project_and_emit_event(
+                    user_id=user_id,
+                    provider="apple_health",
+                    event_id=event_id,
+                    created=created,
+                )
                 stored.append((event_id, "event"))
                 continue
 
@@ -2288,9 +2386,12 @@ class WearableSyncService:
                 ),
                 raw_payload_id=raw_record.id if raw_record else None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="apple_health", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="apple_health",
+                sample_id=sample_id,
+                created=created,
+            )
             stored.append((sample_id, "sample"))
 
         await self.update_connection_sync_state(connection_id=connection.id)
@@ -2740,9 +2841,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"cycle_id": record.get("cycle_id"), "raw_payload": record}),
                 raw_payload_id=None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="whoop", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="whoop",
+                sample_id=sample_id,
+                created=created,
+            )
             created_count += 1 if created else 0
         return created_count
 
@@ -2790,9 +2894,12 @@ class WearableSyncService:
             },
             raw_payload_id=None,
         )
-        event = await self.get_event(event_id)
-        if event and event.deleted_at is None:
-            await self.projection_service.project_event(user_id=user_id, provider="whoop", event=event)
+        await self._project_and_emit_event(
+            user_id=user_id,
+            provider="whoop",
+            event_id=event_id,
+            created=created,
+        )
         return 1 if created else 0
 
     async def _ingest_whoop_workout_record(
@@ -2833,9 +2940,12 @@ class WearableSyncService:
             },
             raw_payload_id=None,
         )
-        event = await self.get_event(event_id)
-        if event and event.deleted_at is None:
-            await self.projection_service.project_event(user_id=user_id, provider="whoop", event=event)
+        await self._project_and_emit_event(
+            user_id=user_id,
+            provider="whoop",
+            event_id=event_id,
+            created=created,
+        )
         return 1 if created else 0
 
     async def _ingest_oura_daily_activity_record(
@@ -2880,9 +2990,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"raw_payload": record}),
                 raw_payload_id=None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="oura", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="oura",
+                sample_id=sample_id,
+                created=created,
+            )
             created_count += 1 if created else 0
         return created_count
 
@@ -2926,9 +3039,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"raw_payload": record}),
                 raw_payload_id=None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="oura", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="oura",
+                sample_id=sample_id,
+                created=created,
+            )
             created_count += 1 if created else 0
         return created_count
 
@@ -2974,9 +3090,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"raw_payload": record}),
                 raw_payload_id=None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="oura", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="oura",
+                sample_id=sample_id,
+                created=created,
+            )
             created_count += 1 if created else 0
         return created_count
 
@@ -3020,9 +3139,12 @@ class WearableSyncService:
             },
             raw_payload_id=None,
         )
-        event = await self.get_event(event_id)
-        if event and event.deleted_at is None:
-            await self.projection_service.project_event(user_id=user_id, provider="oura", event=event)
+        await self._project_and_emit_event(
+            user_id=user_id,
+            provider="oura",
+            event_id=event_id,
+            created=created,
+        )
 
         sample_fields = [
             ("average_hrv", record.get("average_hrv"), "ms"),
@@ -3031,7 +3153,7 @@ class WearableSyncService:
         for provider_metric_type, value, unit in sample_fields:
             if value in (None, ""):
                 continue
-            sample_id, _ = await self._upsert_sample(
+            sample_id, sample_created = await self._upsert_sample(
                 user_id=user_id,
                 connection_id=connection_id,
                 source_id=source_id,
@@ -3051,9 +3173,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"raw_payload": record}),
                 raw_payload_id=None,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="oura", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="oura",
+                sample_id=sample_id,
+                created=sample_created,
+            )
         return 1 if created else 0
 
     async def _ingest_oura_workout_record(
@@ -3088,9 +3213,12 @@ class WearableSyncService:
             details=record,
             raw_payload_id=None,
         )
-        event = await self.get_event(event_id)
-        if event and event.deleted_at is None:
-            await self.projection_service.project_event(user_id=user_id, provider="oura", event=event)
+        await self._project_and_emit_event(
+            user_id=user_id,
+            provider="oura",
+            event_id=event_id,
+            created=created,
+        )
         return 1 if created else 0
 
     async def _ingest_oura_heartrate_record(
@@ -3126,9 +3254,12 @@ class WearableSyncService:
             attributes_json=json.dumps({"raw_payload": record}),
             raw_payload_id=None,
         )
-        sample = await self.get_sample(sample_id)
-        if sample and sample.deleted_at is None:
-            await self.projection_service.project_sample(user_id=user_id, provider="oura", sample=sample)
+        await self._project_and_emit_sample(
+            user_id=user_id,
+            provider="oura",
+            sample_id=sample_id,
+            created=created,
+        )
         return 1 if created else 0
 
     async def _ingest_garmin_daily_summary_record(
@@ -3178,9 +3309,12 @@ class WearableSyncService:
                 attributes_json=json.dumps({"raw_payload": record}),
                 raw_payload_id=raw_payload_id,
             )
-            sample = await self.get_sample(sample_id)
-            if sample and sample.deleted_at is None:
-                await self.projection_service.project_sample(user_id=user_id, provider="garmin", sample=sample)
+            await self._project_and_emit_sample(
+                user_id=user_id,
+                provider="garmin",
+                sample_id=sample_id,
+                created=created,
+            )
             sample_count += 1 if created else 0
 
         sleep_start = self._get_first(record, "sleepStartTimestampGMT", "sleepStartTimeGmt", "sleepStart")
@@ -3206,9 +3340,12 @@ class WearableSyncService:
                 details=record,
                 raw_payload_id=raw_payload_id,
             )
-            event = await self.get_event(event_id)
-            if event and event.deleted_at is None:
-                await self.projection_service.project_event(user_id=user_id, provider="garmin", event=event)
+            await self._project_and_emit_event(
+                user_id=user_id,
+                provider="garmin",
+                event_id=event_id,
+                created=created,
+            )
             event_count += 1 if created else 0
         return (sample_count, event_count)
 
@@ -3246,9 +3383,12 @@ class WearableSyncService:
             details=record,
             raw_payload_id=raw_payload_id,
         )
-        event = await self.get_event(event_id)
-        if event and event.deleted_at is None:
-            await self.projection_service.project_event(user_id=user_id, provider="garmin", event=event)
+        await self._project_and_emit_event(
+            user_id=user_id,
+            provider="garmin",
+            event_id=event_id,
+            created=created,
+        )
         return 1 if created else 0
 
     @staticmethod
@@ -3369,6 +3509,70 @@ class WearableSyncService:
             await session.commit()
             await session.refresh(event)
             return event.id, created
+
+    async def _emit_internal_signal_for_sample(self, sample: WearableSampleDB, *, created: bool) -> None:
+        if not created:
+            return
+        outbox_event = build_wearable_outbox_event_for_sample(sample)
+        if not outbox_event:
+            return
+        from services.wearable_event_outbox_service import wearable_event_outbox_service
+
+        await wearable_event_outbox_service.enqueue_event(
+            user_id=sample.user_id,
+            provider=sample.provider,
+            connection_id=sample.connection_id,
+            source_id=sample.source_id,
+            event_type=outbox_event["event_type"],
+            related_record_kind="sample",
+            related_record_id=sample.id,
+            payload=outbox_event.get("payload"),
+        )
+
+    async def _emit_internal_signal_for_event(self, event: WearableEventDB, *, created: bool) -> None:
+        if not created:
+            return
+        outbox_event = build_wearable_outbox_event_for_event(event)
+        if not outbox_event:
+            return
+        from services.wearable_event_outbox_service import wearable_event_outbox_service
+
+        await wearable_event_outbox_service.enqueue_event(
+            user_id=event.user_id,
+            provider=event.provider,
+            connection_id=event.connection_id,
+            source_id=event.source_id,
+            event_type=outbox_event["event_type"],
+            related_record_kind="event",
+            related_record_id=event.id,
+            payload=outbox_event.get("payload"),
+        )
+
+    async def _project_and_emit_sample(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        sample_id: str,
+        created: bool,
+    ) -> None:
+        sample = await self.get_sample(sample_id)
+        if sample and sample.deleted_at is None:
+            await self.projection_service.project_sample(user_id=user_id, provider=provider, sample=sample)
+            await self._emit_internal_signal_for_sample(sample, created=created)
+
+    async def _project_and_emit_event(
+        self,
+        *,
+        user_id: str,
+        provider: str,
+        event_id: str,
+        created: bool,
+    ) -> None:
+        event = await self.get_event(event_id)
+        if event and event.deleted_at is None:
+            await self.projection_service.project_event(user_id=user_id, provider=provider, event=event)
+            await self._emit_internal_signal_for_event(event, created=created)
 
     async def get_sample(self, sample_id: str) -> Optional[WearableSampleDB]:
         async with get_db_session() as session:
