@@ -3,14 +3,12 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
+import { Plus, Download, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
 import type { Habit } from '@/contexts/HabitsContext';
 import type { SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
-import type { HabitDailyPoint } from '@/components/analytics/overview-metric-card';
-import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
@@ -19,11 +17,6 @@ const DateRangePicker = dynamic(
 
 const SortableHabitList = dynamic(
   () => import('@/components/analytics/sortable-habit-list').then((m) => ({ default: m.SortableHabitList })),
-  { ssr: false },
-);
-
-const SortableHabitGrid = dynamic(
-  () => import('@/components/analytics/sortable-habit-grid').then((m) => ({ default: m.SortableHabitGrid })),
   { ssr: false },
 );
 
@@ -71,7 +64,6 @@ interface OverviewInitialSectionProps extends SortableHabitListProps {
   onScrubberSelect: (date: string | null) => void;
   onShowSelectionModal: () => void;
   onShowImportModal: () => void;
-  getHabitDailySeries: (habit: Habit) => HabitDailyPoint[];
 }
 
 function OverviewInitialSectionInner({
@@ -92,7 +84,6 @@ function OverviewInitialSectionInner({
   getHabitMetricDisplay,
   getHabitMetricClassName,
   getHabitMetricStats,
-  getHabitDailySeries,
   onUpdateHabitDetails,
   updatingHabitId,
   confirmDelete,
@@ -101,9 +92,6 @@ function OverviewInitialSectionInner({
   onShowSelectionModal,
   onShowImportModal,
 }: OverviewInitialSectionProps) {
-  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
-  const isCardView = overviewViewMode === 'card';
-
   const handleScrubberSelect = React.useCallback((date: string | null) => {
     onScrubberSelect(date);
     if (date) {
@@ -132,37 +120,6 @@ function OverviewInitialSectionInner({
           ) : null}
 
           <div className="flex items-center space-x-1 relative z-10">
-            <div className="mr-1 inline-flex items-center rounded-sm border border-gray-300 bg-white p-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  void setOverviewViewMode('list');
-                }}
-                aria-pressed={!isCardView}
-                aria-label="List view"
-                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
-                  !isCardView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                }`}
-                title="List view"
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void setOverviewViewMode('card');
-                }}
-                aria-pressed={isCardView}
-                aria-label="Card view"
-                className={`inline-flex h-[30px] w-[30px] items-center justify-center rounded-[3px] transition-colors ${
-                  isCardView ? 'bg-[#F3F3F3] text-black' : 'text-gray-500 hover:text-black'
-                }`}
-                title="Card view"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-            </div>
-
             <div className="relative group">
               <button
                 onClick={onShowSelectionModal}
@@ -198,45 +155,24 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className={`pt-6 flex-1 overflow-auto ${isCardView ? 'pb-40' : 'pb-4'}`}>
-        {isCardView ? (
-          <div className="max-w-[1200px] mx-auto w-full px-1">
-            <SortableHabitGrid
-              habits={orderedHabits}
-              onReorder={onReorder}
-              getHabitMetricDisplay={getHabitMetricDisplay}
-              getHabitMetricClassName={getHabitMetricClassName}
-              scrubberHoveredDate={scrubberHoveredDate}
-              scrubberHoveredValues={scrubberHoveredValues}
-              activeTooltip={activeTooltip}
-              setActiveTooltip={setActiveTooltip}
-              getHabitMetricStats={getHabitMetricStats}
-              getHabitDailySeries={getHabitDailySeries}
-              onUpdateHabitDetails={onUpdateHabitDetails}
-              updatingHabitId={updatingHabitId}
-              confirmDelete={confirmDelete}
-              deletingHabit={deletingHabit}
-            />
-          </div>
-        ) : (
-          <div className="max-w-[408px] mx-auto w-full">
-            <SortableHabitList
-              habits={orderedHabits}
-              onReorder={onReorder}
-              getHabitMetricDisplay={getHabitMetricDisplay}
-              getHabitMetricClassName={getHabitMetricClassName}
-              scrubberHoveredDate={scrubberHoveredDate}
-              scrubberHoveredValues={scrubberHoveredValues}
-              activeTooltip={activeTooltip}
-              setActiveTooltip={setActiveTooltip}
-              getHabitMetricStats={getHabitMetricStats}
-              onUpdateHabitDetails={onUpdateHabitDetails}
-              updatingHabitId={updatingHabitId}
-              confirmDelete={confirmDelete}
-              deletingHabit={deletingHabit}
-            />
-          </div>
-        )}
+      <div className="pt-6 flex-1 overflow-auto pb-4">
+        <div className="max-w-[408px] mx-auto w-full">
+          <SortableHabitList
+            habits={orderedHabits}
+            onReorder={onReorder}
+            getHabitMetricDisplay={getHabitMetricDisplay}
+            getHabitMetricClassName={getHabitMetricClassName}
+            scrubberHoveredDate={scrubberHoveredDate}
+            scrubberHoveredValues={scrubberHoveredValues}
+            activeTooltip={activeTooltip}
+            setActiveTooltip={setActiveTooltip}
+            getHabitMetricStats={getHabitMetricStats}
+            onUpdateHabitDetails={onUpdateHabitDetails}
+            updatingHabitId={updatingHabitId}
+            confirmDelete={confirmDelete}
+            deletingHabit={deletingHabit}
+          />
+        </div>
       </div>
     </>
   );
