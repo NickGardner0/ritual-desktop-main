@@ -7,9 +7,12 @@ import sys
 import unittest
 from types import SimpleNamespace
 
+from pydantic import ValidationError
+
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from services.unified_wearables_service import WearableQueryService
+from schemas.wearables_unified import WearableQueryParams
 
 
 class WearableQueryServiceTests(unittest.TestCase):
@@ -52,6 +55,14 @@ class WearableQueryServiceTests(unittest.TestCase):
 
         self.assertEqual(provider, "mixed")
         self.assertEqual({row.id for row in rows}, {"w1", "a1"})
+
+    def test_wearable_query_params_accepts_timeline_page_limit(self):
+        params = WearableQueryParams(limit=5000)
+        self.assertEqual(params.limit, 5000)
+
+    def test_wearable_query_params_rejects_limit_above_page_cap(self):
+        with self.assertRaises(ValidationError):
+            WearableQueryParams(limit=5001)
 
 
 if __name__ == "__main__":

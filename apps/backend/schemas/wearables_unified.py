@@ -163,7 +163,7 @@ class WearableQueryParams(BaseModel):
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     include_deleted: bool = False
-    limit: int = Field(100, ge=1, le=500)
+    limit: int = Field(100, ge=1, le=5000)
 
 
 class WearableTimelineItemRead(BaseModel):

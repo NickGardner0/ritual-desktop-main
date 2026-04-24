@@ -655,8 +655,8 @@ def create_wearables_router(
         current_user = Depends(get_current_user),
     ):
         del cursor  # Cursor wiring can be added once the dashboard consumes it.
-        if not 1 <= limit <= 500:
-            raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+        if not 1 <= limit <= 5000:
+            raise HTTPException(status_code=400, detail="limit must be between 1 and 5000")
         try:
             parsed_start = _parse_iso_datetime(start_time, field_name="start_time")
             parsed_end = _parse_iso_datetime(end_time, field_name="end_time")
