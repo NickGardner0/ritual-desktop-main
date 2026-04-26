@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 VALID_METRIC_SYNC_MODES = {"off", "daily_only", "granular"}
 
 
+def _default_apple_metric_sync_mode(metric_type: str) -> str:
+    from services.unified_wearables_service import default_sync_mode_for_provider_metric
+
+    return default_sync_mode_for_provider_metric("apple_health", metric_type)
+
+
 def _parse_csv_list(raw_value: Optional[str]) -> list[str]:
     if not raw_value:
         return []
@@ -79,7 +85,9 @@ def _normalize_metric_preferences_v2(
     if isinstance(raw_selected, list):
         for metric_type in raw_selected:
             if isinstance(metric_type, str) and metric_type in allowed_metric_types:
-                normalized_preferences[metric_type] = {"sync_mode": "daily_only"}
+                normalized_preferences[metric_type] = {
+                    "sync_mode": _default_apple_metric_sync_mode(metric_type)
+                }
 
     return normalized_preferences
 
@@ -102,11 +110,11 @@ def _build_tracked_metrics_contract(
 
     metrics: dict[str, dict[str, Any]] = {
         metric_type: {
-            "sync_mode": preference.get("sync_mode", "daily_only"),
+            "sync_mode": preference.get("sync_mode", _default_apple_metric_sync_mode(metric_type)),
             "sync_plan": build_wearable_sync_plan(
                 provider="apple_health",
                 metric_type=metric_type,
-                sync_mode=preference.get("sync_mode", "daily_only"),
+                sync_mode=preference.get("sync_mode", _default_apple_metric_sync_mode(metric_type)),
                 projects_to_habit_logs=False,
             ),
         }
@@ -118,11 +126,11 @@ def _build_tracked_metrics_contract(
         metrics.setdefault(
             metric_type,
             {
-                "sync_mode": "daily_only",
+                "sync_mode": _default_apple_metric_sync_mode(metric_type),
                 "sync_plan": build_wearable_sync_plan(
                     provider="apple_health",
                     metric_type=metric_type,
-                    sync_mode="daily_only",
+                    sync_mode=_default_apple_metric_sync_mode(metric_type),
                     projects_to_habit_logs=True,
                 ),
             },
@@ -176,7 +184,7 @@ def _parse_metric_preferences_payload(
         raise ValueError(f"Unknown metric types: {sorted(str(metric_type) for metric_type in invalid_metric_types)}")
 
     return {
-        metric_type: {"sync_mode": "daily_only"}
+        metric_type: {"sync_mode": _default_apple_metric_sync_mode(metric_type)}
         for metric_type in dict.fromkeys(raw_selected)
     }
 
@@ -1532,22 +1540,36 @@ def create_wearables_router(
     async def get_metric_preferences(current_user=Depends(get_current_user)):
         """Get the user's explicitly selected metric types for syncing."""
         from database.connection import get_db_session
-        from database.models import WearableConnectionDB
+        from database.models import HabitDB, WearableConnectionDB
         from sqlalchemy import select
 
         async with get_db_session() as session:
-            stmt = select(WearableConnectionDB).where(
+            conn_stmt = select(WearableConnectionDB).where(
                 WearableConnectionDB.user_id == current_user["id"],
                 WearableConnectionDB.provider == "apple_health",
             )
-            result = await session.execute(stmt)
+            result = await session.execute(conn_stmt)
             conn = result.scalar_one_or_none()
 
             settings = _coerce_settings_payload(conn.settings_json if conn else None)
             preferences = _normalize_metric_preferences_v2(settings, _ALL_METRIC_TYPES)
+            habit_stmt = select(HabitDB).where(
+                HabitDB.user_id == current_user["id"],
+                HabitDB.integration_source == "apple_health",
+                HabitDB.metric_type.isnot(None),
+            )
+            habit_result = await session.execute(habit_stmt)
+            habit_types = {habit.metric_type for habit in habit_result.scalars().all() if habit.metric_type}
+            effective_contract = _build_tracked_metrics_contract(preferences, habit_types)
+            effective_preferences = {
+                metric_type: {"sync_mode": payload["sync_mode"]}
+                for metric_type, payload in effective_contract.items()
+            }
             return {
                 "preferences": preferences,
+                "effective_preferences": effective_preferences,
                 "selected_metrics": _selected_metrics_from_preferences(preferences),
+                "effective_selected_metrics": _selected_metrics_from_preferences(effective_preferences),
             }
 
     # Build a fast lookup from metric type → catalog info
@@ -1564,7 +1586,7 @@ def create_wearables_router(
     ):
         """Update Apple Health metric sync preferences."""
         from database.connection import get_db_session
-        from database.models import WearableConnectionDB
+        from database.models import HabitDB, WearableConnectionDB
         from sqlalchemy import select
 
         try:
@@ -1589,11 +1611,27 @@ def create_wearables_router(
             settings["metric_preferences_v2"] = preferences
             settings["metric_preferences"] = selected_metrics
             conn.settings_json = json.dumps(settings)
+
+            habit_stmt = select(HabitDB).where(
+                HabitDB.user_id == current_user["id"],
+                HabitDB.integration_source == "apple_health",
+                HabitDB.metric_type.isnot(None),
+            )
+            habit_result = await session.execute(habit_stmt)
+            habit_types = {habit.metric_type for habit in habit_result.scalars().all() if habit.metric_type}
             await session.commit()
+
+        effective_contract = _build_tracked_metrics_contract(preferences, habit_types)
+        effective_preferences = {
+            metric_type: {"sync_mode": payload["sync_mode"]}
+            for metric_type, payload in effective_contract.items()
+        }
 
         return {
             "preferences": preferences,
+            "effective_preferences": effective_preferences,
             "selected_metrics": selected_metrics,
+            "effective_selected_metrics": _selected_metrics_from_preferences(effective_preferences),
             "created_habits": [],
         }
 

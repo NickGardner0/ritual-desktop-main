@@ -413,7 +413,7 @@ export function AppleWatchSettings() {
       }
       if (prefsRes.ok) {
         const data = await prefsRes.json();
-        setMetricPreferences(data.preferences || {});
+        setMetricPreferences(data.effective_preferences || data.preferences || {});
       }
       setMetricsLoaded(true);
     } catch (err) {
@@ -561,7 +561,7 @@ export function AppleWatchSettings() {
     });
     if (!res.ok) throw new Error('Failed to save');
     const data = await res.json();
-    setMetricPreferences(data.preferences || preferences);
+    setMetricPreferences(data.effective_preferences || data.preferences || preferences);
   }
 
   async function saveProjectionPolicy(

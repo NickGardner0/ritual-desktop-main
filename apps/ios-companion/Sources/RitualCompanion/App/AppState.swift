@@ -285,8 +285,9 @@ final class AppState: ObservableObject {
     }
     
     /// Fetch which metrics the user has selected to track in the desktop app
-    func fetchTrackedMetrics() async {
-        guard connectionStatus == .connected else { return }
+    @discardableResult
+    func fetchTrackedMetrics() async -> Bool {
+        guard connectionStatus == .connected else { return false }
         
         isFetchingTrackedMetrics = true
         defer { isFetchingTrackedMetrics = false }
@@ -310,6 +311,7 @@ final class AppState: ObservableObject {
                 syncManager.scheduleBackgroundSync()
             }
             refreshSyncDiagnostics()
+            return true
         } catch let error as APIError {
             // Check for expired token
             if case .httpError(401) = error {
@@ -317,29 +319,31 @@ final class AppState: ObservableObject {
                 print("❌ Token expired during fetch - disconnecting")
                 #endif
                 await disconnect()
-                return
+                return false
             }
             if case .serverError(401, _) = error {
                 #if DEBUG
                 print("❌ Token expired during fetch - disconnecting")
                 #endif
                 await disconnect()
-                return
+                return false
             }
             #if DEBUG
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
             #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
+            refreshSyncDiagnostics()
+            return false
         } catch {
             #if DEBUG
             print("⚠️ Failed to fetch tracked metrics: \(error.localizedDescription)")
             #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
+            refreshSyncDiagnostics()
+            return false
         }
-
-        refreshSyncDiagnostics()
     }
 
     func requestHealthAccess() async {
@@ -477,8 +481,19 @@ final class AppState: ObservableObject {
             return
         }
         
-        // Refresh tracked metrics before syncing
-        await fetchTrackedMetrics()
+        // Refresh tracked metrics before syncing. Manual sync should use fresh
+        // server settings instead of silently falling back to stale cached modes.
+        let trackedMetricsRefreshed = await fetchTrackedMetrics()
+        if !trackedMetricsRefreshed {
+            if showErrorsToUser {
+                if connectionStatus != .connected {
+                    showError(message: "Authentication expired. Please sign in again.")
+                } else {
+                    showError(message: "Failed to refresh Apple Health sync settings. Please try again.")
+                }
+            }
+            return
+        }
         
         guard hasTrackedMetrics else {
             if showErrorsToUser {

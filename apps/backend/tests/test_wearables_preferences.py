@@ -49,8 +49,8 @@ class MetricPreferenceHelpersTests(unittest.TestCase):
         self.assertEqual(
             preferences,
             {
-                "steps": {"sync_mode": "daily_only"},
-                "hr": {"sync_mode": "daily_only"},
+                "steps": {"sync_mode": "granular"},
+                "hr": {"sync_mode": "granular"},
             },
         )
 
@@ -106,6 +106,28 @@ class MetricPreferenceHelpersTests(unittest.TestCase):
             },
         )
 
+    def test_build_tracked_metrics_contract_defaults_habit_derived_steps_to_granular(self):
+        metrics = _build_tracked_metrics_contract({}, {"steps"})
+
+        self.assertEqual(
+            metrics,
+            {
+                "steps": {
+                    "sync_mode": "granular",
+                    "sync_plan": {
+                        "provider": "apple_health",
+                        "metric_type": "steps",
+                        "sync_mode": "granular",
+                        "delivery_mode": "client_sdk",
+                        "backfill_mode": "manual_queue",
+                        "safe_history_days": 30,
+                        "projects_to_habit_logs": True,
+                        "capability_provider": "apple_health",
+                    },
+                }
+            },
+        )
+
     def test_parse_metric_preferences_payload_accepts_v2_shape(self):
         preferences = _parse_metric_preferences_payload(
             {
@@ -134,8 +156,8 @@ class MetricPreferenceHelpersTests(unittest.TestCase):
         self.assertEqual(
             preferences,
             {
-                "steps": {"sync_mode": "daily_only"},
-                "hr": {"sync_mode": "daily_only"},
+                "steps": {"sync_mode": "granular"},
+                "hr": {"sync_mode": "granular"},
             },
         )
 

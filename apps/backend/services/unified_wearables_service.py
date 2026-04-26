@@ -165,6 +165,29 @@ INTERNAL_WEARABLE_SIGNAL_MAX_AGE_DAYS = int(
     os.getenv("INTERNAL_WEARABLE_SIGNAL_MAX_AGE_DAYS", "3") or "3"
 )
 
+APPLE_METRIC_TYPE_ALIASES: Dict[str, str] = {
+    "hr": "heart_rate",
+    "resting_hr": "resting_heart_rate",
+    "walking_hr": "walking_heart_rate",
+}
+
+
+def default_sync_mode_for_provider_metric(provider: str, metric_type: str) -> str:
+    definition = PROVIDER_CAPABILITIES.get(provider)
+    fallback = definition.default_live_sync_mode if definition else "daily_only"
+    normalized_metric_type = (metric_type or "").strip().lower()
+
+    if provider != "apple_health" or not normalized_metric_type:
+        return fallback
+
+    canonical_metric_type = APPLE_METRIC_TYPE_ALIASES.get(
+        normalized_metric_type,
+        normalized_metric_type,
+    )
+    if canonical_metric_type in STEPS_LIKE_METRICS or canonical_metric_type in HEART_LIKE_METRICS:
+        return "granular"
+    return fallback
+
 
 def _infer_delivery_mode(provider: str) -> str:
     definition = PROVIDER_CAPABILITIES.get(provider)
@@ -625,9 +648,19 @@ class WearableConnectionService:
                 )
                 sync_plans = []
                 for metric_type in tracked_metrics:
-                    sync_mode = "daily_only"
+                    sync_mode = default_sync_mode_for_provider_metric(connection.provider, metric_type)
                     if metric_type in explicit_metrics:
-                        sync_mode = str(explicit_metrics[metric_type].get("sync_mode", "daily_only")).strip().lower() or "daily_only"
+                        sync_mode = (
+                            str(
+                                explicit_metrics[metric_type].get(
+                                    "sync_mode",
+                                    default_sync_mode_for_provider_metric(connection.provider, metric_type),
+                                )
+                            )
+                            .strip()
+                            .lower()
+                            or default_sync_mode_for_provider_metric(connection.provider, metric_type)
+                        )
                     sync_plans.append(
                         build_wearable_sync_plan(
                             provider=connection.provider,
