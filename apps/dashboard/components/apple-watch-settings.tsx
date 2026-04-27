@@ -784,8 +784,8 @@ export function AppleWatchSettings() {
 
       if (isTauri()) {
         try {
-          const { save } = await import('@tauri-apps/api/dialog');
-          const { writeTextFile } = await import('@tauri-apps/api/fs');
+          const { save } = await import('@tauri-apps/plugin-dialog');
+          const { writeTextFile } = await import('@tauri-apps/plugin-fs');
           exportedContent =
             exportFormat === 'json' ? JSON.stringify(await res.json(), null, 2) : await res.text();
           const filePath = await save({
@@ -798,7 +798,7 @@ export function AppleWatchSettings() {
           if (filePath) {
             if (exportWriteMode === 'skip') {
               try {
-                const { exists } = await import('@tauri-apps/api/fs');
+                const { exists } = await import('@tauri-apps/plugin-fs');
                 if (await exists(filePath)) {
                   setExportResult({ type: 'success', message: `Skipped — file already exists: ${filePath}` });
                   return;
@@ -807,7 +807,7 @@ export function AppleWatchSettings() {
             }
             if (exportWriteMode === 'append') {
               try {
-                const { readTextFile } = await import('@tauri-apps/api/fs');
+                const { readTextFile } = await import('@tauri-apps/plugin-fs');
                 const existing = await readTextFile(filePath);
                 exportedContent = existing + '\n\n' + exportedContent;
               } catch { /* file doesn't exist yet */ }

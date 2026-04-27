@@ -10,7 +10,7 @@ export async function invokeDesktopCommand<T>(
     throw new Error(`Desktop command "${command}" requires Ritual Desktop.`);
   }
 
-  const { invoke } = await import("@tauri-apps/api/tauri");
+  const { invoke } = await import("@tauri-apps/api/core");
   return invoke<T>(command, args);
 }
 
@@ -20,6 +20,6 @@ export async function openDesktopExternalUrl(url: string): Promise<void> {
     return;
   }
 
-  const { shell } = await import("@tauri-apps/api");
-  await shell.open(url);
+  const { open } = await import("@tauri-apps/plugin-shell");
+  await open(url);
 }

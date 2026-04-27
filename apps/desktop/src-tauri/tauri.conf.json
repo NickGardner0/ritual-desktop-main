@@ -1,183 +1,88 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Ritual",
+  "version": "0.1.45",
+  "identifier": "com.ritual.desktop",
+  "mainBinaryName": "Ritual",
   "build": {
     "beforeBuildCommand": "npm run shell:build",
     "beforeDevCommand": "npm run shell:dev",
-    "devPath": "http://127.0.0.1:1420",
-    "distDir": "../dist",
-    "withGlobalTauri": false
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
   },
-  "package": {
-    "productName": "Ritual",
-    "version": "0.1.44"
-  },
-  "tauri": {
+  "app": {
     "macOSPrivateApi": true,
-    "allowlist": {
-      "all": false,
-      "clipboard": {
-        "all": true,
-        "writeText": true,
-        "readText": true
-      },
-      "shell": {
-        "all": false,
-        "open": true
-      },
-      "protocol": {
-        "all": true,
-        "asset": true,
-        "assetScope": [
+    "withGlobalTauri": false,
+    "trayIcon": {
+      "iconPath": "icons/tray-iconTemplate@2x.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": false
+    },
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
           "$HOME/.ritual/**",
           "$HOME/.ritual/thumbnails/**",
           "$HOME/.ritual/video/**"
         ]
       },
-      "dialog": {
-        "all": true
-      },
-      "fs": {
-        "all": false,
-        "readFile": true,
-        "writeFile": true,
-        "scope": [
-          "$HOME/.ritual/**",
-          "$DOWNLOAD/*",
-          "$DOCUMENT/*",
-          "$DESKTOP/*"
-        ]
-      },
-      "path": {
-        "all": true
-      },
-      "process": {
-        "all": false,
-        "relaunch": true,
-        "exit": false
-      },
-      "window": {
-        "all": false,
-        "create": true,
-        "center": true,
-        "requestUserAttention": true,
-        "setResizable": true,
-        "setTitle": true,
-        "maximize": true,
-        "unmaximize": true,
-        "minimize": true,
-        "unminimize": true,
-        "show": true,
-        "hide": true,
-        "close": true,
-        "setDecorations": true,
-        "setAlwaysOnTop": true,
-        "setSize": true,
-        "setMinSize": true,
-        "setMaxSize": true,
-        "setPosition": true,
-        "setFullscreen": true,
-        "setFocus": true,
-        "setIcon": true,
-        "setSkipTaskbar": true,
-        "setCursorGrab": true,
-        "setCursorVisible": true,
-        "setCursorIcon": true,
-        "setCursorPosition": true,
-        "setIgnoreCursorEvents": true,
-        "startDragging": true,
-        "print": true
-      }
+      "csp": "default-src 'self' https: asset:; connect-src 'self' ipc: http://ipc.localhost https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
     },
-    "bundle": {
-      "active": true,
-      "category": "Productivity",
-      "copyright": "",
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "category": "Productivity",
+    "copyright": "",
+    "createUpdaterArtifacts": "v1Compatible",
+    "linux": {
       "deb": {
         "depends": []
-      },
-      "externalBin": [
-        "binaries/ritual-watcher",
-        "binaries/ritual-vision-helper"
-      ],
-      "icon": [
-        "icons/32x32.png",
-        "icons/128x128.png",
-        "icons/128x128@2x.png",
-        "icons/Ritual.icns",
-        "icons/icon.ico"
-      ],
-      "identifier": "com.ritual.desktop",
-      "longDescription": "",
-      "macOS": {
-        "entitlements": "entitlements.plist",
-        "exceptionDomain": "",
-        "frameworks": [],
-        "providerShortName": null,
-        "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
-      },
-      "resources": [],
-      "shortDescription": "",
-      "targets": "all",
-      "windows": {
-        "certificateThumbprint": null,
-        "digestAlgorithm": "sha256",
-        "timestampUrl": ""
       }
     },
-    "security": {
-      "dangerousRemoteDomainIpcAccess": [
-        {
-          "scheme": "https",
-          "domain": "desktop.ritualdb.com",
-          "windows": [
-            "main",
-            "sidebar"
-          ],
-          "enableTauriAPI": true
-        },
-        {
-          "scheme": "https",
-          "domain": "ritual-desktop.vercel.app",
-          "windows": [
-            "main",
-            "sidebar"
-          ],
-          "enableTauriAPI": true
-        },
-        {
-          "scheme": "http",
-          "domain": "localhost",
-          "windows": [
-            "main",
-            "sidebar"
-          ],
-          "enableTauriAPI": true
-        },
-        {
-          "scheme": "http",
-          "domain": "127.0.0.1",
-          "windows": [
-            "main",
-            "sidebar"
-          ],
-          "enableTauriAPI": true
-        }
-      ],
-      "csp": "default-src 'self' https:; connect-src 'self' https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:3031 http://127.0.0.1:3031 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: data: blob: https:; media-src 'self' asset: data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
+    "externalBin": [
+      "binaries/ritual-watcher",
+      "binaries/ritual-vision-helper"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/Ritual.icns",
+      "icons/icon.ico"
+    ],
+    "longDescription": "",
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
+    },
+    "resources": [],
+    "shortDescription": "",
+    "targets": "all",
+    "windows": {
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": ""
+    }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "ritual",
+          "com.ritual.desktop"
+        ]
+      }
     },
     "updater": {
-      "active": true,
       "endpoints": [
         "https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json"
       ],
-      "dialog": false,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM2QjBCMjlGMjgxMDZFNQpSV1RsQm9IeUtRdHJETnZrdkdGMk91bzJ3dy9yYXdHT0hqOTRoUVRoT05JZzdTY1FvWHZEeGlIbQo="
-    },
-    "systemTray": {
-      "iconPath": "icons/tray-iconTemplate@2x.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": false
-    },
-    "windows": []
+    }
   }
 }

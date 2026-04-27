@@ -46,7 +46,7 @@ export function DetachedSidebarShell() {
   useEffect(() => {
     if (!isTauri()) return;
     (async () => {
-      const { invoke } = await import("@tauri-apps/api/tauri");
+      const { invoke } = await import("@tauri-apps/api/core");
       try {
         const state = await invoke<SidebarState>("sidebar_get_main_state");
         if (state?.path) setActivePath(state.path);
@@ -60,7 +60,7 @@ export function DetachedSidebarShell() {
   useEffect(() => {
     if (!isTauri()) return;
     (async () => {
-      const { invoke } = await import("@tauri-apps/api/tauri");
+      const { invoke } = await import("@tauri-apps/api/core");
       try {
         await invoke("sidebar_set_width", { width });
       } catch (error) {
@@ -88,7 +88,7 @@ export function DetachedSidebarShell() {
   const navigate = async (path: string) => {
     setActivePath(path);
     if (!isTauri()) return;
-    const { invoke } = await import("@tauri-apps/api/tauri");
+    const { invoke } = await import("@tauri-apps/api/core");
     await invoke("sidebar_navigate", { path });
   };
 

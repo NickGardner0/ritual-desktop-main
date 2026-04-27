@@ -9,6 +9,7 @@ const tauriDir = path.join(repoRoot, 'apps', 'desktop', 'src-tauri');
 const baseConfigPath = path.join(tauriDir, 'tauri.conf.json');
 const outputConfigPath = path.join(tauriDir, 'tauri.generated.production.conf.json');
 const updaterPubkeyPath = path.join(tauriDir, 'updater.pub');
+const productionCapabilities = ['main-window', 'sidebar-window'];
 
 function parseRepoSlug(remoteUrl) {
   if (!remoteUrl) return null;
@@ -55,24 +56,31 @@ const updaterEndpoint =
 
 const generatedConfig = {
   ...baseConfig,
-  tauri: {
-    ...baseConfig.tauri,
+  app: {
+    ...(baseConfig.app ?? {}),
+    security: {
+      ...(baseConfig.app?.security ?? {}),
+      capabilities: productionCapabilities,
+    },
+  },
+  plugins: {
+    ...(baseConfig.plugins ?? {}),
     updater: {
-      active: true,
-      dialog: false,
+      ...(baseConfig.plugins?.updater ?? {}),
       endpoints: [updaterEndpoint],
       pubkey: updaterPubkey,
     },
-    bundle: {
-      ...baseConfig.tauri.bundle,
-      macOS: {
-        ...baseConfig.tauri.bundle.macOS,
-        signingIdentity: null,
-        providerShortName:
-          process.env.APPLE_PROVIDER_SHORT_NAME ||
-          baseConfig.tauri.bundle.macOS.providerShortName ||
-          null,
-      },
+  },
+  bundle: {
+    ...(baseConfig.bundle ?? {}),
+    createUpdaterArtifacts: false,
+    macOS: {
+      ...(baseConfig.bundle?.macOS ?? {}),
+      signingIdentity: null,
+      providerShortName:
+        process.env.APPLE_PROVIDER_SHORT_NAME ||
+        baseConfig.bundle?.macOS?.providerShortName ||
+        null,
     },
   },
 };
@@ -81,3 +89,5 @@ fs.writeFileSync(outputConfigPath, `${JSON.stringify(generatedConfig, null, 2)}\
 
 console.log(`Wrote ${path.relative(repoRoot, outputConfigPath)}`);
 console.log(`Updater endpoint: ${updaterEndpoint}`);
+console.log(`Capabilities: ${productionCapabilities.join(', ')}`);
+console.log('createUpdaterArtifacts: false (manual notarized updater packaging)');

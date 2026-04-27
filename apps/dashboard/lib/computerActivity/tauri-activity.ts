@@ -1,6 +1,6 @@
 'use client'
 
-import { invoke } from '@tauri-apps/api/tauri'
+import { invoke } from '@tauri-apps/api/core'
 import { buildDesktopCommandOrigin, desktopHasCapability } from '@/lib/desktop-runtime'
 
 const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:3031'

@@ -5,8 +5,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::api::dialog::blocking::{ask, message};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+use tauri_plugin_updater::UpdaterExt;
 use tracing::{info, instrument, warn};
 
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
@@ -25,6 +26,8 @@ pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
 pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
 pub const AUTH_DEEP_LINK_EVENT: &str = "desktop://auth-deep-link";
+pub const UPDATE_AVAILABLE_EVENT: &str = "tauri://update-available";
+pub const UPDATE_STATUS_EVENT: &str = "tauri://update-status";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -115,6 +118,13 @@ struct TursoSyncConfigResponse {
     database_name: String,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateStatusPayload {
+    error: Option<String>,
+    status: Option<String>,
+}
+
 fn read_nonempty_env(name: &str) -> Option<String> {
     env::var(name)
         .ok()
@@ -157,9 +167,9 @@ fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRuntimeInfo {
             .iter()
             .map(|capability| (*capability).to_string())
             .collect(),
-        updater_active: app.config().tauri.updater.active,
+        updater_active: app.updater().is_ok(),
         frontend_ready,
-        target: tauri::updater::target(),
+        target: tauri_plugin_updater::target(),
         pending_update,
     }
 }
@@ -227,7 +237,7 @@ fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: Strin
 pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
     if frontend_is_ready(app) {
         info!(deep_link = %deep_link, "Emitting desktop auth deep link to frontend");
-        let _ = app.emit_all(AUTH_DEEP_LINK_EVENT, deep_link);
+        let _ = app.emit(AUTH_DEEP_LINK_EVENT, deep_link);
         return;
     }
 
@@ -242,7 +252,7 @@ pub fn flush_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
 
     if let Some(pending) = take_pending_auth_deep_link(app) {
         info!(deep_link = %pending, "Flushing queued desktop auth deep link");
-        let _ = app.emit_all(AUTH_DEEP_LINK_EVENT, pending);
+        let _ = app.emit(AUTH_DEEP_LINK_EVENT, pending);
     }
 }
 
@@ -327,7 +337,7 @@ fn build_auth_runtime_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthRuntim
 }
 
 fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
-    let _ = app.emit_all(
+    let _ = app.emit(
         TOKEN_REFRESH_NEEDED_EVENT,
         Utc::now().timestamp_millis() as f64,
     );
@@ -363,7 +373,7 @@ pub fn emit_runtime_state_changed<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         match build_runtime_state(&app).await {
             Ok(runtime_state) => {
-                let _ = app.emit_all(RUNTIME_STATE_CHANGED_EVENT, runtime_state);
+                let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state);
             }
             Err(error) => {
                 warn!(error = %error, "Failed to emit desktop runtime state change");
@@ -396,21 +406,40 @@ pub fn register_runtime_signal_monitor<R: Runtime + 'static>(app: AppHandle<R>) 
                 read_runtime_signal_timestamp("ritual_refresh_token_request.txt");
             if token_refresh_request > 0.0 && token_refresh_request != last_token_refresh_request {
                 last_token_refresh_request = token_refresh_request;
-                let _ = app.emit_all(TOKEN_REFRESH_NEEDED_EVENT, token_refresh_request);
+                let _ = app.emit(TOKEN_REFRESH_NEEDED_EVENT, token_refresh_request);
             }
 
             let dashboard_refresh = read_runtime_signal_timestamp("ritual_timer_updated.txt");
             if dashboard_refresh > 0.0 && dashboard_refresh != last_dashboard_refresh {
                 last_dashboard_refresh = dashboard_refresh;
-                let _ = app.emit_all(DASHBOARD_REFRESH_EVENT, dashboard_refresh);
+                let _ = app.emit(DASHBOARD_REFRESH_EVENT, dashboard_refresh);
             }
         }
     });
 }
 
-async fn show_native_message<R: Runtime>(title: String, body: String) {
+fn emit_update_available<R: Runtime>(app: &AppHandle<R>, manifest: &PendingUpdateManifest) {
+    let _ = app.emit(UPDATE_AVAILABLE_EVENT, manifest.clone());
+}
+
+fn emit_update_status<R: Runtime>(app: &AppHandle<R>, status: &str, error: Option<String>) {
+    let _ = app.emit(
+        UPDATE_STATUS_EVENT,
+        UpdateStatusPayload {
+            error,
+            status: Some(status.to_string()),
+        },
+    );
+}
+
+async fn show_native_message<R: Runtime>(app: AppHandle<R>, title: String, body: String) {
     let _ = tauri::async_runtime::spawn_blocking(move || {
-        message::<R>(None, title, body);
+        app.dialog()
+            .message(body)
+            .title(title)
+            .buttons(MessageDialogButtons::Ok)
+            .kind(MessageDialogKind::Info)
+            .blocking_show();
     })
     .await;
 }
@@ -425,35 +454,54 @@ async fn prompt_for_native_install<R: Runtime>(
         "Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nInstall now?"
     );
 
-    tauri::async_runtime::spawn_blocking(move || ask::<R>(None, "Ritual Update Ready", prompt))
-        .await
-        .map_err(|error| format!("Failed to show native update prompt: {error}"))
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok::<bool, String>(
+            _app.dialog()
+                .message(prompt)
+                .title("Ritual Update Ready")
+                .buttons(MessageDialogButtons::OkCancelCustom(
+                    "Install".to_string(),
+                    "Later".to_string(),
+                ))
+                .kind(MessageDialogKind::Info)
+                .blocking_show(),
+        )
+    })
+    .await
+    .map_err(|error| format!("Failed to show native update prompt: {error}"))?
 }
 
 async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let update = app
         .updater()
+        .map_err(|error| format!("Failed to access updater plugin: {error}"))?
         .check()
         .await
         .map_err(|error| format!("Failed to check for updates: {error}"))?;
 
-    if !update.is_update_available() {
+    let Some(update) = update else {
         set_pending_update(&app, None);
         return Err("Ritual is already up to date.".to_string());
-    }
+    };
 
     let manifest = PendingUpdateManifest {
-        version: update.latest_version().to_string(),
-        date: update.date().map(|value| value.to_string()),
-        body: update.body().cloned(),
+        version: update.version.clone(),
+        date: update.date.map(|value| value.to_string()),
+        body: update.body.clone(),
     };
     set_pending_update(&app, Some(manifest));
+    emit_update_status(&app, "PENDING", None);
 
     update
-        .download_and_install()
+        .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|error| format!("Failed to download or install the update: {error}"))?;
+        .map_err(|error| {
+            let message = format!("Failed to download or install the update: {error}");
+            emit_update_status(&app, "ERROR", Some(message.clone()));
+            message
+        })?;
 
+    emit_update_status(&app, "DONE", None);
     app.restart();
     #[allow(unreachable_code)]
     Ok(())
@@ -491,12 +539,18 @@ fn schedule_startup_native_prompt<R: Runtime + 'static>(
         {
             Ok(true) => {
                 if let Err(error) = install_latest_update(app.clone()).await {
-                    show_native_message::<R>("Ritual Update Failed".to_string(), error).await;
+                    show_native_message::<R>(
+                        app.clone(),
+                        "Ritual Update Failed".to_string(),
+                        error,
+                    )
+                    .await;
                 }
             }
             Ok(false) => {}
             Err(error) => {
-                show_native_message::<R>("Ritual Update Failed".to_string(), error).await;
+                show_native_message::<R>(app.clone(), "Ritual Update Failed".to_string(), error)
+                    .await;
             }
         }
     });
@@ -508,7 +562,7 @@ async fn run_update_check<R: Runtime + 'static>(
     origin: UpdateCheckOrigin,
 ) -> Result<(), String> {
     let started_at = Instant::now();
-    if !app.config().tauri.updater.active {
+    if app.updater().is_err() {
         return Err("Ritual desktop updater is disabled in this build.".to_string());
     }
 
@@ -519,15 +573,18 @@ async fn run_update_check<R: Runtime + 'static>(
     let result = async {
         let update = app
             .updater()
+            .map_err(|error| format!("Failed to access updater plugin: {error}"))?
             .check()
             .await
             .map_err(|error| format!("Failed to check for updates: {error}"))?;
 
-        if !update.is_update_available() {
+        let Some(update) = update else {
             set_pending_update(&app, None);
+            emit_update_status(&app, "UPTODATE", None);
 
             if matches!(origin, UpdateCheckOrigin::Tray) {
                 show_native_message::<R>(
+                    app.clone(),
                     "Ritual Desktop".to_string(),
                     "You already have the latest Ritual desktop build.".to_string(),
                 )
@@ -535,14 +592,15 @@ async fn run_update_check<R: Runtime + 'static>(
             }
 
             return Ok(());
-        }
+        };
 
         let manifest = PendingUpdateManifest {
-            version: update.latest_version().to_string(),
-            date: update.date().map(|value| value.to_string()),
-            body: update.body().cloned(),
+            version: update.version.clone(),
+            date: update.date.map(|value| value.to_string()),
+            body: update.body.clone(),
         };
         set_pending_update(&app, Some(manifest.clone()));
+        emit_update_available(&app, &manifest);
 
         match origin {
             UpdateCheckOrigin::Startup => {
@@ -830,7 +888,8 @@ pub fn register_startup_update_check<R: Runtime + 'static>(app: AppHandle<R>) {
 pub fn tray_check_for_updates<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_update_check(app.clone(), UpdateCheckOrigin::Tray).await {
-            show_native_message::<R>("Ritual Update Check Failed".to_string(), error).await;
+            show_native_message::<R>(app.clone(), "Ritual Update Check Failed".to_string(), error)
+                .await;
         }
     });
 }
@@ -936,6 +995,6 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     }
 
     let runtime_state = build_runtime_state(&app).await?;
-    let _ = app.emit_all(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
+    let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
     Ok(runtime_state)
 }

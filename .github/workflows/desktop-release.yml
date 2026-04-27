@@ -4,13 +4,20 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   macos:
     name: Build macOS desktop release
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
-      contents: write
+      contents: read
+    env:
+      RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
 
     steps:
       - name: Checkout
@@ -25,30 +32,137 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            apps/desktop/src-tauri
+
       - name: Install dependencies
         run: npm install --no-audit --no-fund --legacy-peer-deps
 
-      - name: Write production updater config
-        run: node scripts/write-tauri-production-config.mjs
+      - name: Verify release tag matches desktop version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          DESKTOP_VERSION="$(node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('apps/desktop/src-tauri/tauri.conf.json','utf8')); process.stdout.write(String(cfg.version || ''))")"
+          if [[ -z "${DESKTOP_VERSION}" ]]; then
+            echo "Could not read desktop version from tauri.conf.json" >&2
+            exit 1
+          fi
+          if [[ "${DESKTOP_VERSION}" != "${TAG_VERSION}" ]]; then
+            echo "Git tag ${GITHUB_REF_NAME} does not match desktop version ${DESKTOP_VERSION}" >&2
+            exit 1
+          fi
 
-      - name: Build and upload release artifacts
-        uses: tauri-apps/tauri-action@v1
+      - name: Decode Developer ID certificate
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+        run: |
+          if [[ -z "${APPLE_CERTIFICATE_P12_BASE64}" ]]; then
+            echo "Missing required secret APPLE_CERTIFICATE_P12_BASE64" >&2
+            exit 1
+          fi
+          CERT_PATH="${RUNNER_TEMP}/ritual-signing-cert.p12"
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          cert_b64 = os.environ["APPLE_CERTIFICATE_P12_BASE64"]
+          cert_path = Path(os.environ["RUNNER_TEMP"]) / "ritual-signing-cert.p12"
+          cert_path.write_bytes(base64.b64decode(cert_b64))
+          print(f"CERT_PATH={cert_path}")
+          PY
+          echo "APPLE_CERTIFICATE_PATH=${CERT_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Write App Store Connect API key
+        if: ${{ secrets.APPLE_API_KEY_P8 != '' || secrets.APPLE_API_KEY_P8_BASE64 != '' }}
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          if [[ -z "${APPLE_API_KEY}" ]]; then
+            echo "APPLE_API_KEY secret must be set when providing an App Store Connect API key." >&2
+            exit 1
+          fi
+          API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY}.p8"
+          if [[ -n "${APPLE_API_KEY_P8_BASE64}" ]]; then
+            python3 - <<'PY'
+            import base64
+            import os
+            from pathlib import Path
+
+            api_key_b64 = os.environ["APPLE_API_KEY_P8_BASE64"]
+            api_key_path = Path(os.environ["RUNNER_TEMP"]) / f"AuthKey_{os.environ['APPLE_API_KEY']}.p8"
+            api_key_path.write_bytes(base64.b64decode(api_key_b64))
+            print(f"API_KEY_PATH={api_key_path}")
+            PY
+          else
+            printf '%s' "${APPLE_API_KEY_P8}" > "${API_KEY_PATH}"
+          fi
+          echo "APPLE_API_KEY_PATH=${API_KEY_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Import Developer ID certificate into temporary keychain
+        env:
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [[ -z "${APPLE_CERTIFICATE_PASSWORD}" ]]; then
+            echo "Missing required secret APPLE_CERTIFICATE_PASSWORD" >&2
+            exit 1
+          fi
+          KEYCHAIN_PATH="${RUNNER_TEMP}/ritual-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_PATH}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_PATH}"
+          security import "${APPLE_CERTIFICATE_PATH}" \
+            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -A \
+            -f pkcs12 \
+            -k "${KEYCHAIN_PATH}"
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${KEYCHAIN_PASSWORD}" \
+            "${KEYCHAIN_PATH}"
+          security list-keychains -d user -s "${KEYCHAIN_PATH}" "${HOME}/Library/Keychains/login.keychain-db"
+          security default-keychain -d user -s "${KEYCHAIN_PATH}"
+          security find-identity -v -p codesigning "${KEYCHAIN_PATH}"
+          echo "APPLE_SIGNING_KEYCHAIN_PATH=${KEYCHAIN_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Build notarized desktop release
+        env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
-        with:
-          projectPath: apps/desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: Ritual Desktop ${{ github.ref_name }}
-          releaseBody: |
-            Automated macOS beta build for Ritual Desktop.
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: npm run desktop:release:mac
 
-            Assets include the signed DMG, updater bundles, signatures, and `latest.json` for in-app updates.
-          releaseDraft: false
-          prerelease: false
-          uploadUpdaterJson: true
-          args: --config src-tauri/tauri.generated.production.conf.json --bundles dmg,updater
+      - name: Publish assets to public desktop releases repo
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
+        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
+
+      - name: Upload local release artifacts to workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-${{ github.ref_name }}
+          if-no-files-found: error
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.zip
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
+            apps/desktop/src-tauri/target/release/bundle/macos/latest.json
+
+      - name: Cleanup temporary signing keychain
+        if: always()
+        run: |
+          if [[ -n "${APPLE_SIGNING_KEYCHAIN_PATH:-}" && -f "${APPLE_SIGNING_KEYCHAIN_PATH}" ]]; then
+            security delete-keychain "${APPLE_SIGNING_KEYCHAIN_PATH}" || true
+          fi

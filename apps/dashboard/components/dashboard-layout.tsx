@@ -26,9 +26,9 @@ function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolea
   useEffect(() => {
     if (!detachedSidebarMode || !isTauri()) return;
     (async () => {
-      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
-      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      const sidebarWindow = await WebviewWindow.getByLabel('sidebar');
       await sidebarWindow?.emit('sidebar:route', route);
     })();
   }, [detachedSidebarMode, pathname, searchParams]);
@@ -80,9 +80,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
     let unlisten: (() => void) | null = null;
     (async () => {
-      const { invoke } = await import('@tauri-apps/api/tauri');
+      const { invoke } = await import('@tauri-apps/api/core');
       const { listen } = await import('@tauri-apps/api/event');
-      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
 
       try {
         const state = await invoke<{ width?: number }>('sidebar_get_main_state');
@@ -100,7 +100,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       });
 
       const route = `${window.location.pathname}${window.location.search}`;
-      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      const sidebarWindow = await WebviewWindow.getByLabel('sidebar');
       await sidebarWindow?.emit('sidebar:route', route);
     })();
 

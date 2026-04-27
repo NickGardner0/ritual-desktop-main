@@ -183,7 +183,7 @@ export function MemoryCloudUploader() {
 
     const ackBatch = async (ids: number[], success: boolean, errorMessage?: string) => {
       if (ids.length === 0) return;
-      const { invoke } = await import('@tauri-apps/api/tauri');
+      const { invoke } = await import('@tauri-apps/api/core');
       const nativeDbLifecycle = await desktopHasCapability('desktop-runtime-state-v1');
       const invokeWithDbInitRetry = async <T,>(
         command: string,
@@ -247,7 +247,7 @@ export function MemoryCloudUploader() {
           return;
         }
 
-        const { invoke } = await import('@tauri-apps/api/tauri');
+        const { invoke } = await import('@tauri-apps/api/core');
         const nativeDbLifecycle = await desktopHasCapability('desktop-runtime-state-v1');
         if (nativeDbLifecycle) {
           const runtimeState = await getDesktopRuntimeState();

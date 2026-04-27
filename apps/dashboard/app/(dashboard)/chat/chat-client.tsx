@@ -192,6 +192,12 @@ interface Message {
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
 }
 
+type ConversationContextMenuState = {
+  conversationId: string;
+  x: number;
+  y: number;
+} | null;
+
 function getToolLabel(text: string): string {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return 'Thinking...';
@@ -805,6 +811,7 @@ export function ChatClient() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);  // Collapsed by default
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [conversationContextMenu, setConversationContextMenu] = useState<ConversationContextMenuState>(null);
   
   // Voice mode state (transcription)
   const [isListening, setIsListening] = useState(false);
@@ -1137,6 +1144,9 @@ export function ChatClient() {
       });
       
       if (response.ok) {
+        setConversationContextMenu((current) => (
+          current?.conversationId === targetConversationId ? null : current
+        ));
         // Remove from local list
         setConversations(prev => prev.filter(c => c.id !== targetConversationId));
         
@@ -1150,35 +1160,42 @@ export function ChatClient() {
     }
   }, [getToken, conversationId, startNewConversation]);
 
-  // Show native context menu for a conversation
-  const showConversationContextMenu = useCallback(async (targetConversationId: string, e: React.MouseEvent) => {
+  const showConversationContextMenu = useCallback((targetConversationId: string, e: React.MouseEvent) => {
     e.preventDefault();
-    try {
-      const { showMenu } = await import('tauri-plugin-context-menu');
-      const { listen } = await import('@tauri-apps/api/event');
+    setConversationContextMenu({
+      conversationId: targetConversationId,
+      x: e.clientX,
+      y: e.clientY,
+    });
+  }, []);
 
-      // Use a unique event name so we can register our own listener
-      const eventName = `delete-conv-${Date.now()}`;
+  useEffect(() => {
+    if (!conversationContextMenu) return;
 
-      // Register listener before showing menu
-      const unlisten = await listen(eventName, () => {
-        deleteConversation(targetConversationId);
-        unlisten();
-      });
+    const closeMenu = () => setConversationContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
 
-      // Clean up listener if menu is dismissed without clicking
-      const unlistenClose = await listen('menu-did-close', () => {
-        setTimeout(() => { try { unlisten(); } catch {} }, 200);
-        unlistenClose();
-      });
+    window.addEventListener('mousedown', closeMenu);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('keydown', closeOnEscape);
 
-      showMenu({
-        items: [{ label: 'Delete', event: eventName }],
-      });
-    } catch (error) {
-      console.error('Failed to show context menu:', error);
-    }
-  }, [deleteConversation]);
+    return () => {
+      window.removeEventListener('mousedown', closeMenu);
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [conversationContextMenu]);
+
+  const handleConversationContextDelete = useCallback(() => {
+    if (!conversationContextMenu) return;
+    void deleteConversation(conversationContextMenu.conversationId);
+  }, [conversationContextMenu, deleteConversation]);
 
   const sendMessage = useCallback(async (text: string) => {
     if (isLoading || !text.trim()) return;
@@ -2365,11 +2382,42 @@ export function ChatClient() {
       : null;
   }
 
+  function renderConversationContextMenu() {
+    if (!conversationContextMenu || typeof document === 'undefined') {
+      return null;
+    }
+
+    const left = Math.min(conversationContextMenu.x, Math.max(12, window.innerWidth - 172));
+    const top = Math.min(conversationContextMenu.y, Math.max(12, window.innerHeight - 72));
+
+    return createPortal(
+      <div className="fixed inset-0 z-[120]">
+        <div className="absolute inset-0" />
+        <div
+          className="absolute min-w-[160px] rounded-md border border-[rgba(15,23,42,0.08)] bg-white p-1 shadow-[0_12px_30px_rgba(15,23,42,0.12)]"
+          style={{ left, top }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            onClick={handleConversationContextDelete}
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-[13px] text-[#2f2c25] transition-colors hover:bg-[#f3f2ef]"
+          >
+            Delete conversation
+          </button>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   // Empty state
   if (messages.length === 0 && !isLoading) {
     return (
       <>
         {headerNavigation}
+        {renderConversationContextMenu()}
         <div className="h-full flex bg-white relative overflow-x-hidden">
         {renderConversationSidebar()}
         {renderCollapsedSidebarToggle()}
@@ -2480,6 +2528,7 @@ export function ChatClient() {
   return (
     <>
       {headerNavigation}
+      {renderConversationContextMenu()}
       <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
       {renderConversationSidebar()}
       {renderCollapsedSidebarToggle()}
