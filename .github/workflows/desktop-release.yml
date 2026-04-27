@@ -18,6 +18,8 @@ jobs:
       contents: read
     env:
       RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
+      HAS_APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      HAS_APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
 
     steps:
       - name: Checkout
@@ -76,7 +78,7 @@ jobs:
           echo "APPLE_CERTIFICATE_PATH=${CERT_PATH}" >> "${GITHUB_ENV}"
 
       - name: Write App Store Connect API key
-        if: ${{ secrets.APPLE_API_KEY_P8 != '' || secrets.APPLE_API_KEY_P8_BASE64 != '' }}
+        if: ${{ env.HAS_APPLE_API_KEY_P8 != '' || env.HAS_APPLE_API_KEY_P8_BASE64 != '' }}
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
