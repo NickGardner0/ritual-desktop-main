@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import {
   User2,
   Monitor,
-  Watch,
   X,
   ChevronDown,
   AlertTriangle,
@@ -45,10 +44,18 @@ interface TabConfig {
   icon: React.ComponentType<{ className?: string }>;
 }
 
+function AppleGlyph({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 814 1000" fill="currentColor" aria-hidden="true">
+      <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
+    </svg>
+  );
+}
+
 const TABS: Record<SettingsTabId, TabConfig> = {
   account: { label: 'General', icon: User2 },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
-  'apple-health': { label: 'Apple Watch', icon: Watch },
+  'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
 const TAB_ORDER: SettingsTabId[] = ['account', 'computer-tracking', 'apple-health'];
@@ -157,7 +164,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
         <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200/60 px-5 py-3">
           <h2 className="text-[15px] font-semibold text-gray-900">Settings</h2>
           <button onClick={handleClose} className="rounded-sm p-1.5 transition-colors hover:bg-gray-100">
-            <X className="h-4 w-4 text-gray-400" />
+            <X className="h-4 w-4 text-[#616161]" />
           </button>
         </div>
 
@@ -177,7 +184,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                       'hover:bg-gray-200/50',
                       activeTab === id
                         ? 'bg-gray-200/60 text-gray-900 font-medium'
-                        : 'text-gray-500',
+                        : 'text-[#616161]',
                     )}
                   >
                     <Icon className="h-[15px] w-[15px] flex-shrink-0" />
@@ -204,7 +211,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     <p className="text-sm font-medium text-gray-900 truncate">{userName}</p>
                     <button
                       onClick={handleManageAccount}
-                      className="text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
+                      className="text-[13px] text-[#616161] hover:text-gray-900 transition-colors"
                     >
                       Manage account
                     </button>
@@ -219,7 +226,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   <div className="flex items-center justify-between py-2.5">
                     <div>
                       <p className="text-[13px] font-medium text-gray-900">AI data retention</p>
-                      <p className="text-[13px] text-gray-500">Let Ritual save and use memories when answering.</p>
+                      <p className="text-[13px] text-[#616161]">Let Ritual save and use memories when answering.</p>
                     </div>
                     <Toggle checked={aiDataRetention} onChange={() => setAiDataRetention(!aiDataRetention)} />
                   </div>
@@ -235,7 +242,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                         <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
                           {fontOptions.find((f) => f.value === font)?.label}
                         </span>
-                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                        <ChevronDown className="h-3.5 w-3.5 text-[#616161]" />
                       </button>
                       {showFontDropdown && (
                         <>
@@ -247,7 +254,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                 onClick={() => { setFont(option.value); setShowFontDropdown(false); }}
                                 className={cn(
                                   'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-gray-50',
-                                  font === option.value ? 'text-gray-900 font-medium' : 'text-gray-600',
+                                  font === option.value ? 'text-gray-900 font-medium' : 'text-[#616161]',
                                   option.value === 'system-ui' && 'font-system-ui',
                                 )}
                               >
@@ -270,7 +277,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                         className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] text-gray-700 transition-colors hover:bg-gray-50"
                       >
                         <span>{sidebarModeOptions.find((o) => o.value === sidebarMode)?.label}</span>
-                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                        <ChevronDown className="h-3.5 w-3.5 text-[#616161]" />
                       </button>
                       {showSidebarDropdown && (
                         <>
@@ -282,7 +289,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                 onClick={() => { setSidebarMode(option.value); setShowSidebarDropdown(false); }}
                                 className={cn(
                                   'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-gray-50',
-                                  sidebarMode === option.value ? 'text-gray-900 font-medium' : 'text-gray-600',
+                                  sidebarMode === option.value ? 'text-gray-900 font-medium' : 'text-[#616161]',
                                 )}
                               >
                                 {option.label}
@@ -299,7 +306,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   <div className="flex items-start justify-between py-2.5">
                     <div className="pr-4">
                       <p className="text-[13px] font-medium text-gray-900">Metric number color</p>
-                      <p className="text-[13px] text-gray-500">
+                      <p className="text-[13px] text-[#616161]">
                         Applies to the number portion of each metric on the Overview page.
                       </p>
                       {habitTextLowContrast && (
@@ -322,7 +329,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                           style={{ backgroundColor: habitTextColor }}
                         />
                         <span className="tabular-nums">{habitTextColor.toUpperCase()}</span>
-                        <ChevronDown className="h-3.5 w-3.5 text-gray-400" />
+                        <ChevronDown className="h-3.5 w-3.5 text-[#616161]" />
                       </button>
                       {showColorPicker && (
                         <>
@@ -338,7 +345,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                               }}
                             />
                             <div className="mt-3 flex items-center justify-between gap-2">
-                              <span className="text-[12px] text-gray-500 tabular-nums">
+                              <span className="text-[12px] text-[#616161] tabular-nums">
                                 {habitTextColor.toUpperCase()}
                               </span>
                               <button
@@ -346,7 +353,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                   void setHabitTextColor(null);
                                   setShowColorPicker(false);
                                 }}
-                                className="text-[12px] text-gray-500 transition-colors hover:text-gray-900"
+                                className="text-[12px] text-[#616161] transition-colors hover:text-gray-900"
                               >
                                 Reset to default
                               </button>
@@ -413,7 +420,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
           <div className="absolute inset-0 bg-black/10 backdrop-blur-[1px]" onClick={() => setShowDeleteConfirm(false)} />
           <div className="relative mx-4 max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-lg">
             <h3 className="text-base font-semibold text-gray-900">Delete account?</h3>
-            <p className="mt-2 text-[13px] leading-relaxed text-gray-500">
+            <p className="mt-2 text-[13px] leading-relaxed text-[#616161]">
               This action cannot be undone. All your data will be permanently deleted.
             </p>
             <div className="mt-5 flex gap-2.5">

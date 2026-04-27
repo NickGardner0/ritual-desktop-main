@@ -30,6 +30,7 @@ import {
 } from '@/lib/wearables-dashboard';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const SETTINGS_MUTED_TEXT_CLASS = 'text-[#616161]';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,6 +40,22 @@ function formatHour(hour: number): string {
   const period = hour >= 12 ? 'PM' : 'AM';
   const hour12 = hour % 12 === 0 ? 12 : hour % 12;
   return `${hour12}:00 ${period}`;
+}
+
+function seedLastEnabledSyncModesFromPreferences(
+  preferences: WearableMetricPreferences,
+  previous: Record<string, Exclude<WearableMetricSyncMode, 'off'>>,
+): Record<string, Exclude<WearableMetricSyncMode, 'off'>> {
+  const next = { ...previous };
+  for (const [metricType, preference] of Object.entries(preferences) as Array<
+    [string, WearableMetricPreferences[string]]
+  >) {
+    const syncMode = preference?.sync_mode;
+    if (syncMode === 'daily_only' || syncMode === 'granular') {
+      next[metricType] = syncMode;
+    }
+  }
+  return next;
 }
 
 function formatRelativeTime(dateValue: string | null | undefined): string {
@@ -363,6 +380,9 @@ export function AppleWatchSettings() {
 
   const [metricCatalog, setMetricCatalog] = useState<MetricCategory[]>([]);
   const [metricPreferences, setMetricPreferences] = useState<WearableMetricPreferences>({});
+  const [lastEnabledSyncModes, setLastEnabledSyncModes] = useState<
+    Record<string, Exclude<WearableMetricSyncMode, 'off'>>
+  >({});
   const [metricsLoaded, setMetricsLoaded] = useState(false);
   const [projectionHabits, setProjectionHabits] = useState<HabitSummary[]>([]);
   const [projectionPolicies, setProjectionPolicies] = useState<Record<string, HabitProjectionPolicy>>({});
@@ -413,7 +433,11 @@ export function AppleWatchSettings() {
       }
       if (prefsRes.ok) {
         const data = await prefsRes.json();
-        setMetricPreferences(data.effective_preferences || data.preferences || {});
+        const nextPreferences = data.effective_preferences || data.preferences || {};
+        setMetricPreferences(nextPreferences);
+        setLastEnabledSyncModes((prev) =>
+          seedLastEnabledSyncModesFromPreferences(nextPreferences, prev),
+        );
       }
       setMetricsLoaded(true);
     } catch (err) {
@@ -561,7 +585,11 @@ export function AppleWatchSettings() {
     });
     if (!res.ok) throw new Error('Failed to save');
     const data = await res.json();
-    setMetricPreferences(data.effective_preferences || data.preferences || preferences);
+    const nextPreferences = data.effective_preferences || data.preferences || preferences;
+    setMetricPreferences(nextPreferences);
+    setLastEnabledSyncModes((prev) =>
+      seedLastEnabledSyncModesFromPreferences(nextPreferences, prev),
+    );
   }
 
   async function saveProjectionPolicy(
@@ -589,6 +617,12 @@ export function AppleWatchSettings() {
       [metricType]: { sync_mode: syncMode },
     };
     setMetricPreferences(nextPreferences);
+    if (syncMode === 'daily_only' || syncMode === 'granular') {
+      setLastEnabledSyncModes((prev) => ({
+        ...prev,
+        [metricType]: syncMode,
+      }));
+    }
 
     try {
       await saveMetricPreferences(nextPreferences);
@@ -940,7 +974,7 @@ export function AppleWatchSettings() {
         <span
           className={cn(
             'inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium',
-            connected ? 'text-gray-700' : 'text-gray-400',
+            connected ? 'text-gray-700' : SETTINGS_MUTED_TEXT_CLASS,
           )}
         >
           <span className={cn('h-2 w-2 rounded-full', connected ? 'bg-[#73bf1d]' : 'bg-gray-300')} />
@@ -959,7 +993,7 @@ export function AppleWatchSettings() {
                 'relative -mb-px pb-2.5 text-[13px] font-medium transition-colors',
                 tab === t.key
                   ? 'text-gray-900'
-                  : 'text-gray-400 hover:text-gray-600',
+                  : `${SETTINGS_MUTED_TEXT_CLASS} hover:text-gray-600`,
               )}
             >
               {t.label}
@@ -985,7 +1019,7 @@ export function AppleWatchSettings() {
           ) : (
             <div className="rounded-sm bg-[#F5F5F4] px-5 py-6 text-center">
               <p className="text-sm font-medium text-gray-900">Not connected</p>
-              <p className="mt-1.5 text-[13px] text-gray-500">
+              <p className={cn('mt-1.5 text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>
                 Open the Ritual Companion app on your iPhone to connect.
               </p>
             </div>
@@ -998,41 +1032,54 @@ export function AppleWatchSettings() {
       {/* ================================================================ */}
       {tab === 'metrics' && connected && (
         <div className="space-y-3">
-          <p className="text-[12px] text-gray-500">
+          <p className={cn('text-[12px]', SETTINGS_MUTED_TEXT_CLASS)}>
             Overview always stays daily. Granular metrics also show richer detail in Logs and Metrics.
           </p>
           {flatMetrics.length > 0 ? (
             <div className="divide-y divide-gray-100">
               {flatMetrics.map((metric) => {
                 const syncMode = getMetricSyncMode(metric.type);
+                const metricEnabled = syncMode === 'daily_only' || syncMode === 'granular';
+                const preferredEnabledMode = lastEnabledSyncModes[metric.type] || 'daily_only';
                 return (
                   <div key={metric.type} className="flex items-center justify-between py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] text-gray-900 leading-tight">{metric.name}</p>
-                      <p className="mt-0.5 text-[11px] text-gray-400">{metric.unit}</p>
+                      <p className={cn('mt-0.5 text-[11px]', SETTINGS_MUTED_TEXT_CLASS)}>{metric.unit}</p>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {([
-                        ['off', 'Off'],
-                        ['daily_only', 'Daily'],
-                        ['granular', 'Granular'],
-                      ] as const).map(([mode, label]) => (
-                        <SegmentButton
-                          key={mode}
-                          active={syncMode === mode}
-                          onClick={() => handleMetricModeChange(metric.type, mode)}
-                          small
-                        >
-                          {label}
-                        </SegmentButton>
-                      ))}
+                      <GreenToggle
+                        checked={metricEnabled}
+                        onChange={(checked) =>
+                          handleMetricModeChange(metric.type, checked ? preferredEnabledMode : 'off')
+                        }
+                        ariaLabel={`${metricEnabled ? 'Disable' : 'Enable'} ${metric.name}`}
+                      />
+                      {metricEnabled && (
+                        <div className="flex items-center gap-1.5">
+                          <SegmentButton
+                            active={syncMode === 'daily_only'}
+                            onClick={() => handleMetricModeChange(metric.type, 'daily_only')}
+                            small
+                          >
+                            Daily
+                          </SegmentButton>
+                          <SegmentButton
+                            active={syncMode === 'granular'}
+                            onClick={() => handleMetricModeChange(metric.type, 'granular')}
+                            small
+                          >
+                            Granular
+                          </SegmentButton>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="flex items-center gap-2 py-8 justify-center text-[13px] text-gray-400">
+            <div className={cn('flex items-center gap-2 py-8 justify-center text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>
               <BrailleSpinner /> Loading metrics...
             </div>
           )}
@@ -1063,11 +1110,11 @@ export function AppleWatchSettings() {
               {exportDatePreset === 'custom' ? (
                 <div className="flex items-center gap-2">
                   <Input type="date" value={exportStartDate} onChange={(e) => setExportStartDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-sm" />
-                  <span className="text-[13px] text-gray-400">to</span>
+                  <span className={cn('text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>to</span>
                   <Input type="date" value={exportEndDate} onChange={(e) => setExportEndDate(e.target.value)} className="h-8 w-32 text-[13px] rounded-sm" />
                 </div>
               ) : (
-                <p className="text-[13px] text-gray-400">{exportStartDate} — {exportEndDate}</p>
+                <p className={cn('text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>{exportStartDate} — {exportEndDate}</p>
               )}
             </div>
 
@@ -1135,7 +1182,7 @@ export function AppleWatchSettings() {
             {exportSchedule?.enabled && (
               <div className="space-y-3 rounded-sm border border-gray-200 bg-white p-4">
                 <div>
-                  <label className="mb-1.5 block text-[13px] text-gray-500">Frequency</label>
+                  <label className={cn('mb-1.5 block text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>Frequency</label>
                   <div className="flex gap-1.5">
                     {(['daily', 'weekly'] as const).map((freq) => (
                       <SegmentButton key={freq} active={exportSchedule.frequency === freq} onClick={() => updateScheduleField('frequency', freq)}>
@@ -1147,7 +1194,7 @@ export function AppleWatchSettings() {
 
                 {exportSchedule.frequency === 'weekly' && (
                   <div>
-                    <label className="mb-1.5 block text-[13px] text-gray-500">Day</label>
+                    <label className={cn('mb-1.5 block text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>Day</label>
                     <div className="flex flex-wrap gap-1">
                       {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => (
                         <SegmentButton key={day} active={exportSchedule.day_of_week === i} onClick={() => updateScheduleField('day_of_week', i)} small>
@@ -1159,12 +1206,12 @@ export function AppleWatchSettings() {
                 )}
 
                 <div>
-                  <label className="mb-1.5 block text-[13px] text-gray-500">Time</label>
+                  <label className={cn('mb-1.5 block text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>Time</label>
                   <Input type="time" value={exportSchedule.time || '08:00'} onChange={(e) => updateScheduleField('time', e.target.value)} className="h-8 w-28 text-[13px] rounded-sm" />
                 </div>
 
                 <div>
-                  <label className="mb-1.5 block text-[13px] text-gray-500">Format</label>
+                  <label className={cn('mb-1.5 block text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>Format</label>
                   <div className="flex gap-1.5">
                     {(['markdown', 'json', 'csv'] as const).map((fmt) => (
                       <SegmentButton key={fmt} active={exportSchedule.format === fmt} onClick={() => updateScheduleField('format', fmt)}>
@@ -1193,7 +1240,7 @@ export function AppleWatchSettings() {
                   <p className="text-sm font-medium text-gray-900">History</p>
                   <button
                     onClick={() => setExportHistory([])}
-                    className="text-[13px] text-gray-400 hover:text-gray-600 transition-colors"
+                    className={cn('text-[13px] transition-colors hover:text-gray-600', SETTINGS_MUTED_TEXT_CLASS)}
                   >
                     Clear
                   </button>
@@ -1207,9 +1254,9 @@ export function AppleWatchSettings() {
                           <span className="text-[13px] font-medium text-gray-900">
                             {entry.start_date === entry.end_date ? entry.start_date : `${entry.start_date} — ${entry.end_date}`}
                           </span>
-                          <span className="rounded-sm bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-500">{entry.format}</span>
+                          <span className={cn('rounded-sm bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium', SETTINGS_MUTED_TEXT_CLASS)}>{entry.format}</span>
                         </div>
-                        <div className="mt-1 flex items-center gap-2 text-[12px] text-gray-400">
+                        <div className={cn('mt-1 flex items-center gap-2 text-[12px]', SETTINGS_MUTED_TEXT_CLASS)}>
                           <span>{new Date(entry.timestamp).toLocaleString()}</span>
                           {entry.file_size_bytes != null && <span>{(entry.file_size_bytes / 1024).toFixed(1)} KB</span>}
                           <span className="capitalize">{entry.triggered_by}</span>
@@ -1224,7 +1271,10 @@ export function AppleWatchSettings() {
                             setExportFormat(entry.format as 'markdown' | 'json' | 'csv');
                             setExportDatePreset('custom');
                           }}
-                          className="ml-3 shrink-0 rounded-sm border border-gray-200 px-2.5 py-1 text-[12px] text-gray-500 hover:bg-gray-50 hover:text-gray-700 transition-colors"
+                          className={cn(
+                            'ml-3 shrink-0 rounded-sm border border-gray-200 px-2.5 py-1 text-[12px] transition-colors hover:bg-gray-50 hover:text-gray-700',
+                            SETTINGS_MUTED_TEXT_CLASS,
+                          )}
                         >
                           Retry
                         </button>
@@ -1274,7 +1324,7 @@ export function AppleWatchSettings() {
             </div>
 
             <div className="mt-4 flex items-center justify-between py-1">
-              <span className="text-[13px] text-gray-500">Last sync</span>
+              <span className={cn('text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>Last sync</span>
               <span className="text-[13px] text-gray-900">{formatRelativeTime(lastSync)}</span>
             </div>
           </div>
@@ -1284,14 +1334,14 @@ export function AppleWatchSettings() {
           <div className="space-y-3">
             <div>
               <p className="text-sm font-medium text-gray-900">Habit source priority</p>
-              <p className="mt-1 text-[12px] text-gray-500">
+              <p className={cn('mt-1 text-[12px]', SETTINGS_MUTED_TEXT_CLASS)}>
                 Choose which source is allowed to feed each Apple Health-related habit. Overview stays daily; this only changes
                 which source projects into the habit totals.
               </p>
             </div>
 
             {projectionLoading ? (
-              <div className="flex items-center gap-2 py-6 text-[13px] text-gray-400">
+              <div className={cn('flex items-center gap-2 py-6 text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>
                 <BrailleSpinner /> Loading habits...
               </div>
             ) : projectionHabits.length > 0 ? (
@@ -1311,10 +1361,10 @@ export function AppleWatchSettings() {
                     <div key={habit.id} className="flex items-start justify-between gap-4 px-4 py-3">
                       <div className="min-w-0 flex-1">
                         <p className="text-[13px] font-medium text-gray-900">{habit.name}</p>
-                        <p className="mt-0.5 text-[11px] text-gray-400">
+                        <p className={cn('mt-0.5 text-[11px]', SETTINGS_MUTED_TEXT_CLASS)}>
                           {humanizeWearableMetric(metricType)} · Default source {formatProjectionSource(habit.integration_source || 'manual')}
                         </p>
-                        <p className="mt-1 text-[11px] text-gray-500">
+                        <p className={cn('mt-1 text-[11px]', SETTINGS_MUTED_TEXT_CLASS)}>
                           Current priority: {formatProjectionPrioritySummary(currentPriority)}
                         </p>
                         {saveStatus && (
@@ -1339,7 +1389,7 @@ export function AppleWatchSettings() {
                             </SelectContent>
                           </Select>
                         ) : (
-                          <div className="rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-500">
+                          <div className={cn('rounded-sm border border-gray-200 bg-gray-50 px-3 py-2 text-[12px]', SETTINGS_MUTED_TEXT_CLASS)}>
                             {options[0]?.label || 'Apple Health only'}
                           </div>
                         )}
@@ -1349,7 +1399,7 @@ export function AppleWatchSettings() {
                 })}
               </div>
             ) : (
-              <div className="rounded-sm border border-dashed border-gray-200 px-4 py-4 text-[13px] text-gray-500">
+              <div className={cn('rounded-sm border border-dashed border-gray-200 px-4 py-4 text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>
                 No Apple Health-related habits to configure yet.
               </div>
             )}
@@ -1376,7 +1426,7 @@ export function AppleWatchSettings() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between py-3">
-      <span className="text-[13px] text-gray-500">{label}</span>
+      <span className={cn('text-[13px]', SETTINGS_MUTED_TEXT_CLASS)}>{label}</span>
       <span className="text-[13px] text-gray-900">{value}</span>
     </div>
   );
@@ -1391,7 +1441,7 @@ function SegmentButton({ children, active, onClick, small }: { children: React.R
         small ? 'px-2 py-1' : 'px-3 py-1.5',
         active
           ? 'border-gray-900 bg-gray-900 text-white'
-          : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
+          : `border-gray-200 bg-white ${SETTINGS_MUTED_TEXT_CLASS} hover:bg-gray-50`,
       )}
     >
       {children}
