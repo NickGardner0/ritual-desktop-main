@@ -34,6 +34,38 @@ class WearableQueryServiceTests(unittest.TestCase):
         self.assertEqual(value, 58)
         self.assertEqual(aggregation, "daily_min")
 
+    def test_select_rows_for_daily_totals_ignores_stale_daily_rollup_for_cumulative_metrics(self):
+        rows = [
+            SimpleNamespace(id="daily", rollup_level="daily", aggregation_kind="daily", value=192),
+            SimpleNamespace(id="bucket-1", rollup_level="bucket_15m", aggregation_kind="bucket_15m", value=1740),
+            SimpleNamespace(id="bucket-2", rollup_level="bucket_15m", aggregation_kind="bucket_15m", value=1746),
+        ]
+
+        preferred = self.service._select_rows_for_daily_totals("steps", rows)
+
+        self.assertEqual([row.id for row in preferred], ["bucket-1", "bucket-2"])
+
+    def test_select_rows_for_daily_totals_falls_back_to_daily_when_needed(self):
+        rows = [
+            SimpleNamespace(id="daily-1", rollup_level="daily", aggregation_kind="daily", value=8335),
+            SimpleNamespace(id="daily-2", rollup_level="daily", aggregation_kind="daily", value=12),
+        ]
+
+        preferred = self.service._select_rows_for_daily_totals("steps", rows)
+
+        self.assertEqual([row.id for row in preferred], ["daily-1", "daily-2"])
+
+    def test_select_rows_for_daily_totals_prefers_daily_rollup_for_average_metrics(self):
+        rows = [
+            SimpleNamespace(id="daily", rollup_level="daily", aggregation_kind="daily", value=96),
+            SimpleNamespace(id="sample-1", rollup_level="raw", aggregation_kind="point", value=103),
+            SimpleNamespace(id="sample-2", rollup_level="raw", aggregation_kind="point", value=88),
+        ]
+
+        preferred = self.service._select_rows_for_daily_totals("heart_rate", rows)
+
+        self.assertEqual([row.id for row in preferred], ["daily"])
+
     def test_select_provider_rows_prefers_matching_provider(self):
         grouped_rows = {
             "whoop": [SimpleNamespace(id="w1", provider="whoop", source_id="s1")],

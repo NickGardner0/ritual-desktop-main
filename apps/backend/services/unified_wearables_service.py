@@ -1314,6 +1314,24 @@ class WearableQueryService:
             return sum(values), "daily_total"
         return (sum(values) / len(values)), "daily_average"
 
+    @classmethod
+    def _select_rows_for_daily_totals(
+        cls,
+        metric_type: str,
+        rows: List[Any],
+    ) -> List[Any]:
+        if not rows:
+            return []
+        daily_rows = [
+            row for row in rows
+            if str(getattr(row, "rollup_level", "") or "").strip().lower() == "daily"
+            or str(getattr(row, "aggregation_kind", "") or "").strip().lower() in {"daily", "daily_aggregate"}
+        ]
+        non_daily_rows = [row for row in rows if row not in daily_rows]
+        if metric_type in cls.CUMULATIVE_METRICS:
+            return non_daily_rows or daily_rows
+        return daily_rows or non_daily_rows
+
     @staticmethod
     def _serialize_source(source: Optional[WearableSourceDB]) -> Optional[Dict[str, Any]]:
         if source is None:
@@ -1908,20 +1926,15 @@ class WearableQueryService:
                     source_map,
                 )
 
-                daily_rows = [row for row in selected_sample_rows if row.rollup_level == "daily" or row.aggregation_kind == "daily"]
-                non_daily_rows = [row for row in selected_sample_rows if row not in daily_rows]
-
                 chosen_values: List[float] = []
                 unit: Optional[str] = None
                 provider_name: Optional[str] = None
 
-                if daily_rows:
-                    chosen_values = [float(row.value) for row in daily_rows]
-                    unit = daily_rows[0].unit
-                    provider_name = selected_sample_provider
-                elif non_daily_rows:
-                    chosen_values = [float(row.value) for row in non_daily_rows]
-                    unit = non_daily_rows[0].unit
+                preferred_sample_rows = self._select_rows_for_daily_totals(metric_type, selected_sample_rows)
+
+                if preferred_sample_rows:
+                    chosen_values = [float(row.value) for row in preferred_sample_rows]
+                    unit = preferred_sample_rows[0].unit
                     provider_name = selected_sample_provider
                 elif selected_event_rows:
                     chosen_values = [float(row.summary_value or 0.0) for row in selected_event_rows if row.summary_value is not None]

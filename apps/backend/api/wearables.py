@@ -141,6 +141,43 @@ def _build_tracked_metrics_contract(
     return metrics
 
 
+def _decode_projection_source_priority(raw_value: Any) -> list[str]:
+    if not raw_value:
+        return []
+    try:
+        parsed = json.loads(raw_value) if isinstance(raw_value, str) else raw_value
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [
+        str(source).strip().lower()
+        for source in parsed
+        if str(source).strip()
+    ]
+
+
+def _apple_owned_habit_metric_types(
+    habit_policy_rows: list[tuple[Any, Any]],
+    allowed_metric_types: set[str],
+) -> set[str]:
+    owned_metric_types: set[str] = set()
+    for habit, policy in habit_policy_rows:
+        metric_type = str(getattr(habit, "metric_type", "") or "").strip().lower()
+        if not metric_type or metric_type not in allowed_metric_types:
+            continue
+        integration_source = str(getattr(habit, "integration_source", "") or "").strip().lower()
+        if integration_source == "apple_health":
+            owned_metric_types.add(metric_type)
+            continue
+        priority = _decode_projection_source_priority(
+            getattr(policy, "projection_source_priority_json", None)
+        )
+        if priority and priority[0] == "apple_health":
+            owned_metric_types.add(metric_type)
+    return owned_metric_types
+
+
 def _parse_metric_preferences_payload(
     body: dict[str, Any],
     allowed_metric_types: set[str],
@@ -1540,7 +1577,7 @@ def create_wearables_router(
     async def get_metric_preferences(current_user=Depends(get_current_user)):
         """Get the user's explicitly selected metric types for syncing."""
         from database.connection import get_db_session
-        from database.models import HabitDB, WearableConnectionDB
+        from database.models import HabitDB, HabitProjectionPolicyDB, WearableConnectionDB
         from sqlalchemy import select
 
         async with get_db_session() as session:
@@ -1553,13 +1590,16 @@ def create_wearables_router(
 
             settings = _coerce_settings_payload(conn.settings_json if conn else None)
             preferences = _normalize_metric_preferences_v2(settings, _ALL_METRIC_TYPES)
-            habit_stmt = select(HabitDB).where(
-                HabitDB.user_id == current_user["id"],
-                HabitDB.integration_source == "apple_health",
-                HabitDB.metric_type.isnot(None),
+            habit_stmt = (
+                select(HabitDB, HabitProjectionPolicyDB)
+                .join(HabitProjectionPolicyDB, HabitProjectionPolicyDB.habit_id == HabitDB.id, isouter=True)
+                .where(
+                    HabitDB.user_id == current_user["id"],
+                    HabitDB.metric_type.isnot(None),
+                )
             )
             habit_result = await session.execute(habit_stmt)
-            habit_types = {habit.metric_type for habit in habit_result.scalars().all() if habit.metric_type}
+            habit_types = _apple_owned_habit_metric_types(habit_result.all(), _ALL_METRIC_TYPES)
             effective_contract = _build_tracked_metrics_contract(preferences, habit_types)
             effective_preferences = {
                 metric_type: {"sync_mode": payload["sync_mode"]}
@@ -1586,7 +1626,7 @@ def create_wearables_router(
     ):
         """Update Apple Health metric sync preferences."""
         from database.connection import get_db_session
-        from database.models import HabitDB, WearableConnectionDB
+        from database.models import HabitDB, HabitProjectionPolicyDB, WearableConnectionDB
         from sqlalchemy import select
 
         try:
@@ -1612,13 +1652,16 @@ def create_wearables_router(
             settings["metric_preferences"] = selected_metrics
             conn.settings_json = json.dumps(settings)
 
-            habit_stmt = select(HabitDB).where(
-                HabitDB.user_id == current_user["id"],
-                HabitDB.integration_source == "apple_health",
-                HabitDB.metric_type.isnot(None),
+            habit_stmt = (
+                select(HabitDB, HabitProjectionPolicyDB)
+                .join(HabitProjectionPolicyDB, HabitProjectionPolicyDB.habit_id == HabitDB.id, isouter=True)
+                .where(
+                    HabitDB.user_id == current_user["id"],
+                    HabitDB.metric_type.isnot(None),
+                )
             )
             habit_result = await session.execute(habit_stmt)
-            habit_types = {habit.metric_type for habit in habit_result.scalars().all() if habit.metric_type}
+            habit_types = _apple_owned_habit_metric_types(habit_result.all(), _ALL_METRIC_TYPES)
             await session.commit()
 
         effective_contract = _build_tracked_metrics_contract(preferences, habit_types)
@@ -1812,20 +1855,24 @@ def create_wearables_router(
         """
         try:
             from database.connection import get_db_session
-            from database.models import HabitDB, WearableConnectionDB
+            from database.models import HabitDB, HabitProjectionPolicyDB, WearableConnectionDB
             from sqlalchemy import select
 
             async with get_db_session() as session:
                 # 1) Habit-derived metric types
-                stmt = select(HabitDB).where(
-                    HabitDB.user_id == current_user["id"],
-                    HabitDB.integration_source == "apple_health",
-                    HabitDB.metric_type.isnot(None)
+                stmt = (
+                    select(HabitDB, HabitProjectionPolicyDB)
+                    .join(HabitProjectionPolicyDB, HabitProjectionPolicyDB.habit_id == HabitDB.id, isouter=True)
+                    .where(
+                        HabitDB.user_id == current_user["id"],
+                        HabitDB.metric_type.isnot(None)
+                    )
                 )
                 result = await session.execute(stmt)
-                habits = result.scalars().all()
+                habit_policy_rows = result.all()
+                habits = [habit for habit, _policy in habit_policy_rows]
 
-                habit_types = set(h.metric_type for h in habits if h.metric_type)
+                habit_types = _apple_owned_habit_metric_types(habit_policy_rows, _ALL_METRIC_TYPES)
                 habits_list = [
                     {
                         "id": h.id,
@@ -1834,6 +1881,7 @@ def create_wearables_router(
                         "unit_type": h.unit_type
                     }
                     for h in habits
+                    if h.metric_type in habit_types
                 ]
 
                 # 2) Explicit metric preferences from connection settings

@@ -5,10 +5,12 @@ from __future__ import annotations
 import pathlib
 import sys
 import unittest
+from types import SimpleNamespace
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from api.wearables import (
+    _apple_owned_habit_metric_types,
     _build_tracked_metrics_contract,
     _normalize_metric_preferences_v2,
     _parse_metric_preferences_payload,
@@ -127,6 +129,22 @@ class MetricPreferenceHelpersTests(unittest.TestCase):
                 }
             },
         )
+
+    def test_apple_owned_habit_metric_types_includes_projection_owned_apple_metric(self):
+        habit = SimpleNamespace(metric_type="steps", integration_source=None)
+        policy = SimpleNamespace(projection_source_priority_json='["apple_health","manual"]')
+
+        metric_types = _apple_owned_habit_metric_types([(habit, policy)], {"steps", "heart_rate"})
+
+        self.assertEqual(metric_types, {"steps"})
+
+    def test_apple_owned_habit_metric_types_excludes_non_apple_primary_projection(self):
+        habit = SimpleNamespace(metric_type="sleep_total", integration_source="whoop")
+        policy = SimpleNamespace(projection_source_priority_json='["whoop","apple_health"]')
+
+        metric_types = _apple_owned_habit_metric_types([(habit, policy)], {"sleep_total", "steps"})
+
+        self.assertEqual(metric_types, set())
 
     def test_parse_metric_preferences_payload_accepts_v2_shape(self):
         preferences = _parse_metric_preferences_payload(
