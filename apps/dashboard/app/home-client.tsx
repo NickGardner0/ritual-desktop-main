@@ -405,7 +405,11 @@ export function HomeClient() {
   if (isNewUser) {
     return (
       <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
-        <ClerkOAuthHandler enabled={currentPage === 3} mode={showSignUp ? 'sign_up' : 'sign_in'} />
+        <ClerkOAuthHandler
+          enabled={currentPage === 3}
+          mode={showSignUp ? 'sign_up' : 'sign_in'}
+          desktopMode={desktopApp}
+        />
         <style jsx global>{`
           .welcome-page [class*="user"], 
           .welcome-page [class*="profile"],

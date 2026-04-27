@@ -17,7 +17,7 @@ export default async function SignUpPage() {
         <div className="min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
                 <AuthFlowIntent mode="sign_up" />
-                {isDesktopApp ? <ClerkOAuthHandler mode="sign_up" /> : null}
+                {isDesktopApp ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
                 <div className="flex justify-center">
                     <SignUp
                         appearance={{

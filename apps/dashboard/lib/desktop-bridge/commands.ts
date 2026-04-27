@@ -2,6 +2,10 @@
 
 import { isDesktopTauriRuntime } from "@/lib/desktop-bridge/environment";
 
+type OpenDesktopExternalUrlOptions = {
+  preferNative?: boolean;
+};
+
 export async function invokeDesktopCommand<T>(
   command: string,
   args?: Record<string, unknown>,
@@ -22,4 +26,30 @@ export async function openDesktopExternalUrl(url: string): Promise<void> {
 
   const { open } = await import("@tauri-apps/plugin-shell");
   await open(url);
+}
+
+export async function openDesktopExternalUrlWithFallback(
+  url: string,
+  options: OpenDesktopExternalUrlOptions = {},
+): Promise<void> {
+  const { preferNative = false } = options;
+
+  if (!preferNative && !isDesktopTauriRuntime()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  try {
+    const { open } = await import("@tauri-apps/plugin-shell");
+    await open(url);
+    return;
+  } catch (error) {
+    if (!preferNative) {
+      throw error;
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.location.assign(url);
+  }
 }

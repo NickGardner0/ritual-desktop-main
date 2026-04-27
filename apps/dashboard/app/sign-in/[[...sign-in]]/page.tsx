@@ -17,7 +17,7 @@ export default async function SignInPage() {
         <div className="min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
                 <AuthFlowIntent mode="sign_in" />
-                {isDesktopApp ? <ClerkOAuthHandler mode="sign_in" /> : null}
+                {isDesktopApp ? <ClerkOAuthHandler mode="sign_in" desktopMode /> : null}
                 <div className="flex justify-center">
                     <ClerkLoading>
                         <div className="h-[420px] w-full" aria-hidden="true" />

@@ -2,7 +2,11 @@
  * Tauri utility functions for desktop app
  */
 
-import { invokeDesktopCommand, openDesktopExternalUrl } from '@/lib/desktop-bridge/commands';
+import {
+  invokeDesktopCommand,
+  openDesktopExternalUrl,
+  openDesktopExternalUrlWithFallback,
+} from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 
 /**
@@ -97,6 +101,17 @@ export async function openInBrowser(url: string): Promise<void> {
     console.error('Failed to open URL in browser:', error);
     // Fallback to window.open
     window.open(url, '_blank', 'noopener,noreferrer');
+  }
+}
+
+export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
+  try {
+    await openDesktopExternalUrlWithFallback(url, { preferNative: true });
+  } catch (error) {
+    console.error('Failed to open desktop auth URL in browser:', error);
+    if (typeof window !== 'undefined') {
+      window.location.assign(url);
+    }
   }
 }
 
