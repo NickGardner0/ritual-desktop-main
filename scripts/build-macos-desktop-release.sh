@@ -248,8 +248,10 @@ else
   TAURI_SIGNER_ARGS+=(-k "${TAURI_SIGNING_PRIVATE_KEY}")
 fi
 
-if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ]]; then
+if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+x}" ]]; then
   TAURI_SIGNER_ARGS+=(-p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}")
+elif [[ "${CI:-}" == "true" ]]; then
+  TAURI_SIGNER_ARGS+=(-p "")
 fi
 
 env \
