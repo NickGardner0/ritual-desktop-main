@@ -23,10 +23,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -151,7 +151,7 @@ jobs:
         run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
 
       - name: Upload local release artifacts to workflow run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-release-${{ github.ref_name }}
           if-no-files-found: error
