@@ -1,12 +1,12 @@
-import { invoke } from '@tauri-apps/api/tauri';
-import { shell } from '@tauri-apps/api';
+import { invoke } from '@tauri-apps/api/core';
+import { open } from '@tauri-apps/plugin-shell';
 
 export async function invokeDesktopShellCommand(command, args) {
   return invoke(command, args);
 }
 
 export async function openDesktopShellExternalUrl(url) {
-  return shell.open(url);
+  return open(url);
 }
 
 export async function recordDesktopShellEvent(name, level = 'info', data = null) {

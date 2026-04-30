@@ -2,7 +2,55 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+fn binaries_match(source: &Path, destination: &Path) -> bool {
+    let Ok(source_metadata) = fs::metadata(source) else {
+        return false;
+    };
+    let Ok(destination_metadata) = fs::metadata(destination) else {
+        return false;
+    };
+
+    if source_metadata.len() != destination_metadata.len() {
+        return false;
+    }
+
+    match (fs::read(source), fs::read(destination)) {
+        (Ok(source_bytes), Ok(destination_bytes)) => source_bytes == destination_bytes,
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn set_executable_permissions(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    if let Ok(metadata) = fs::metadata(path) {
+        let mut permissions = metadata.permissions();
+        permissions.set_mode(0o755);
+        let _ = fs::set_permissions(path, permissions);
+    }
+}
+
+#[cfg(not(unix))]
+fn set_executable_permissions(_path: &Path) {}
+
+fn copy_if_different(source: &Path, destination: &Path) -> Result<bool, std::io::Error> {
+    if binaries_match(source, destination) {
+        set_executable_permissions(destination);
+        return Ok(false);
+    }
+
+    fs::copy(source, destination)?;
+    set_executable_permissions(destination);
+    Ok(true)
+}
+
 fn ensure_watcher_sidecar_for_tauri() {
+    if !running_on_macos_target() {
+        println!("cargo:warning=ℹ️ Skipping watcher sidecar preparation for non-macOS target");
+        return;
+    }
+
     let manifest_dir = PathBuf::from(
         std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"),
     );
@@ -67,7 +115,7 @@ fn ensure_watcher_sidecar_for_tauri() {
         );
     }
 
-    fs::copy(&built_binary, &sidecar_path).unwrap_or_else(|err| {
+    let copied = copy_if_different(&built_binary, &sidecar_path).unwrap_or_else(|err| {
         panic!(
             "Failed to copy watcher sidecar {} -> {}: {}",
             built_binary.display(),
@@ -76,21 +124,18 @@ fn ensure_watcher_sidecar_for_tauri() {
         )
     });
 
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(metadata) = fs::metadata(&sidecar_path) {
-            let mut permissions = metadata.permissions();
-            permissions.set_mode(0o755);
-            let _ = fs::set_permissions(&sidecar_path, permissions);
-        }
+    if copied {
+        println!(
+            "cargo:warning=✅ watcher sidecar prepared: {} -> {}",
+            built_binary.display(),
+            sidecar_path.display()
+        );
+    } else {
+        println!(
+            "cargo:warning=ℹ️ watcher sidecar already up to date: {}",
+            sidecar_path.display()
+        );
     }
-
-    println!(
-        "cargo:warning=✅ watcher sidecar prepared: {} -> {}",
-        built_binary.display(),
-        sidecar_path.display()
-    );
 }
 
 fn watcher_target_binary_path(target_dir: &Path, target: &str, profile: &str) -> PathBuf {
@@ -119,10 +164,11 @@ fn ensure_vision_helper_for_tauri() {
 
     let target = std::env::var("TARGET").unwrap_or_default();
     let binaries_dir = manifest_dir.join("binaries");
+    let staging_dir = manifest_dir.join("target/vision-helper-build");
     let output = Command::new("bash")
         .arg(&script_path)
         .arg(&target)
-        .arg(&binaries_dir)
+        .arg(&staging_dir)
         .current_dir(&manifest_dir)
         .output()
         .unwrap_or_else(|err| panic!("Failed to invoke ritual-vision-helper build script: {err}"));
@@ -134,18 +180,44 @@ fn ensure_vision_helper_for_tauri() {
         );
     }
 
-    let helper_path = binaries_dir.join(format!("ritual-vision-helper-{target}"));
-    if !helper_path.exists() {
+    let staged_helper_path = staging_dir.join(format!("ritual-vision-helper-{target}"));
+    if !staged_helper_path.exists() {
         panic!(
             "ritual-vision-helper build completed but {} is missing",
-            helper_path.display()
+            staged_helper_path.display()
         );
     }
 
-    println!(
-        "cargo:warning=✅ vision helper prepared: {}",
-        helper_path.display()
-    );
+    if let Err(err) = fs::create_dir_all(&binaries_dir) {
+        panic!(
+            "Failed to create vision helper binaries directory {}: {}",
+            binaries_dir.display(),
+            err
+        );
+    }
+
+    let helper_path = binaries_dir.join(format!("ritual-vision-helper-{target}"));
+    let copied = copy_if_different(&staged_helper_path, &helper_path).unwrap_or_else(|err| {
+        panic!(
+            "Failed to copy vision helper {} -> {}: {}",
+            staged_helper_path.display(),
+            helper_path.display(),
+            err
+        )
+    });
+
+    if copied {
+        println!(
+            "cargo:warning=✅ vision helper prepared: {} -> {}",
+            staged_helper_path.display(),
+            helper_path.display()
+        );
+    } else {
+        println!(
+            "cargo:warning=ℹ️ vision helper already up to date: {}",
+            helper_path.display()
+        );
+    }
 }
 
 fn main() {
@@ -154,6 +226,7 @@ fn main() {
     println!("cargo:rerun-if-changed=bin/ritual-watcher/src");
     println!("cargo:rerun-if-changed=crates/ritual-db/Cargo.toml");
     println!("cargo:rerun-if-changed=crates/ritual-db/src");
+    println!("cargo:rerun-if-changed=../../../scripts/build-native-vision-helper.sh");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
@@ -163,6 +236,11 @@ fn main() {
     ensure_watcher_sidecar_for_tauri();
     ensure_vision_helper_for_tauri();
     tauri_build::build();
+
+    if !running_on_macos_target() {
+        println!("cargo:warning=ℹ️ Skipping Swift native voice build for non-macOS target");
+        return;
+    }
 
     println!("cargo:warning=🔨 Building Swift speech recognition library...");
 

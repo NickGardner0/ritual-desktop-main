@@ -9,7 +9,17 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC_TAURI_DIR="${ROOT_DIR}/apps/desktop/src-tauri"
 NATIVE_VISION_DIR="${SRC_TAURI_DIR}/native-vision"
-TARGET_TRIPLE="${1:-${TARGET:-}}"
+RAW_TARGET_TRIPLE="${1:-${TARGET:-}}"
+
+normalize_target_triple() {
+  case "${1:-}" in
+    darwin-aarch64) echo "aarch64-apple-darwin" ;;
+    darwin-x86_64) echo "x86_64-apple-darwin" ;;
+    *) echo "${1:-}" ;;
+  esac
+}
+
+TARGET_TRIPLE="$(normalize_target_triple "${RAW_TARGET_TRIPLE}")"
 if [[ -z "${TARGET_TRIPLE}" ]]; then
   TARGET_TRIPLE="$(rustc -vV | awk '/host:/ {print $2; exit}')"
 fi

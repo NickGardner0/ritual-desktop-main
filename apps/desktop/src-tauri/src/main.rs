@@ -20,7 +20,13 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
-use tauri::{CustomMenuItem, Manager, RunEvent, SystemTray, SystemTrayEvent, SystemTrayMenu};
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, RunEvent,
+};
+#[cfg(target_os = "macos")]
+use tauri_plugin_deep_link::DeepLinkExt;
 use tracing::{info, instrument, warn};
 
 // ============================================================================
@@ -46,8 +52,6 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
-#[cfg(target_os = "macos")]
-const DESKTOP_DEEP_LINK_IDENTIFIER: &str = "com.ritual.desktop";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -242,7 +246,7 @@ fn is_supported_desktop_deep_link(raw: &str) -> bool {
 }
 
 fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
-    if let Some(window) = app.get_window("main") {
+    if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -294,14 +298,14 @@ fn should_use_local_shell_window() -> bool {
     !matches!(configured_ritual_env().as_str(), "development" | "dev")
 }
 
-fn desktop_shell_window_url() -> Result<tauri::WindowUrl, std::io::Error> {
+fn desktop_shell_window_url() -> Result<tauri::WebviewUrl, std::io::Error> {
     if should_use_local_shell_window() {
-        Ok(tauri::WindowUrl::App("index.html".into()))
+        Ok(tauri::WebviewUrl::App("index.html".into()))
     } else {
         let shell_external_url = DESKTOP_SHELL_DEV_URL.parse().map_err(|error| {
             std::io::Error::other(format!("Invalid desktop shell dev URL: {error}"))
         })?;
-        Ok(tauri::WindowUrl::External(shell_external_url))
+        Ok(tauri::WebviewUrl::External(shell_external_url))
     }
 }
 
@@ -511,7 +515,7 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-fn configure_macos_native_window_chrome(window: &tauri::Window) {
+fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
     use cocoa::base::{id, YES};
     use objc::runtime::BOOL;
     use objc::{msg_send, sel, sel_impl};
@@ -540,7 +544,7 @@ fn configure_macos_native_window_chrome(window: &tauri::Window) {
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-fn configure_macos_window_transparency(window: &tauri::Window) {
+fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
     use cocoa::appkit::{NSColor, NSWindow};
     use cocoa::base::{id, nil};
     use objc::{msg_send, sel, sel_impl};
@@ -628,14 +632,14 @@ fn traffic_light_baselines() -> &'static Mutex<HashMap<String, TrafficLightBasel
 }
 
 #[cfg(target_os = "macos")]
-fn traffic_light_baseline_key(window: &tauri::Window) -> String {
+fn traffic_light_baseline_key(window: &tauri::WebviewWindow) -> String {
     let scale_factor = window.scale_factor().unwrap_or(1.0);
     format!("{}@{scale_factor:.2}", window.label())
 }
 
 #[cfg(target_os = "macos")]
 fn resolve_traffic_light_baseline(
-    window: &tauri::Window,
+    window: &tauri::WebviewWindow,
     close_frame: cocoa::foundation::NSRect,
     minimize_frame: cocoa::foundation::NSRect,
     zoom_frame: cocoa::foundation::NSRect,
@@ -666,7 +670,7 @@ fn resolve_traffic_light_baseline(
 /// Called after window creation and on every resize, since macOS resets button
 /// positions when the window frame changes.
 #[cfg(target_os = "macos")]
-fn reposition_traffic_lights(window: &tauri::Window) {
+fn reposition_traffic_lights(window: &tauri::WebviewWindow) {
     use cocoa::base::id;
     use objc::{msg_send, sel, sel_impl};
 
@@ -714,7 +718,7 @@ fn reposition_traffic_lights(window: &tauri::Window) {
 }
 
 #[cfg(target_os = "macos")]
-fn schedule_reposition_traffic_lights(window: tauri::Window) {
+fn schedule_reposition_traffic_lights(window: tauri::WebviewWindow) {
     let immediate_window = window.clone();
     let immediate_target = immediate_window.clone();
     let _ = immediate_window.run_on_main_thread(move || {
@@ -742,7 +746,7 @@ fn schedule_reposition_traffic_lights(window: tauri::Window) {
 
 /// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
 #[cfg(target_os = "macos")]
-fn apply_vibrancy_fallback(window: &tauri::Window) {
+fn apply_vibrancy_fallback(window: &tauri::WebviewWindow) {
     use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
 
     match apply_vibrancy(
@@ -758,7 +762,7 @@ fn apply_vibrancy_fallback(window: &tauri::Window) {
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-fn configure_macos_webview_transparency(window: &tauri::Window) {
+fn configure_macos_webview_transparency(window: &tauri::WebviewWindow) {
     use cocoa::appkit::NSColor;
     use cocoa::base::{id, nil, NO, YES};
     use cocoa::foundation::NSString;
@@ -834,7 +838,7 @@ fn configure_macos_webview_transparency(window: &tauri::Window) {
 
     let result = window.with_webview(|webview| {
         let guarded = std::panic::catch_unwind(|| unsafe {
-            let wk: id = webview.inner();
+            let wk = webview.inner() as id;
             if wk.is_null() {
                 eprintln!("❌ WKWebView handle is null");
                 return;
@@ -987,10 +991,10 @@ impl SidebarWindowState {
 #[cfg(target_os = "macos")]
 fn sync_detached_sidebar_window(app: &tauri::AppHandle, width: f64) -> Result<(), String> {
     let main = app
-        .get_window("main")
+        .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
     let sidebar = app
-        .get_window("sidebar")
+        .get_webview_window("sidebar")
         .ok_or_else(|| "Sidebar window not found".to_string())?;
 
     let main_pos = main
@@ -1024,15 +1028,15 @@ fn ensure_detached_sidebar_window(
         "ritual_sidebar_window=1",
     );
 
-    if app.get_window("sidebar").is_none() {
+    if app.get_webview_window("sidebar").is_none() {
         let sidebar_external_url = sidebar_url
             .parse()
             .map_err(|e| format!("Invalid sidebar URL: {e}"))?;
 
-        tauri::WindowBuilder::new(
+        tauri::WebviewWindowBuilder::new(
             app,
             "sidebar",
-            tauri::WindowUrl::External(sidebar_external_url),
+            tauri::WebviewUrl::External(sidebar_external_url),
         )
         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
         .title("")
@@ -1044,13 +1048,13 @@ fn ensure_detached_sidebar_window(
         .focused(false)
         .build()
         .map_err(|e| format!("Failed to create detached sidebar window: {e}"))?;
-    } else if let Some(sidebar) = app.get_window("sidebar") {
+    } else if let Some(sidebar) = app.get_webview_window("sidebar") {
         let sidebar_url_json = serde_json::to_string(&sidebar_url)
             .unwrap_or_else(|_| "\"http://localhost:3000/sidebar\"".to_string());
         let _ = sidebar.eval(&format!("window.location.replace({});", sidebar_url_json));
     }
 
-    if let Some(sidebar) = app.get_window("sidebar") {
+    if let Some(sidebar) = app.get_webview_window("sidebar") {
         configure_macos_window_transparency(&sidebar);
         let _ = sidebar.set_always_on_top(false);
     }
@@ -1072,7 +1076,7 @@ fn sidebar_set_width(
             let _ = sync_detached_sidebar_window(&app, width);
         }
     }
-    if let Some(main) = app.get_window("main") {
+    if let Some(main) = app.get_webview_window("main") {
         let _ = main.emit("sidebar:width", width);
     }
     Ok(())
@@ -1092,11 +1096,11 @@ fn sidebar_navigate(
     let target_json = serde_json::to_string(&target)
         .map_err(|e| format!("Failed to serialize target path: {e}"))?;
     let main = app
-        .get_window("main")
+        .get_webview_window("main")
         .ok_or_else(|| "Main window not found".to_string())?;
     main.eval(&format!("window.location.replace({});", target_json))
         .map_err(|e| format!("Failed to navigate main window: {e}"))?;
-    if let Some(sidebar) = app.get_window("sidebar") {
+    if let Some(sidebar) = app.get_webview_window("sidebar") {
         let _ = sidebar.emit("sidebar:route", target);
     }
     Ok(())
@@ -1115,15 +1119,16 @@ fn sidebar_get_main_state(
 ) -> Result<SidebarMainState, String> {
     let width = state.get_width();
     let mut path = "/dashboard".to_string();
-    if let Some(main) = app.get_window("main") {
-        let url = main.url();
-        let mut p = url.path().to_string();
-        if let Some(query) = url.query() {
-            p.push('?');
-            p.push_str(query);
-        }
-        if !p.is_empty() {
-            path = p;
+    if let Some(main) = app.get_webview_window("main") {
+        if let Ok(url) = main.url() {
+            let mut p = url.path().to_string();
+            if let Some(query) = url.query() {
+                p.push('?');
+                p.push_str(query);
+            }
+            if !p.is_empty() {
+                path = p;
+            }
         }
     }
     Ok(SidebarMainState { path, width })
@@ -1132,7 +1137,7 @@ fn sidebar_get_main_state(
 /// Show the main window (called from frontend when React is ready)
 #[tauri::command]
 #[instrument(skip(window))]
-fn show_main_window(window: tauri::Window) -> Result<(), String> {
+fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
     window
         .show()
         .map_err(|e| format!("Failed to show window: {}", e))?;
@@ -1237,22 +1242,22 @@ fn main() {
         eprintln!("Failed to initialize desktop observability: {error}");
     }
 
-    #[cfg(target_os = "macos")]
-    tauri_plugin_deep_link::prepare(DESKTOP_DEEP_LINK_IDENTIFIER);
-
     let startup_started_at = Instant::now();
     info!("Starting Ritual desktop app");
     let shell_feature_flags = DesktopShellFeatureFlags::from_env();
     shell_feature_flags.log_effective_values();
 
-    let quit = CustomMenuItem::new("quit".to_string(), "Quit");
-    let check_updates = CustomMenuItem::new("check_updates".to_string(), "Check for Updates");
-    let tray_menu = SystemTrayMenu::new().add_item(check_updates).add_item(quit);
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_deep_link::init());
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder;
 
-    let system_tray = SystemTray::new().with_menu(tray_menu);
-
-    tauri::Builder::default()
-    .plugin(tauri_plugin_context_menu::init())
+    builder
     .manage(SidebarWindowState::default())
     .manage(shell_feature_flags)
     .manage(desktop_runtime::DesktopShellState::default())
@@ -1341,47 +1346,64 @@ fn main() {
       ritual_database::claim_memory_upload_outbox_batch,
       ritual_database::ack_memory_upload_outbox_batch,
     ])
-    .system_tray(system_tray)
-    .on_system_tray_event(|_app, event| match event {
-      SystemTrayEvent::LeftClick {
-        position: _,
-        size: _,
-        ..
-      } => {
-        if let Some(window) = _app.get_window("main") {
-          let _ = window.show();
-          let _ = window.set_focus();
-        }
-      }
-      SystemTrayEvent::MenuItemClick { id, .. } => {
-        match id.as_str() {
+    .setup(|app| {
+      let setup_started_at = Instant::now();
+      desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
+
+      let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+      let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
+      let tray_menu = MenuBuilder::new(app).items(&[&check_updates, &quit]).build()?;
+      let _tray = TrayIconBuilder::new()
+        .menu(&tray_menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
           "quit" => {
             std::process::exit(0);
           }
           "check_updates" => {
             info!("Check for updates requested from system tray");
-            if let Some(window) = _app.get_window("main") {
+            if let Some(window) = app.get_webview_window("main") {
               let _ = window.show();
               let _ = window.set_focus();
             }
-            desktop_runtime::tray_check_for_updates(_app.app_handle());
+            desktop_runtime::tray_check_for_updates(app.clone());
           }
           _ => {}
-        }
-      }
-      _ => {}
-    })
-    .setup(|app| {
-      let setup_started_at = Instant::now();
-      desktop_runtime::register_runtime_signal_monitor(app.handle());
+        })
+        .on_tray_icon_event(|tray, event| {
+          if let TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+          } = event
+          {
+            let app = tray.app_handle();
+            if let Some(window) = app.get_webview_window("main") {
+              let _ = window.show();
+              let _ = window.set_focus();
+            }
+          }
+        })
+        .build(app)?;
 
       #[cfg(target_os = "macos")]
       {
-        let deep_link_app = app.handle();
-        tauri_plugin_deep_link::listen(move |request| {
-          handle_desktop_auth_deep_link(&deep_link_app, request);
-        })
-        .map_err(|error| std::io::Error::other(format!("Failed to register desktop deep link listener: {error}")))?;
+        if let Some(urls) = app
+          .deep_link()
+          .get_current()
+          .map_err(|error| std::io::Error::other(format!("Failed reading initial deep links: {error}")))?
+        {
+          for url in urls {
+            handle_desktop_auth_deep_link(&app.handle(), url.to_string());
+          }
+        }
+
+        let deep_link_app = app.handle().clone();
+        app.deep_link().on_open_url(move |event| {
+          for url in event.urls() {
+            handle_desktop_auth_deep_link(&deep_link_app, url.to_string());
+          }
+        });
       }
 
       // Get the app URL based on environment (Midday pattern)
@@ -1399,10 +1421,10 @@ fn main() {
         app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
       }
 
-      let window = if let Some(window) = app.get_window("main") {
+      let window = if let Some(window) = app.get_webview_window("main") {
         window
       } else {
-        let mut builder = tauri::WindowBuilder::new(
+        let mut builder = tauri::WebviewWindowBuilder::new(
           app,
           "main",
           desktop_shell_window_url()?,
@@ -1462,7 +1484,7 @@ fn main() {
             let _ = ensure_detached_sidebar_window(&app.handle(), &app_url, sidebar_state.get_width());
             let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
-            let app_handle_for_sync = app.handle();
+            let app_handle_for_sync = app.handle().clone();
             let traffic_light_window = window.clone();
             window.on_window_event(move |event| {
               match event {
@@ -1474,12 +1496,12 @@ fn main() {
                   let state = app_handle_for_sync.state::<SidebarWindowState>();
                   let width = state.get_width();
                   let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
-                  if let Some(main_window) = app_handle_for_sync.get_window("main") {
+                  if let Some(main_window) = app_handle_for_sync.get_webview_window("main") {
                     let _ = main_window.emit("sidebar:width", width);
                   }
                 }
                 tauri::WindowEvent::CloseRequested { .. } => {
-                  if let Some(sidebar_window) = app_handle_for_sync.get_window("sidebar") {
+                  if let Some(sidebar_window) = app_handle_for_sync.get_webview_window("sidebar") {
                     let _ = sidebar_window.close();
                   }
                 }
@@ -1488,7 +1510,7 @@ fn main() {
             });
           } else {
             sidebar_state.set_detached_enabled(false);
-            if let Some(sidebar_window) = app.get_window("sidebar") {
+            if let Some(sidebar_window) = app.get_webview_window("sidebar") {
               let _ = sidebar_window.close();
             }
             // Non-detached mode: still re-position traffic lights on resize or
@@ -1549,10 +1571,10 @@ fn main() {
         info!("Recorder auto-start disabled; using watcher-owned context capture as the default path");
       }
 
-      desktop_runtime::emit_runtime_state_changed(app.handle());
-      spawn_background_startup_tasks(app.handle());
+      desktop_runtime::emit_runtime_state_changed(app.handle().clone());
+      spawn_background_startup_tasks(app.handle().clone());
 
-      desktop_runtime::register_startup_update_check(app.handle());
+      desktop_runtime::register_startup_update_check(app.handle().clone());
       info!(
         duration_ms = setup_started_at.elapsed().as_millis() as u64,
         "Desktop setup completed"

@@ -16,8 +16,21 @@ if [[ -n "${APPLE_API_KEY_PAT:-}" && -z "${APPLE_API_KEY_PATH:-}" ]]; then
   echo "warning: APPLE_API_KEY_PAT is deprecated; treating it as APPLE_API_KEY_PATH" >&2
 fi
 
-if [[ -z "${TAURI_PRIVATE_KEY:-}" && -n "${TAURI_KEY_PATH:-}" ]]; then
-  export TAURI_PRIVATE_KEY="${TAURI_KEY_PATH}"
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH}"
+  elif [[ -n "${TAURI_PRIVATE_KEY:-}" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="${TAURI_PRIVATE_KEY}"
+    echo "warning: TAURI_PRIVATE_KEY is deprecated; treating it as TAURI_SIGNING_PRIVATE_KEY" >&2
+  elif [[ -n "${TAURI_KEY_PATH:-}" ]]; then
+    export TAURI_SIGNING_PRIVATE_KEY="${TAURI_KEY_PATH}"
+    echo "warning: TAURI_KEY_PATH is deprecated; treating it as TAURI_SIGNING_PRIVATE_KEY" >&2
+  fi
+fi
+
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" && -n "${TAURI_KEY_PASSWORD:-}" ]]; then
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_KEY_PASSWORD}"
+  echo "warning: TAURI_KEY_PASSWORD is deprecated; treating it as TAURI_SIGNING_PRIVATE_KEY_PASSWORD" >&2
 fi
 
 TAURI_DIR="apps/desktop/src-tauri"
@@ -63,17 +76,17 @@ EOF
   exit 1
 fi
 
-if [[ -z "${TAURI_PRIVATE_KEY:-}" ]]; then
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
   cat <<'EOF'
 Missing Tauri updater signing key.
 
 Provide the updater private key as one of:
 
 1. A path
-   export TAURI_KEY_PATH="/absolute/path/to/ritual-updater.key"
+   export TAURI_SIGNING_PRIVATE_KEY_PATH="/absolute/path/to/ritual-updater.key"
 
-2. The file contents or direct path in TAURI_PRIVATE_KEY
-   export TAURI_PRIVATE_KEY="/absolute/path/to/ritual-updater.key"
+2. The file contents or direct path in TAURI_SIGNING_PRIVATE_KEY
+   export TAURI_SIGNING_PRIVATE_KEY="/absolute/path/to/ritual-updater.key"
 EOF
   exit 1
 fi
@@ -83,8 +96,8 @@ if [[ ! -f "${UPDATER_PUBKEY_PATH}" ]]; then
   exit 1
 fi
 
-if [[ -f "${TAURI_PRIVATE_KEY}" ]]; then
-  echo "Updater private key file found: ${TAURI_PRIVATE_KEY}"
+if [[ -f "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+  echo "Updater private key file found: ${TAURI_SIGNING_PRIVATE_KEY}"
 else
   echo "Updater private key provided inline or via non-file secret."
 fi
@@ -92,27 +105,35 @@ fi
 node scripts/write-tauri-production-config.mjs >/dev/null
 
 signing_identity="$(
-  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${BASE_CONFIG_PATH}','utf8')); process.stdout.write((cfg.tauri?.bundle?.macOS?.signingIdentity || '').trim())"
+  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${BASE_CONFIG_PATH}','utf8')); const value=(process.env.APPLE_SIGNING_IDENTITY || cfg.bundle?.macOS?.signingIdentity || '').trim(); process.stdout.write(value)"
 )"
 updater_endpoint="$(
-  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write(String(cfg.tauri?.updater?.endpoints?.[0] || ''))"
+  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write(String(cfg.plugins?.updater?.endpoints?.[0] || ''))"
 )"
-updater_active="$(
-  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write(String(Boolean(cfg.tauri?.updater?.active)))"
+updater_pubkey="$(
+  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); process.stdout.write(String(cfg.plugins?.updater?.pubkey || ''))"
+)"
+capabilities_check="$(
+  node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('${GENERATED_CONFIG_PATH}','utf8')); const caps=cfg.app?.security?.capabilities || []; const ok=Array.isArray(caps) && caps.includes('main-window') && caps.includes('sidebar-window') && !caps.includes('main-window-dev') && !caps.includes('sidebar-window-dev'); process.stdout.write(String(ok))"
 )"
 
 if [[ -z "${signing_identity}" ]]; then
-  echo "Generated production config does not contain a macOS signing identity." >&2
+  echo "No macOS signing identity is configured. Set APPLE_SIGNING_IDENTITY or bundle.macOS.signingIdentity." >&2
   exit 1
 fi
 
-if [[ "${updater_active}" != "true" ]]; then
-  echo "Generated production config does not have updater.active=true." >&2
+if [[ -z "${updater_pubkey}" ]]; then
+  echo "Generated production config does not contain an updater public key." >&2
   exit 1
 fi
 
 if [[ -z "${updater_endpoint}" ]]; then
   echo "Generated production config does not contain an updater endpoint." >&2
+  exit 1
+fi
+
+if [[ "${capabilities_check}" != "true" ]]; then
+  echo "Generated production config is not restricted to the production capability set." >&2
   exit 1
 fi
 
@@ -128,6 +149,7 @@ echo "Release preflight passed."
 echo "  Notarization auth: $([[ "${has_api_key_credentials}" == "true" ]] && echo "App Store Connect API key" || echo "Apple ID")"
 echo "  Signing identity: ${signing_identity}"
 echo "  Updater endpoint: ${updater_endpoint}"
+echo "  Production capabilities: main-window, sidebar-window"
 echo
 echo "Next steps:"
 echo "  1. bash scripts/build-macos-desktop-release.sh"

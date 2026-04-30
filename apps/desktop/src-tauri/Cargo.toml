@@ -8,19 +8,19 @@ members = [
 
 [package]
 name = "app"
-version = "0.1.44"
+version = "0.1.50"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
 repository = ""
 default-run = "app"
 edition = "2021"
-rust-version = "1.64"
+rust-version = "1.77.2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-tauri-build = { version = "1.5.5", features = [] }
+tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
 # Core Tauri dependencies
@@ -51,61 +51,27 @@ reqwest = { version = "0.11", default-features = false, features = ["blocking", 
 # Async runtime for database operations
 tokio = { version = "1.35", features = ["rt", "sync"] }
 
-tauri = { version = "1.8.1", features = [
-  "fs-read-file",
-  "path-all",
-  "clipboard-all",
-  "fs-write-file",
+tauri = { version = "2.10.3", features = [
+  "config-json5",
   "macos-private-api",
-  "process-relaunch",
-  "protocol-all",
-  "system-tray",
-  "dialog-all",
-  "shell-open",
-  "updater",
-  "window-create",
-  "window-center",
-  "window-request-user-attention",
-  "window-set-resizable",
-  "window-set-title",
-  "window-maximize",
-  "window-unmaximize",
-  "window-minimize",
-  "window-unminimize",
-  "window-show",
-  "window-hide",
-  "window-close",
-  "window-set-decorations",
-  "window-set-always-on-top",
-  "window-set-size",
-  "window-set-min-size",
-  "window-set-max-size",
-  "window-set-position",
-  "window-set-fullscreen",
-  "window-set-focus",
-  "window-set-icon",
-  "window-set-skip-taskbar",
-  "window-set-cursor-grab",
-  "window-set-cursor-visible",
-  "window-set-cursor-icon",
-  "window-set-cursor-position",
-  "window-set-ignore-cursor-events",
-  "window-start-dragging",
-  "window-print"
+  "protocol-asset",
+  "tray-icon",
+  "image-png"
 ] }
-
-# Native context menu plugin
-tauri-plugin-context-menu = "0.8"
+tauri-plugin-dialog = "2.7.0"
+tauri-plugin-fs = "2.5.0"
+tauri-plugin-shell = "2.3.5"
+tauri-plugin-updater = "2.10.1"
 
 # macOS specific for watcher + vibrancy
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
-window-vibrancy = "0.4"
+window-vibrancy = "0.7.1"
 cocoa = "0.25"
 objc = "0.2"
 arboard = "3.6"
 image = { version = "0.25", default-features = false, features = ["png"] }
-tauri-plugin-deep-link = "0.1.2"
+tauri-plugin-deep-link = "2.4.7"
 
 # ============================================================================
 # REMOVED OAuth dependencies - Clerk handles all authentication via web UI
