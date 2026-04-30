@@ -76,28 +76,22 @@ jobs:
           echo "APPLE_CERTIFICATE_PATH=${CERT_PATH}" >> "${GITHUB_ENV}"
 
       - name: Write App Store Connect API key
-        if: ${{ secrets.APPLE_API_KEY_P8 != '' || secrets.APPLE_API_KEY_P8_BASE64 != '' }}
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
           APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
         run: |
+          if [[ -z "${APPLE_API_KEY_P8:-}" && -z "${APPLE_API_KEY_P8_BASE64:-}" ]]; then
+            echo "No App Store Connect API key material provided; skipping API key file write."
+            exit 0
+          fi
           if [[ -z "${APPLE_API_KEY}" ]]; then
             echo "APPLE_API_KEY secret must be set when providing an App Store Connect API key." >&2
             exit 1
           fi
           API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY}.p8"
           if [[ -n "${APPLE_API_KEY_P8_BASE64}" ]]; then
-            python3 - <<'PY'
-            import base64
-            import os
-            from pathlib import Path
-
-            api_key_b64 = os.environ["APPLE_API_KEY_P8_BASE64"]
-            api_key_path = Path(os.environ["RUNNER_TEMP"]) / f"AuthKey_{os.environ['APPLE_API_KEY']}.p8"
-            api_key_path.write_bytes(base64.b64decode(api_key_b64))
-            print(f"API_KEY_PATH={api_key_path}")
-            PY
+            python3 -c 'import base64, os; from pathlib import Path; Path(os.environ["RUNNER_TEMP"], f"AuthKey_{os.environ[\"APPLE_API_KEY\"]}.p8").write_bytes(base64.b64decode(os.environ["APPLE_API_KEY_P8_BASE64"]))'
           else
             printf '%s' "${APPLE_API_KEY_P8}" > "${API_KEY_PATH}"
           fi
