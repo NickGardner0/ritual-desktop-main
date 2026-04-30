@@ -5,17 +5,21 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, ArrowUpRight, AudioLines, Plus, PanelRight, X, Check } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, BookOpen, Check, FilePenLine, ListTodo, MemoryStick, Plus, PanelRight, X } from 'lucide-react';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Streamdown } from 'streamdown';
+import { toast } from 'sonner';
 import { HabitCanvas, type HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ViewModeToggle, type ViewMode } from '@/components/analytics/view-mode-toggle';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { Button } from '@/components/ui/button';
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Switch } from '@/components/ui/switch';
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useOverviewActivityQuery } from '@/hooks/use-overview-activity-query';
@@ -35,6 +39,15 @@ import {
   startNativeDesktopSpeechRecognition,
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
+import type {
+  AiFact,
+  AiFactListResponse,
+  ArtifactDetail,
+  ArtifactKind,
+  ConversationQueueItem,
+  ConversationQueueListResponse,
+  ConversationQueueRunResponse,
+} from '@/lib/workflows/types';
 
 function cn(...inputs: (string | undefined | null | false)[]) {
   return twMerge(clsx(inputs));
@@ -191,6 +204,12 @@ interface Message {
   canvasData?: HabitCanvasData;
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
 }
+
+type ConversationContextMenuState = {
+  conversationId: string;
+  x: number;
+  y: number;
+} | null;
 
 function getToolLabel(text: string): string {
   const normalized = (text || '').toLowerCase().trim();
@@ -730,6 +749,7 @@ interface PersistedConversation {
   user_id: string;
   title: string | null;
   response_mode?: 'text' | 'voice';
+  auto_run_queued?: boolean;
   created_at: string;
   updated_at: string;
   messages: PersistedMessage[];
@@ -742,6 +762,33 @@ interface ConversationListItem {
   created_at: string;
   updated_at: string;
   first_message?: string;
+}
+
+function buildConversationArtifactBody(message: Message, title: string) {
+  return {
+    schemaVersion: 1,
+    blocks: [
+      {
+        type: 'hero',
+        title,
+        periodLabel: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        intro: 'Saved from Ritual chat.',
+      },
+      { type: 'summary', text: message.content },
+    ],
+  };
+}
+
+function getPersistedAfterMessageId(messageId: string | undefined): string | null {
+  if (!messageId) return null;
+  if (
+    messageId.startsWith('user-')
+    || messageId.startsWith('assistant-')
+    || messageId.startsWith('error-')
+  ) {
+    return null;
+  }
+  return messageId;
 }
 
 export function ChatClient() {
@@ -805,6 +852,13 @@ export function ChatClient() {
   const [conversations, setConversations] = useState<ConversationListItem[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);  // Collapsed by default
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [conversationContextMenu, setConversationContextMenu] = useState<ConversationContextMenuState>(null);
+  const [queueItems, setQueueItems] = useState<ConversationQueueItem[]>([]);
+  const [queueAutoRun, setQueueAutoRun] = useState(false);
+  const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+  const [linkedArtifacts, setLinkedArtifacts] = useState<ArtifactDetail[]>([]);
+  const [memoryFacts, setMemoryFacts] = useState<AiFact[]>([]);
   
   // Voice mode state (transcription)
   const [isListening, setIsListening] = useState(false);
@@ -1031,10 +1085,74 @@ export function ChatClient() {
     }
   }, [getToken]);
 
+  const loadQueueItems = useCallback(async (targetConversationId: string) => {
+    try {
+      const response = await fetch(`/api/conversations/${targetConversationId}/queue`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const data: ConversationQueueListResponse = await response.json();
+      setQueueItems(data.items || []);
+      setQueueAutoRun(Boolean(data.auto_run_queued));
+    } catch (error) {
+      console.error('Failed to load queue items:', error);
+    }
+  }, []);
+
+  const loadLinkedArtifacts = useCallback(async (targetConversationId: string) => {
+    try {
+      const response = await fetch(`/api/artifacts?linked_to=${encodeURIComponent(targetConversationId)}&limit=12`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) return;
+      const data = await response.json() as { items?: Array<{ id: string }> };
+      const artifactIds = (data.items || []).map((item) => item.id).slice(0, 6);
+      if (artifactIds.length === 0) {
+        setLinkedArtifacts([]);
+        return;
+      }
+      const details = await Promise.all(
+        artifactIds.map(async (artifactId) => {
+          const detailResponse = await fetch(`/api/artifacts/${artifactId}`, { cache: 'no-store' });
+          if (!detailResponse.ok) return null;
+          return detailResponse.json() as Promise<ArtifactDetail>;
+        }),
+      );
+      setLinkedArtifacts(details.filter(Boolean) as ArtifactDetail[]);
+    } catch (error) {
+      console.error('Failed to load linked artifacts:', error);
+    }
+  }, []);
+
+  const loadMemoryFacts = useCallback(async () => {
+    try {
+      const response = await fetch('/api/ai-facts', { cache: 'no-store' });
+      if (!response.ok) return;
+      const data: AiFactListResponse = await response.json();
+      setMemoryFacts(data.items || []);
+    } catch (error) {
+      console.error('Failed to load AI facts:', error);
+    }
+  }, []);
+
   // Load conversations list on mount
   useEffect(() => {
     loadConversationsList();
   }, [loadConversationsList]);
+
+  useEffect(() => {
+    loadMemoryFacts();
+  }, [loadMemoryFacts]);
+
+  useEffect(() => {
+    if (!conversationId) {
+      setQueueItems([]);
+      setLinkedArtifacts([]);
+      return;
+    }
+    void loadQueueItems(conversationId);
+    void loadLinkedArtifacts(conversationId);
+  }, [conversationId, loadLinkedArtifacts, loadQueueItems]);
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1091,6 +1209,7 @@ export function ChatClient() {
           
           // Initialize voice style from conversation's response_mode
           setVoiceStyleEnabled(conversation.response_mode === 'voice');
+          setQueueAutoRun(Boolean(conversation.auto_run_queued));
           
           const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
           if (lastMessageWithCanvas?.canvasData) {
@@ -1120,6 +1239,8 @@ export function ChatClient() {
     setStreamingContent('');
     setInput('');
     setVoiceStyleEnabled(false); // Reset voice style for new conversations
+    setQueueItems([]);
+    setLinkedArtifacts([]);
   }, []);
 
   // Delete a conversation
@@ -1137,6 +1258,9 @@ export function ChatClient() {
       });
       
       if (response.ok) {
+        setConversationContextMenu((current) => (
+          current?.conversationId === targetConversationId ? null : current
+        ));
         // Remove from local list
         setConversations(prev => prev.filter(c => c.id !== targetConversationId));
         
@@ -1150,38 +1274,136 @@ export function ChatClient() {
     }
   }, [getToken, conversationId, startNewConversation]);
 
-  // Show native context menu for a conversation
-  const showConversationContextMenu = useCallback(async (targetConversationId: string, e: React.MouseEvent) => {
+  const showConversationContextMenu = useCallback((targetConversationId: string, e: React.MouseEvent) => {
     e.preventDefault();
-    try {
-      const { showMenu } = await import('tauri-plugin-context-menu');
-      const { listen } = await import('@tauri-apps/api/event');
+    setConversationContextMenu({
+      conversationId: targetConversationId,
+      x: e.clientX,
+      y: e.clientY,
+    });
+  }, []);
 
-      // Use a unique event name so we can register our own listener
-      const eventName = `delete-conv-${Date.now()}`;
+  useEffect(() => {
+    if (!conversationContextMenu) return;
 
-      // Register listener before showing menu
-      const unlisten = await listen(eventName, () => {
-        deleteConversation(targetConversationId);
-        unlisten();
-      });
+    const closeMenu = () => setConversationContextMenu(null);
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMenu();
+      }
+    };
 
-      // Clean up listener if menu is dismissed without clicking
-      const unlistenClose = await listen('menu-did-close', () => {
-        setTimeout(() => { try { unlisten(); } catch {} }, 200);
-        unlistenClose();
-      });
+    window.addEventListener('mousedown', closeMenu);
+    window.addEventListener('resize', closeMenu);
+    window.addEventListener('scroll', closeMenu, true);
+    window.addEventListener('keydown', closeOnEscape);
 
-      showMenu({
-        items: [{ label: 'Delete', event: eventName }],
-      });
-    } catch (error) {
-      console.error('Failed to show context menu:', error);
+    return () => {
+      window.removeEventListener('mousedown', closeMenu);
+      window.removeEventListener('resize', closeMenu);
+      window.removeEventListener('scroll', closeMenu, true);
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [conversationContextMenu]);
+
+  const handleConversationContextDelete = useCallback(() => {
+    if (!conversationContextMenu) return;
+    void deleteConversation(conversationContextMenu.conversationId);
+  }, [conversationContextMenu, deleteConversation]);
+
+  const saveConversationArtifact = useCallback(async (kind: ArtifactKind, message: Message) => {
+    if (!conversationId) {
+      toast.error('Save this after the conversation has been created.');
+      return;
     }
-  }, [deleteConversation]);
 
-  const sendMessage = useCallback(async (text: string) => {
-    if (isLoading || !text.trim()) return;
+    const titleBase = message.content.split('\n')[0]?.trim() || (kind === 'plan' ? 'New plan' : 'New notebook');
+    const payload = {
+      title: titleBase.slice(0, 80),
+      summary: message.content.slice(0, 280),
+      body: buildConversationArtifactBody(message, titleBase.slice(0, 80)),
+      kind,
+    };
+
+    const response = await fetch(`/api/conversations/${conversationId}/artifacts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      toast.error('Failed to save artifact.');
+      return;
+    }
+
+    toast.success(kind === 'plan' ? 'Plan saved.' : 'Notebook saved.');
+    void loadLinkedArtifacts(conversationId);
+  }, [conversationId, loadLinkedArtifacts]);
+
+  const appendToLatestNotebook = useCallback(async (message: Message) => {
+    const latestNotebook = linkedArtifacts.find((artifact) => artifact.kind === 'notebook');
+    if (!latestNotebook) {
+      await saveConversationArtifact('notebook', message);
+      return;
+    }
+
+    const currentBlocks = Array.isArray(latestNotebook.body?.blocks) ? latestNotebook.body.blocks : [];
+    const nextBlocks = [
+      ...currentBlocks,
+      { type: 'summary', text: message.content },
+    ];
+
+    const response = await fetch(`/api/artifacts/${latestNotebook.id}/revisions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        base_version: latestNotebook.revision_count,
+        editor_type: 'user',
+        summary: latestNotebook.summary || message.content.slice(0, 160),
+        change_note: 'Appended from chat response',
+        body: {
+          schemaVersion: 1,
+          blocks: nextBlocks,
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      toast.error('Failed to append to notebook.');
+      return;
+    }
+
+    toast.success('Appended to notebook.');
+    void loadLinkedArtifacts(conversationId!);
+  }, [conversationId, linkedArtifacts, loadLinkedArtifacts, saveConversationArtifact]);
+
+  const queuePrompt = useCallback(async (promptText: string, source: ConversationQueueItem['source'] = 'manual') => {
+    if (!conversationId) {
+      toast.error('Queueing starts after the conversation is created.');
+      return;
+    }
+    const anchorId = getPersistedAfterMessageId(messages[messages.length - 1]?.id);
+    const response = await fetch(`/api/conversations/${conversationId}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prompt_text: promptText,
+        source,
+        auto_run: queueAutoRun,
+        after_message_id: anchorId,
+      }),
+    });
+    if (!response.ok) {
+      toast.error('Failed to queue prompt.');
+      return;
+    }
+    setInput('');
+    toast.success('Queued for later.');
+    await loadQueueItems(conversationId);
+  }, [conversationId, loadQueueItems, messages, queueAutoRun]);
+
+  const sendMessage = useCallback(async (text: string): Promise<boolean> => {
+    if (isLoading || !text.trim()) return false;
     
     setIsLoading(true);
     setStreamingContent('');
@@ -1385,7 +1607,8 @@ export function ChatClient() {
       
       setMessages([...newMessages, assistantMessage]);
       setStreamingContent('');
-      
+      void loadMemoryFacts();
+      return true;
     } catch (error) {
       console.error('Chat error:', error);
       setMessages([...newMessages, {
@@ -1393,12 +1616,83 @@ export function ChatClient() {
         role: 'assistant',
         content: 'Sorry, there was an error processing your request. Please try again.',
       }]);
+      return false;
     } finally {
       setIsLoading(false);
       setCurrentQuestion('');
       setToolStatus(null);
     }
-  }, [messages, isLoading, getToken, conversationId, loadConversationsList, voiceStyleEnabled]);
+  }, [messages, isLoading, getToken, conversationId, loadConversationsList, loadMemoryFacts, voiceStyleEnabled, queryClient, timezone, user?.id]);
+
+  const runQueuedItem = useCallback(async (itemId: string) => {
+    if (!conversationId || isLoading) return;
+    const response = await fetch(`/api/conversations/${conversationId}/queue/${itemId}/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      toast.error('Failed to start queued prompt.');
+      return;
+    }
+    const data: ConversationQueueRunResponse = await response.json();
+    if (data.stale) {
+      toast.error('Queued prompt is stale because the conversation moved on.');
+      await loadQueueItems(conversationId);
+      return;
+    }
+
+    const success = await sendMessage(data.item.prompt_text);
+    await fetch(`/api/conversations/${conversationId}/queue/${itemId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: success ? 'completed' : 'failed',
+        error: success ? null : { message: 'Queued prompt failed during execution.' },
+        auto_run: queueAutoRun,
+      }),
+    });
+    await loadQueueItems(conversationId);
+  }, [conversationId, isLoading, loadQueueItems, queueAutoRun, sendMessage]);
+
+  useEffect(() => {
+    if (!queueAutoRun || isLoading || !conversationId) return;
+    const nextItem = queueItems.find((item) => item.status === 'pending');
+    if (!nextItem) return;
+    void runQueuedItem(nextItem.id);
+  }, [conversationId, isLoading, queueAutoRun, queueItems, runQueuedItem]);
+
+  const latestNotebook = useMemo(
+    () => linkedArtifacts.find((artifact) => artifact.kind === 'notebook') || null,
+    [linkedArtifacts],
+  );
+  const pendingFacts = useMemo(
+    () => memoryFacts.filter((fact) => fact.status === 'pending'),
+    [memoryFacts],
+  );
+  const activeFacts = useMemo(
+    () => memoryFacts.filter((fact) => fact.status === 'active'),
+    [memoryFacts],
+  );
+
+  const approveFact = useCallback(async (factId: string) => {
+    const response = await fetch(`/api/ai-facts/${factId}/approve`, { method: 'POST' });
+    if (!response.ok) {
+      toast.error('Failed to approve fact.');
+      return;
+    }
+    toast.success('Fact approved.');
+    await loadMemoryFacts();
+  }, [loadMemoryFacts]);
+
+  const dismissFact = useCallback(async (factId: string) => {
+    const response = await fetch(`/api/ai-facts/${factId}/dismiss`, { method: 'POST' });
+    if (!response.ok) {
+      toast.error('Failed to dismiss fact.');
+      return;
+    }
+    toast.success('Fact dismissed.');
+    await loadMemoryFacts();
+  }, [loadMemoryFacts]);
 
   useEffect(() => {
     if (!initialQuestion) {
@@ -2225,6 +2519,30 @@ export function ChatClient() {
                       </div>
                     </div>
 
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (input.trim()) {
+                            void queuePrompt(input.trim(), 'manual');
+                          } else {
+                            setIsQueueOpen((current) => !current);
+                          }
+                        }}
+                        disabled={!conversationId}
+                        className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700 disabled:opacity-40"
+                      >
+                        {input.trim() ? 'Queue prompt' : `Queue (${queueItems.filter((item) => item.status === 'pending').length})`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsMemoryOpen(true)}
+                        className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700"
+                      >
+                        Memory ({pendingFacts.length})
+                      </button>
+                    </div>
+
                     <button
                       type="submit"
                       disabled={!input.trim() || isLoading}
@@ -2365,11 +2683,42 @@ export function ChatClient() {
       : null;
   }
 
+  function renderConversationContextMenu() {
+    if (!conversationContextMenu || typeof document === 'undefined') {
+      return null;
+    }
+
+    const left = Math.min(conversationContextMenu.x, Math.max(12, window.innerWidth - 172));
+    const top = Math.min(conversationContextMenu.y, Math.max(12, window.innerHeight - 72));
+
+    return createPortal(
+      <div className="fixed inset-0 z-[120]">
+        <div className="absolute inset-0" />
+        <div
+          className="absolute min-w-[160px] rounded-md border border-[rgba(15,23,42,0.08)] bg-white p-1 shadow-[0_12px_30px_rgba(15,23,42,0.12)]"
+          style={{ left, top }}
+          onMouseDown={(event) => event.stopPropagation()}
+          onContextMenu={(event) => event.preventDefault()}
+        >
+          <button
+            type="button"
+            onClick={handleConversationContextDelete}
+            className="flex w-full items-center rounded-md px-3 py-2 text-left text-[13px] text-[#2f2c25] transition-colors hover:bg-[#f3f2ef]"
+          >
+            Delete conversation
+          </button>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
   // Empty state
   if (messages.length === 0 && !isLoading) {
     return (
       <>
         {headerNavigation}
+        {renderConversationContextMenu()}
         <div className="h-full flex bg-white relative overflow-x-hidden">
         {renderConversationSidebar()}
         {renderCollapsedSidebarToggle()}
@@ -2450,6 +2799,16 @@ export function ChatClient() {
                       </button>
                     </div>
 
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsMemoryOpen(true)}
+                        className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700"
+                      >
+                        Memory
+                      </button>
+                    </div>
+
                     {/* Submit Button */}
                     <button
                       type="submit"
@@ -2480,6 +2839,7 @@ export function ChatClient() {
   return (
     <>
       {headerNavigation}
+      {renderConversationContextMenu()}
       <div className="h-full w-full min-w-0 flex bg-white relative overflow-hidden">
       {renderConversationSidebar()}
       {renderCollapsedSidebarToggle()}
@@ -2517,20 +2877,49 @@ export function ChatClient() {
                      messageIndex === messages.length - 1 && (
                       <div className="flex flex-wrap gap-2 mt-4">
                         {message.replyChips.map((chip, chipIndex) => (
-                          <button
-                            key={chipIndex}
-                            onClick={() => {
-                              setInput(chip);
-                              sendMessage(chip);
-                            }}
-                            disabled={isLoading}
-                            className="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 hover:bg-gray-200 hover:text-gray-800 rounded-full transition-colors disabled:opacity-50"
-                          >
-                            {chip}
-                          </button>
+                          <div key={chipIndex} className="flex items-center overflow-hidden rounded-full bg-gray-100">
+                            <button
+                              onClick={() => {
+                                setInput(chip);
+                                sendMessage(chip);
+                              }}
+                              disabled={isLoading}
+                              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition-colors disabled:opacity-50"
+                            >
+                              {chip}
+                            </button>
+                            <button
+                              onClick={() => void queuePrompt(chip, 'reply_chip')}
+                              disabled={!conversationId}
+                              className="border-l border-gray-200 px-2 py-1.5 text-[11px] text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40"
+                            >
+                              Queue
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
+                    {messageIndex === messages.length - 1 ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="outline" onClick={() => void saveConversationArtifact('notebook', message)} disabled={!conversationId}>
+                          <BookOpen className="h-3.5 w-3.5" />
+                          Save as notebook
+                        </Button>
+                        <Button variant="outline" onClick={() => void appendToLatestNotebook(message)} disabled={!conversationId}>
+                          <FilePenLine className="h-3.5 w-3.5" />
+                          {latestNotebook ? 'Append to notebook' : 'Start notebook'}
+                        </Button>
+                        <Button variant="outline" onClick={() => void saveConversationArtifact('plan', message)} disabled={!conversationId}>
+                          <ListTodo className="h-3.5 w-3.5" />
+                          Turn into plan
+                        </Button>
+                        {latestNotebook ? (
+                          <Button variant="outline" onClick={() => router.push(`/reports?artifactId=${latestNotebook.id}`)}>
+                            Open linked notebook
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -2633,21 +3022,170 @@ export function ChatClient() {
                       </button>
                     </div>
                   </div>
-                  
-                  {/* Submit Button */}
-                  <button
-                    type="submit"
-                    disabled={!input.trim() || isLoading}
-                    className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
-                  >
-                    <ArrowUp className={cn("w-4 h-4", isLoading && "opacity-70")} />
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (input.trim()) {
+                          void queuePrompt(input.trim(), 'manual');
+                        } else {
+                          setIsQueueOpen((current) => !current);
+                        }
+                      }}
+                      disabled={!conversationId}
+                      className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700 disabled:opacity-40"
+                    >
+                      {input.trim() ? 'Queue prompt' : `Queue (${queueItems.filter((item) => item.status === 'pending').length})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsMemoryOpen(true)}
+                      className="rounded-md border border-gray-200 px-2.5 py-1.5 text-xs text-gray-500 transition-colors hover:border-gray-300 hover:text-gray-700"
+                    >
+                      Memory ({pendingFacts.length})
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!input.trim() || isLoading}
+                      className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors hover:bg-[#27251E] disabled:cursor-not-allowed"
+                    >
+                      <ArrowUp className={cn("w-4 h-4", isLoading && "opacity-70")} />
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
+            {conversationId ? (
+              <div className="mt-3 rounded-sm border border-gray-200/80 bg-[rgba(247,247,247,0.72)] px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[12px] font-medium text-[#2f2c25]">Queued next steps</div>
+                    <div className="text-[11px] text-gray-500">Persisted follow-ups for this conversation.</div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                      <span>Auto-run</span>
+                      <Switch checked={queueAutoRun} onCheckedChange={setQueueAutoRun} />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsQueueOpen((current) => !current)}
+                      className="text-[11px] text-gray-500 underline-offset-2 hover:text-gray-700 hover:underline"
+                    >
+                      {isQueueOpen ? 'Hide queue' : 'Show queue'}
+                    </button>
+                  </div>
+                </div>
+                {isQueueOpen ? (
+                  <div className="mt-3 space-y-2">
+                    {queueItems.length ? queueItems.map((item) => (
+                      <div key={item.id} className="flex items-start justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] text-[#2f2c25]">{item.prompt_text}</div>
+                          <div className="mt-1 text-[11px] uppercase tracking-[0.08em] text-gray-400">{item.status}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {item.status === 'pending' ? (
+                            <button
+                              type="button"
+                              onClick={() => void runQueuedItem(item.id)}
+                              className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
+                            >
+                              Run
+                            </button>
+                          ) : null}
+                          {item.status === 'pending' ? (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!conversationId) return;
+                                await fetch(`/api/conversations/${conversationId}/queue/${item.id}`, {
+                                  method: 'PATCH',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ status: 'canceled', auto_run: queueAutoRun }),
+                                });
+                                await loadQueueItems(conversationId);
+                              }}
+                              className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="rounded-md border border-dashed border-gray-200 bg-white px-3 py-4 text-[12px] text-gray-500">
+                        No queued follow-ups yet.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+                {linkedArtifacts.length ? (
+                  <div className="mt-3 border-t border-gray-200 pt-3">
+                    <div className="text-[11px] uppercase tracking-[0.08em] text-gray-400">Linked docs</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {linkedArtifacts.map((artifact) => (
+                        <button
+                          key={artifact.id}
+                          type="button"
+                          onClick={() => router.push(`/reports?artifactId=${artifact.id}`)}
+                          className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
+                        >
+                          {artifact.title}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
+
+      <Sheet open={isMemoryOpen} onOpenChange={setIsMemoryOpen}>
+        <SheetContent side="right" className="w-full max-w-[460px] overflow-y-auto bg-[#fbfcff] px-6 py-6">
+          <SheetHeader>
+            <SheetTitle>Memory &amp; Rules</SheetTitle>
+            <SheetDescription>
+              Approved facts shape future prompts. Pending suggestions stay inactive until you approve them.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-5">
+            <section className="rounded-[20px] border border-[rgba(15,23,42,0.08)] bg-white p-4">
+              <div className="text-sm font-[650] uppercase tracking-[0.12em] text-[#6b7280]">Pending</div>
+              <div className="mt-3 space-y-3">
+                {pendingFacts.length ? pendingFacts.map((fact) => (
+                  <div key={fact.id} className="rounded-[18px] border border-[rgba(15,23,42,0.08)] bg-[#fbfcfb] p-3">
+                    <div className="text-sm font-[600] text-[#111827]">{fact.predicate}</div>
+                    <pre className="mt-2 overflow-auto rounded-[14px] bg-white px-3 py-3 text-xs text-[#4b5563]">{JSON.stringify(fact.value, null, 2)}</pre>
+                    <div className="mt-3 flex gap-2">
+                      <Button variant="outline" onClick={() => void dismissFact(fact.id)}>Dismiss</Button>
+                      <Button className="bg-[#111827] text-white hover:bg-[#1f2937]" onClick={() => void approveFact(fact.id)}>Approve</Button>
+                    </div>
+                  </div>
+                )) : (
+                  <div className="rounded-[18px] border border-dashed border-[rgba(15,23,42,0.12)] bg-[#fbfcfb] px-3 py-5 text-sm text-[#6b7280]">
+                    No pending memory suggestions.
+                  </div>
+                )}
+              </div>
+            </section>
+            <section className="rounded-[20px] border border-[rgba(15,23,42,0.08)] bg-white p-4">
+              <div className="text-sm font-[650] uppercase tracking-[0.12em] text-[#6b7280]">Approved</div>
+              <div className="mt-3 space-y-3">
+                {activeFacts.map((fact) => (
+                  <div key={fact.id} className="rounded-[18px] border border-[rgba(15,23,42,0.08)] bg-[#fbfcfb] p-3">
+                    <div className="text-sm font-[600] text-[#111827]">{fact.predicate}</div>
+                    <pre className="mt-2 overflow-auto rounded-[14px] bg-white px-3 py-3 text-xs text-[#4b5563]">{JSON.stringify(fact.value, null, 2)}</pre>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Canvas Side Panel */}
       <AnimatePresence>

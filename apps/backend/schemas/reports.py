@@ -99,6 +99,7 @@ class HabitReportRunRead(BaseModel):
     period_start: str
     period_end: str
     subject: Optional[str] = None
+    artifact_id: Optional[str] = None
     preview: Optional[HabitReportPreview] = None
     generated_at: Optional[datetime] = None
     sent_at: Optional[datetime] = None

@@ -6,13 +6,17 @@ Handles persistence and retrieval of AI chat conversations and messages.
 
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, and_
 
 from database.connection import get_db_session
 from database.models import AIConversationDB, AIMessageDB, SmsPreferencesDB
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class ConversationService:
@@ -35,8 +39,8 @@ class ConversationService:
                 user_id=user_id,
                 title=title,
                 response_mode=response_mode,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                created_at=_utc_now(),
+                updated_at=_utc_now()
             )
             session.add(conversation)
             await session.commit()
@@ -140,12 +144,12 @@ class ConversationService:
                 role=role,
                 content=content,
                 tool_payload=json.dumps(tool_payload) if tool_payload else None,
-                created_at=datetime.utcnow()
+                created_at=_utc_now()
             )
             session.add(message)
             
             # Update conversation's updated_at
-            conversation.updated_at = datetime.utcnow()
+            conversation.updated_at = _utc_now()
             
             await session.commit()
 
@@ -191,7 +195,7 @@ class ConversationService:
                 return False
             
             conversation.title = title
-            conversation.updated_at = datetime.utcnow()
+            conversation.updated_at = _utc_now()
             await session.commit()
             
             return True
@@ -224,7 +228,7 @@ class ConversationService:
                 return None
             
             conversation.response_mode = response_mode
-            conversation.updated_at = datetime.utcnow()
+            conversation.updated_at = _utc_now()
             await session.commit()
             await session.refresh(conversation)
             
@@ -360,8 +364,8 @@ class ConversationService:
                 title="SMS Chat",
                 response_mode="text",
                 channel="sms",
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow(),
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
             )
             session.add(conversation)
             await session.commit()
@@ -433,7 +437,7 @@ class ConversationService:
                 role=role,
                 content=content,
                 tool_payload=json.dumps(tool_payload) if tool_payload else None,
-                created_at=datetime.utcnow(),
+                created_at=_utc_now(),
             )
             session.add(message)
 
@@ -445,7 +449,7 @@ class ConversationService:
             )
             conversation = conv_result.scalars().first()
             if conversation:
-                conversation.updated_at = datetime.utcnow()
+                conversation.updated_at = _utc_now()
 
             await session.commit()
 
@@ -462,6 +466,7 @@ class ConversationService:
             "user_id": conversation.user_id,
             "title": conversation.title,
             "response_mode": conversation.response_mode or "text",
+            "auto_run_queued": bool(conversation.auto_run_queued),
             "created_at": conversation.created_at.isoformat(),
             "updated_at": conversation.updated_at.isoformat(),
             "messages": [self._serialize_message(m) for m in messages]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Callable, Optional
 
@@ -83,15 +84,15 @@ def create_search_router(
     @router.post("/api/search/reindex")
     async def reindex_user_data(current_user=Depends(get_current_user)):
         try:
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
 
             from sqlalchemy import select
 
             from database.connection import get_db_session
-            from database.models import AIConversationDB, AIMessageDB, HabitDB, HabitLogDB
+            from database.models import AIConversationDB, AIMessageDB, AiFactDB, ArtifactDB, HabitDB, HabitLogDB, WorkflowDefinitionDB
 
             user_id = current_user["id"]
-            indexed_counts = {"habits": 0, "logs": 0, "messages": 0}
+            indexed_counts = {"habits": 0, "logs": 0, "messages": 0, "artifacts": 0, "workflows": 0, "facts": 0}
 
             async with get_db_session() as session:
                 habits_result = await session.execute(
@@ -120,7 +121,7 @@ def create_search_router(
                 await search_service.bulk_index_habits(habit_docs, user_id)
                 indexed_counts["habits"] = len(habit_docs)
 
-                ninety_days_ago = (datetime.utcnow() - timedelta(days=90)).strftime("%Y-%m-%d")
+                ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
                 logs_result = await session.execute(
                     select(HabitLogDB, HabitDB.name, HabitDB.category)
                     .join(HabitDB, HabitLogDB.habit_id == HabitDB.id)
@@ -171,12 +172,91 @@ def create_search_router(
                     )
                 indexed_counts["messages"] = len(messages)
 
+                artifacts_result = await session.execute(
+                    select(ArtifactDB).where(ArtifactDB.user_id == user_id)
+                )
+                artifacts = artifacts_result.scalars().all()
+                for artifact in artifacts:
+                    await search_service.index_artifact(
+                        {
+                            "id": artifact.id,
+                            "kind": artifact.kind,
+                            "title": artifact.title,
+                            "slug": artifact.slug,
+                            "summary": artifact.summary,
+                            "preview_text": artifact.preview_text,
+                            "folder_key": artifact.folder_key,
+                            "is_pinned": bool(artifact.is_pinned),
+                            "status": artifact.status,
+                            "source_type": artifact.source_type,
+                            "source_id": artifact.source_id,
+                            "conversation_id": artifact.conversation_id,
+                            "created_at": artifact.created_at,
+                            "updated_at": artifact.updated_at,
+                            "published_at": artifact.published_at,
+                        },
+                        user_id,
+                    )
+                indexed_counts["artifacts"] = len(artifacts)
+
+                workflows_result = await session.execute(
+                    select(WorkflowDefinitionDB).where(WorkflowDefinitionDB.user_id == user_id)
+                )
+                workflows = workflows_result.scalars().all()
+                for workflow in workflows:
+                    await search_service.index_workflow_definition(
+                        {
+                            "id": workflow.id,
+                            "kind": workflow.kind,
+                            "name": workflow.name,
+                            "definition_family": workflow.definition_family,
+                            "trigger_type": workflow.trigger_type,
+                            "signal_kind": workflow.signal_kind,
+                            "status": workflow.status,
+                            "schedule": {
+                                "cadence": workflow.cadence,
+                                "send_hour_local": workflow.send_hour_local,
+                                "send_minute_local": workflow.send_minute_local,
+                            },
+                            "delivery": {"channel": workflow.delivery_channel},
+                            "config": json.loads(workflow.config_json or "{}"),
+                            "next_run_at": workflow.next_run_at,
+                            "updated_at": workflow.updated_at,
+                        },
+                        user_id,
+                    )
+                indexed_counts["workflows"] = len(workflows)
+
+                facts_result = await session.execute(
+                    select(AiFactDB).where(AiFactDB.user_id == user_id, AiFactDB.status == "active")
+                )
+                facts = facts_result.scalars().all()
+                for fact in facts:
+                    await search_service.index_ai_fact(
+                        {
+                            "id": fact.id,
+                            "category": fact.category,
+                            "subject": fact.subject,
+                            "predicate": fact.predicate,
+                            "value": json.loads(fact.value_json or "{}"),
+                            "status": fact.status,
+                            "visibility": fact.visibility,
+                            "confidence": fact.confidence,
+                            "created_at": fact.created_at,
+                            "updated_at": fact.updated_at,
+                        },
+                        user_id,
+                    )
+                indexed_counts["facts"] = len(facts)
+
             return {
                 "success": True,
                 "indexed": indexed_counts,
                 "message": (
                     f"Indexed {indexed_counts['habits']} habits, "
-                    f"{indexed_counts['logs']} logs, and {indexed_counts['messages']} messages"
+                    f"{indexed_counts['logs']} logs, {indexed_counts['messages']} messages, "
+                    f"{indexed_counts['artifacts']} artifacts, {indexed_counts['workflows']} workflows, "
+                    f"and {indexed_counts['facts']} facts"
                 ),
             }
 

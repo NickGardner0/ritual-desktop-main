@@ -63,9 +63,13 @@ from services.whoop_service import WhoopService
 from services.tesla_service import TeslaService
 from services.user_service import UserService
 from api.analytics import create_analytics_router
+from api.action_profiles import create_action_profiles_router
+from api.approvals import create_approvals_router
+from api.artifacts import create_artifacts_router
 from api.biometrics import create_biometrics_router
 from api.core import create_core_router
 from api.conversations import create_conversations_router
+from api.facts import create_facts_router
 from api.financial import create_financial_router
 from api.integrations import create_whoop_router, create_tesla_router
 from api.imports import create_imports_router
@@ -74,6 +78,7 @@ from api.search import create_search_router
 from api.screen_time import create_screen_time_router
 from api.screenshot import create_screenshot_router
 from api.wearables import create_wearables_router
+from api.workflows import create_workflows_router
 from database.connection import (
     complete_database_startup_maintenance,
     get_db_session,
@@ -237,6 +242,31 @@ app.include_router(
 )
 app.include_router(
     create_reports_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_artifacts_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_workflows_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_action_profiles_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_approvals_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_facts_router(
         get_current_user=get_current_user,
     )
 )
@@ -764,6 +794,64 @@ async def _report_scheduler_loop() -> None:
         await asyncio.sleep(900)
 
 
+async def _workflow_scheduler_loop() -> None:
+    """Dispatch and process scheduled workflow runs on a shorter cadence."""
+    await asyncio.sleep(50)
+    logger.info("🧭 Workflow scheduler loop started (runs every 5 minutes)")
+
+    while True:
+        try:
+            from services.workflow_service import workflow_service
+
+            result = await workflow_service.scheduler_tick()
+            queued = int(result.get("queued", 0) or 0)
+            processed = int(result.get("processed", 0) or 0)
+            failed = int(result.get("failed", 0) or 0)
+            if queued or processed or failed:
+                logger.info(
+                    "🧭 Workflow scheduler tick: queued=%d processed=%d failed=%d",
+                    queued,
+                    processed,
+                    failed,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Workflow scheduler tick failed: %s", exc)
+
+        await asyncio.sleep(300)
+
+
+async def _ambient_scheduler_loop() -> None:
+    """Evaluate ambient workflow signals and process resulting runs."""
+    await asyncio.sleep(65)
+    logger.info("🌤️ Ambient scheduler loop started (runs every 15 minutes)")
+
+    while True:
+        try:
+            from services.workflow_service import workflow_service
+
+            result = await workflow_service.ambient_tick()
+            queued = int(result.get("queued", 0) or 0)
+            suppressed = int(result.get("suppressed", 0) or 0)
+            processed = int(result.get("processed", 0) or 0)
+            failed = int(result.get("failed", 0) or 0)
+            if queued or suppressed or processed or failed:
+                logger.info(
+                    "🌤️ Ambient scheduler tick: queued=%d suppressed=%d processed=%d failed=%d",
+                    queued,
+                    suppressed,
+                    processed,
+                    failed,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Ambient scheduler tick failed: %s", exc)
+
+        await asyncio.sleep(900)
+
+
 async def _sms_copilot_loop() -> None:
     """Run narrow deterministic copilot checks every five minutes."""
     from sqlalchemy import select
@@ -948,12 +1036,16 @@ async def _post_startup_initialization() -> None:
     if ENABLE_INTERNAL_SCHEDULER:
         app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
         app.state.report_scheduler_task = asyncio.create_task(_report_scheduler_loop())
+        app.state.workflow_scheduler_task = asyncio.create_task(_workflow_scheduler_loop())
+        app.state.ambient_scheduler_task = asyncio.create_task(_ambient_scheduler_loop())
         app.state.sms_copilot_task = asyncio.create_task(_sms_copilot_loop())
         app.state.wearable_ingest_job_task = asyncio.create_task(_wearable_ingest_job_loop())
         app.state.wearable_maintenance_task = asyncio.create_task(_wearable_maintenance_loop())
         app.state.wearable_event_outbox_task = asyncio.create_task(_wearable_event_outbox_loop())
         logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
         logger.info("📨 Report scheduler started")
+        logger.info("🧭 Workflow scheduler started")
+        logger.info("🌤️ Ambient scheduler started")
         logger.info("📲 SMS copilot scheduler started")
         logger.info("🧵 Wearable ingest job worker started")
         logger.info("🧹 Wearable maintenance scheduler started")
@@ -986,6 +1078,8 @@ async def startup_event():
     app.state.startup_maintenance_task = None
     app.state.scheduler_task = None
     app.state.report_scheduler_task = None
+    app.state.workflow_scheduler_task = None
+    app.state.ambient_scheduler_task = None
     app.state.sms_copilot_task = None
     app.state.wearable_ingest_job_task = None
     app.state.wearable_maintenance_task = None
@@ -1017,6 +1111,8 @@ async def shutdown_event():
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
     scheduler_task = getattr(app.state, "scheduler_task", None)
     report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
+    workflow_scheduler_task = getattr(app.state, "workflow_scheduler_task", None)
+    ambient_scheduler_task = getattr(app.state, "ambient_scheduler_task", None)
     sms_copilot_task = getattr(app.state, "sms_copilot_task", None)
     wearable_ingest_job_task = getattr(app.state, "wearable_ingest_job_task", None)
     wearable_maintenance_task = getattr(app.state, "wearable_maintenance_task", None)
@@ -1030,6 +1126,8 @@ async def shutdown_event():
             startup_maintenance_task,
             scheduler_task,
             report_scheduler_task,
+            workflow_scheduler_task,
+            ambient_scheduler_task,
             sms_copilot_task,
             wearable_ingest_job_task,
             wearable_maintenance_task,

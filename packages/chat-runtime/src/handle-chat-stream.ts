@@ -69,7 +69,7 @@ import type {
 
 // Voice mode & persistence
 import { formatVoiceResponse, generateReplyChips } from './voice.js';
-import { createConversation, saveMessage } from './persistence.js';
+import { createConversation, createFactSuggestions, getPromptFacts, saveMessage } from './persistence.js';
 
 export type ChatStreamRequestBody = {
   messages: Array<{ role: string; content: string }>;
@@ -198,6 +198,49 @@ function safeJsonParse<T>(raw: string): T | null {
   } catch {
     return null;
   }
+}
+
+function deriveFactSuggestionsFromMessage(message: string): Array<Record<string, unknown>> {
+  const normalized = message.trim();
+  if (!normalized) return [];
+  const lower = normalized.toLowerCase();
+
+  const suggestions: Array<Record<string, unknown>> = [];
+
+  if (/\bi prefer\b/.test(lower)) {
+    suggestions.push({
+      category: 'preference',
+      subject: 'user',
+      predicate: 'stated_preference',
+      value: { statement: normalized },
+      confidence: 0.66,
+      visibility: 'prompt',
+    });
+  }
+
+  if (/\b(my goal is|i want to|i'm trying to|i am trying to)\b/.test(lower)) {
+    suggestions.push({
+      category: 'goal',
+      subject: 'user',
+      predicate: 'stated_goal',
+      value: { statement: normalized },
+      confidence: 0.72,
+      visibility: 'ui',
+    });
+  }
+
+  if (/\b(don't|do not|never)\b/.test(lower) && /\b(remind|send|message|notify)\b/.test(lower)) {
+    suggestions.push({
+      category: 'constraint',
+      subject: 'user',
+      predicate: 'notification_constraint',
+      value: { statement: normalized },
+      confidence: 0.74,
+      visibility: 'prompt',
+    });
+  }
+
+  return suggestions.slice(0, 2);
 }
 
 async function* streamDeferredOverviewNarrative(
@@ -688,14 +731,25 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     const day = now.getDate();
     const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const currentYear = year;
+    const promptFacts = await getPromptFacts(token);
+    const factSuggestions = deriveFactSuggestionsFromMessage(latestUserMessage?.content || '');
+    if (factSuggestions.length > 0) {
+      void createFactSuggestions(token, factSuggestions);
+    }
 
     // Build the full system prompt
-    const fullSystemPrompt = buildSystemPrompt({
+    const baseSystemPrompt = buildSystemPrompt({
       timezone: timezone || 'UTC',
       today,
       currentYear,
       isVoiceMode,
     });
+    const factPromptBlock = promptFacts.length > 0
+      ? `\n\n[APPROVED USER FACTS]\n${promptFacts
+        .map((fact) => `- ${String(fact.predicate || 'fact')}: ${JSON.stringify(fact.value || {})}`)
+        .join('\n')}`
+      : '';
+    const fullSystemPrompt = `${baseSystemPrompt}${factPromptBlock}`;
     const latestUserContent = latestUserMessage?.content || '';
     const retrievalRoute = classifyRetrievalRoute(latestUserContent);
     const forceScreenTimeBreakdown = retrievalRoute === 'time_breakdown';

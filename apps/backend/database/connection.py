@@ -6,7 +6,7 @@ Turso Cloud with embedded replica
 import os
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -302,7 +302,7 @@ async def _recover_corrupt_local_replica() -> bool:
     except Exception as e:
         logger.warning("⚠️ Failed to dispose database engine before recovery: %s", e)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     candidates = [
         local_db_path,
         local_db_path.with_name(f"{local_db_path.name}-wal"),
@@ -392,6 +392,7 @@ async def _run_migrations(session):
         ("whoop_integrations", "scope", "ALTER TABLE whoop_integrations ADD COLUMN scope TEXT"),
         # SMS chatbot: channel column on conversations + user timezone
         ("ai_conversations", "channel", "ALTER TABLE ai_conversations ADD COLUMN channel TEXT NOT NULL DEFAULT 'app'"),
+        ("ai_conversations", "auto_run_queued", "ALTER TABLE ai_conversations ADD COLUMN auto_run_queued INTEGER NOT NULL DEFAULT 0"),
         ("users", "timezone", "ALTER TABLE users ADD COLUMN timezone TEXT"),
         ("sms_preferences", "daily_narrative_enabled", "ALTER TABLE sms_preferences ADD COLUMN daily_narrative_enabled INTEGER NOT NULL DEFAULT 1"),
         ("sms_preferences", "interrupts_enabled", "ALTER TABLE sms_preferences ADD COLUMN interrupts_enabled INTEGER NOT NULL DEFAULT 1"),
@@ -404,6 +405,24 @@ async def _run_migrations(session):
         ("wearable_samples", "should_project_to_habit_logs", "ALTER TABLE wearable_samples ADD COLUMN should_project_to_habit_logs INTEGER NOT NULL DEFAULT 1"),
         ("wearable_raw_payloads", "normalization_error_json", "ALTER TABLE wearable_raw_payloads ADD COLUMN normalization_error_json TEXT"),
         ("user_ui_preferences", "overview_view_mode", "ALTER TABLE user_ui_preferences ADD COLUMN overview_view_mode TEXT"),
+        ("report_runs", "artifact_id", "ALTER TABLE report_runs ADD COLUMN artifact_id TEXT"),
+        ("artifacts", "slug", "ALTER TABLE artifacts ADD COLUMN slug TEXT"),
+        ("artifacts", "preview_text", "ALTER TABLE artifacts ADD COLUMN preview_text TEXT"),
+        ("artifacts", "folder_key", "ALTER TABLE artifacts ADD COLUMN folder_key TEXT"),
+        ("artifacts", "is_pinned", "ALTER TABLE artifacts ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"),
+        ("workflow_definitions", "definition_family", "ALTER TABLE workflow_definitions ADD COLUMN definition_family TEXT NOT NULL DEFAULT 'routine'"),
+        ("workflow_definitions", "trigger_type", "ALTER TABLE workflow_definitions ADD COLUMN trigger_type TEXT NOT NULL DEFAULT 'schedule'"),
+        ("workflow_definitions", "signal_kind", "ALTER TABLE workflow_definitions ADD COLUMN signal_kind TEXT"),
+        ("workflow_definitions", "cooldown_minutes", "ALTER TABLE workflow_definitions ADD COLUMN cooldown_minutes INTEGER NOT NULL DEFAULT 240"),
+        ("workflow_definitions", "quiet_hours_json", "ALTER TABLE workflow_definitions ADD COLUMN quiet_hours_json TEXT NOT NULL DEFAULT '{}'"),
+        ("workflow_definitions", "ranking_json", "ALTER TABLE workflow_definitions ADD COLUMN ranking_json TEXT NOT NULL DEFAULT '{}'"),
+        ("workflow_runs", "proposed_actions_json", "ALTER TABLE workflow_runs ADD COLUMN proposed_actions_json TEXT"),
+        ("workflow_runs", "policy_decisions_json", "ALTER TABLE workflow_runs ADD COLUMN policy_decisions_json TEXT"),
+        ("workflow_runs", "fact_suggestions_json", "ALTER TABLE workflow_runs ADD COLUMN fact_suggestions_json TEXT"),
+        ("workflow_runs", "queue_suggestions_json", "ALTER TABLE workflow_runs ADD COLUMN queue_suggestions_json TEXT"),
+        ("approval_requests", "capability", "ALTER TABLE approval_requests ADD COLUMN capability TEXT"),
+        ("approval_requests", "proposed_action_json", "ALTER TABLE approval_requests ADD COLUMN proposed_action_json TEXT NOT NULL DEFAULT '{}'"),
+        ("approval_requests", "policy_decision_json", "ALTER TABLE approval_requests ADD COLUMN policy_decision_json TEXT NOT NULL DEFAULT '{}'"),
     ]
     
     for table, column, sql in migrations:
@@ -424,6 +443,282 @@ async def _run_migrations(session):
                 logger.warning(f"  ⚠️ Migration {table}.{column}: {e}")
 
     create_table_sql = [
+        (
+            "artifacts",
+            """
+            CREATE TABLE IF NOT EXISTS artifacts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                source_type TEXT NOT NULL,
+                source_id TEXT,
+                title TEXT NOT NULL,
+                slug TEXT,
+                status TEXT NOT NULL DEFAULT 'published',
+                summary TEXT,
+                preview_text TEXT,
+                folder_key TEXT,
+                is_pinned INTEGER NOT NULL DEFAULT 0,
+                body_json TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                period_start TEXT,
+                period_end TEXT,
+                timezone TEXT NOT NULL DEFAULT 'America/New_York',
+                conversation_id TEXT,
+                published_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE SET NULL
+            )
+            """,
+        ),
+        (
+            "artifact_revisions",
+            """
+            CREATE TABLE IF NOT EXISTS artifact_revisions (
+                id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL,
+                version INTEGER NOT NULL DEFAULT 1,
+                editor_type TEXT NOT NULL,
+                body_json TEXT NOT NULL,
+                summary TEXT,
+                change_note TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "artifact_links",
+            """
+            CREATE TABLE IF NOT EXISTS artifact_links (
+                id TEXT PRIMARY KEY,
+                artifact_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                target_type TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relationship TEXT NOT NULL DEFAULT 'linked',
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "action_profiles",
+            """
+            CREATE TABLE IF NOT EXISTS action_profiles (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                mode TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                rules_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "workflow_definitions",
+            """
+            CREATE TABLE IF NOT EXISTS workflow_definitions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                definition_family TEXT NOT NULL DEFAULT 'routine',
+                trigger_type TEXT NOT NULL DEFAULT 'schedule',
+                signal_kind TEXT,
+                cooldown_minutes INTEGER NOT NULL DEFAULT 240,
+                quiet_hours_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'draft',
+                timezone TEXT NOT NULL DEFAULT 'America/New_York',
+                cadence TEXT NOT NULL DEFAULT 'daily',
+                send_hour_local INTEGER NOT NULL DEFAULT 8,
+                send_minute_local INTEGER NOT NULL DEFAULT 0,
+                send_weekdays_json TEXT NOT NULL DEFAULT '[]',
+                delivery_channel TEXT NOT NULL DEFAULT 'in_app',
+                delivery_json TEXT NOT NULL DEFAULT '{}',
+                ranking_json TEXT NOT NULL DEFAULT '{}',
+                config_json TEXT NOT NULL DEFAULT '{}',
+                template_version INTEGER NOT NULL DEFAULT 1,
+                action_profile_id TEXT NOT NULL,
+                last_run_at DATETIME,
+                next_run_at DATETIME,
+                last_error TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(action_profile_id) REFERENCES action_profiles(id)
+            )
+            """,
+        ),
+        (
+            "workflow_runs",
+            """
+            CREATE TABLE IF NOT EXISTS workflow_runs (
+                id TEXT PRIMARY KEY,
+                workflow_definition_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'queued',
+                trigger_source TEXT NOT NULL,
+                window_start DATETIME,
+                window_end DATETIME,
+                artifact_id TEXT,
+                conversation_id TEXT,
+                plan_json TEXT,
+                result_json TEXT,
+                proposed_actions_json TEXT,
+                policy_decisions_json TEXT,
+                fact_suggestions_json TEXT,
+                queue_suggestions_json TEXT,
+                error_json TEXT,
+                idempotency_key TEXT,
+                started_at DATETIME,
+                finished_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(workflow_definition_id) REFERENCES workflow_definitions(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL,
+                FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE SET NULL
+            )
+            """,
+        ),
+        (
+            "approval_requests",
+            """
+            CREATE TABLE IF NOT EXISTS approval_requests (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                workflow_run_id TEXT,
+                action_kind TEXT NOT NULL,
+                capability TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                reason TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                proposed_action_json TEXT NOT NULL DEFAULT '{}',
+                policy_decision_json TEXT NOT NULL DEFAULT '{}',
+                expires_at DATETIME,
+                resolved_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workflow_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL
+            )
+            """,
+        ),
+        (
+            "action_receipts",
+            """
+            CREATE TABLE IF NOT EXISTS action_receipts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                workflow_run_id TEXT,
+                conversation_id TEXT,
+                action_kind TEXT NOT NULL,
+                capability TEXT NOT NULL,
+                target_ref TEXT,
+                status TEXT NOT NULL DEFAULT 'applied',
+                before_json TEXT,
+                after_json TEXT,
+                undo_json TEXT,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workflow_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL,
+                FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE SET NULL
+            )
+            """,
+        ),
+        (
+            "conversation_queue_items",
+            """
+            CREATE TABLE IF NOT EXISTS conversation_queue_items (
+                id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                prompt_text TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                source TEXT NOT NULL DEFAULT 'manual',
+                after_message_id TEXT,
+                position INTEGER NOT NULL DEFAULT 0,
+                auto_run INTEGER NOT NULL DEFAULT 0,
+                error_json TEXT,
+                started_at DATETIME,
+                completed_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "ai_facts",
+            """
+            CREATE TABLE IF NOT EXISTS ai_facts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                category TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                value_json TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                confidence REAL NOT NULL DEFAULT 0.5,
+                source_type TEXT NOT NULL DEFAULT 'assistant',
+                source_ref TEXT,
+                visibility TEXT NOT NULL DEFAULT 'private',
+                last_confirmed_at DATETIME,
+                expires_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "ai_fact_events",
+            """
+            CREATE TABLE IF NOT EXISTS ai_fact_events (
+                id TEXT PRIMARY KEY,
+                fact_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(fact_id) REFERENCES ai_facts(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "ambient_signal_events",
+            """
+            CREATE TABLE IF NOT EXISTS ambient_signal_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                workflow_definition_id TEXT,
+                workflow_run_id TEXT,
+                signal_kind TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'candidate',
+                score REAL NOT NULL DEFAULT 0,
+                confidence REAL NOT NULL DEFAULT 0,
+                suppression_reason TEXT,
+                dedupe_key TEXT,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(workflow_definition_id) REFERENCES workflow_definitions(id) ON DELETE SET NULL,
+                FOREIGN KEY(workflow_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL
+            )
+            """,
+        ),
         (
             "wearable_connections",
             """
@@ -887,13 +1182,15 @@ async def _run_migrations(session):
                 subject TEXT,
                 summary_json TEXT,
                 email_html TEXT,
+                artifact_id TEXT,
                 generated_at DATETIME,
                 sent_at DATETIME,
                 error_json TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(schedule_id) REFERENCES report_schedules(id) ON DELETE CASCADE,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
             )
             """,
         ),
@@ -975,10 +1272,29 @@ async def _run_migrations(session):
         ("idx_sms_copilot_events_user_status_created", "CREATE INDEX IF NOT EXISTS idx_sms_copilot_events_user_status_created ON sms_copilot_events (user_id, status, created_at)"),
         ("idx_sms_copilot_events_user_kind_created", "CREATE INDEX IF NOT EXISTS idx_sms_copilot_events_user_kind_created ON sms_copilot_events (user_id, kind, created_at)"),
         ("idx_behavior_baselines_user_metric_computed", "CREATE INDEX IF NOT EXISTS idx_behavior_baselines_user_metric_computed ON behavior_baseline_snapshots (user_id, metric_key, computed_at)"),
+        ("idx_artifacts_user_kind_created", "CREATE INDEX IF NOT EXISTS idx_artifacts_user_kind_created ON artifacts (user_id, kind, created_at DESC)"),
+        ("idx_artifacts_source_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifacts_source_unique ON artifacts (source_type, source_id) WHERE source_id IS NOT NULL"),
+        ("idx_artifact_revisions_artifact_version", "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_revisions_artifact_version ON artifact_revisions (artifact_id, version)"),
+        ("idx_artifact_links_artifact_target", "CREATE UNIQUE INDEX IF NOT EXISTS idx_artifact_links_artifact_target ON artifact_links (artifact_id, target_type, target_id)"),
+        ("idx_artifact_links_user_target", "CREATE INDEX IF NOT EXISTS idx_artifact_links_user_target ON artifact_links (user_id, target_type, target_id)"),
+        ("idx_action_profiles_user_mode", "CREATE UNIQUE INDEX IF NOT EXISTS idx_action_profiles_user_mode ON action_profiles (user_id, mode)"),
+        ("idx_workflow_definitions_user_kind", "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_definitions_user_kind ON workflow_definitions (user_id, kind)"),
+        ("idx_workflow_runs_definition_created", "CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_created ON workflow_runs (workflow_definition_id, created_at DESC)"),
+        ("idx_workflow_runs_user_status_created", "CREATE INDEX IF NOT EXISTS idx_workflow_runs_user_status_created ON workflow_runs (user_id, status, created_at DESC)"),
+        ("idx_workflow_runs_idempotency", "CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_runs_idempotency ON workflow_runs (idempotency_key) WHERE idempotency_key IS NOT NULL"),
+        ("idx_approval_requests_user_status_created", "CREATE INDEX IF NOT EXISTS idx_approval_requests_user_status_created ON approval_requests (user_id, status, created_at DESC)"),
+        ("idx_action_receipts_user_created", "CREATE INDEX IF NOT EXISTS idx_action_receipts_user_created ON action_receipts (user_id, created_at DESC)"),
+        ("idx_action_receipts_run_created", "CREATE INDEX IF NOT EXISTS idx_action_receipts_run_created ON action_receipts (workflow_run_id, created_at DESC)"),
+        ("idx_conversation_queue_user_conversation", "CREATE INDEX IF NOT EXISTS idx_conversation_queue_user_conversation ON conversation_queue_items (user_id, conversation_id, status, position)"),
+        ("idx_ai_facts_user_status_category", "CREATE INDEX IF NOT EXISTS idx_ai_facts_user_status_category ON ai_facts (user_id, status, category, created_at DESC)"),
+        ("idx_ai_fact_events_fact_created", "CREATE INDEX IF NOT EXISTS idx_ai_fact_events_fact_created ON ai_fact_events (fact_id, created_at DESC)"),
+        ("idx_ambient_signal_events_user_status", "CREATE INDEX IF NOT EXISTS idx_ambient_signal_events_user_status ON ambient_signal_events (user_id, status, created_at DESC)"),
+        ("idx_ambient_signal_events_dedupe", "CREATE UNIQUE INDEX IF NOT EXISTS idx_ambient_signal_events_dedupe ON ambient_signal_events (user_id, dedupe_key) WHERE dedupe_key IS NOT NULL"),
         ("idx_report_schedules_user_status", "CREATE INDEX IF NOT EXISTS idx_report_schedules_user_status ON report_schedules (user_id, status)"),
         ("idx_report_schedules_next_run", "CREATE INDEX IF NOT EXISTS idx_report_schedules_next_run ON report_schedules (status, next_run_at)"),
         ("idx_report_runs_schedule_created", "CREATE INDEX IF NOT EXISTS idx_report_runs_schedule_created ON report_runs (schedule_id, created_at)"),
         ("idx_report_runs_user_status", "CREATE INDEX IF NOT EXISTS idx_report_runs_user_status ON report_runs (user_id, status, created_at)"),
+        ("idx_report_runs_artifact", "CREATE INDEX IF NOT EXISTS idx_report_runs_artifact ON report_runs (artifact_id)"),
         ("idx_report_notifications_run_recipient", "CREATE INDEX IF NOT EXISTS idx_report_notifications_run_recipient ON report_notifications (report_run_id, recipient_email)"),
     ]
 
@@ -990,6 +1306,66 @@ async def _run_migrations(session):
         except Exception as e:
             add_warning(f"index:{index_name}", str(e))
             logger.warning(f"  ⚠️ Create index {index_name}: {e}")
+
+    # Earlier Sprint 1 migrations added report_runs.artifact_id without recreating
+    # the table, so some existing databases never received the foreign-key clause.
+    # Rebuild report_runs once when the FK is missing so migrated DBs match fresh ones.
+    try:
+        report_runs_fk = await session.execute(text("PRAGMA foreign_key_list(report_runs)"))
+        fk_rows = report_runs_fk.fetchall()
+        artifact_fk_present = any(
+            len(row) >= 5 and row[3] == "artifact_id" and row[2] == "artifacts"
+            for row in fk_rows
+        )
+        if not artifact_fk_present:
+            await session.execute(text("PRAGMA foreign_keys=OFF"))
+            await session.execute(text("ALTER TABLE report_runs RENAME TO report_runs_legacy"))
+            await session.execute(text("""
+                CREATE TABLE report_runs (
+                    id TEXT PRIMARY KEY,
+                    schedule_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    cadence TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'queued',
+                    period_start TEXT NOT NULL,
+                    period_end TEXT NOT NULL,
+                    subject TEXT,
+                    summary_json TEXT,
+                    email_html TEXT,
+                    artifact_id TEXT,
+                    generated_at DATETIME,
+                    sent_at DATETIME,
+                    error_json TEXT,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(schedule_id) REFERENCES report_schedules(id) ON DELETE CASCADE,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(artifact_id) REFERENCES artifacts(id) ON DELETE SET NULL
+                )
+            """))
+            await session.execute(text("""
+                INSERT INTO report_runs (
+                    id, schedule_id, user_id, cadence, status, period_start, period_end,
+                    subject, summary_json, email_html, artifact_id, generated_at, sent_at,
+                    error_json, created_at, updated_at
+                )
+                SELECT
+                    id, schedule_id, user_id, cadence, status, period_start, period_end,
+                    subject, summary_json, email_html, artifact_id, generated_at, sent_at,
+                    error_json, created_at, updated_at
+                FROM report_runs_legacy
+            """))
+            await session.execute(text("DROP TABLE report_runs_legacy"))
+            await session.execute(text("PRAGMA foreign_keys=ON"))
+            await session.commit()
+            await session.execute(text("CREATE INDEX IF NOT EXISTS idx_report_runs_schedule_created ON report_runs (schedule_id, created_at)"))
+            await session.execute(text("CREATE INDEX IF NOT EXISTS idx_report_runs_user_status ON report_runs (user_id, status, created_at)"))
+            await session.execute(text("CREATE INDEX IF NOT EXISTS idx_report_runs_artifact ON report_runs (artifact_id)"))
+            await session.commit()
+            applied.append("migration:report_runs_fk_rebuild")
+    except Exception as e:
+        add_warning("migration:report_runs_fk_rebuild", str(e))
+        logger.warning(f"  ⚠️ Migration report_runs FK rebuild: {e}")
 
     # Create scheduled blocks table for calendar week-view planner.
     try:
@@ -1110,6 +1486,16 @@ async def _run_migrations(session):
         if "no such table" not in str(e).lower():
             add_warning("migration:computer_time_rename", str(e))
             logger.warning(f"  ⚠️ Migration computer_time_rename: {e}")
+
+    try:
+        from services.artifact_service import artifact_service
+
+        backfilled = await artifact_service.backfill_report_run_artifacts(limit=1000)
+        if backfilled:
+            applied.append(f"backfill:report_artifacts:{backfilled}")
+    except Exception as e:
+        add_warning("migration:report_artifact_backfill", str(e))
+        logger.warning(f"  ⚠️ Migration report_artifact_backfill: {e}")
 
     return {
         "status": "degraded" if warnings else "ok",

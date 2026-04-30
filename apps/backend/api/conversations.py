@@ -6,7 +6,16 @@ from typing import Any, Callable, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from schemas.artifacts import ArtifactDetailRead
+from schemas.conversation_queue import (
+    ConversationQueueCreate,
+    ConversationQueueListResponse,
+    ConversationQueueRunResponse,
+    ConversationQueueUpdate,
+)
+from services.artifact_service import artifact_service
 from services.conversation_service import conversation_service
+from services.conversation_queue_service import conversation_queue_service
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +28,13 @@ class MessageCreate(BaseModel):
 
 class ResponseModeUpdate(BaseModel):
     response_mode: str  # 'text' or 'voice'
+
+
+class ConversationArtifactCreate(BaseModel):
+    title: str
+    summary: Optional[str] = None
+    body: dict
+    kind: str = "conversation_brief"
 
 
 def create_conversations_router(
@@ -143,5 +159,67 @@ def create_conversations_router(
         except Exception as e:
             logger.error("Error updating response mode: %s", str(e))
             raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.post("/api/conversations/{conversation_id}/artifacts", response_model=ArtifactDetailRead)
+    async def create_conversation_artifact(
+        conversation_id: str,
+        payload: ConversationArtifactCreate,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            conversation = await conversation_service.get_conversation(conversation_id, current_user["id"])
+            if not conversation:
+                raise HTTPException(status_code=404, detail="Conversation not found")
+            return await artifact_service.create_conversation_artifact(
+                user_id=current_user["id"],
+                conversation_id=conversation_id,
+                title=payload.title,
+                summary=payload.summary,
+                body=payload.body,
+                kind=payload.kind,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Error creating conversation artifact: %s", str(e))
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.get("/api/conversations/{conversation_id}/queue", response_model=ConversationQueueListResponse)
+    async def get_conversation_queue(conversation_id: str, current_user=Depends(get_current_user)):
+        return await conversation_queue_service.list_items(current_user["id"], conversation_id)
+
+    @router.post("/api/conversations/{conversation_id}/queue", response_model=ConversationQueueRunResponse)
+    async def create_conversation_queue_item(
+        conversation_id: str,
+        payload: ConversationQueueCreate,
+        current_user=Depends(get_current_user),
+    ):
+        item = await conversation_queue_service.create_item(current_user["id"], conversation_id, payload)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        return ConversationQueueRunResponse(item=item, stale=False)
+
+    @router.patch("/api/conversations/{conversation_id}/queue/{item_id}", response_model=ConversationQueueRunResponse)
+    async def patch_conversation_queue_item(
+        conversation_id: str,
+        item_id: str,
+        payload: ConversationQueueUpdate,
+        current_user=Depends(get_current_user),
+    ):
+        item = await conversation_queue_service.update_item(current_user["id"], conversation_id, item_id, payload)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Queued prompt not found")
+        return ConversationQueueRunResponse(item=item, stale=False)
+
+    @router.post("/api/conversations/{conversation_id}/queue/{item_id}/run", response_model=ConversationQueueRunResponse)
+    async def run_conversation_queue_item(
+        conversation_id: str,
+        item_id: str,
+        current_user=Depends(get_current_user),
+    ):
+        result = await conversation_queue_service.claim_next_item(current_user["id"], conversation_id, item_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Queued prompt not found")
+        return result
 
     return router

@@ -19,12 +19,17 @@ import json
 import hashlib
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Literal
 import typesense
 from typesense.exceptions import ObjectNotFound, TypesenseClientError
+from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 # Collection schemas
 HABITS_SCHEMA = {
@@ -106,6 +111,65 @@ COMPUTER_ACTIVITY_SCHEMA = {
     "default_sorting_field": "created_at",
 }
 
+ARTIFACTS_SCHEMA = {
+    "name": "artifacts",
+    "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "user_id", "type": "string", "facet": True},
+        {"name": "kind", "type": "string", "facet": True},
+        {"name": "status", "type": "string", "facet": True},
+        {"name": "title", "type": "string"},
+        {"name": "slug", "type": "string", "optional": True},
+        {"name": "summary", "type": "string", "optional": True},
+        {"name": "preview_text", "type": "string", "optional": True},
+        {"name": "folder_key", "type": "string", "optional": True, "facet": True},
+        {"name": "is_pinned", "type": "bool"},
+        {"name": "source_type", "type": "string", "optional": True, "facet": True},
+        {"name": "conversation_id", "type": "string", "optional": True, "facet": True},
+        {"name": "created_at", "type": "int64"},
+        {"name": "updated_at", "type": "int64"},
+        {"name": "published_at", "type": "int64", "optional": True},
+    ],
+    "default_sorting_field": "updated_at",
+}
+
+WORKFLOWS_SCHEMA = {
+    "name": "workflows",
+    "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "user_id", "type": "string", "facet": True},
+        {"name": "kind", "type": "string", "facet": True},
+        {"name": "name", "type": "string"},
+        {"name": "definition_family", "type": "string", "facet": True},
+        {"name": "trigger_type", "type": "string", "facet": True},
+        {"name": "signal_kind", "type": "string", "optional": True, "facet": True},
+        {"name": "status", "type": "string", "facet": True},
+        {"name": "schedule_text", "type": "string", "optional": True},
+        {"name": "config_summary", "type": "string", "optional": True},
+        {"name": "next_run_at", "type": "int64", "optional": True},
+        {"name": "updated_at", "type": "int64"},
+    ],
+    "default_sorting_field": "updated_at",
+}
+
+AI_FACTS_SCHEMA = {
+    "name": "ai_facts",
+    "fields": [
+        {"name": "id", "type": "string"},
+        {"name": "user_id", "type": "string", "facet": True},
+        {"name": "category", "type": "string", "facet": True},
+        {"name": "subject", "type": "string"},
+        {"name": "predicate", "type": "string"},
+        {"name": "value_text", "type": "string", "optional": True},
+        {"name": "status", "type": "string", "facet": True},
+        {"name": "visibility", "type": "string", "facet": True},
+        {"name": "confidence", "type": "float"},
+        {"name": "created_at", "type": "int64"},
+        {"name": "updated_at", "type": "int64"},
+    ],
+    "default_sorting_field": "updated_at",
+}
+
 LOG_PHRASES_SCHEMA = {
     "name": "log_phrases",
     "fields": [
@@ -158,6 +222,7 @@ QUICK_ACTIONS = [
     {"id": "computer-settings", "name": "Computer use settings", "keywords": ["computer", "watcher", "screen", "tracking", "activity"], "action": "navigate", "path": "/dashboard?openSettings=computer-tracking", "icon": "monitor"},
     {"id": "apple-health-settings", "name": "Apple Health settings", "keywords": ["apple", "health", "watch", "sync"], "action": "navigate", "path": "/dashboard?openSettings=apple-health", "icon": "watch"},
     {"id": "screen-recording-settings", "name": "Screen recording settings", "keywords": ["screen", "recording", "recorder", "privacy"], "action": "navigate", "path": "/dashboard?openSettings=screen-recording", "icon": "eye"},
+    {"id": "open-reports", "name": "Open reports", "keywords": ["reports", "artifacts", "notebooks", "plans"], "action": "navigate", "path": "/reports", "icon": "file"},
 ]
 
 
@@ -218,6 +283,9 @@ class SearchService:
             AI_MESSAGES_SCHEMA,
             COMPUTER_ACTIVITY_SCHEMA,
             LOG_PHRASES_SCHEMA,
+            ARTIFACTS_SCHEMA,
+            WORKFLOWS_SCHEMA,
+            AI_FACTS_SCHEMA,
         ]
         
         for schema in schemas:
@@ -375,6 +443,82 @@ class SearchService:
             self.client.collections["computer_activity"].documents.upsert(doc)
         except Exception as e:
             logger.error(f"❌ Failed to index activity: {e}")
+
+    async def index_artifact(self, artifact: Dict[str, Any], user_id: str):
+        if not self.is_available:
+            return
+        try:
+            doc = {
+                "id": artifact["id"],
+                "user_id": user_id,
+                "kind": artifact.get("kind", "notebook"),
+                "status": artifact.get("status", "draft"),
+                "title": artifact.get("title", ""),
+                "slug": artifact.get("slug"),
+                "summary": artifact.get("summary"),
+                "preview_text": artifact.get("preview_text"),
+                "folder_key": artifact.get("folder_key"),
+                "is_pinned": bool(artifact.get("is_pinned", False)),
+                "source_type": artifact.get("source_type"),
+                "conversation_id": artifact.get("conversation_id"),
+                "created_at": self._to_timestamp(artifact.get("created_at")),
+                "updated_at": self._to_timestamp(artifact.get("updated_at") or artifact.get("created_at")),
+                "published_at": self._to_timestamp(artifact.get("published_at")) if artifact.get("published_at") else None,
+            }
+            self.client.collections["artifacts"].documents.upsert(doc)
+        except Exception as e:
+            logger.error(f"❌ Failed to index artifact {artifact.get('id')}: {e}")
+
+    async def index_workflow_definition(self, workflow: Dict[str, Any], user_id: str):
+        if not self.is_available:
+            return
+        try:
+            schedule = workflow.get("schedule") or {}
+            delivery = workflow.get("delivery") or {}
+            config = workflow.get("config") or {}
+            schedule_text = (
+                f"{schedule.get('cadence', 'daily')} at "
+                f"{int(schedule.get('send_hour_local', 0)):02d}:{int(schedule.get('send_minute_local', 0)):02d}"
+            )
+            doc = {
+                "id": workflow["id"],
+                "user_id": user_id,
+                "kind": workflow.get("kind", ""),
+                "name": workflow.get("name", ""),
+                "definition_family": workflow.get("definition_family", "routine"),
+                "trigger_type": workflow.get("trigger_type", "schedule"),
+                "signal_kind": workflow.get("signal_kind"),
+                "status": workflow.get("status", "draft"),
+                "schedule_text": schedule_text if delivery.get("channel") == "in_app" else None,
+                "config_summary": ", ".join(sorted(config.keys())[:6]),
+                "next_run_at": self._to_timestamp(workflow.get("next_run_at")) if workflow.get("next_run_at") else None,
+                "updated_at": self._to_timestamp(workflow.get("updated_at")),
+            }
+            self.client.collections["workflows"].documents.upsert(doc)
+        except Exception as e:
+            logger.error(f"❌ Failed to index workflow {workflow.get('id')}: {e}")
+
+    async def index_ai_fact(self, fact: Dict[str, Any], user_id: str):
+        if not self.is_available:
+            return
+        try:
+            value = fact.get("value") or {}
+            doc = {
+                "id": fact["id"],
+                "user_id": user_id,
+                "category": fact.get("category", "preference"),
+                "subject": fact.get("subject", "user"),
+                "predicate": fact.get("predicate", ""),
+                "value_text": json.dumps(value, sort_keys=True),
+                "status": fact.get("status", "pending"),
+                "visibility": fact.get("visibility", "private"),
+                "confidence": float(fact.get("confidence") or 0.5),
+                "created_at": self._to_timestamp(fact.get("created_at")),
+                "updated_at": self._to_timestamp(fact.get("updated_at") or fact.get("created_at")),
+            }
+            self.client.collections["ai_facts"].documents.upsert(doc)
+        except Exception as e:
+            logger.error(f"❌ Failed to index AI fact {fact.get('id')}: {e}")
     
     # ================================
     # INDEXING - LOG PHRASES (learned input patterns)
@@ -413,7 +557,7 @@ class SearchService:
                 "input_text": input_text.strip(),
                 "value": value,
                 "unit": unit,
-                "created_at": int(datetime.utcnow().timestamp()),
+                "created_at": int(_utc_now().timestamp()),
             }
             
             self.client.collections["log_phrases"].documents.upsert(doc)
@@ -503,11 +647,11 @@ class SearchService:
         """
         if not self.is_available:
             return self._fallback_search(query)
-        
+
         if not query or len(query.strip()) == 0:
-            return self._get_recent_items(user_id, limit)
-        
-        collections = collections or ["habits", "habit_logs", "ai_messages"]
+            return await self._get_recent_items(user_id, limit)
+
+        collections = collections or ["habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts"]
         
         searches = []
         
@@ -562,9 +706,46 @@ class SearchService:
                 "highlight_full_fields": "app_name,browser_domain",
                 "typo_tokens_threshold": 1,
             })
-        
+        if "artifacts" in collections:
+            searches.append({
+                "collection": "artifacts",
+                "q": query,
+                "query_by": "title,summary,preview_text,slug,folder_key",
+                "filter_by": f"user_id:={user_id}",
+                "sort_by": "_text_match:desc,is_pinned:desc,updated_at:desc",
+                "per_page": limit,
+                "highlight_full_fields": "title,summary,preview_text",
+                "typo_tokens_threshold": 1,
+            })
+        if "workflows" in collections:
+            searches.append({
+                "collection": "workflows",
+                "q": query,
+                "query_by": "name,kind,definition_family,signal_kind,config_summary,schedule_text",
+                "filter_by": f"user_id:={user_id}",
+                "sort_by": "_text_match:desc,updated_at:desc",
+                "per_page": limit,
+                "highlight_full_fields": "name,config_summary",
+                "typo_tokens_threshold": 1,
+            })
+        if "ai_facts" in collections:
+            searches.append({
+                "collection": "ai_facts",
+                "q": query,
+                "query_by": "category,subject,predicate,value_text",
+                "filter_by": f"user_id:={user_id} && status:=active",
+                "sort_by": "_text_match:desc,updated_at:desc",
+                "per_page": limit,
+                "highlight_full_fields": "predicate,value_text",
+                "typo_tokens_threshold": 1,
+            })
+
         try:
             results = self.client.multi_search.perform({"searches": searches}, {})
+            results_by_collection = {
+                (item.get("request_params") or {}).get("collection_name"): item
+                for item in results.get("results", [])
+            }
             
             # Also search quick actions
             quick_action_results = self._search_quick_actions(query)
@@ -572,10 +753,13 @@ class SearchService:
             return {
                 "query": query,
                 "quick_actions": quick_action_results,
-                "habits": self._format_results(results.get("results", [{}])[0] if len(searches) > 0 else {}),
-                "logs": self._format_results(results.get("results", [{}])[1] if len(searches) > 1 else {}),
-                "conversations": self._format_results(results.get("results", [{}])[2] if len(searches) > 2 else {}),
-                "activity": self._format_results(results.get("results", [{}])[3] if len(searches) > 3 else {}),
+                "habits": self._format_results(results_by_collection.get("habits", {})),
+                "logs": self._format_results(results_by_collection.get("habit_logs", {})),
+                "conversations": self._format_results(results_by_collection.get("ai_messages", {})),
+                "activity": self._format_results(results_by_collection.get("computer_activity", {})),
+                "artifacts": self._format_results(results_by_collection.get("artifacts", {})),
+                "workflows": self._format_results(results_by_collection.get("workflows", {})),
+                "facts": self._format_results(results_by_collection.get("ai_facts", {})),
             }
         except Exception as e:
             logger.error(f"❌ Search failed: {e}")
@@ -726,7 +910,7 @@ class SearchService:
             "found": result.get("found", 0),
         }
     
-    def _get_recent_items(self, user_id: str, limit: int = 10) -> Dict[str, Any]:
+    async def _get_recent_items(self, user_id: str, limit: int = 10) -> Dict[str, Any]:
         """Get recent items when no query is provided"""
         result = {
             "query": "",
@@ -735,9 +919,82 @@ class SearchService:
             "logs": {"hits": [], "found": 0},
             "conversations": {"hits": [], "found": 0},
             "activity": {"hits": [], "found": 0},
+            "artifacts": {"hits": [], "found": 0},
+            "workflows": {"hits": [], "found": 0},
+            "facts": {"hits": [], "found": 0},
         }
         
         if not self.is_available:
+            try:
+                from database.connection import get_db_session
+                from database.models import ActionProfileDB, AiFactDB, ArtifactDB, WorkflowDefinitionDB
+
+                async with get_db_session() as session:
+                    artifacts = await session.execute(
+                        select(ArtifactDB)
+                        .where(ArtifactDB.user_id == user_id)
+                        .order_by(ArtifactDB.is_pinned.desc(), ArtifactDB.updated_at.desc())
+                        .limit(limit)
+                    )
+                    workflows = await session.execute(
+                        select(WorkflowDefinitionDB, ActionProfileDB)
+                        .join(ActionProfileDB, ActionProfileDB.id == WorkflowDefinitionDB.action_profile_id)
+                        .where(WorkflowDefinitionDB.user_id == user_id)
+                        .order_by(WorkflowDefinitionDB.updated_at.desc())
+                        .limit(limit)
+                    )
+                    facts = await session.execute(
+                        select(AiFactDB)
+                        .where(AiFactDB.user_id == user_id, AiFactDB.status == "active")
+                        .order_by(AiFactDB.updated_at.desc())
+                        .limit(limit)
+                    )
+                    artifact_rows = artifacts.scalars().all()
+                    result["artifacts"] = {
+                        "hits": [
+                            {
+                                "id": row.id,
+                                "title": row.title,
+                                "kind": row.kind,
+                                "status": row.status,
+                                "summary": row.summary,
+                                "preview_text": row.preview_text,
+                            }
+                            for row in artifact_rows
+                        ],
+                        "found": len(artifact_rows),
+                    }
+                    workflow_rows = workflows.all()
+                    result["workflows"] = {
+                        "hits": [
+                            {
+                                "id": definition.id,
+                                "name": definition.name,
+                                "kind": definition.kind,
+                                "status": definition.status,
+                                "definition_family": definition.definition_family,
+                                "trigger_type": definition.trigger_type,
+                            }
+                            for definition, _profile in workflow_rows
+                        ],
+                        "found": len(workflow_rows),
+                    }
+                    fact_rows = facts.scalars().all()
+                    result["facts"] = {
+                        "hits": [
+                            {
+                                "id": fact.id,
+                                "category": fact.category,
+                                "subject": fact.subject,
+                                "predicate": fact.predicate,
+                                "status": fact.status,
+                            }
+                            for fact in fact_rows
+                        ],
+                        "found": len(fact_rows),
+                    }
+            except Exception as e:
+                logger.error(f"❌ Failed DB fallback recents: {e}")
             return result
         
         try:
@@ -769,6 +1026,33 @@ class SearchService:
                 "per_page": min(limit, 5),
             })
             result["conversations"] = self._format_results(messages_result)
+
+            artifacts_result = self.client.collections["artifacts"].documents.search({
+                "q": "*",
+                "query_by": "title",
+                "filter_by": f"user_id:={user_id}",
+                "sort_by": "is_pinned:desc,updated_at:desc",
+                "per_page": limit,
+            })
+            result["artifacts"] = self._format_results(artifacts_result)
+
+            workflows_result = self.client.collections["workflows"].documents.search({
+                "q": "*",
+                "query_by": "name",
+                "filter_by": f"user_id:={user_id}",
+                "sort_by": "updated_at:desc",
+                "per_page": limit,
+            })
+            result["workflows"] = self._format_results(workflows_result)
+
+            facts_result = self.client.collections["ai_facts"].documents.search({
+                "q": "*",
+                "query_by": "predicate",
+                "filter_by": f"user_id:={user_id} && status:=active",
+                "sort_by": "updated_at:desc",
+                "per_page": min(limit, 6),
+            })
+            result["facts"] = self._format_results(facts_result)
             
         except Exception as e:
             logger.error(f"❌ Failed to get recent items: {e}")
@@ -1228,7 +1512,7 @@ class SearchService:
         # Empty state: pick a diverse set using day-of-year rotation
         # This gives consistent suggestions within a day but variety across days
         if habit_names:
-            day_seed = datetime.utcnow().timetuple().tm_yday
+            day_seed = _utc_now().timetuple().tm_yday
             suggestions = []
             seen_habits = set()
 
@@ -1264,13 +1548,16 @@ class SearchService:
             "logs": {"hits": [], "found": 0},
             "conversations": {"hits": [], "found": 0},
             "activity": {"hits": [], "found": 0},
+            "artifacts": {"hits": [], "found": 0},
+            "workflows": {"hits": [], "found": 0},
+            "facts": {"hits": [], "found": 0},
             "fallback": True,
         }
     
     def _to_timestamp(self, value) -> int:
         """Convert various datetime formats to Unix timestamp"""
         if value is None:
-            return int(datetime.utcnow().timestamp())
+            return int(_utc_now().timestamp())
         
         if isinstance(value, (int, float)):
             return int(value)
@@ -1284,9 +1571,9 @@ class SearchService:
                 return int(dt.timestamp())
             except Exception as e:
                 logger.warning(f"Failed to parse timestamp string '{value}': {e}")
-                return int(datetime.utcnow().timestamp())
+                return int(_utc_now().timestamp())
         
-        return int(datetime.utcnow().timestamp())
+        return int(_utc_now().timestamp())
     
     def _date_to_timestamp(self, date_str: str) -> int:
         """Convert YYYY-MM-DD to Unix timestamp (start of day)"""

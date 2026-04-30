@@ -46,6 +46,7 @@ from schemas.reports import (
     HabitReportScheduleUpdate,
 )
 from services.analytics_service import analytics_service
+from services.artifact_service import artifact_service
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,10 @@ INTERNAL_BACKEND_TOKEN = (os.getenv("INTERNAL_BACKEND_TOKEN") or "").strip()
 REPORTS_DELIVERY_TIMEOUT = float(os.getenv("REPORTS_DELIVERY_TIMEOUT", "20"))
 DEFAULT_REPORTS_TIMEZONE = "America/New_York"
 DEFAULT_REPORTS_ROUTE = f"{DASHBOARD_BASE_URL}/reports"
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 @dataclass
@@ -352,6 +357,7 @@ class ReportsService:
             period_start=run.period_start,
             period_end=run.period_end,
             subject=run.subject,
+            artifact_id=run.artifact_id,
             preview=self._preview_from_json(run.summary_json),
             generated_at=run.generated_at,
             sent_at=run.sent_at,
@@ -505,7 +511,7 @@ class ReportsService:
             else:
                 schedule.next_run_at = None
 
-            schedule.updated_at = datetime.utcnow()
+            schedule.updated_at = _utc_now()
             await session.commit()
             await session.refresh(schedule)
             return self._schedule_to_schema(schedule)
@@ -548,7 +554,7 @@ class ReportsService:
         schedule: ReportScheduleDB,
         run: ReportRunDB,
     ) -> HabitReportPreview:
-        window = self._resolve_window(schedule.cadence, schedule.timezone, datetime.utcnow().replace(tzinfo=timezone.utc))
+        window = self._resolve_window(schedule.cadence, schedule.timezone, datetime.now(timezone.utc))
 
         habits_result = await session.execute(
             select(HabitDB).where(HabitDB.user_id == user.id).order_by(HabitDB.name.asc())
@@ -726,14 +732,15 @@ class ReportsService:
 
     async def _process_run(self, *, session, run: ReportRunDB, schedule: ReportScheduleDB, user: UserDB) -> HabitReportDispatchResponse:
         run.status = "processing"
-        run.updated_at = datetime.utcnow()
+        run.updated_at = _utc_now()
         await session.commit()
 
         preview = await self._generate_preview(session=session, user=user, schedule=schedule, run=run)
         run.subject = preview.subject
         run.summary_json = json.dumps(preview.model_dump(mode="json"))
-        run.generated_at = datetime.utcnow()
+        run.generated_at = _utc_now()
         run.email_html = None
+        await artifact_service.ensure_report_run_artifact(session, run=run, schedule=schedule)
 
         recipients = [HabitReportRecipient.model_validate(item) for item in self._parse_json(schedule.recipients_json, [])]
         notifications: List[ReportNotificationDB] = []
@@ -761,24 +768,24 @@ class ReportsService:
                 )
                 notification.status = "sent"
                 notification.provider_message_id = delivery.get("messageId")
-                notification.sent_at = datetime.utcnow()
-                notification.updated_at = datetime.utcnow()
+                notification.sent_at = _utc_now()
+                notification.updated_at = _utc_now()
 
             run.status = "sent"
-            run.sent_at = datetime.utcnow()
-            run.updated_at = datetime.utcnow()
+            run.sent_at = _utc_now()
+            run.updated_at = _utc_now()
             schedule.last_sent_at = run.sent_at
             schedule.last_error = None
             await session.commit()
         except Exception as exc:
             run.status = "failed"
             run.error_json = json.dumps({"error": str(exc)})
-            run.updated_at = datetime.utcnow()
+            run.updated_at = _utc_now()
             schedule.last_error = str(exc)
             for notification in notifications:
                 if notification.status == "queued":
                     notification.status = "failed"
-                    notification.updated_at = datetime.utcnow()
+                    notification.updated_at = _utc_now()
             await session.commit()
             logger.exception("Report delivery failed for run %s: %s", run.id, exc)
 
@@ -837,7 +844,7 @@ class ReportsService:
             return await self._process_run(session=session, run=run, schedule=schedule, user=user)
 
     async def dispatch_due_schedules(self) -> Dict[str, int]:
-        now_utc = datetime.utcnow()
+        now_utc = _utc_now()
         queued = 0
 
         async with get_db_session() as session:

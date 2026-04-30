@@ -4,10 +4,13 @@ SQLAlchemy database models
 
 from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from datetime import datetime
+from sqlalchemy.orm import relationship as orm_relationship
+from datetime import datetime, timezone
 
 Base = declarative_base()
+
+def _utcnow_naive():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 class UserDB(Base):
     """User model for database"""
@@ -33,11 +36,11 @@ class UserDB(Base):
     wearable_devices = Column(String)
     onboarding_completed = Column(Boolean, default=False)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     
     # Relationships
-    habits = relationship("HabitDB", back_populates="user", cascade="all, delete-orphan")
+    habits = orm_relationship("HabitDB", back_populates="user", cascade="all, delete-orphan")
 
 class HabitDB(Base):
     """Habit model for database"""
@@ -53,12 +56,12 @@ class HabitDB(Base):
     unit_type = Column(String)
     sensor_type = Column(String)  # 'Apple Watch', 'Whoop', 'Manual', etc.
     metric_type = Column(String)  # For wearables: 'steps', 'hr', 'hrv', 'sleep_session', etc.
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     
     # Relationships
-    user = relationship("UserDB", back_populates="habits")
-    logs = relationship("HabitLogDB", back_populates="habit", cascade="all, delete-orphan")
+    user = orm_relationship("UserDB", back_populates="habits")
+    logs = orm_relationship("HabitLogDB", back_populates="habit", cascade="all, delete-orphan")
 
 class HabitLogDB(Base):
     """Habit log model for database"""
@@ -86,8 +89,8 @@ class HabitLogDB(Base):
     # Note: updated_at column removed - not synced to Turso Cloud. Use completed_at for now.
     
     # Relationships
-    habit = relationship("HabitDB", back_populates="logs")
-    import_run = relationship("ImportRunDB", back_populates="logs")
+    habit = orm_relationship("HabitDB", back_populates="logs")
+    import_run = orm_relationship("ImportRunDB", back_populates="logs")
 
 
 class ScheduledBlockDB(Base):
@@ -101,10 +104,10 @@ class ScheduledBlockDB(Base):
     day = Column(String, nullable=False)  # YYYY-MM-DD (user local date)
     start_minutes = Column(Integer, nullable=False)  # Minutes from midnight (0..1439)
     end_minutes = Column(Integer, nullable=False)  # Minutes from midnight (1..1440)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB", backref="scheduled_blocks")
+    user = orm_relationship("UserDB", backref="scheduled_blocks")
 
 
 # ================================
@@ -130,7 +133,7 @@ class ImportRunDB(Base):
     status = Column(String, nullable=False, default="created")  # created, parsing, ready, importing, completed, failed, canceled, undone
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     
@@ -153,9 +156,9 @@ class ImportRunDB(Base):
     undo_package_json = Column(Text, nullable=True)  # JSON: {logs_created, logs_updated, habits_created}
     
     # Relationships
-    user = relationship("UserDB")
-    items = relationship("ImportItemDB", back_populates="import_run", cascade="all, delete-orphan")
-    logs = relationship("HabitLogDB", back_populates="import_run")
+    user = orm_relationship("UserDB")
+    items = orm_relationship("ImportItemDB", back_populates="import_run", cascade="all, delete-orphan")
+    logs = orm_relationship("HabitLogDB", back_populates="import_run")
 
 
 class ImportItemDB(Base):
@@ -189,7 +192,7 @@ class ImportItemDB(Base):
     existing_log_id = Column(String, nullable=True)  # ID of existing log if conflict
     
     # Relationships
-    import_run = relationship("ImportRunDB", back_populates="items")
+    import_run = orm_relationship("ImportRunDB", back_populates="items")
 
 
 class ImportMappingPresetDB(Base):
@@ -210,11 +213,11 @@ class ImportMappingPresetDB(Base):
     mapping_json = Column(Text, nullable=False)  # JSON: column mappings, units, aggregation settings
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     
     # Relationships
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class HabitAliasDB(Base):
@@ -227,10 +230,10 @@ class HabitAliasDB(Base):
     id = Column(String, primary_key=True)
     habit_id = Column(String, ForeignKey("habits.id", ondelete="CASCADE"), nullable=False)
     alias_text = Column(String, nullable=False)  # lowercase normalized
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
     
     # Relationships
-    habit = relationship("HabitDB", backref="aliases")
+    habit = orm_relationship("HabitDB", backref="aliases")
 
 
 class WhoopIntegrationDB(Base):
@@ -243,14 +246,14 @@ class WhoopIntegrationDB(Base):
     access_token = Column(String, nullable=False)
     refresh_token = Column(String)
     token_expires_at = Column(DateTime, nullable=False)
-    connected_at = Column(DateTime, default=datetime.utcnow)
+    connected_at = Column(DateTime, default=_utcnow_naive)
     last_sync_at = Column(DateTime)
     is_active = Column(Boolean, default=True)
     whoop_sync_hour = Column(Integer, default=9)  # Preferred sync hour (0-23), defaults to 9 AM
     scope = Column(String, nullable=True)  # OAuth scopes granted during authorization
 
     # Relationships
-    user = relationship("UserDB", backref="whoop_integration")
+    user = orm_relationship("UserDB", backref="whoop_integration")
 
 
 class WearableConnectionDB(Base):
@@ -271,10 +274,10 @@ class WearableConnectionDB(Base):
     last_sync_at = Column(DateTime, nullable=True)
     last_successful_sync_at = Column(DateTime, nullable=True)
     last_error_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
     __table_args__ = (
         Index("idx_wearable_connections_user_provider", "user_id", "provider", unique=True),
@@ -300,11 +303,11 @@ class WearableSourceDB(Base):
     priority_rank = Column(Integer, nullable=False, default=100)
     is_active = Column(Boolean, default=True)
     metadata_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
 
     __table_args__ = (
         Index("idx_wearable_sources_user_provider_external", "user_id", "provider", "external_source_id", unique=False),
@@ -323,12 +326,12 @@ class WearableRawPayloadDB(Base):
     external_id = Column(String, nullable=True)
     payload_sha256 = Column(String, nullable=False)
     payload_json = Column(Text, nullable=False)
-    received_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, default=_utcnow_naive)
     expires_at = Column(DateTime, nullable=True)
     normalization_error_json = Column(Text, nullable=True)
 
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
 
     __table_args__ = (
         Index("idx_wearable_raw_payloads_provider_received", "provider", "received_at"),
@@ -362,14 +365,14 @@ class WearableSampleDB(Base):
     timezone = Column(String, nullable=True)
     attributes_json = Column(Text, nullable=True)
     raw_payload_id = Column(String, ForeignKey("wearable_raw_payloads.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     deleted_at = Column(DateTime, nullable=True)
 
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
-    source = relationship("WearableSourceDB")
-    raw_payload = relationship("WearableRawPayloadDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
+    source = orm_relationship("WearableSourceDB")
+    raw_payload = orm_relationship("WearableRawPayloadDB")
 
     __table_args__ = (
         Index("idx_wearable_samples_user_metric_recorded", "user_id", "metric_type", "recorded_at"),
@@ -401,14 +404,14 @@ class WearableEventDB(Base):
     summary_unit = Column(String, nullable=True)
     details_json = Column(Text, nullable=True)
     raw_payload_id = Column(String, ForeignKey("wearable_raw_payloads.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     deleted_at = Column(DateTime, nullable=True)
 
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
-    source = relationship("WearableSourceDB")
-    raw_payload = relationship("WearableRawPayloadDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
+    source = orm_relationship("WearableSourceDB")
+    raw_payload = orm_relationship("WearableRawPayloadDB")
 
     __table_args__ = (
         Index("idx_wearable_events_user_type_start", "user_id", "event_type", "start_time"),
@@ -426,11 +429,11 @@ class HabitProjectionPolicyDB(Base):
     habit_id = Column(String, ForeignKey("habits.id"), nullable=False)
     canonical_metric_type = Column(String, nullable=True)
     projection_source_priority_json = Column(Text, nullable=False, default="[]")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    habit = relationship("HabitDB")
+    user = orm_relationship("UserDB")
+    habit = orm_relationship("HabitDB")
 
     __table_args__ = (
         Index("idx_habit_projection_policies_habit", "habit_id", unique=True),
@@ -448,11 +451,11 @@ class WearableSyncCursorDB(Base):
     cursor_type = Column(String, nullable=False)  # anchor, page_token, timestamp, webhook_checkpoint
     cursor_value = Column(Text, nullable=False)
     last_synced_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    connection = relationship("WearableConnectionDB")
-    source = relationship("WearableSourceDB")
+    connection = orm_relationship("WearableConnectionDB")
+    source = orm_relationship("WearableSourceDB")
 
     __table_args__ = (
         Index("idx_wearable_sync_cursors_unique", "connection_id", "source_id", "cursor_key", unique=True),
@@ -468,7 +471,7 @@ class WearableSyncRunDB(Base):
     provider = Column(String, nullable=False)
     trigger = Column(String, nullable=False)  # manual, scheduled, webhook, background_sdk, backfill, import
     status = Column(String, nullable=False, default="running")  # running, success, partial, failed
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=_utcnow_naive)
     completed_at = Column(DateTime, nullable=True)
     items_seen = Column(Integer, default=0)
     items_written = Column(Integer, default=0)
@@ -477,7 +480,7 @@ class WearableSyncRunDB(Base):
     error_json = Column(Text, nullable=True)
     metadata_json = Column(Text, nullable=True)
 
-    connection = relationship("WearableConnectionDB")
+    connection = orm_relationship("WearableConnectionDB")
 
 
 class WearableIngestJobBatchDB(Base):
@@ -493,12 +496,12 @@ class WearableIngestJobBatchDB(Base):
     completed_jobs = Column(Integer, nullable=False, default=0)
     failed_jobs = Column(Integer, nullable=False, default=0)
     metadata_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
-    requested_by_user = relationship("UserDB")
+    requested_by_user = orm_relationship("UserDB")
 
 
 class WearableIngestJobDB(Base):
@@ -524,15 +527,15 @@ class WearableIngestJobDB(Base):
     attempts = Column(Integer, nullable=False, default=0)
     max_attempts = Column(Integer, nullable=False, default=3)
     last_attempt_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
-    batch = relationship("WearableIngestJobBatchDB")
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
-    sync_run = relationship("WearableSyncRunDB")
+    batch = orm_relationship("WearableIngestJobBatchDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
+    sync_run = orm_relationship("WearableSyncRunDB")
 
     __table_args__ = (
         Index("idx_wearable_ingest_jobs_status_created", "status", "created_at"),
@@ -562,14 +565,14 @@ class WearableOutboxEventDB(Base):
     attempts = Column(Integer, nullable=False, default=0)
     max_attempts = Column(Integer, nullable=False, default=5)
     available_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
-    user = relationship("UserDB")
-    connection = relationship("WearableConnectionDB")
-    source = relationship("WearableSourceDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("WearableConnectionDB")
+    source = orm_relationship("WearableSourceDB")
 
     __table_args__ = (
         Index("idx_wearable_outbox_events_status_available", "status", "available_at"),
@@ -594,10 +597,10 @@ class FinancialConnectionDB(Base):
     last_successful_sync_at = Column(DateTime, nullable=True)
     last_error_json = Column(Text, nullable=True)
     settings_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
     __table_args__ = (
         Index("idx_financial_connections_user_provider", "user_id", "provider", unique=True),
@@ -619,11 +622,11 @@ class FinancialAccountDB(Base):
     account_subtype = Column(String, nullable=True)
     currency = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    connection = relationship("FinancialConnectionDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("FinancialConnectionDB")
 
     __table_args__ = (
         Index("idx_financial_accounts_user_provider_account", "user_id", "provider_account_id", unique=True),
@@ -652,12 +655,12 @@ class FinancialTransactionDB(Base):
     raw_category_json = Column(Text, nullable=True)
     raw_transaction_code = Column(String, nullable=True)
     counts_toward_spending = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    connection = relationship("FinancialConnectionDB")
-    account = relationship("FinancialAccountDB")
+    user = orm_relationship("UserDB")
+    connection = orm_relationship("FinancialConnectionDB")
+    account = orm_relationship("FinancialAccountDB")
 
     __table_args__ = (
         Index(
@@ -680,10 +683,10 @@ class FinancialSyncCursorDB(Base):
     cursor_key = Column(String, nullable=False)
     cursor_value = Column(Text, nullable=False)
     last_synced_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    connection = relationship("FinancialConnectionDB")
+    connection = orm_relationship("FinancialConnectionDB")
 
     __table_args__ = (
         Index("idx_financial_sync_cursors_connection_key", "connection_id", "cursor_key", unique=True),
@@ -699,7 +702,7 @@ class FinancialSyncRunDB(Base):
     provider = Column(String, nullable=False)
     trigger = Column(String, nullable=False)  # manual, backfill, scheduled
     status = Column(String, nullable=False, default="running")  # running, success, partial, failed
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=_utcnow_naive)
     completed_at = Column(DateTime, nullable=True)
     items_seen = Column(Integer, default=0)
     items_written = Column(Integer, default=0)
@@ -708,7 +711,7 @@ class FinancialSyncRunDB(Base):
     error_json = Column(Text, nullable=True)
     metadata_json = Column(Text, nullable=True)
 
-    connection = relationship("FinancialConnectionDB")
+    connection = orm_relationship("FinancialConnectionDB")
 
 
 class IntegrationDB(Base):
@@ -724,7 +727,7 @@ class IntegrationDB(Base):
     last_sync_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class AIConversationDB(Base):
@@ -736,12 +739,13 @@ class AIConversationDB(Base):
     title = Column(String, nullable=True)  # Optional title for the conversation
     response_mode = Column(String, default="text")  # 'text' or 'voice' - controls response style
     channel = Column(String, nullable=False, default="app")  # 'app', 'sms', or 'voice'
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    auto_run_queued = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
     # Relationships
-    user = relationship("UserDB", backref="ai_conversations")
-    messages = relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
+    user = orm_relationship("UserDB", backref="ai_conversations")
+    messages = orm_relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
 
 
 class AIMessageDB(Base):
@@ -753,10 +757,10 @@ class AIMessageDB(Base):
     role = Column(String, nullable=False)  # 'user' or 'assistant'
     content = Column(Text, nullable=False)
     tool_payload = Column(Text, nullable=True)  # JSON string of tool results for canvas rehydration
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
 
     # Relationships
-    conversation = relationship("AIConversationDB", back_populates="messages")
+    conversation = orm_relationship("AIConversationDB", back_populates="messages")
 
 
 class SmsPreferencesDB(Base):
@@ -776,10 +780,10 @@ class SmsPreferencesDB(Base):
     max_interrupts_per_day = Column(Integer, nullable=False, default=2)
     min_hours_between_interrupts = Column(Integer, nullable=False, default=4)
     last_proactive_sent_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class UserUIPreferencesDB(Base):
@@ -789,10 +793,10 @@ class UserUIPreferencesDB(Base):
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
     habit_text_color = Column(String, nullable=True)
     overview_view_mode = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class SmsCopilotEventDB(Base):
@@ -822,11 +826,11 @@ class SmsCopilotEventDB(Base):
     sent_at = Column(DateTime, nullable=True)
     replied_at = Column(DateTime, nullable=True)
     acted_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    conversation = relationship("AIConversationDB")
+    user = orm_relationship("UserDB")
+    conversation = orm_relationship("AIConversationDB")
 
 
 class BehaviorBaselineSnapshotDB(Base):
@@ -838,9 +842,9 @@ class BehaviorBaselineSnapshotDB(Base):
     metric_key = Column(String, nullable=False)
     lookback_days = Column(Integer, nullable=False, default=14)
     baseline_json = Column(Text, nullable=False)
-    computed_at = Column(DateTime, default=datetime.utcnow)
+    computed_at = Column(DateTime, default=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 # ================================
@@ -861,17 +865,17 @@ class WearableDeviceDB(Base):
     device_name = Column(String, nullable=False)  # e.g., "Nick's iPhone"
     platform = Column(String, nullable=False)  # ios, android
     device_secret_hash = Column(String, nullable=False)  # HMAC key (stored plaintext for now, can encrypt later)
-    registered_at = Column(DateTime, default=datetime.utcnow)
+    registered_at = Column(DateTime, default=_utcnow_naive)
     last_sync_at = Column(DateTime, nullable=True)
     last_seen_at = Column(DateTime, nullable=True)
     sdk_version = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     
     # Relationships - using back_populates instead of backref to avoid conflicts
-    user = relationship("UserDB")  # No backref to avoid mapper conflicts
-    connection = relationship("WearableConnectionDB")
-    metrics = relationship("WearableMetricDB", back_populates="device", cascade="all, delete-orphan")
-    ingest_events = relationship("WearableIngestEventDB", back_populates="device", cascade="all, delete-orphan")
+    user = orm_relationship("UserDB")  # No backref to avoid mapper conflicts
+    connection = orm_relationship("WearableConnectionDB")
+    metrics = orm_relationship("WearableMetricDB", back_populates="device", cascade="all, delete-orphan")
+    ingest_events = orm_relationship("WearableIngestEventDB", back_populates="device", cascade="all, delete-orphan")
 
 
 class WearableMetricDB(Base):
@@ -905,11 +909,11 @@ class WearableMetricDB(Base):
     # Metadata
     recorded_at = Column(DateTime, nullable=True)  # When captured on device
     raw_payload = Column(Text, nullable=True)  # JSON string of original data
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
     
     # Relationships - using back_populates instead of backref to avoid conflicts
-    user = relationship("UserDB")  # No backref to avoid mapper conflicts
-    device = relationship("WearableDeviceDB", back_populates="metrics")
+    user = orm_relationship("UserDB")  # No backref to avoid mapper conflicts
+    device = orm_relationship("WearableDeviceDB", back_populates="metrics")
 
 
 class WearableIngestEventDB(Base):
@@ -925,11 +929,11 @@ class WearableIngestEventDB(Base):
     metrics_count = Column(Integer, nullable=False)
     success_count = Column(Integer, nullable=False)
     error_count = Column(Integer, nullable=False)
-    received_at = Column(DateTime, default=datetime.utcnow)
+    received_at = Column(DateTime, default=_utcnow_naive)
     status = Column(String, nullable=False)  # success, partial, failed
     
     # Relationships
-    device = relationship("WearableDeviceDB", back_populates="ingest_events")
+    device = orm_relationship("WearableDeviceDB", back_populates="ingest_events")
 
 
 class ScreenTimeRollupDB(Base):
@@ -951,11 +955,11 @@ class ScreenTimeRollupDB(Base):
     active_seconds = Column(Integer, nullable=False, default=0)
     sort_seconds = Column(Integer, nullable=False, default=0)
     metadata_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
-    device = relationship("WearableDeviceDB")
+    user = orm_relationship("UserDB")
+    device = orm_relationship("WearableDeviceDB")
 
 
 # ================================
@@ -977,10 +981,10 @@ class HeartRateSessionDB(Base):
     ended_at = Column(DateTime, nullable=True)
     app_version = Column(String, nullable=True)
     device_model = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
     __table_args__ = (
         Index("idx_heart_rate_sessions_user_started", "user_id", "started_at"),
@@ -1006,10 +1010,10 @@ class HeartRateSampleDB(Base):
     rr_intervals_json = Column(Text, nullable=True)
     contact_detected = Column(Boolean, nullable=True)
     received_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
 
-    user = relationship("UserDB")
-    session = relationship("HeartRateSessionDB")
+    user = orm_relationship("UserDB")
+    session = orm_relationship("HeartRateSessionDB")
 
     __table_args__ = (
         Index("idx_heart_rate_samples_user_received", "user_id", "received_at"),
@@ -1032,9 +1036,9 @@ class HeartRateRollup1mDB(Base):
     bpm_avg = Column(Float, nullable=False)
     bpm_min = Column(Integer, nullable=False)
     bpm_max = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
     __table_args__ = (
         Index("idx_heart_rate_rollups_user_bucket_source", "user_id", "bucket_start", "source_preference", unique=True),
@@ -1052,9 +1056,9 @@ class LiveBiometricsStateDB(Base):
     current_source_type = Column(String, nullable=True)
     latest_sample_at = Column(DateTime, nullable=True)
     connection_state = Column(String, nullable=True)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 # ================================
@@ -1077,9 +1081,9 @@ class WatcherDeviceDB(Base):
     last_seen_at = Column(Integer, nullable=True)  # Unix ms
     
     # Relationships
-    user = relationship("UserDB")
-    state = relationship("WatcherStateDB", back_populates="device", uselist=False, cascade="all, delete-orphan")
-    events = relationship("ActivityEventDB", back_populates="device", cascade="all, delete-orphan")
+    user = orm_relationship("UserDB")
+    state = orm_relationship("WatcherStateDB", back_populates="device", uselist=False, cascade="all, delete-orphan")
+    events = orm_relationship("ActivityEventDB", back_populates="device", cascade="all, delete-orphan")
 
 
 class WatcherStateDB(Base):
@@ -1103,7 +1107,7 @@ class WatcherStateDB(Base):
     updated_at = Column(Integer, nullable=False)  # Unix ms
     
     # Relationships
-    device = relationship("WatcherDeviceDB", back_populates="state")
+    device = orm_relationship("WatcherDeviceDB", back_populates="state")
 
 
 class ActivityEventDB(Base):
@@ -1133,8 +1137,8 @@ class ActivityEventDB(Base):
     created_at = Column(Integer, nullable=False)  # Unix ms
     
     # Relationships
-    device = relationship("WatcherDeviceDB", back_populates="events")
-    user = relationship("UserDB")
+    device = orm_relationship("WatcherDeviceDB", back_populates="events")
+    user = orm_relationship("UserDB")
 
 
 class DailyActivityRollupDB(Base):
@@ -1161,7 +1165,7 @@ class DailyActivityRollupDB(Base):
     updated_at = Column(Integer, nullable=False)
     
     # Relationships
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class AfkEventDB(Base):
@@ -1180,7 +1184,7 @@ class AfkEventDB(Base):
     created_at = Column(Integer, nullable=False)  # Unix ms
     
     # Relationships
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class DomainDailyRollupDB(Base):
@@ -1201,7 +1205,7 @@ class DomainDailyRollupDB(Base):
     updated_at = Column(Integer, nullable=False)
     
     # Relationships
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class WatcherSyncOutboxDB(Base):
@@ -1236,6 +1240,282 @@ class WatcherAppExclusionDB(Base):
     created_at = Column(Integer, nullable=False)
 
 
+class ArtifactDB(Base):
+    """Durable artifact produced by reports or workflow runs."""
+    __tablename__ = "artifacts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String, nullable=False)  # report | morning_brief | shutdown_review | notebook | plan | conversation_brief | ambient_digest
+    source_type = Column(String, nullable=False)  # report_run | workflow_run | conversation
+    source_id = Column(String, nullable=True)
+    title = Column(String, nullable=False)
+    slug = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="published")  # draft | published | archived
+    summary = Column(Text, nullable=True)
+    preview_text = Column(Text, nullable=True)
+    folder_key = Column(String, nullable=True)
+    is_pinned = Column(Boolean, nullable=False, default=False)
+    body_json = Column(Text, nullable=False)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    period_start = Column(String, nullable=True)
+    period_end = Column(String, nullable=True)
+    timezone = Column(String, nullable=False, default="America/New_York")
+    conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    conversation = orm_relationship("AIConversationDB")
+
+
+class ArtifactRevisionDB(Base):
+    """Full-snapshot revision log for an artifact."""
+    __tablename__ = "artifact_revisions"
+
+    id = Column(String, primary_key=True)
+    artifact_id = Column(String, ForeignKey("artifacts.id", ondelete="CASCADE"), nullable=False)
+    version = Column(Integer, nullable=False, default=1)
+    editor_type = Column(String, nullable=False)  # system | assistant | user
+    body_json = Column(Text, nullable=False)
+    summary = Column(Text, nullable=True)
+    change_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+
+    artifact = orm_relationship("ArtifactDB")
+
+
+class ArtifactLinkDB(Base):
+    """Generic link table so docs can reference conversations, facts, workflow runs, and ambient events."""
+    __tablename__ = "artifact_links"
+
+    id = Column(String, primary_key=True)
+    artifact_id = Column(String, ForeignKey("artifacts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    target_type = Column(String, nullable=False)  # conversation | message | workflow_run | fact | ambient_signal
+    target_id = Column(String, nullable=False)
+    relationship = Column(String, nullable=False, default="linked")
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=_utcnow_naive)
+
+    artifact = orm_relationship("ArtifactDB")
+    user = orm_relationship("UserDB")
+
+
+class ActionProfileDB(Base):
+    """Execution profile that constrains workflow behavior."""
+    __tablename__ = "action_profiles"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name = Column(String, nullable=False)
+    mode = Column(String, nullable=False)  # observe | draft | organize | act
+    is_default = Column(Boolean, nullable=False, default=False)
+    rules_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+
+
+class WorkflowDefinitionDB(Base):
+    """Saved workflow definition for in-app routines."""
+    __tablename__ = "workflow_definitions"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(String, nullable=False)  # morning_brief | shutdown_review | daily_narrative | distraction_spiral
+    name = Column(String, nullable=False)
+    definition_family = Column(String, nullable=False, default="routine")  # routine | ambient
+    trigger_type = Column(String, nullable=False, default="schedule")  # schedule | signal
+    signal_kind = Column(String, nullable=True)
+    cooldown_minutes = Column(Integer, nullable=False, default=240)
+    quiet_hours_json = Column(Text, nullable=False, default="{}")
+    status = Column(String, nullable=False, default="draft")  # draft | scheduled | paused
+    timezone = Column(String, nullable=False, default="America/New_York")
+    cadence = Column(String, nullable=False, default="daily")
+    send_hour_local = Column(Integer, nullable=False, default=8)
+    send_minute_local = Column(Integer, nullable=False, default=0)
+    send_weekdays_json = Column(Text, nullable=False, default="[]")
+    delivery_channel = Column(String, nullable=False, default="in_app")
+    delivery_json = Column(Text, nullable=False, default="{}")
+    ranking_json = Column(Text, nullable=False, default="{}")
+    config_json = Column(Text, nullable=False, default="{}")
+    template_version = Column(Integer, nullable=False, default=1)
+    action_profile_id = Column(String, ForeignKey("action_profiles.id"), nullable=False)
+    last_run_at = Column(DateTime, nullable=True)
+    next_run_at = Column(DateTime, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    action_profile = orm_relationship("ActionProfileDB")
+
+
+class WorkflowRunDB(Base):
+    """Queued or processed execution of a workflow definition."""
+    __tablename__ = "workflow_runs"
+
+    id = Column(String, primary_key=True)
+    workflow_definition_id = Column(String, ForeignKey("workflow_definitions.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    status = Column(String, nullable=False, default="queued")  # queued | processing | completed | failed | canceled
+    trigger_source = Column(String, nullable=False)  # manual | scheduled | backfill
+    window_start = Column(DateTime, nullable=True)
+    window_end = Column(DateTime, nullable=True)
+    artifact_id = Column(String, ForeignKey("artifacts.id", ondelete="SET NULL"), nullable=True)
+    conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True)
+    plan_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    proposed_actions_json = Column(Text, nullable=True)
+    policy_decisions_json = Column(Text, nullable=True)
+    fact_suggestions_json = Column(Text, nullable=True)
+    queue_suggestions_json = Column(Text, nullable=True)
+    error_json = Column(Text, nullable=True)
+    idempotency_key = Column(String, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    workflow_definition = orm_relationship("WorkflowDefinitionDB")
+    user = orm_relationship("UserDB")
+    artifact = orm_relationship("ArtifactDB")
+    conversation = orm_relationship("AIConversationDB")
+
+
+class ApprovalRequestDB(Base):
+    """Approval queue entry for future workflow actions."""
+    __tablename__ = "approval_requests"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
+    action_kind = Column(String, nullable=False)
+    capability = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="pending")  # pending | approved | rejected | expired
+    reason = Column(Text, nullable=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    proposed_action_json = Column(Text, nullable=False, default="{}")
+    policy_decision_json = Column(Text, nullable=False, default="{}")
+    expires_at = Column(DateTime, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    workflow_run = orm_relationship("WorkflowRunDB")
+
+
+class ActionReceiptDB(Base):
+    """Audit log for every mutating action the backend applies or rejects."""
+    __tablename__ = "action_receipts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
+    conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True)
+    action_kind = Column(String, nullable=False)
+    capability = Column(String, nullable=False)
+    target_ref = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="applied")  # applied | rejected | approved_pending
+    before_json = Column(Text, nullable=True)
+    after_json = Column(Text, nullable=True)
+    undo_json = Column(Text, nullable=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    workflow_run = orm_relationship("WorkflowRunDB")
+    conversation = orm_relationship("AIConversationDB")
+
+
+class ConversationQueueItemDB(Base):
+    """Queued follow-up prompts for a conversation."""
+    __tablename__ = "conversation_queue_items"
+
+    id = Column(String, primary_key=True)
+    conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    prompt_text = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending | running | completed | canceled | stale | failed
+    source = Column(String, nullable=False, default="manual")  # manual | reply_chip | suggestion | workflow
+    after_message_id = Column(String, nullable=True)
+    position = Column(Integer, nullable=False, default=0)
+    auto_run = Column(Boolean, nullable=False, default=False)
+    error_json = Column(Text, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    conversation = orm_relationship("AIConversationDB")
+    user = orm_relationship("UserDB")
+
+
+class AiFactDB(Base):
+    """Approved and pending semantic memory facts for Ritual AI."""
+    __tablename__ = "ai_facts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category = Column(String, nullable=False)  # goal | preference | constraint | routine | profile
+    subject = Column(String, nullable=False)
+    predicate = Column(String, nullable=False)
+    value_json = Column(Text, nullable=False)
+    status = Column(String, nullable=False, default="pending")  # pending | active | dismissed | archived
+    confidence = Column(Float, nullable=False, default=0.5)
+    source_type = Column(String, nullable=False, default="assistant")  # onboarding | assistant | workflow | ambient | user
+    source_ref = Column(String, nullable=True)
+    visibility = Column(String, nullable=False, default="private")  # private | prompt | ui
+    last_confirmed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+
+
+class AiFactEventDB(Base):
+    """Audit/history table for fact changes."""
+    __tablename__ = "ai_fact_events"
+
+    id = Column(String, primary_key=True)
+    fact_id = Column(String, ForeignKey("ai_facts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    event_type = Column(String, nullable=False)  # suggested | approved | updated | dismissed | expired
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=_utcnow_naive)
+
+    fact = orm_relationship("AiFactDB")
+    user = orm_relationship("UserDB")
+
+
+class AmbientSignalEventDB(Base):
+    """Signal evaluation history for in-app ambient agents."""
+    __tablename__ = "ambient_signal_events"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    workflow_definition_id = Column(String, ForeignKey("workflow_definitions.id", ondelete="SET NULL"), nullable=True)
+    workflow_run_id = Column(String, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
+    signal_kind = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="candidate")  # candidate | triggered | suppressed | dismissed | snoozed
+    score = Column(Float, nullable=False, default=0.0)
+    confidence = Column(Float, nullable=False, default=0.0)
+    suppression_reason = Column(Text, nullable=True)
+    dedupe_key = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    workflow_definition = orm_relationship("WorkflowDefinitionDB")
+    workflow_run = orm_relationship("WorkflowRunDB")
+
+
 class ReportScheduleDB(Base):
     """Scheduled recurring habit-report definition."""
     __tablename__ = "report_schedules"
@@ -1257,10 +1537,10 @@ class ReportScheduleDB(Base):
     last_sent_at = Column(DateTime, nullable=True)
     next_run_at = Column(DateTime, nullable=True)
     last_error = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    user = relationship("UserDB")
+    user = orm_relationship("UserDB")
 
 
 class ReportRunDB(Base):
@@ -1277,14 +1557,16 @@ class ReportRunDB(Base):
     subject = Column(String, nullable=True)
     summary_json = Column(Text, nullable=True)
     email_html = Column(Text, nullable=True)
+    artifact_id = Column(String, ForeignKey("artifacts.id", ondelete="SET NULL"), nullable=True)
     generated_at = Column(DateTime, nullable=True)
     sent_at = Column(DateTime, nullable=True)
     error_json = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    schedule = relationship("ReportScheduleDB")
-    user = relationship("UserDB")
+    schedule = orm_relationship("ReportScheduleDB")
+    user = orm_relationship("UserDB")
+    artifact = orm_relationship("ArtifactDB")
 
 
 class ReportNotificationDB(Base):
@@ -1300,8 +1582,8 @@ class ReportNotificationDB(Base):
     provider_message_id = Column(String, nullable=True)
     payload_json = Column(Text, nullable=True)
     sent_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
-    report_run = relationship("ReportRunDB")
-    user = relationship("UserDB")
+    report_run = orm_relationship("ReportRunDB")
+    user = orm_relationship("UserDB")
