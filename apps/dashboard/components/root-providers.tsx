@@ -11,6 +11,7 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
+import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
@@ -108,6 +109,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     <OpenPanelProvider>
       <QueryProvider>
         <HabitsProvider>
+          <DesktopAssetRecoveryBridge />
           <DesktopAuthDeepLinkBridge />
           {!isDesktopBootstrap ? <MemoryCloudUploader /> : null}
           {children}

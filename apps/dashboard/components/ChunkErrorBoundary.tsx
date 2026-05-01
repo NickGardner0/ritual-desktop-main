@@ -2,6 +2,11 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import {
+  getDesktopAssetRecoveryErrorText,
+  isRecoverableDesktopAssetError,
+  scheduleDesktopAssetRecoveryReload,
+} from '@/lib/desktop-asset-recovery';
 
 interface Props {
   children: ReactNode;
@@ -18,27 +23,25 @@ class ChunkErrorBoundary extends Component<Props, State> {
   };
 
   public static getDerivedStateFromError(error: Error): State {
-    // Check if it's a chunk load error
-    if (error.name === 'ChunkLoadError' || error.message.includes('Loading chunk')) {
+    if (isRecoverableDesktopAssetError(error)) {
       return { hasError: true, error };
     }
     return { hasError: false };
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Only handle chunk load errors
-    if (error.name === 'ChunkLoadError' || error.message.includes('Loading chunk')) {
+    if (isRecoverableDesktopAssetError(error)) {
       console.error('Chunk load error caught:', error, errorInfo);
-      
-      // Automatically reload the page after a short delay
-      setTimeout(() => {
-        window.location.reload();
-      }, 1000);
+      scheduleDesktopAssetRecoveryReload(error, 'chunk-boundary');
     }
   }
 
   public render() {
     if (this.state.hasError) {
+      const errorText = this.state.error
+        ? getDesktopAssetRecoveryErrorText(this.state.error)
+        : '';
+
       return (
         <div className="min-h-screen bg-white flex items-center justify-center">
           <div className="text-center p-8">
@@ -48,11 +51,16 @@ class ChunkErrorBoundary extends Component<Props, State> {
               </svg>
             </div>
             <h2 className="text-xl font-medium text-gray-900 mb-2">
-              Updating Application
+              Refreshing application
             </h2>
             <p className="text-gray-500 mb-4">
-              The app is being updated. Reloading automatically...
+              Ritual detected a stale desktop asset bundle and is reloading automatically...
             </p>
+            {process.env.NODE_ENV === 'development' && errorText ? (
+              <pre className="mx-auto mb-4 max-w-3xl overflow-auto rounded-lg bg-red-50 p-4 text-left text-xs text-red-700">
+                {errorText}
+              </pre>
+            ) : null}
             <BrailleSpinner className="mx-auto text-lg text-gray-600" />
           </div>
         </div>
