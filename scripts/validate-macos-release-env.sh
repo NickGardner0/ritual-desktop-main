@@ -102,6 +102,40 @@ else
   echo "Updater private key provided inline or via non-file secret."
 fi
 
+TAURI_SIGNER_ARGS=()
+if [[ -f "${TAURI_SIGNING_PRIVATE_KEY}" ]]; then
+  TAURI_SIGNER_ARGS+=(-f "${TAURI_SIGNING_PRIVATE_KEY}")
+else
+  TAURI_SIGNER_ARGS+=(-k "${TAURI_SIGNING_PRIVATE_KEY}")
+fi
+
+if [[ "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+x}" == "x" ]]; then
+  TAURI_SIGNER_ARGS+=(-p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD}")
+fi
+
+signer_probe_file="$(mktemp "${TMPDIR:-/tmp}/ritual-updater-signing.XXXXXX")"
+printf 'ritual-updater-signing-preflight' > "${signer_probe_file}"
+signer_probe_sig="${signer_probe_file}.sig"
+cleanup_signer_probe() {
+  rm -f "${signer_probe_file}" "${signer_probe_sig}"
+}
+trap cleanup_signer_probe EXIT
+
+if ! env \
+  -u TAURI_PRIVATE_KEY \
+  -u TAURI_KEY_PATH \
+  -u TAURI_KEY_PASSWORD \
+  -u TAURI_SIGNING_PRIVATE_KEY \
+  -u TAURI_SIGNING_PRIVATE_KEY_PATH \
+  -u TAURI_SIGNING_PRIVATE_KEY_PASSWORD \
+  ./node_modules/.bin/tauri signer sign "${TAURI_SIGNER_ARGS[@]}" "${signer_probe_file}" >/dev/null 2>&1; then
+  echo "Updater signing key validation failed. Check TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD." >&2
+  exit 1
+fi
+
+cleanup_signer_probe
+trap - EXIT
+
 node scripts/write-tauri-production-config.mjs >/dev/null
 
 signing_identity="$(
