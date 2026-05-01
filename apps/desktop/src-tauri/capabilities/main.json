@@ -1,0 +1,35 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Production capability set for the Ritual dashboard in the main window.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:default",
+    "core:webview:allow-get-all-webviews",
+    "core:window:allow-center",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-size",
+    "core:window:allow-show",
+    "dialog:allow-save",
+    "shell:allow-open",
+    "fs:allow-exists",
+    "fs:allow-read",
+    "fs:allow-write",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        { "path": "$HOME/.ritual/**" },
+        { "path": "$DOWNLOAD/*" },
+        { "path": "$DOCUMENT/*" },
+        { "path": "$DESKTOP/*" }
+      ]
+    }
+  ],
+  "remote": {
+    "urls": [
+      "https://desktop.ritualdb.com/*"
+    ]
+  }
+}
