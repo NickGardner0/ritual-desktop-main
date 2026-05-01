@@ -199,20 +199,25 @@ There is no free instant preview environment for Railway by default in this repo
 
 ## Current Desktop Release Reality
 
-Today, the reliable desktop release path is:
+Today, the standard desktop release path is:
 
-1. build locally with:
+1. bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json) and [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml)
+2. push a matching desktop tag such as `v0.1.53`
+3. let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml) build, notarize, sign updater artifacts, and publish the artifacts to `NickGardner0/ritual-desktop-releases`
+4. validate the published updater feed and run the packaged smoke checklist
+
+Local fallback exists only for CI outages, release recovery, or intentional workstation-driven publishing:
 
 ```bash
+unset TAURI_PRIVATE_KEY TAURI_KEY_PATH TAURI_KEY_PASSWORD
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.ritual-secrets/ritual-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 npm run desktop:release:preflight
 npm run desktop:release:mac
+bash scripts/publish-desktop-release-assets.sh v0.1.53
 ```
 
-2. publish the GitHub Release manually to the public `NickGardner0/ritual-desktop-releases` repo with the generated artifacts
-
-This is because the local release script contains the macOS sidecar-signing workaround for `ritual-watcher`, while the current GitHub Actions workflow still uses the simpler Tauri action path.
-
-Until CI is updated to use the same workaround, manual release publishing is the safe path.
+Do not treat the local fallback as the default release path now that the GitHub Actions workflow is healthy again.
 
 ## Current Release Artifacts
 
@@ -221,14 +226,16 @@ For each desktop release, upload these files:
 - DMG
 - updater tarball
 - updater signature
+- app zip
 - `latest.json`
 
 For example, for `0.1.1`:
 
 - `apps/desktop/src-tauri/target/release/bundle/dmg/ritual-desktop_0.1.1_aarch64.dmg`
-- `apps/desktop/src-tauri/target/release/bundle/updater/ritual-desktop.app.tar.gz`
-- `apps/desktop/src-tauri/target/release/bundle/updater/ritual-desktop.app.tar.gz.sig`
-- `apps/desktop/src-tauri/target/release/bundle/updater/latest.json`
+- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.tar.gz`
+- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.tar.gz.sig`
+- `apps/desktop/src-tauri/target/release/bundle/macos/ritual-desktop.app.zip`
+- `apps/desktop/src-tauri/target/release/bundle/macos/latest.json`
 
 ## Safe Day-To-Day Workflow
 

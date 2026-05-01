@@ -31,6 +31,12 @@ When in doubt:
 
 Do not force a minimum desktop version before the compatible desktop build has already been released and had time to propagate.
 
+## Release Path Policy
+
+- Standard path: CI tag-driven release through [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml).
+- Fallback path: local preflight + local build + manual asset publish only when CI is unavailable, release recovery is required, or you intentionally need a workstation-driven release.
+- Treat the CI path as the default source of truth for new desktop releases.
+
 ## Release Types
 
 ### 1. Web-only release
@@ -86,26 +92,54 @@ Safe order:
 ## Standard Desktop Release Flow
 
 1. Confirm the tree is ready for release.
-2. Run:
+2. Bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json).
+3. Keep [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml) in sync.
+4. Commit and push the release-prep changes.
+5. Push a matching tag and let CI build and publish the release:
 
 ```bash
-npm run desktop:release:preflight
+git tag -a v0.1.53 -m "Ritual desktop v0.1.53"
+git push origin v0.1.53
 ```
 
-3. Build locally if needed:
-
-```bash
-npm run desktop:release:mac
-```
-
-4. Or push a version tag and let CI build and publish the release.
-5. Validate the updater artifacts:
+6. Validate the updater artifacts:
 
 ```bash
 node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
 ```
 
-6. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
+7. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
+
+## Local Fallback Desktop Release Flow
+
+Use this only when GitHub Actions is unavailable or you intentionally need a manual workstation build.
+
+1. Export local notarization and updater signing variables:
+
+```bash
+unset TAURI_PRIVATE_KEY TAURI_KEY_PATH TAURI_KEY_PASSWORD
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.ritual-secrets/ritual-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+export APPLE_ID="you@example.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="D657T2LVR2"
+```
+
+2. Run:
+
+```bash
+npm run desktop:release:preflight
+npm run desktop:release:mac
+bash scripts/publish-desktop-release-assets.sh v0.1.53
+```
+
+3. Validate the updater artifacts:
+
+```bash
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
+```
+
+4. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
 
 ## Standard Web Release Flow
 

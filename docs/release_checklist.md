@@ -126,29 +126,51 @@ tb pipe data habit_logs_summary --limit 5
 
 ## Desktop App (Tauri)
 
-### macOS Build
+### Standard Release Path
 ```bash
-# 1. Install Rust toolchain
-rustup update stable
+# 1. Keep desktop version files in sync
+# apps/desktop/src-tauri/tauri.conf.json
+# apps/desktop/src-tauri/Cargo.toml
 
-# 2. Build for release
-cd apps/desktop/src-tauri
-cargo build --release
-
-# 3. Bundle
-npm run tauri:build
+# 2. Push a matching desktop release tag
+git tag -a v0.1.53 -m "Ritual desktop v0.1.53"
+git push origin v0.1.53
 ```
 
 ### Code Signing
-- [ ] Apple Developer certificate installed
-- [ ] Notarization credentials configured
-- [ ] `APPLE_ID` and `APPLE_PASSWORD` set
-- [ ] Build notarized successfully
+- [ ] GitHub Actions desktop release workflow passed
+- [ ] Apple Developer certificate secret configured
+- [ ] Notarization credentials configured in CI
+- [ ] `TAURI_SIGNING_PRIVATE_KEY` configured in CI
+- [ ] Desktop release built, notarized, stapled, and validated successfully
+
+### Local Fallback Path
+
+Use only if CI is unavailable or release recovery is required.
+
+```bash
+unset TAURI_PRIVATE_KEY TAURI_KEY_PATH TAURI_KEY_PASSWORD
+export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.ritual-secrets/ritual-updater.key"
+export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
+export APPLE_ID="you@example.com"
+export APPLE_PASSWORD="app-specific-password"
+export APPLE_TEAM_ID="D657T2LVR2"
+
+npm run desktop:release:preflight
+npm run desktop:release:mac
+bash scripts/publish-desktop-release-assets.sh v0.1.53
+```
+
+- [ ] Local fallback used only intentionally, not as the standard path
+- [ ] Preflight passed before local build
+- [ ] Updater signing key validated locally
 
 ### Distribution
-- [ ] DMG uploaded to distribution server
-- [ ] Auto-update endpoint configured (if enabled)
-- [ ] Version metadata published
+- [ ] DMG uploaded to `NickGardner0/ritual-desktop-releases`
+- [ ] Updater tarball uploaded
+- [ ] Updater signature uploaded
+- [ ] `latest.json` uploaded
+- [ ] Updater feed validated with `node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls`
 
 ---
 
