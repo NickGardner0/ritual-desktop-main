@@ -35,7 +35,9 @@ ENV
 apps/backend/.venv
 
 tmp
-reports
+
+# Ignore repo-root analysis artifacts without excluding the Next.js /reports route.
+/reports/
 analysis.md
 ritual-nickgardner0651.aws-us-east-1.turso.io
 
