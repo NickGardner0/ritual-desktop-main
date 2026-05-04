@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update, delete, func
+from sqlalchemy import case, or_, select, update, delete, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
@@ -64,6 +64,215 @@ class HabitsService:
             integration_source == "whoop"
             and (metric_type in {"heart_rate", "hr"} or habit_name == "heart rate")
         )
+
+    def _is_sleep_like_habit_db(self, habit: HabitDB) -> bool:
+        metric_type = (habit.metric_type or "").strip().lower()
+        habit_name = (habit.name or "").strip().lower()
+        category = (habit.category or "").strip().lower()
+        integration_source = (habit.integration_source or "").strip().lower()
+
+        if metric_type in {"sleep", "sleep_session", "sleep_duration", "sleep_total", "in_bed"}:
+            return True
+        if "sleep" in habit_name:
+            return True
+        return "sleep" in category and integration_source in {
+            "whoop",
+            "oura",
+            "apple_health",
+            "fitbit",
+            "garmin",
+        }
+
+    def _overview_daily_value_from_row(
+        self,
+        habit: HabitDB,
+        row: Any,
+    ) -> float:
+        unit = (habit.unit_type or "sessions").lower()
+        use_max_per_day = self._is_sleep_like_habit_db(habit)
+
+        duration_value = float(row.max_duration or 0) if use_max_per_day else float(row.duration_sum or 0)
+        amount_count = int(row.amount_count or 0)
+        amount_value = float(row.max_amount or 0) if use_max_per_day else float(row.amount_sum or 0)
+
+        if "hour" in unit:
+            if duration_value > 0:
+                return duration_value / 3600
+            if amount_count > 0:
+                return amount_value
+            return float(row.entry_count or 0)
+
+        if "minute" in unit:
+            if duration_value > 0:
+                return duration_value / 60
+            if amount_count > 0:
+                return amount_value
+            return float(row.entry_count or 0)
+
+        if amount_count > 0:
+            return amount_value
+        if duration_value > 0:
+            return duration_value / 3600
+        return float(row.entry_count or 0)
+
+    def _build_overview_stat(
+        self,
+        habit: HabitDB,
+        daily_values: List[float],
+        total_entries: int,
+    ) -> Dict[str, Any]:
+        unit = habit.unit_type or "sessions"
+        finite_values = [value for value in daily_values if value == value]
+        days_with_data = len([value for value in finite_values if value > 0])
+
+        if not finite_values:
+            return {
+                "id": habit.id,
+                "name": habit.name,
+                "category": habit.category,
+                "unit": unit,
+                "total": 0,
+                "average": 0,
+                "min": 0,
+                "max": 0,
+                "variance": 0,
+                "std_dev": 0,
+                "days_with_data": 0,
+                "total_entries": 0,
+                "summary": f"{habit.name}: no recent data",
+            }
+
+        total = sum(finite_values)
+        average = total / len(finite_values)
+        min_value = min(finite_values)
+        max_value = max(finite_values)
+        variance = sum((value - average) ** 2 for value in finite_values) / len(finite_values)
+
+        return {
+            "id": habit.id,
+            "name": habit.name,
+            "category": habit.category,
+            "unit": unit,
+            "total": total,
+            "average": average,
+            "min": min_value,
+            "max": max_value,
+            "variance": variance,
+            "std_dev": variance ** 0.5,
+            "days_with_data": days_with_data,
+            "total_entries": total_entries,
+            "summary": f"{habit.name}: {total:.2f} total across {len(finite_values)} days",
+        }
+
+    async def get_overview_snapshot(
+        self,
+        user_id: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Return a compact dashboard Overview snapshot.
+
+        This intentionally aggregates in SQL by habit/day so desktop startup does
+        not need to download and parse every historical habit log before it can
+        show the metric column.
+        """
+        async with get_db_session() as session:
+            habits_result = await session.execute(
+                select(HabitDB)
+                .where(HabitDB.user_id == user_id)
+                .order_by(HabitDB.created_at.asc())
+            )
+            habits = list(habits_result.scalars().all())
+            habit_ids = [habit.id for habit in habits if habit.id]
+
+            overview_stats: Dict[str, Any] = {
+                habit.id: self._build_overview_stat(habit, [], 0)
+                for habit in habits
+                if habit.id
+            }
+
+            if habit_ids:
+                duration_sum = func.coalesce(
+                    func.sum(
+                        case(
+                            (HabitLogDB.duration > 0, HabitLogDB.duration),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("duration_sum")
+                max_duration = func.coalesce(func.max(func.coalesce(HabitLogDB.duration, 0)), 0).label("max_duration")
+                amount_sum = func.coalesce(func.sum(func.coalesce(HabitLogDB.amount, 0)), 0).label("amount_sum")
+                max_amount = func.coalesce(func.max(func.coalesce(HabitLogDB.amount, 0)), 0).label("max_amount")
+                amount_count = func.count(HabitLogDB.amount).label("amount_count")
+                entry_count = func.count(HabitLogDB.id).label("entry_count")
+
+                logs_query = (
+                    select(
+                        HabitLogDB.habit_id.label("habit_id"),
+                        HabitLogDB.date.label("date"),
+                        duration_sum,
+                        max_duration,
+                        amount_sum,
+                        max_amount,
+                        amount_count,
+                        entry_count,
+                    )
+                    .where(
+                        HabitLogDB.habit_id.in_(habit_ids),
+                        or_(
+                            HabitLogDB.status.is_(None),
+                            HabitLogDB.status == "",
+                            HabitLogDB.status == "completed",
+                            HabitLogDB.status == "success",
+                        ),
+                    )
+                    .group_by(HabitLogDB.habit_id, HabitLogDB.date)
+                    .order_by(HabitLogDB.habit_id.asc(), HabitLogDB.date.asc())
+                )
+                if start_date:
+                    logs_query = logs_query.where(HabitLogDB.date >= start_date)
+                if end_date:
+                    logs_query = logs_query.where(HabitLogDB.date <= end_date)
+
+                rows = list((await session.execute(logs_query)).all())
+                habits_by_id = {habit.id: habit for habit in habits}
+                values_by_habit: Dict[str, List[float]] = {}
+                entries_by_habit: Dict[str, int] = {}
+
+                for row in rows:
+                    habit = habits_by_id.get(row.habit_id)
+                    if not habit:
+                        continue
+                    values_by_habit.setdefault(row.habit_id, []).append(
+                        self._overview_daily_value_from_row(habit, row)
+                    )
+                    entries_by_habit[row.habit_id] = entries_by_habit.get(row.habit_id, 0) + int(row.entry_count or 0)
+
+                overview_stats = {
+                    habit.id: self._build_overview_stat(
+                        habit,
+                        values_by_habit.get(habit.id, []),
+                        entries_by_habit.get(habit.id, 0),
+                    )
+                    for habit in habits
+                    if habit.id
+                }
+
+            return {
+                "habits": [
+                    habit_db_to_pydantic(habit).model_dump(mode="json")
+                    for habit in habits
+                ],
+                "overviewStats": overview_stats,
+                "meta": {
+                    "userId": user_id,
+                    "generatedAt": int(datetime.now(timezone.utc).timestamp() * 1000),
+                    "startDate": start_date,
+                    "endDate": end_date,
+                },
+            }
 
     async def _safe_background_task(self, coro, task_name: str):
         """Wrapper for fire-and-forget background tasks with error logging."""

@@ -1240,6 +1240,8 @@ async def _run_migrations(session):
             logger.warning(f"  ⚠️ Create table {table_name}: {e}")
 
     index_sql = [
+        ("idx_habit_logs_habit_date", "CREATE INDEX IF NOT EXISTS idx_habit_logs_habit_date ON habit_logs (habit_id, date)"),
+        ("idx_habit_logs_habit_status_date", "CREATE INDEX IF NOT EXISTS idx_habit_logs_habit_status_date ON habit_logs (habit_id, status, date)"),
         ("idx_habit_logs_origin_record", "CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_logs_origin_record ON habit_logs (habit_id, origin_record_kind, origin_record_id)"),
         ("idx_wearable_connections_user_provider", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_connections_user_provider ON wearable_connections (user_id, provider)"),
         ("idx_wearable_sources_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_sources_user_provider_external ON wearable_sources (user_id, provider, external_source_id)"),

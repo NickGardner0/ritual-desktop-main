@@ -123,7 +123,10 @@ function UnifiedAnalyticsContent({
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
-  const { snapshot: dashboardSnapshot } = useDashboardSnapshotQuery({ initialUserId, dateRange });
+  const {
+    snapshot: dashboardSnapshot,
+    isFetching: isDashboardSnapshotFetching,
+  } = useDashboardSnapshotQuery({ initialUserId, dateRange });
   const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
@@ -442,6 +445,7 @@ function UnifiedAnalyticsContent({
             <OverviewView
               hideControls={true}
               initialOverviewStats={dashboardSnapshot.overviewStats}
+              isOverviewSnapshotFetching={isDashboardSnapshotFetching}
             />
           )}
         </div>

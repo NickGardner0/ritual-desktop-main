@@ -225,6 +225,32 @@ def create_core_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
+    @router.get("/api/dashboard/overview-snapshot")
+    async def get_dashboard_overview_snapshot(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            return await habits_service.get_overview_snapshot(
+                current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("dashboard overview snapshot failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
     @router.get("/api/habits/aliases")
     async def get_all_habit_aliases(current_user=Depends(get_current_user)):
         try:

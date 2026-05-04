@@ -92,6 +92,11 @@ class HabitLogDB(Base):
     habit = orm_relationship("HabitDB", back_populates="logs")
     import_run = orm_relationship("ImportRunDB", back_populates="logs")
 
+    __table_args__ = (
+        Index("idx_habit_logs_habit_date", "habit_id", "date"),
+        Index("idx_habit_logs_habit_status_date", "habit_id", "status", "date"),
+    )
+
 
 class ScheduledBlockDB(Base):
     """Calendar scheduled block model for week-view task planning."""

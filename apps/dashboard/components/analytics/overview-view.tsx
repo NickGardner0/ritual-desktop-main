@@ -155,6 +155,7 @@ interface OverviewViewProps {
   // Hide controls when used inside unified page (controls are in parent)
   hideControls?: boolean;
   initialOverviewStats?: Record<string, HabitStats>;
+  isOverviewSnapshotFetching?: boolean;
 }
 
 
@@ -163,6 +164,7 @@ export function OverviewView({
   onDateRangeChange,
   hideControls = false,
   initialOverviewStats,
+  isOverviewSnapshotFetching = false,
 }: OverviewViewProps) {
   const isDesktopShell = typeof window !== 'undefined' && isTauri();
   const desktopPerfDebug = isDesktopShell && (
@@ -175,6 +177,7 @@ export function OverviewView({
     habits,
     habitLogs,
     isLoading,
+    isLoadingLogs,
     error,
     fetchHabits,
     fetchHabitLogs,
@@ -207,6 +210,7 @@ export function OverviewView({
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   const [optimisticLogs, setOptimisticLogs] = useState<any[]>([]);
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
+  const [allowWearableDailyTotalsRefresh, setAllowWearableDailyTotalsRefresh] = useState(false);
 
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);
@@ -255,6 +259,26 @@ export function OverviewView({
     () => habits.filter((habit) => isWearableBackedHabit(habit)),
     [habits],
   );
+  const shouldFetchWearableDailyTotals = useMemo(
+    () => wearableHabits.some((habit) => {
+      const habitId = habit.id || '';
+      const stats = habitId ? effectiveCachedStats[habitId] : null;
+      return !stats || Number(stats.days_with_data || 0) === 0;
+    }),
+    [effectiveCachedStats, wearableHabits],
+  );
+  useEffect(() => {
+    setAllowWearableDailyTotalsRefresh(false);
+    if (!user?.id || wearableHabits.length === 0 || shouldFetchWearableDailyTotals) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setAllowWearableDailyTotalsRefresh(true);
+    }, 2_500);
+
+    return () => window.clearTimeout(timer);
+  }, [shouldFetchWearableDailyTotals, user?.id, wearableHabits.length]);
   const wearableDailyTotalsQuery = useQuery({
     queryKey: [
       'overview-wearable-daily-totals',
@@ -310,7 +334,11 @@ export function OverviewView({
         return acc;
       }, {});
     },
-    enabled: Boolean(user?.id) && wearableHabits.length > 0,
+    enabled:
+      Boolean(user?.id)
+      && wearableHabits.length > 0
+      && (shouldFetchWearableDailyTotals || allowWearableDailyTotalsRefresh)
+      && !isOverviewSnapshotFetching,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   });
@@ -690,189 +718,216 @@ export function OverviewView({
             };
           }
 
-      let totalValue = 0;
-      const dailyValues = new Map<string, number>();
+          let totalValue = 0;
+          const dailyValues = new Map<string, number>();
 
-      for (const entry of entries) {
-        let aggregateValue = 0;
+          for (const entry of entries) {
+            let aggregateValue = 0;
 
-        if (entry.duration !== null && entry.duration > 0) {
-          if (isHourBased) {
-            aggregateValue = entry.duration / 3600;
-          } else if (isMinuteBased) {
-            aggregateValue = entry.duration / 60;
-          } else {
-            aggregateValue = entry.duration;
+            if (entry.duration !== null && entry.duration > 0) {
+              if (isHourBased) {
+                aggregateValue = entry.duration / 3600;
+              } else if (isMinuteBased) {
+                aggregateValue = entry.duration / 60;
+              } else {
+                aggregateValue = entry.duration;
+              }
+            } else if (entry.amount !== null) {
+              aggregateValue = entry.amount;
+            } else {
+              aggregateValue = 1;
+            }
+
+            totalValue += aggregateValue;
+
+            if (!entry.localDate) continue;
+            const previousValue = dailyValues.get(entry.localDate) || 0;
+            dailyValues.set(
+              entry.localDate,
+              useMaxPerDay ? Math.max(previousValue, aggregateValue) : previousValue + aggregateValue,
+            );
           }
-        } else if (entry.amount !== null) {
-          if (isHourBased) {
-            aggregateValue = entry.amount;
-          } else if (isMinuteBased) {
-            aggregateValue = entry.amount;
-          } else {
-            aggregateValue = entry.amount;
-          }
-        } else {
-          aggregateValue = 1;
-        }
 
-        totalValue += aggregateValue;
+          const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
+          const trackedDays = calculateTrackedSpanDays(Array.from(dailyValues.keys()));
+          const total = values.reduce((sum, value) => sum + value, 0);
+          const average = values.length ? total / values.length : 0;
+          const min = values.length ? Math.min(...values) : 0;
+          const max = values.length ? Math.max(...values) : 0;
+          const variance = values.length
+            ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
+            : 0;
 
-        if (!entry.localDate) continue;
-        const previousValue = dailyValues.get(entry.localDate) || 0;
-        dailyValues.set(
-          entry.localDate,
-          useMaxPerDay ? Math.max(previousValue, aggregateValue) : previousValue + aggregateValue,
-        );
-      }
+          const useAvgDisplay = isAverageDisplayMetric(habit);
+          const displayValue = useAvgDisplay ? average : totalValue;
 
-      const values = Array.from(dailyValues.values()).filter((value) => Number.isFinite(value));
-      const trackedDays = calculateTrackedSpanDays(Array.from(dailyValues.keys()));
-      const total = values.reduce((sum, value) => sum + value, 0);
-      const average = values.length ? total / values.length : 0;
-      const min = values.length ? Math.min(...values) : 0;
-      const max = values.length ? Math.max(...values) : 0;
-      const variance = values.length
-        ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
-        : 0;
+          return {
+            display: formatMetricDisplay(displayValue, unitLabel),
+            stats: {
+              unitLabel,
+              sumFormatted: formatMetricDisplay(total, unitLabel),
+              avgFormatted: formatMetricDisplay(average, unitLabel),
+              minFormatted: formatMetricDisplay(min, unitLabel),
+              maxFormatted: formatMetricDisplay(max, unitLabel),
+              stdDevFormatted: formatMetricDisplay(Math.sqrt(variance), unitLabel),
+              daysWithData: values.filter((value) => value > 0).length,
+              trackedDays,
+            },
+          };
+        };
 
-      const useAvgDisplay = isAverageDisplayMetric(habit);
-      const displayValue = useAvgDisplay ? average : totalValue;
-
-      return {
-        display: formatMetricDisplay(displayValue, unitLabel),
-        stats: {
-          unitLabel,
-          sumFormatted: formatMetricDisplay(total, unitLabel),
-          avgFormatted: formatMetricDisplay(average, unitLabel),
-          minFormatted: formatMetricDisplay(min, unitLabel),
-          maxFormatted: formatMetricDisplay(max, unitLabel),
-          stdDevFormatted: formatMetricDisplay(Math.sqrt(variance), unitLabel),
-          daysWithData: values.filter((value) => value > 0).length,
-          trackedDays,
-        },
-      };
-    };
+        const buildPendingMetricData = (habit: Habit): HabitMetricData => {
+          const unitLabel = habit.unit_type || 'sessions';
+          return {
+            display: '—',
+            stats: {
+              unitLabel,
+              sumFormatted: '—',
+              avgFormatted: '—',
+              minFormatted: '—',
+              maxFormatted: '—',
+              stdDevFormatted: '—',
+              daysWithData: 0,
+              trackedDays: 0,
+            },
+          };
+        };
 
         for (const habit of habitsForMetrics) {
           const habitId = habit.id || '';
           if (!habitId) continue;
 
-      if (isComputerHabitName(habit.name)) {
-        const cachedStats = effectiveCachedStats[habitId];
-        const shouldUseCachedComputerFallback =
-          Boolean(cachedStats)
-          && (
-            computerSnapshotQuery.isPlaceholderData
-            || computerSnapshotLooksEmpty
-          );
+          if (isComputerHabitName(habit.name)) {
+            const cachedStats = effectiveCachedStats[habitId];
+            const shouldUseCachedComputerFallback =
+              Boolean(cachedStats)
+              && (
+                computerSnapshotQuery.isPlaceholderData
+                || computerSnapshotLooksEmpty
+              );
 
-        if (shouldUseCachedComputerFallback && cachedStats) {
-          next.set(habitId, {
-            display: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
-            stats: {
-              unitLabel: 'Hours',
-              sumFormatted: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
-              avgFormatted: `${formatHabitStatNumber(Number(cachedStats.average || 0))} Hours`,
-              minFormatted: `${formatHabitStatNumber(Number(cachedStats.min || 0))} Hours`,
-              maxFormatted: `${formatHabitStatNumber(Number(cachedStats.max || 0))} Hours`,
-              stdDevFormatted: `${formatHabitStatNumber(Number(cachedStats.std_dev || Math.sqrt(cachedStats.variance || 0)))} Hours`,
-              daysWithData: Number(cachedStats.days_with_data || 0),
-              trackedDays: Number(cachedStats.days_with_data || 0),
-            },
-          });
-          continue;
-        }
+            if (shouldUseCachedComputerFallback && cachedStats) {
+              next.set(habitId, {
+                display: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+                stats: {
+                  unitLabel: 'Hours',
+                  sumFormatted: `${formatHabitStatNumber(Number(cachedStats.total || 0))} Hours`,
+                  avgFormatted: `${formatHabitStatNumber(Number(cachedStats.average || 0))} Hours`,
+                  minFormatted: `${formatHabitStatNumber(Number(cachedStats.min || 0))} Hours`,
+                  maxFormatted: `${formatHabitStatNumber(Number(cachedStats.max || 0))} Hours`,
+                  stdDevFormatted: `${formatHabitStatNumber(Number(cachedStats.std_dev || Math.sqrt(cachedStats.variance || 0)))} Hours`,
+                  daysWithData: Number(cachedStats.days_with_data || 0),
+                  trackedDays: Number(cachedStats.days_with_data || 0),
+                },
+              });
+              continue;
+            }
 
-        const rows = effectiveComputerActivityDaily;
-        const rowsSummary = rows.length > 0 ? buildComputerSummaryFromRows(rows) : null;
-        const summaryForDisplay = !dateRange?.from && rowsSummary
-          ? rowsSummary
-          : effectiveComputerActivitySummary;
-        const totalHours = summaryForDisplay
-          ? Number(summaryForDisplay.total_hours || 0)
-          : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+            const rows = effectiveComputerActivityDaily;
+            const rowsSummary = rows.length > 0 ? buildComputerSummaryFromRows(rows) : null;
+            const summaryForDisplay = !dateRange?.from && rowsSummary
+              ? rowsSummary
+              : effectiveComputerActivitySummary;
+            const totalHours = summaryForDisplay
+              ? Number(summaryForDisplay.total_hours || 0)
+              : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
 
-        if (rows.length === 0 && effectiveComputerActivitySummary) {
-          next.set(habitId, {
-            display: `${formatHabitStatNumber(totalHours)} Hours`,
-            stats: {
-              unitLabel: 'Hours',
-              sumFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.total_hours || 0))} Hours`,
-              avgFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.avg_daily_hours || 0))} Hours`,
-              minFormatted: '—',
-              maxFormatted: '—',
-              stdDevFormatted: '—',
-              daysWithData: Number(effectiveComputerActivitySummary.days_tracked || 0),
-              trackedDays: Number(effectiveComputerActivitySummary.days_tracked || 0),
-            },
-          });
-          continue;
-        }
+            if (rows.length === 0 && effectiveComputerActivitySummary) {
+              next.set(habitId, {
+                display: `${formatHabitStatNumber(totalHours)} Hours`,
+                stats: {
+                  unitLabel: 'Hours',
+                  sumFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.total_hours || 0))} Hours`,
+                  avgFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.avg_daily_hours || 0))} Hours`,
+                  minFormatted: '—',
+                  maxFormatted: '—',
+                  stdDevFormatted: '—',
+                  daysWithData: Number(effectiveComputerActivitySummary.days_tracked || 0),
+                  trackedDays: Number(effectiveComputerActivitySummary.days_tracked || 0),
+                },
+              });
+              continue;
+            }
 
-        const values = rows
-          .map((row) => Number(row.active_hours || 0))
-          .filter((value) => Number.isFinite(value) && value >= 0);
-        const trackedDays = calculateTrackedSpanDays(
-          rows.map((row) => row.day || '').filter((value): value is string => Boolean(value)),
-        );
-        const average = values.length ? totalHours / values.length : 0;
-        const min = values.length ? Math.min(...values) : 0;
-        const max = values.length ? Math.max(...values) : 0;
-        const variance = values.length
-          ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
-          : 0;
+            const values = rows
+              .map((row) => Number(row.active_hours || 0))
+              .filter((value) => Number.isFinite(value) && value >= 0);
+            const trackedDays = calculateTrackedSpanDays(
+              rows.map((row) => row.day || '').filter((value): value is string => Boolean(value)),
+            );
+            const average = values.length ? totalHours / values.length : 0;
+            const min = values.length ? Math.min(...values) : 0;
+            const max = values.length ? Math.max(...values) : 0;
+            const variance = values.length
+              ? values.reduce((sum, value) => sum + Math.pow(value - average, 2), 0) / values.length
+              : 0;
 
-        next.set(habitId, {
-          display: `${formatHabitStatNumber(totalHours)} Hours`,
-          stats: {
-            unitLabel: 'Hours',
-            sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,
-            avgFormatted: `${formatHabitStatNumber(average)} Hours`,
-            minFormatted: `${formatHabitStatNumber(min)} Hours`,
-            maxFormatted: `${formatHabitStatNumber(max)} Hours`,
-            stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
-            daysWithData: values.filter((value) => value > 0).length,
-            trackedDays,
-          },
-        });
-        continue;
-      }
+            next.set(habitId, {
+              display: `${formatHabitStatNumber(totalHours)} Hours`,
+              stats: {
+                unitLabel: 'Hours',
+                sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,
+                avgFormatted: `${formatHabitStatNumber(average)} Hours`,
+                minFormatted: `${formatHabitStatNumber(min)} Hours`,
+                maxFormatted: `${formatHabitStatNumber(max)} Hours`,
+                stdDevFormatted: `${formatHabitStatNumber(Math.sqrt(variance))} Hours`,
+                daysWithData: values.filter((value) => value > 0).length,
+                trackedDays,
+              },
+            });
+            continue;
+          }
 
-      const wearableMetricData = wearableMetricDataByHabitId.get(habitId);
-      if (wearableMetricData) {
-        next.set(habitId, wearableMetricData);
-        continue;
-      }
+          const wearableMetricData = wearableMetricDataByHabitId.get(habitId);
+          if (wearableMetricData) {
+            next.set(habitId, wearableMetricData);
+            continue;
+          }
 
-      const localMetricData = buildLocalMetricData(habit, metricEntriesByHabitId.get(habitId) || []);
+          const stats = effectiveCachedStats[habitId];
+          if (stats) {
+            const unitLabel = habit.unit_type || stats.unit || 'sessions';
+            const cachedDisplayValue = isAverageDisplayMetric(habit) ? Number(stats.average || 0) : Number(stats.total || 0);
+            next.set(habitId, {
+              display: formatMetricDisplay(cachedDisplayValue, unitLabel),
+              stats: {
+                unitLabel,
+                sumFormatted: formatMetricDisplay(Number(stats.total || 0), unitLabel),
+                avgFormatted: formatMetricDisplay(Number(stats.average || 0), unitLabel),
+                minFormatted: formatMetricDisplay(Number(stats.min || 0), unitLabel),
+                maxFormatted: formatMetricDisplay(Number(stats.max || 0), unitLabel),
+                stdDevFormatted: formatMetricDisplay(Number(stats.std_dev || Math.sqrt(stats.variance || 0)), unitLabel),
+                daysWithData: stats.days_with_data,
+                trackedDays: Number(stats.days_with_data || 0),
+              },
+            });
+            continue;
+          }
 
-      // In ranged mode, derive the overview metrics directly from the locally
-      // filtered logs so the list always respects the active date picker.
-      if (dateRange?.from) {
-        next.set(habitId, localMetricData);
-        continue;
-      }
+          const entries = metricEntriesByHabitId.get(habitId) || [];
+          if (
+            entries.length === 0
+            && (
+              isLoadingLogs
+              || isOverviewSnapshotFetching
+              || (
+                isWearableBackedHabit(habit)
+                && (wearableDailyTotalsQuery.isLoading || wearableDailyTotalsQuery.isFetching)
+              )
+            )
+          ) {
+            next.set(habitId, buildPendingMetricData(habit));
+            continue;
+          }
 
-      const stats = effectiveCachedStats[habitId];
-      if (stats) {
-        const unitLabel = habit.unit_type || stats.unit || 'sessions';
-        const cachedDisplayValue = isAverageDisplayMetric(habit) ? Number(stats.average || 0) : Number(stats.total || 0);
-        next.set(habitId, {
-          display: formatMetricDisplay(cachedDisplayValue, unitLabel),
-          stats: {
-            unitLabel,
-            sumFormatted: formatMetricDisplay(Number(stats.total || 0), unitLabel),
-            avgFormatted: formatMetricDisplay(Number(stats.average || 0), unitLabel),
-            minFormatted: formatMetricDisplay(Number(stats.min || 0), unitLabel),
-            maxFormatted: formatMetricDisplay(Number(stats.max || 0), unitLabel),
-            stdDevFormatted: formatMetricDisplay(Number(stats.std_dev || Math.sqrt(stats.variance || 0)), unitLabel),
-            daysWithData: stats.days_with_data,
-            trackedDays: Number(stats.days_with_data || 0),
-          },
-        });
-        continue;
-      }
+          const localMetricData = buildLocalMetricData(habit, entries);
+
+          // In ranged mode, derive the overview metrics directly from the locally
+          // filtered logs so the list always respects the active date picker.
+          if (dateRange?.from) {
+            next.set(habitId, localMetricData);
+            continue;
+          }
 
           next.set(habitId, localMetricData);
         }
@@ -884,15 +939,21 @@ export function OverviewView({
     habits,
     orderedHabits,
     dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
     effectiveComputerActivitySummary,
     effectiveCachedStats,
     effectiveComputerActivityDaily,
     formatHabitStatNumber,
     isAverageDisplayMetric,
     isSleepLikeHabit,
+    isLoadingLogs,
+    isOverviewSnapshotFetching,
     metricEntriesByHabitId,
     wearableMetricDataByHabitId,
+    wearableDailyTotalsQuery.isFetching,
+    wearableDailyTotalsQuery.isLoading,
     computerSnapshotQuery.isPlaceholderData,
+    computerSnapshotLooksEmpty,
     traceSyncComputation,
   ]);
 
