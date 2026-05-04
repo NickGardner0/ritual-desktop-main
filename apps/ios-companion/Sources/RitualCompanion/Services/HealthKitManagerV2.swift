@@ -193,11 +193,18 @@ final class HealthKitManagerV2: @unchecked Sendable {
         HKHealthStore.isHealthDataAvailable()
     }
     
-    func checkAuthorizationStatus() async -> HealthAccessStatus {
+    private func readTypes(forMetricTypes metricTypes: [String]) -> Set<HKSampleType> {
+        let requestedTypes = Set(metricTypes.compactMap { healthKitType(for: $0) })
+        return requestedTypes.isEmpty ? readTypes : requestedTypes
+    }
+
+    func checkAuthorizationStatus(forMetricTypes metricTypes: [String] = []) async -> HealthAccessStatus {
         guard isHealthDataAvailable else { return .denied }
-        
+
+        let requestedReadTypes = readTypes(forMetricTypes: metricTypes)
+
         do {
-            let status = try await healthStore.statusForAuthorizationRequest(toShare: [], read: readTypes)
+            let status = try await healthStore.statusForAuthorizationRequest(toShare: [], read: requestedReadTypes)
             switch status {
             case .unknown:
                 return .notDetermined
@@ -244,10 +251,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
         }
     }
     
-    func requestAuthorization() async throws -> Bool {
+    func requestAuthorization(forMetricTypes metricTypes: [String] = []) async throws -> Bool {
         guard isHealthDataAvailable else { throw HealthKitError.notAvailable }
-        try await healthStore.requestAuthorization(toShare: [], read: readTypes)
-        return await checkAuthorizationStatus() == .authorized
+        let requestedReadTypes = readTypes(forMetricTypes: metricTypes)
+        try await healthStore.requestAuthorization(toShare: [], read: requestedReadTypes)
+        return await checkAuthorizationStatus(forMetricTypes: metricTypes) == .authorized
     }
     
     // MARK: - Incremental Sync (HKAnchoredObjectQuery)

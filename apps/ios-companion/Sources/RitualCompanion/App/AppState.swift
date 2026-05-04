@@ -240,7 +240,7 @@ final class AppState: ObservableObject {
         }
         
         // Check HealthKit authorization status
-        healthAccessStatus = await healthKitManager.checkAuthorizationStatus()
+        healthAccessStatus = await healthKitManager.checkAuthorizationStatus(forMetricTypes: trackedMetricTypes)
         
         // Update last sync time from background manager
         lastSyncTime = syncManager.lastSyncTime
@@ -348,7 +348,7 @@ final class AppState: ObservableObject {
 
     func requestHealthAccess() async {
         do {
-            let authorized = try await healthKitManager.requestAuthorization()
+            let authorized = try await healthKitManager.requestAuthorization(forMetricTypes: trackedMetricTypes)
             healthAccessStatus = authorized ? .authorized : .denied
             
             // If we got access and are connected, enable background delivery
@@ -363,7 +363,7 @@ final class AppState: ObservableObject {
     
     /// Refresh health access status (call when returning from settings or permissions sheet)
     func refreshHealthStatus() async {
-        healthAccessStatus = await healthKitManager.checkAuthorizationStatus()
+        healthAccessStatus = await healthKitManager.checkAuthorizationStatus(forMetricTypes: trackedMetricTypes)
         #if DEBUG
         print("📱 Health access status refreshed: \(healthAccessStatus.displayText)")
         #endif

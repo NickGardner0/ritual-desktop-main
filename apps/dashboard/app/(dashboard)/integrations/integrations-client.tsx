@@ -38,6 +38,9 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import { cn } from '@/lib/utils';
+import { invalidateHabitData } from '@/lib/query-invalidation';
+import { markReadConsistencyRequired } from '@/lib/read-consistency';
+import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const INTEGRATIONS_GREEN_SWITCH_CLASS =
@@ -78,6 +81,11 @@ const WHOOP_SYNC_PRESETS = [
 type WhoopSyncMode = (typeof WHOOP_SYNC_PRESETS)[number]['id'];
 const MAX_CUSTOM_WHOOP_DAYS = 3650;
 
+type WhoopSyncFeedback = {
+  type: 'syncing' | 'success' | 'error';
+  message: string;
+};
+
 function formatRelativeTime(dateValue: string | null | undefined): string {
   if (!dateValue) {
     return 'Never';
@@ -112,6 +120,36 @@ function formatErrorMessage(error: unknown, fallbackMessage: string): string {
   }
 
   return fallbackMessage;
+}
+
+function formatRecordCount(count: number, singular: string, plural = `${singular}s`): string | null {
+  if (!Number.isFinite(count) || count <= 0) {
+    return null;
+  }
+
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function buildWhoopSyncFeedbackMessage(
+  counts: { recovery?: number; sleep?: number; workouts?: number },
+  syncLabel: string,
+): string {
+  const recovery = Number(counts.recovery || 0);
+  const sleep = Number(counts.sleep || 0);
+  const workouts = Number(counts.workouts || 0);
+  const total = recovery + sleep + workouts;
+
+  if (total <= 0) {
+    return `Sync completed for ${syncLabel}. No new Whoop records were found.`;
+  }
+
+  const parts = [
+    formatRecordCount(sleep, 'sleep record'),
+    formatRecordCount(recovery, 'recovery record'),
+    formatRecordCount(workouts, 'workout record'),
+  ].filter(Boolean);
+
+  return `Synced ${parts.join(', ')} from ${syncLabel}. Dashboard data refreshed.`;
 }
 
 function isLikelyReactEvent(value: unknown): boolean {
@@ -649,6 +687,7 @@ export function IntegrationsClient() {
   const [whoopCustomDaysBack, setWhoopCustomDaysBack] = useState('730');
   const [whoopConnecting, setWhoopConnecting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [whoopSyncFeedback, setWhoopSyncFeedback] = useState<WhoopSyncFeedback | null>(null);
   const [plaidConnecting, setPlaidConnecting] = useState(false);
   const [plaidSyncing, setPlaidSyncing] = useState(false);
   const [plaidBackfilling, setPlaidBackfilling] = useState(false);
@@ -2669,9 +2708,17 @@ export function IntegrationsClient() {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
       setSyncing(true);
+      setWhoopSyncFeedback({
+        type: 'syncing',
+        message: 'Syncing Whoop data...',
+      });
 
       const token = await getToken();
       if (!token) {
+        setWhoopSyncFeedback({
+          type: 'error',
+          message: 'Sign in again to sync Whoop.',
+        });
         setSyncing(false);
         return;
       }
@@ -2700,39 +2747,44 @@ export function IntegrationsClient() {
 
       const result = await response.json();
       const syncCounts = result.data?.counts || {};
-      const { recovery, sleep, workouts } = syncCounts;
-      const total = (recovery || 0) + (sleep || 0) + (workouts || 0);
+      const syncLabel = syncRequest.fullHistory
+        ? 'full history'
+        : syncRequest.daysBack
+          ? `the last ${syncRequest.daysBack} days`
+          : syncRequest.forceFullSync
+            ? 'the default backfill'
+            : 'latest changes';
+      const successMessage = buildWhoopSyncFeedbackMessage(syncCounts, syncLabel);
 
       setWhoopConnected(true);
-      void Promise.allSettled([
+      markReadConsistencyRequired(user?.id, 45_000);
+      clearPersistedDashboardSnapshots(user?.id);
+      const refreshResults = await Promise.allSettled([
+        invalidateHabitData(queryClient, user?.id || 'anonymous'),
         refetchOverview(),
         fetchHabits(),
         fetchHabitLogs(),
       ]);
+      const refreshFailed = refreshResults.some((result) => result.status === 'rejected');
 
-      const syncLabel = syncRequest.fullHistory
-        ? 'full history'
-        : syncRequest.daysBack
-          ? `last ${syncRequest.daysBack} days`
-          : syncRequest.forceFullSync
-            ? 'default backfill'
-            : 'latest changes';
-
-      if (total > 0) {
-        alert(`Synced ${total} record(s) successfully from ${syncLabel}!\n\n` +
-          `- Recovery: ${recovery || 0}\n` +
-          `- Sleep: ${sleep || 0}\n` +
-          `- Workouts: ${workouts || 0}`);
-      } else {
-        alert(`Sync completed for ${syncLabel}. No new data found.`);
-      }
+      setWhoopSyncFeedback({
+        type: 'success',
+        message: refreshFailed
+          ? `${successMessage} Some views may take a moment to refresh.`
+          : successMessage,
+      });
     } catch (error) {
       console.error('❌ Error syncing Whoop:', error);
       const fallbackMessage =
         error instanceof DOMException && error.name === 'AbortError'
           ? 'Sync timed out. The request took too long.'
           : 'Unknown error';
-      alert(`Sync failed: ${formatErrorMessage(error, fallbackMessage)}`);
+      const message = `Sync failed: ${formatErrorMessage(error, fallbackMessage)}`;
+      setWhoopSyncFeedback({
+        type: 'error',
+        message,
+      });
+      alert(message);
     } finally {
       if (timeoutId) {
         clearTimeout(timeoutId);
@@ -3023,6 +3075,20 @@ export function IntegrationsClient() {
               {syncing ? 'Syncing...' : selectedPreset ? `Run ${selectedPreset.label}` : 'Run sync'}
             </Button>
           </div>
+          {whoopSyncFeedback ? (
+            <p
+              className={cn(
+                'mt-3 text-sm leading-5',
+                whoopSyncFeedback.type === 'error'
+                  ? 'text-[#9a3412]'
+                  : whoopSyncFeedback.type === 'success'
+                    ? 'text-[#3f6f13]'
+                    : 'text-[#69665c]'
+              )}
+            >
+              {whoopSyncFeedback.message}
+            </p>
+          ) : null}
 
           <div className="mt-4 grid gap-2 md:grid-cols-3">
             {WHOOP_SYNC_PRESETS.map((preset) => {
@@ -3612,6 +3678,22 @@ export function IntegrationsClient() {
             isConnected={effectiveWhoopConnected}
             isConnecting={whoopConnecting}
             isSyncing={syncing}
+            details={
+              whoopSyncFeedback ? (
+                <p
+                  className={cn(
+                    'line-clamp-2 text-[11px] leading-4',
+                    whoopSyncFeedback.type === 'error'
+                      ? 'text-[#9a3412]'
+                      : whoopSyncFeedback.type === 'success'
+                        ? 'text-[#3f6f13]'
+                        : 'text-gray-500'
+                  )}
+                >
+                  {whoopSyncFeedback.message}
+                </p>
+              ) : null
+            }
             onConnect={handleWhoopConnect}
             onSync={() => handleWhoopSync()}
             onDisconnect={handleWhoopDisconnect}

@@ -104,6 +104,35 @@ function persistSnapshot(
   }
 }
 
+export function clearPersistedDashboardSnapshots(userId?: string | null): void {
+  if (typeof window === 'undefined') return;
+
+  const normalizedUserId = userId?.trim();
+  if (!normalizedUserId) {
+    window.localStorage.removeItem(DASHBOARD_SNAPSHOT_STORAGE_KEY);
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_SNAPSHOT_STORAGE_KEY);
+    if (!raw) return;
+
+    const parsed = JSON.parse(raw) as SnapshotEnvelope;
+    if (!parsed.byUser?.[normalizedUserId]) return;
+
+    const next: SnapshotEnvelope = {
+      byUser: { ...parsed.byUser },
+    };
+    if (next.byUser) {
+      delete next.byUser[normalizedUserId];
+    }
+    window.localStorage.setItem(DASHBOARD_SNAPSHOT_STORAGE_KEY, JSON.stringify(next));
+  } catch (error) {
+    console.warn('Failed to clear persisted dashboard snapshots:', error);
+    window.localStorage.removeItem(DASHBOARD_SNAPSHOT_STORAGE_KEY);
+  }
+}
+
 function mergeOverviewSnapshot(
   baseSnapshot: DashboardSnapshot,
   payload: DashboardOverviewSnapshotResponse,
