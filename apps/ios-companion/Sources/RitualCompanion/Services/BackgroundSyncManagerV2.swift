@@ -33,6 +33,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         static let syncCount = "BackgroundSyncV2.syncCount"
         static let trackedMetricTypes = "BackgroundSyncV2.trackedMetricTypes"
         static let trackedMetricSyncModes = "BackgroundSyncV2.trackedMetricSyncModes"
+        static let trackedMetricProjectionFlags = "BackgroundSyncV2.trackedMetricProjectionFlags"
         static let syncHistory = "BackgroundSyncV2.syncHistory"
     }
     
@@ -139,6 +140,20 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         set {
             if let data = try? JSONEncoder().encode(newValue) {
                 UserDefaults.standard.set(data, forKey: StorageKeys.trackedMetricSyncModes)
+            }
+        }
+    }
+
+    var cachedMetricProjectionFlags: [String: Bool] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: StorageKeys.trackedMetricProjectionFlags) else {
+                return [:]
+            }
+            return (try? JSONDecoder().decode([String: Bool].self, from: data)) ?? [:]
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: StorageKeys.trackedMetricProjectionFlags)
             }
         }
     }
@@ -255,6 +270,13 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         
         task.expirationHandler = {
             syncTask.cancel()
+            Task { [weak self] in
+                await self?.submitTelemetryEvent(
+                    eventType: "background_task_expired",
+                    taskType: "background",
+                    success: false
+                )
+            }
             #if DEBUG
             print("⚠️ Background task expired")
             #endif
@@ -295,9 +317,36 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     print("📊 New \(metricType) data detected")
                     #endif
 
-                    // Debounce: wait for observer callbacks to settle before syncing
-                    self?.scheduleObserverDebouncedSync()
-                    completionHandler()
+                    guard let self else {
+                        completionHandler()
+                        return
+                    }
+
+                    let taskType = UIApplication.shared.applicationState == .background ? "background" : "foreground"
+                    if UIApplication.shared.applicationState == .background {
+                        Task {
+                            await self.submitTelemetryEvent(
+                                eventType: "healthkit_observer_delivery",
+                                taskType: taskType,
+                                metricType: metricType,
+                                success: true
+                            )
+                            await self.performIncrementalSync(isBackground: true, specificMetricType: metricType)
+                            completionHandler()
+                        }
+                    } else {
+                        // Foreground observer bursts still benefit from a short debounce.
+                        self.scheduleObserverDebouncedSync()
+                        Task {
+                            await self.submitTelemetryEvent(
+                                eventType: "healthkit_observer_delivery",
+                                taskType: taskType,
+                                metricType: metricType,
+                                success: true
+                            )
+                        }
+                        completionHandler()
+                    }
                 }
                 
                 healthStore.execute(query)
@@ -332,9 +381,28 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         response.syncModesByMetricType.mapValues { $0.rawValue }
     }
 
+    private func projectionFlagsByMetricType(from response: TrackedMetricsResponse) -> [String: Bool] {
+        response.metrics.mapValues { preference in
+            preference.syncPlan?.projectsToHabitLogs ?? (preference.syncMode == .dailyOnly)
+        }
+    }
+
     private struct MetricSyncPlan {
         let metricType: String
         let syncMode: MetricSyncMode
+        let projectsToHabitLogs: Bool
+        let safeHistoryDays: Int?
+    }
+
+    private struct QueuedIngestPayload: Codable {
+        let added: [NormalizedMetric]
+        let deleted: [String]
+        let modified: [NormalizedMetric]
+    }
+
+    private struct IngestBatch {
+        let added: [NormalizedMetric]
+        let deleted: [String]
     }
 
     private func syncMode(for metricType: String, syncModes: [String: String]) -> MetricSyncMode {
@@ -344,16 +412,35 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         return mode
     }
 
-    private func syncPlans(metricTypes: [String], syncModes: [String: String]) -> [MetricSyncPlan] {
+    private func syncPlans(
+        metricTypes: [String],
+        syncModes: [String: String],
+        projectionFlags: [String: Bool] = [:]
+    ) -> [MetricSyncPlan] {
         validateMetricTypes(metricTypes).compactMap { metricType in
             let mode = syncMode(for: metricType, syncModes: syncModes)
             guard mode != .off else { return nil }
-            return MetricSyncPlan(metricType: metricType, syncMode: mode)
+            return MetricSyncPlan(
+                metricType: metricType,
+                syncMode: mode,
+                projectsToHabitLogs: projectionFlags[metricType] ?? (mode == .dailyOnly),
+                safeHistoryDays: nil
+            )
         }
     }
 
     private func syncPlans(from response: TrackedMetricsResponse) -> [MetricSyncPlan] {
-        syncPlans(metricTypes: response.metricTypes, syncModes: syncModesByMetricType(from: response))
+        validateMetricTypes(response.metricTypes).compactMap { metricType in
+            guard let preference = response.metrics[metricType] else { return nil }
+            let mode = preference.syncMode
+            guard mode != .off else { return nil }
+            return MetricSyncPlan(
+                metricType: metricType,
+                syncMode: mode,
+                projectsToHabitLogs: preference.syncPlan?.projectsToHabitLogs ?? (mode == .dailyOnly),
+                safeHistoryDays: preference.syncPlan?.safeHistoryDays
+            )
+        }
     }
 
     func disableAllObservers() {
@@ -387,6 +474,8 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
     /// Perform incremental sync using DAILY AGGREGATES
     /// This sends daily totals instead of raw samples for much better data quality
     func performIncrementalSync(isBackground: Bool, specificMetricType: String? = nil) async {
+        let taskType = isBackground ? "background" : "foreground"
+
         // Atomic check-and-set. Without this, two concurrent callers can both
         // pass the guard and each set `isSyncing = true`, running parallel
         // syncs that duplicate work and clobber anchor state.
@@ -394,11 +483,25 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #if DEBUG
             print("⚠️ Sync already in progress")
             #endif
+            await submitTelemetryEvent(
+                eventType: "sync_skipped_already_running",
+                taskType: taskType,
+                metricType: specificMetricType,
+                success: false
+            )
             return
         }
         defer { endSyncing() }
 
         let syncStartTime = Date()
+        var telemetryEvents: [AppleSyncTelemetryEvent] = [
+            makeTelemetryEvent(
+                eventType: "sync_start",
+                taskType: taskType,
+                metricType: specificMetricType,
+                windowDays: nil
+            )
+        ]
         var historyWindowDays = 0
         var historyMetricTypes: [String] = []
         var historyFailedMetricTypes = Set<String>()
@@ -435,19 +538,45 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #if DEBUG
             print("⚠️ No credentials - skipping sync")
             #endif
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "credentials_missing",
+                taskType: taskType,
+                metricType: specificMetricType,
+                success: false
+            ))
             recordHistory(succeeded: false, errorMessage: "No stored credentials")
+            await submitTelemetry(telemetryEvents)
             return
         }
+        telemetryEvents.append(makeTelemetryEvent(
+            eventType: "credentials_present",
+            taskType: taskType,
+            metricType: specificMetricType,
+            success: true
+        ))
         
         // Ensure token is valid (silent refresh if needed)
         do {
             try await apiClient.ensureValidToken()
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "credentials_valid",
+                taskType: taskType,
+                metricType: specificMetricType,
+                success: true
+            ))
         } catch let error as APIError where error.requiresReauth {
             #if DEBUG
             print("❌ Token refresh failed - requires re-auth")
             #endif
             lastError = error.localizedDescription
             lastErrorTime = Date()
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "credentials_invalid",
+                taskType: taskType,
+                metricType: specificMetricType,
+                success: false,
+                errorMessage: error.localizedDescription
+            ))
             postSyncActionRequired(.authExpired, message: "Authentication expired. Open Ritual and sign in again.")
             
             // Post notification for UI to handle re-auth
@@ -459,11 +588,19 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             }
             await scheduleReauthLocalNotification()
             recordHistory(succeeded: false, errorMessage: error.localizedDescription)
+            await submitTelemetry(telemetryEvents)
             return
         } catch {
             #if DEBUG
             print("⚠️ Token refresh error: \(error)")
             #endif
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "credentials_refresh_error",
+                taskType: taskType,
+                metricType: specificMetricType,
+                success: false,
+                errorMessage: error.localizedDescription
+            ))
         }
         
         // Determine which metrics to sync
@@ -471,7 +608,8 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         if let specific = specificMetricType {
             metricPlans = syncPlans(
                 metricTypes: [specific],
-                syncModes: cachedMetricSyncModes.merging([specific: MetricSyncMode.dailyOnly.rawValue]) { current, _ in current }
+                syncModes: cachedMetricSyncModes.merging([specific: MetricSyncMode.dailyOnly.rawValue]) { current, _ in current },
+                projectionFlags: cachedMetricProjectionFlags
             )
         } else {
             // Refresh tracked metrics from server
@@ -481,9 +619,23 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 if cachedMetricSyncModes != syncModes {
                     cachedMetricSyncModes = syncModes
                 }
+                let projectionFlags = projectionFlagsByMetricType(from: response)
+                if cachedMetricProjectionFlags != projectionFlags {
+                    cachedMetricProjectionFlags = projectionFlags
+                }
 
                 let plans = syncPlans(from: response)
                 let enabledMetricTypes = plans.map(\.metricType)
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "tracked_metrics_received",
+                    taskType: taskType,
+                    success: true,
+                    recordCount: enabledMetricTypes.count,
+                    metadata: [
+                        "metric_types": AnyCodable(enabledMetricTypes),
+                        "projecting_metric_types": AnyCodable(plans.filter { $0.projectsToHabitLogs }.map(\.metricType))
+                    ]
+                ))
 
                 if cachedMetricTypes != enabledMetricTypes {
                     cachedMetricTypes = enabledMetricTypes
@@ -494,7 +646,17 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 #if DEBUG
                 print("⚠️ Failed to fetch tracked metrics, using cached: \(error)")
                 #endif
-                metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "tracked_metrics_fetch_failed",
+                    taskType: taskType,
+                    success: false,
+                    errorMessage: error.localizedDescription
+                ))
+                metricPlans = syncPlans(
+                    metricTypes: cachedMetricTypes,
+                    syncModes: cachedMetricSyncModes,
+                    projectionFlags: cachedMetricProjectionFlags
+                )
             }
         }
 
@@ -504,8 +666,15 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #if DEBUG
             print("📊 No metrics to sync")
             #endif
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "no_metrics_configured",
+                taskType: taskType,
+                success: true,
+                recordCount: 0
+            ))
             postSyncActionRequired(.noMetricsConfigured, message: "No tracked metrics configured. Choose metrics in Ritual desktop.")
             recordHistory(succeeded: true, errorMessage: nil)
+            await submitTelemetry(telemetryEvents)
             return
         }
         
@@ -519,91 +688,260 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         // Fetch DAILY AGGREGATED data with a dynamic incremental window.
         // This keeps payloads bounded while widening the window after longer gaps.
         var allMetrics: [NormalizedMetric] = []
+        var deletedExternalIds = Set<String>()
         let daysBack = resolvedIncrementalDaysBack()
         historyWindowDays = daysBack
         
         for plan in metricPlans {
+            let queryStart = Date()
+            var perMetricRecordCount = 0
             do {
                 let metrics = try await healthKitManager.fetchMetrics(
                     for: plan.metricType,
                     syncMode: plan.syncMode,
                     daysBack: daysBack
                 )
-                allMetrics.append(contentsOf: metrics)
+                let adjustedMetrics = metrics.map {
+                    $0.withShouldProjectToHabitLogs(plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false)
+                }
+                allMetrics.append(contentsOf: adjustedMetrics)
+                perMetricRecordCount += adjustedMetrics.count
+
+                if plan.syncMode == .dailyOnly {
+                    deletedExternalIds.formUnion(
+                        missingDailyExternalIds(
+                            metricType: plan.metricType,
+                            daysBack: daysBack,
+                            existingDailyMetrics: adjustedMetrics
+                        )
+                    )
+                } else if plan.projectsToHabitLogs {
+                    let dailyMetrics = try await healthKitManager.fetchMetrics(
+                        for: plan.metricType,
+                        syncMode: .dailyOnly,
+                        daysBack: daysBack
+                    )
+                    let projectedDailyMetrics = dailyMetrics.map {
+                        $0.withShouldProjectToHabitLogs(true)
+                    }
+                    allMetrics.append(contentsOf: projectedDailyMetrics)
+                    perMetricRecordCount += projectedDailyMetrics.count
+                    deletedExternalIds.formUnion(
+                        missingDailyExternalIds(
+                            metricType: plan.metricType,
+                            daysBack: daysBack,
+                            existingDailyMetrics: projectedDailyMetrics
+                        )
+                    )
+                }
+
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "healthkit_metric_query",
+                    taskType: taskType,
+                    metricType: plan.metricType,
+                    success: true,
+                    recordCount: perMetricRecordCount,
+                    durationMs: durationMs(since: queryStart),
+                    windowDays: daysBack,
+                    metadata: [
+                        "sync_mode": AnyCodable(plan.syncMode.rawValue),
+                        "projects_to_habit_logs": AnyCodable(plan.projectsToHabitLogs),
+                        "safe_history_days": AnyCodable(plan.safeHistoryDays as Any),
+                        "zero_reconciliation_count": AnyCodable(deletedExternalIds.count)
+                    ]
+                ))
             } catch {
                 #if DEBUG
                 print("⚠️ Failed to fetch \(plan.syncMode.rawValue) metrics for \(plan.metricType): \(error.localizedDescription)")
                 #endif
                 historyFailedMetricTypes.insert(plan.metricType)
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "healthkit_metric_query",
+                    taskType: taskType,
+                    metricType: plan.metricType,
+                    success: false,
+                    recordCount: perMetricRecordCount,
+                    durationMs: durationMs(since: queryStart),
+                    windowDays: daysBack,
+                    errorMessage: error.localizedDescription,
+                    metadata: [
+                        "sync_mode": AnyCodable(plan.syncMode.rawValue),
+                        "projects_to_habit_logs": AnyCodable(plan.projectsToHabitLogs),
+                        "safe_history_days": AnyCodable(plan.safeHistoryDays as Any)
+                    ]
+                ))
+            }
+        }
+
+        var pendingAnchors: [String: HKQueryAnchor] = [:]
+        for plan in metricPlans {
+            let anchorStart = Date()
+            do {
+                let result = try await healthKitManager.fetchIncrementalDeletions(for: plan.metricType)
+                deletedExternalIds.formUnion(result.deleted)
+                if let newAnchor = result.newAnchor {
+                    pendingAnchors[plan.metricType] = newAnchor
+                }
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "healthkit_anchor_deletions",
+                    taskType: taskType,
+                    metricType: plan.metricType,
+                    success: true,
+                    recordCount: result.deleted.count,
+                    durationMs: durationMs(since: anchorStart),
+                    windowDays: daysBack
+                ))
+            } catch {
+                #if DEBUG
+                print("⚠️ Failed to fetch anchored deletions for \(plan.metricType): \(error.localizedDescription)")
+                #endif
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "healthkit_anchor_deletions",
+                    taskType: taskType,
+                    metricType: plan.metricType,
+                    success: false,
+                    durationMs: durationMs(since: anchorStart),
+                    windowDays: daysBack,
+                    errorMessage: error.localizedDescription
+                ))
             }
         }
         
         // Skip if no data
-        guard !allMetrics.isEmpty else {
+        guard !allMetrics.isEmpty || !deletedExternalIds.isEmpty else {
             #if DEBUG
             print("📊 No data to sync")
             #endif
             lastSyncTime = Date()
             lastError = nil
+            if historyFailedMetricTypes.isEmpty && !pendingAnchors.isEmpty {
+                healthKitManager.confirmAnchorsFromServer(
+                    confirmedAnchorTokens: healthKitManager.makeAnchorTokens(pendingAnchors),
+                    pendingAnchors: pendingAnchors
+                )
+            }
             let historyError = historyFailedMetricTypes.isEmpty ? nil : "Failed to fetch one or more metric types"
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "no_data_to_sync",
+                taskType: taskType,
+                success: historyFailedMetricTypes.isEmpty,
+                recordCount: 0,
+                windowDays: daysBack,
+                errorMessage: historyError
+            ))
             recordHistory(succeeded: historyFailedMetricTypes.isEmpty, errorMessage: historyError)
+            await submitTelemetry(telemetryEvents)
             return
         }
         
         #if DEBUG
-        print("📊 Syncing \(allMetrics.count) daily aggregate values (\(daysBack)-day window)")
+        print("📊 Syncing \(allMetrics.count) values and \(deletedExternalIds.count) tombstones (\(daysBack)-day window)")
         #endif
         
         // Batch size limit (backend accepts max 500, use 400 for safety)
         let batchSize = 400
-        let pendingAnchors = await capturePendingAnchors(for: metricPlans.map(\.metricType))
         let pendingAnchorTokens = healthKitManager.makeAnchorTokens(pendingAnchors)
         
         // Try to send to backend in batches
-        var totalSuccess = 0
+        var totalAddedSuccess = 0
+        var totalDeletedSuccess = 0
         var allBatchesSucceeded = true
         var confirmedAnchorTokens: [String: String]? = nil
         
-        // Split into batches
-        let batches = stride(from: 0, to: allMetrics.count, by: batchSize).map {
-            Array(allMetrics[$0..<min($0 + batchSize, allMetrics.count)])
-        }
+        let ingestBatches = makeIngestBatches(
+            added: allMetrics,
+            deleted: Array(deletedExternalIds).sorted(),
+            batchSize: batchSize
+        )
         
         #if DEBUG
-        print("📦 Sending \(batches.count) batch(es)...")
+        print("📦 Sending \(ingestBatches.count) batch(es)...")
         #endif
         
         var failedBatches = 0
         let startTime = Date()
         
-        for (i, batch) in batches.enumerated() {
-            if batch.isEmpty { continue }
+        for (i, batch) in ingestBatches.enumerated() {
+            if batch.added.isEmpty && batch.deleted.isEmpty { continue }
             
             // Log progress
             let elapsed = Date().timeIntervalSince(startTime)
             #if DEBUG
-            print("📤 Batch \(i + 1)/\(batches.count): \(batch.count) daily values (elapsed: \(Int(elapsed))s)")
+            print("📤 Batch \(i + 1)/\(ingestBatches.count): \(batch.added.count) values, \(batch.deleted.count) tombstones (elapsed: \(Int(elapsed))s)")
             #endif
             
+            let uploadStart = Date()
+            let batchMetricTypes = metricTypeSet(from: batch.added)
+                .union(metricTypes(fromDailyExternalIds: batch.deleted))
+            let batchDayKeys = dayKeys(from: batch.added)
+                .union(dayKeys(fromDailyExternalIds: batch.deleted))
+
             do {
                 let response = try await apiClient.ingestMetricsV2(
-                    added: batch,
-                    deleted: [],
+                    added: batch.added,
+                    deleted: batch.deleted,
                     modified: [],
-                    anchors: pendingAnchorTokens.isEmpty ? nil : pendingAnchorTokens
+                    anchors: (i == ingestBatches.count - 1 && !pendingAnchorTokens.isEmpty) ? pendingAnchorTokens : nil
                 )
                 
                 if response.success {
-                    totalSuccess += batch.count
+                    let addedSuccess = (response.addedResults.isEmpty && !batch.added.isEmpty)
+                        ? batch.added.count
+                        : response.addedResults.filter { $0.success }.count
+                    let deletedSuccess = (response.deletedResults.isEmpty && !batch.deleted.isEmpty)
+                        ? batch.deleted.count
+                        : response.deletedResults.filter { $0.success }.count
+                    let batchFullySucceeded = !response.addedResults.contains(where: { !$0.success })
+                        && !response.deletedResults.contains(where: { !$0.success })
+
+                    totalAddedSuccess += addedSuccess
+                    totalDeletedSuccess += deletedSuccess
                     if response.confirmedAnchors != nil {
                         confirmedAnchorTokens = response.confirmedAnchors
                     }
+                    if !batchFullySucceeded {
+                        allBatchesSucceeded = false
+                        historyFailedBatches += 1
+                        historyFailedMetricTypes.formUnion(batchMetricTypes)
+                        historyFailedDays.formUnion(batchDayKeys)
+                    }
+                    telemetryEvents.append(makeTelemetryEvent(
+                        eventType: "upload_batch",
+                        taskType: taskType,
+                        success: batchFullySucceeded,
+                        recordCount: batch.added.count + batch.deleted.count,
+                        durationMs: durationMs(since: uploadStart),
+                        windowDays: daysBack,
+                        metadata: [
+                            "batch_index": AnyCodable(i + 1),
+                            "batch_count": AnyCodable(ingestBatches.count),
+                            "added_count": AnyCodable(batch.added.count),
+                            "deleted_count": AnyCodable(batch.deleted.count),
+                            "added_success_count": AnyCodable(addedSuccess),
+                            "deleted_success_count": AnyCodable(deletedSuccess)
+                        ]
+                    ))
                 } else {
                     allBatchesSucceeded = false
                     failedBatches += 1
                     historyFailedBatches += 1
-                    historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                    historyFailedDays.formUnion(dayKeys(from: batch))
+                    historyFailedMetricTypes.formUnion(batchMetricTypes)
+                    historyFailedDays.formUnion(batchDayKeys)
+                    telemetryEvents.append(makeTelemetryEvent(
+                        eventType: "upload_batch",
+                        taskType: taskType,
+                        success: false,
+                        recordCount: batch.added.count + batch.deleted.count,
+                        durationMs: durationMs(since: uploadStart),
+                        windowDays: daysBack,
+                        errorMessage: "Server rejected batch",
+                        metadata: [
+                            "batch_index": AnyCodable(i + 1),
+                            "batch_count": AnyCodable(ingestBatches.count),
+                            "added_count": AnyCodable(batch.added.count),
+                            "deleted_count": AnyCodable(batch.deleted.count)
+                        ]
+                    ))
                     #if DEBUG
                     print("⚠️ Batch \(i + 1) rejected by server")
                     #endif
@@ -615,26 +953,62 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 allBatchesSucceeded = false
                 historyFailedBatches += 1
                 historyQueuedBatches += 1
-                historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                historyFailedDays.formUnion(dayKeys(from: batch))
+                historyFailedMetricTypes.formUnion(batchMetricTypes)
+                historyFailedDays.formUnion(batchDayKeys)
                 
                 let encoder = JSONEncoder()
-                let payloadData = try? encoder.encode(batch)
+                let queuedPayload = QueuedIngestPayload(
+                    added: batch.added,
+                    deleted: batch.deleted,
+                    modified: []
+                )
+                let payloadData = try? encoder.encode(queuedPayload)
                 if let data = payloadData {
                     _ = offlineQueue.enqueue(
                         clientEventId: UUID().uuidString,
                         payload: data,
-                        metricCount: batch.count
+                        metricCount: batch.added.count + batch.deleted.count
                     )
                 }
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "upload_batch",
+                    taskType: taskType,
+                    success: false,
+                    recordCount: batch.added.count + batch.deleted.count,
+                    durationMs: durationMs(since: uploadStart),
+                    windowDays: daysBack,
+                    errorMessage: error.localizedDescription,
+                    metadata: [
+                        "batch_index": AnyCodable(i + 1),
+                        "batch_count": AnyCodable(ingestBatches.count),
+                        "added_count": AnyCodable(batch.added.count),
+                        "deleted_count": AnyCodable(batch.deleted.count),
+                        "queued": AnyCodable(true)
+                    ]
+                ))
                 
                 failedBatches += 1
             } catch {
                 allBatchesSucceeded = false
                 failedBatches += 1
                 historyFailedBatches += 1
-                historyFailedMetricTypes.formUnion(metricTypeSet(from: batch))
-                historyFailedDays.formUnion(dayKeys(from: batch))
+                historyFailedMetricTypes.formUnion(batchMetricTypes)
+                historyFailedDays.formUnion(batchDayKeys)
+                telemetryEvents.append(makeTelemetryEvent(
+                    eventType: "upload_batch",
+                    taskType: taskType,
+                    success: false,
+                    recordCount: batch.added.count + batch.deleted.count,
+                    durationMs: durationMs(since: uploadStart),
+                    windowDays: daysBack,
+                    errorMessage: error.localizedDescription,
+                    metadata: [
+                        "batch_index": AnyCodable(i + 1),
+                        "batch_count": AnyCodable(ingestBatches.count),
+                        "added_count": AnyCodable(batch.added.count),
+                        "deleted_count": AnyCodable(batch.deleted.count)
+                    ]
+                ))
                 #if DEBUG
                 print("⚠️ Batch \(i + 1) failed: \(error.localizedDescription)")
                 #endif
@@ -648,16 +1022,17 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             }
             
             // Small delay between batches
-            if i < batches.count - 1 {
+            if i < ingestBatches.count - 1 {
                 try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
             }
         }
         
         let totalElapsed = Date().timeIntervalSince(startTime)
+        let totalSuccess = totalAddedSuccess + totalDeletedSuccess
         #if DEBUG
-        print("📊 Sync completed in \(Int(totalElapsed))s: \(totalSuccess) daily values synced, \(failedBatches) failed batches")
+        print("📊 Sync completed in \(Int(totalElapsed))s: \(totalAddedSuccess) values synced, \(totalDeletedSuccess) tombstones synced, \(failedBatches) failed batches")
         #endif
-        historyAddedCount = totalSuccess
+        historyAddedCount = totalAddedSuccess
         
         if totalSuccess > 0 {
             lastSyncTime = Date()
@@ -672,10 +1047,11 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             }
             
             #if DEBUG
-            print("✅ Daily aggregated sync complete: \(totalSuccess) values (total syncs: \(syncCount))")
+            print("✅ Sync complete: \(totalAddedSuccess) values, \(totalDeletedSuccess) tombstones (total syncs: \(syncCount))")
             #endif
             
-            let addedCount = totalSuccess
+            let addedCount = totalAddedSuccess
+            let deletedCount = totalDeletedSuccess
             let completionTime = Date()
             await MainActor.run {
                 NotificationCenter.default.post(
@@ -683,11 +1059,27 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                     object: nil,
                     userInfo: [
                         "addedCount": addedCount,
-                        "deletedCount": 0,
+                        "deletedCount": deletedCount,
                         "time": completionTime
                     ]
                 )
             }
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "sync_end",
+                taskType: taskType,
+                success: allBatchesSucceeded,
+                recordCount: totalSuccess,
+                durationMs: durationMs(since: syncStartTime),
+                windowDays: daysBack,
+                errorMessage: allBatchesSucceeded ? nil : "Partial sync completed with failed batches",
+                metadata: [
+                    "added_success_count": AnyCodable(totalAddedSuccess),
+                    "deleted_success_count": AnyCodable(totalDeletedSuccess),
+                    "failed_batch_count": AnyCodable(failedBatches),
+                    "queued_batch_count": AnyCodable(historyQueuedBatches)
+                ]
+            ))
+            await submitTelemetry(telemetryEvents)
             recordHistory(
                 succeeded: allBatchesSucceeded,
                 errorMessage: allBatchesSucceeded ? nil : "Partial sync completed with failed batches"
@@ -704,6 +1096,20 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             #endif
             lastError = "Sync failed"
             lastErrorTime = Date()
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "sync_end",
+                taskType: taskType,
+                success: false,
+                recordCount: 0,
+                durationMs: durationMs(since: syncStartTime),
+                windowDays: daysBack,
+                errorMessage: "Sync failed",
+                metadata: [
+                    "failed_batch_count": AnyCodable(failedBatches),
+                    "queued_batch_count": AnyCodable(historyQueuedBatches)
+                ]
+            ))
+            await submitTelemetry(telemetryEvents)
             recordHistory(succeeded: false, errorMessage: "Sync failed")
             if historyQueuedBatches > 0 {
                 postSyncActionRequired(.networkQueued, message: "Sync queued due to network issues. Retry will happen automatically.")
@@ -711,6 +1117,15 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 postSyncActionRequired(.partialFailure, message: "Sync failed. Open Ritual to review and retry.")
             }
         } else {
+            telemetryEvents.append(makeTelemetryEvent(
+                eventType: "sync_end",
+                taskType: taskType,
+                success: true,
+                recordCount: 0,
+                durationMs: durationMs(since: syncStartTime),
+                windowDays: daysBack
+            ))
+            await submitTelemetry(telemetryEvents)
             recordHistory(succeeded: true, errorMessage: nil)
         }
     }
@@ -801,12 +1216,20 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             if cachedMetricSyncModes != syncModes {
                 cachedMetricSyncModes = syncModes
             }
+            let projectionFlags = projectionFlagsByMetricType(from: response)
+            if cachedMetricProjectionFlags != projectionFlags {
+                cachedMetricProjectionFlags = projectionFlags
+            }
             metricPlans = syncPlans(from: response)
         } catch {
             #if DEBUG
             print("⚠️ Failed to fetch tracked metrics for retry, using cached: \(error)")
             #endif
-            metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
+            metricPlans = syncPlans(
+                metricTypes: cachedMetricTypes,
+                syncModes: cachedMetricSyncModes,
+                projectionFlags: cachedMetricProjectionFlags
+            )
         }
 
         historyMetricTypes = metricPlans.map(\.metricType)
@@ -830,9 +1253,25 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 let filtered = metrics.filter { metric in
                     guard let dayKey = dayKey(for: metric) else { return false }
                     return normalizedDayKeys.contains(dayKey)
+                }.map {
+                    $0.withShouldProjectToHabitLogs(plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false)
                 }
 
                 retryMetrics.append(contentsOf: filtered)
+
+                if plan.syncMode == .granular && plan.projectsToHabitLogs {
+                    let dailyMetrics = try await healthKitManager.fetchMetrics(
+                        for: plan.metricType,
+                        syncMode: .dailyOnly,
+                        daysBack: maxIncrementalDaysBack
+                    )
+                    retryMetrics.append(contentsOf: dailyMetrics.filter { metric in
+                        guard let dayKey = dayKey(for: metric) else { return false }
+                        return normalizedDayKeys.contains(dayKey)
+                    }.map {
+                        $0.withShouldProjectToHabitLogs(true)
+                    })
+                }
             } catch {
                 historyFailedMetricTypes.insert(plan.metricType)
                 #if DEBUG
@@ -1021,9 +1460,17 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             if cachedMetricSyncModes != syncModes {
                 cachedMetricSyncModes = syncModes
             }
+            let projectionFlags = projectionFlagsByMetricType(from: response)
+            if cachedMetricProjectionFlags != projectionFlags {
+                cachedMetricProjectionFlags = projectionFlags
+            }
             metricPlans = syncPlans(from: response)
         } catch {
-            metricPlans = syncPlans(metricTypes: cachedMetricTypes, syncModes: cachedMetricSyncModes)
+            metricPlans = syncPlans(
+                metricTypes: cachedMetricTypes,
+                syncModes: cachedMetricSyncModes,
+                projectionFlags: cachedMetricProjectionFlags
+            )
         }
 
         guard !metricPlans.isEmpty else {
@@ -1051,8 +1498,25 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
                 let filtered = metrics.filter { metric in
                     guard let key = dayKey(for: metric) else { return false }
                     return attemptedDayKeys.contains(key)
+                }.map {
+                    $0.withShouldProjectToHabitLogs(plan.syncMode == .dailyOnly ? plan.projectsToHabitLogs : false)
                 }
                 retryMetrics.append(contentsOf: filtered)
+
+                if plan.syncMode == .granular && plan.projectsToHabitLogs {
+                    let dailyMetrics = try await healthKitManager.fetchMetrics(
+                        for: plan.metricType,
+                        syncMode: .dailyOnly,
+                        startDate: normalizedStart,
+                        endDate: normalizedEnd
+                    )
+                    retryMetrics.append(contentsOf: dailyMetrics.filter { metric in
+                        guard let key = dayKey(for: metric) else { return false }
+                        return attemptedDayKeys.contains(key)
+                    }.map {
+                        $0.withShouldProjectToHabitLogs(true)
+                    })
+                }
             } catch {
                 #if DEBUG
                 print("⚠️ Failed to load \(plan.metricType) for date-range retry: \(error.localizedDescription)")
@@ -1186,25 +1650,55 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         for payload in payloads {
             do {
                 let decoder = JSONDecoder()
-                let metrics = try decoder.decode([NormalizedMetric].self, from: payload.payload)
+                let queuedPayload: QueuedIngestPayload
+                if let decoded = try? decoder.decode(QueuedIngestPayload.self, from: payload.payload) {
+                    queuedPayload = decoded
+                } else {
+                    let legacyMetrics = try decoder.decode([NormalizedMetric].self, from: payload.payload)
+                    queuedPayload = QueuedIngestPayload(
+                        added: legacyMetrics,
+                        deleted: [],
+                        modified: []
+                    )
+                }
                 
                 let response = try await apiClient.ingestMetricsV2(
-                    added: metrics,
-                    deleted: [],
-                    modified: []
+                    added: queuedPayload.added,
+                    deleted: queuedPayload.deleted,
+                    modified: queuedPayload.modified
                 )
                 
                 if response.success {
                     offlineQueue.markSuccess(id: payload.id)
+                    await submitTelemetryEvent(
+                        eventType: "offline_queue_flush",
+                        taskType: "retry",
+                        success: true,
+                        recordCount: queuedPayload.added.count + queuedPayload.deleted.count + queuedPayload.modified.count
+                    )
                     #if DEBUG
                     print("✅ Flushed queued payload \(payload.id)")
                     #endif
                 } else {
                     offlineQueue.markFailed(id: payload.id, error: "Server rejected")
+                    await submitTelemetryEvent(
+                        eventType: "offline_queue_flush",
+                        taskType: "retry",
+                        success: false,
+                        recordCount: queuedPayload.added.count + queuedPayload.deleted.count + queuedPayload.modified.count,
+                        errorMessage: "Server rejected"
+                    )
                 }
                 
             } catch {
                 offlineQueue.markFailed(id: payload.id, error: error.localizedDescription)
+                await submitTelemetryEvent(
+                    eventType: "offline_queue_flush",
+                    taskType: "retry",
+                    success: false,
+                    recordCount: payload.metricCount,
+                    errorMessage: error.localizedDescription
+                )
                 #if DEBUG
                 print("❌ Failed to flush payload \(payload.id): \(error)")
                 #endif
@@ -1395,6 +1889,149 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         return anchors
     }
 
+    private func makeIngestBatches(
+        added: [NormalizedMetric],
+        deleted: [String],
+        batchSize: Int
+    ) -> [IngestBatch] {
+        let addedBatches = added.isEmpty
+            ? [[NormalizedMetric]]()
+            : stride(from: 0, to: added.count, by: batchSize).map {
+                Array(added[$0..<min($0 + batchSize, added.count)])
+            }
+        let deletedBatches = deleted.isEmpty
+            ? [[String]]()
+            : stride(from: 0, to: deleted.count, by: batchSize).map {
+                Array(deleted[$0..<min($0 + batchSize, deleted.count)])
+            }
+
+        let batchCount = max(addedBatches.count, deletedBatches.count)
+        guard batchCount > 0 else { return [] }
+
+        return (0..<batchCount).map { index in
+            IngestBatch(
+                added: index < addedBatches.count ? addedBatches[index] : [],
+                deleted: index < deletedBatches.count ? deletedBatches[index] : []
+            )
+        }
+    }
+
+    private func missingDailyExternalIds(
+        metricType: String,
+        daysBack: Int,
+        existingDailyMetrics: [NormalizedMetric]
+    ) -> Set<String> {
+        let existingIds = Set(
+            existingDailyMetrics
+                .filter { $0.aggregationKind == .daily }
+                .compactMap(\.externalId)
+        )
+        return expectedDailyExternalIds(metricType: metricType, daysBack: daysBack)
+            .subtracting(existingIds)
+    }
+
+    private func expectedDailyExternalIds(metricType: String, daysBack: Int) -> Set<String> {
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: Date())
+        let start = calendar.date(byAdding: .day, value: -daysBack, to: startOfToday) ?? startOfToday
+        var current = start
+        var ids = Set<String>()
+
+        while current <= startOfToday {
+            ids.insert(dailyExternalId(metricType: metricType, dayStart: current))
+            guard let next = calendar.date(byAdding: .day, value: 1, to: current) else { break }
+            current = next
+        }
+
+        return ids
+    }
+
+    private func dailyExternalId(metricType: String, dayStart: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withFullDate]
+        return "daily_\(metricType)_\(formatter.string(from: dayStart))"
+    }
+
+    private func dayKeys(fromDailyExternalIds externalIds: [String]) -> Set<String> {
+        Set(externalIds.compactMap { externalId in
+            let parts = externalId.split(separator: "_")
+            guard parts.count >= 3 else { return nil }
+            let day = String(parts.last ?? "")
+            return day.count == 10 ? day : nil
+        })
+    }
+
+    private func metricTypes(fromDailyExternalIds externalIds: [String]) -> Set<String> {
+        Set(externalIds.compactMap { externalId in
+            guard externalId.hasPrefix("daily_") else { return nil }
+            let remainder = externalId.dropFirst("daily_".count)
+            guard let separator = remainder.lastIndex(of: "_") else { return nil }
+            return String(remainder[..<separator])
+        })
+    }
+
+    private func durationMs(since start: Date) -> Int {
+        max(0, Int(Date().timeIntervalSince(start) * 1000))
+    }
+
+    private func makeTelemetryEvent(
+        eventType: String,
+        taskType: String? = nil,
+        metricType: String? = nil,
+        success: Bool? = nil,
+        recordCount: Int? = nil,
+        durationMs: Int? = nil,
+        windowDays: Int? = nil,
+        errorMessage: String? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) -> AppleSyncTelemetryEvent {
+        let queue = offlineQueue.telemetry
+        return AppleSyncTelemetryEvent(
+            eventType: eventType,
+            taskType: taskType,
+            metricType: metricType,
+            success: success,
+            recordCount: recordCount,
+            durationMs: durationMs,
+            windowDays: windowDays,
+            errorMessage: errorMessage,
+            queuePendingCount: queue.pendingCount,
+            queueReadyCount: queue.readyForRetryCount,
+            queuedMetricCount: queue.totalPendingMetrics,
+            metadata: metadata
+        )
+    }
+
+    private func submitTelemetry(_ events: [AppleSyncTelemetryEvent]) async {
+        await apiClient.submitAppleSyncTelemetry(events)
+    }
+
+    func submitTelemetryEvent(
+        eventType: String,
+        taskType: String? = nil,
+        metricType: String? = nil,
+        success: Bool? = nil,
+        recordCount: Int? = nil,
+        durationMs: Int? = nil,
+        windowDays: Int? = nil,
+        errorMessage: String? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) async {
+        await submitTelemetry([
+            makeTelemetryEvent(
+                eventType: eventType,
+                taskType: taskType,
+                metricType: metricType,
+                success: success,
+                recordCount: recordCount,
+                durationMs: durationMs,
+                windowDays: windowDays,
+                errorMessage: errorMessage,
+                metadata: metadata
+            )
+        ])
+    }
+
     private func dayKeys(from startDate: Date, to endDate: Date) -> [String] {
         let calendar = Calendar.current
         var current = calendar.startOfDay(for: startDate)
@@ -1495,6 +2132,7 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
         info += "- Active observers: \(observerQueries.count)\n"
         info += "- Cached metric types: \(cachedMetricTypes.joined(separator: ", "))\n"
         info += "- Cached sync modes: \(cachedMetricSyncModes)\n"
+        info += "- Cached projection flags: \(cachedMetricProjectionFlags)\n"
         info += "- Offline queue: \(offlineQueue.pendingCount) pending\n"
         info += "\n\(anchorStorage.debugInfo)"
         info += "\n\(offlineQueue.debugInfo)"

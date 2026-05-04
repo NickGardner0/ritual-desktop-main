@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from schemas.wearables_apple import AppleIngestRequestV2, AppleIngestResponseV2
+from schemas.wearables_apple import AppleIngestRequestV2, AppleIngestResponseV2, AppleSyncTelemetryRequest
 from services.wearables_service import WearablesService
 
 
@@ -104,6 +104,35 @@ class AppleIngestContractTests(unittest.TestCase):
 
         self.assertEqual(response.confirmed_anchors["steps"], "token-1")
         self.assertEqual(response.confirmed_anchors["hrv"], "token-2")
+
+    def test_sync_telemetry_contract_accepts_ios_payload_shape(self):
+        payload = {
+            "device_id": "device-123",
+            "platform": "ios",
+            "sdk_version": "1.2.3",
+            "events": [
+                {
+                    "event_type": "healthkit_metric_query",
+                    "timestamp": "2026-05-04T12:00:00Z",
+                    "task_type": "background",
+                    "metric_type": "steps",
+                    "success": True,
+                    "record_count": 8,
+                    "duration_ms": 240,
+                    "window_days": 7,
+                    "queue_pending_count": 1,
+                    "queue_ready_count": 1,
+                    "queued_metric_count": 12,
+                    "metadata": {"sync_mode": "daily_only"},
+                }
+            ],
+        }
+
+        request = AppleSyncTelemetryRequest(**payload)
+
+        self.assertEqual(request.device_id, "device-123")
+        self.assertEqual(request.events[0].event_type, "healthkit_metric_query")
+        self.assertEqual(request.events[0].metadata["sync_mode"], "daily_only")
 
 
 if __name__ == "__main__":

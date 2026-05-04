@@ -122,7 +122,9 @@ struct AppleIngestRequestV2: Codable {
     /// New/updated metrics since last anchor
     let added: [NormalizedMetric]
     
-    /// HealthKit UUIDs of deleted samples
+    /// External IDs that should be removed from canonical wearable storage.
+    /// For daily reconciliation these are stable rollup IDs like
+    /// daily_steps_2026-02-26, not only raw HealthKit UUIDs.
     let deleted: [String]
     
     /// Modified metrics (same external_id, new values) - rare but real
@@ -166,6 +168,84 @@ struct AppleIngestRequestV2: Codable {
         self.anchors = anchors
         self.schemaVersion = schemaVersion
         self.signature = signature
+    }
+}
+
+// MARK: - Apple Sync Telemetry
+
+struct AppleSyncTelemetryEvent: Codable {
+    let eventType: String
+    let timestamp: String
+    let taskType: String?
+    let metricType: String?
+    let success: Bool?
+    let recordCount: Int?
+    let durationMs: Int?
+    let windowDays: Int?
+    let errorMessage: String?
+    let queuePendingCount: Int?
+    let queueReadyCount: Int?
+    let queuedMetricCount: Int?
+    let metadata: [String: AnyCodable]?
+
+    enum CodingKeys: String, CodingKey {
+        case eventType = "event_type"
+        case timestamp
+        case taskType = "task_type"
+        case metricType = "metric_type"
+        case success
+        case recordCount = "record_count"
+        case durationMs = "duration_ms"
+        case windowDays = "window_days"
+        case errorMessage = "error_message"
+        case queuePendingCount = "queue_pending_count"
+        case queueReadyCount = "queue_ready_count"
+        case queuedMetricCount = "queued_metric_count"
+        case metadata
+    }
+
+    init(
+        eventType: String,
+        timestamp: Date = Date(),
+        taskType: String? = nil,
+        metricType: String? = nil,
+        success: Bool? = nil,
+        recordCount: Int? = nil,
+        durationMs: Int? = nil,
+        windowDays: Int? = nil,
+        errorMessage: String? = nil,
+        queuePendingCount: Int? = nil,
+        queueReadyCount: Int? = nil,
+        queuedMetricCount: Int? = nil,
+        metadata: [String: AnyCodable]? = nil
+    ) {
+        self.eventType = eventType
+        self.timestamp = ISO8601DateFormatter().string(from: timestamp)
+        self.taskType = taskType
+        self.metricType = metricType
+        self.success = success
+        self.recordCount = recordCount
+        self.durationMs = durationMs
+        self.windowDays = windowDays
+        self.errorMessage = errorMessage
+        self.queuePendingCount = queuePendingCount
+        self.queueReadyCount = queueReadyCount
+        self.queuedMetricCount = queuedMetricCount
+        self.metadata = metadata
+    }
+}
+
+struct AppleSyncTelemetryRequest: Codable {
+    let deviceId: String?
+    let platform: String
+    let sdkVersion: String?
+    let events: [AppleSyncTelemetryEvent]
+
+    enum CodingKeys: String, CodingKey {
+        case deviceId = "device_id"
+        case platform
+        case sdkVersion = "sdk_version"
+        case events
     }
 }
 

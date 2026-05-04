@@ -224,7 +224,7 @@ class AppleIngestRequestV2(BaseModel):
     deleted: List[str] = Field(
         default=[],
         max_length=500,
-        description="HealthKit UUIDs of deleted samples"
+        description="External IDs to delete, including stable daily rollup IDs"
     )
     modified: List[NormalizedMetricSchema] = Field(
         default=[],
@@ -266,7 +266,7 @@ class AppleIngestResponse(BaseModel):
 
 class DeleteResult(BaseModel):
     """Result of a deletion operation"""
-    external_id: str = Field(..., description="HealthKit UUID that was requested to be deleted")
+    external_id: str = Field(..., description="External ID that was requested to be deleted")
     success: bool
     error: Optional[str] = None
 
@@ -281,6 +281,42 @@ class AppleIngestResponseV2(BaseModel):
     next_poll_seconds: Optional[int] = Field(None, ge=0, description="Suggested seconds until next poll")
     # Confirmed anchors - client should only update local anchors after receiving this
     confirmed_anchors: Optional[Dict[str, str]] = Field(None, description="Confirmed anchors per metric type")
+
+
+class AppleSyncTelemetryEvent(BaseModel):
+    """Mobile-side sync diagnostic event."""
+
+    event_type: str = Field(..., min_length=1, max_length=80)
+    timestamp: str = Field(..., description="ISO8601 timestamp when the mobile event occurred")
+    task_type: Optional[str] = Field(None, max_length=40)
+    metric_type: Optional[str] = Field(None, max_length=80)
+    success: Optional[bool] = None
+    record_count: Optional[int] = Field(None, ge=0)
+    duration_ms: Optional[int] = Field(None, ge=0)
+    window_days: Optional[int] = Field(None, ge=0)
+    error_message: Optional[str] = Field(None, max_length=1000)
+    queue_pending_count: Optional[int] = Field(None, ge=0)
+    queue_ready_count: Optional[int] = Field(None, ge=0)
+    queued_metric_count: Optional[int] = Field(None, ge=0)
+    metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("timestamp")
+    @classmethod
+    def validate_timestamp(cls, v: str) -> str:
+        try:
+            datetime.fromisoformat(v.replace("Z", "+00:00"))
+            return v
+        except ValueError:
+            raise ValueError(f"Invalid ISO8601 timestamp: {v}")
+
+
+class AppleSyncTelemetryRequest(BaseModel):
+    """Batch of mobile-side sync diagnostic events."""
+
+    device_id: Optional[str] = Field(None, description="Registered companion device ID when available")
+    platform: str = Field("ios", max_length=30)
+    sdk_version: Optional[str] = Field(None, max_length=80)
+    events: List[AppleSyncTelemetryEvent] = Field(..., min_length=1, max_length=100)
 
 
 class SyncStatusResponse(BaseModel):

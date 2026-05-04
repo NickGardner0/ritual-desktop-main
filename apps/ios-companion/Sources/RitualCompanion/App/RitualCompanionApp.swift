@@ -58,6 +58,10 @@ struct RitualCompanionApp: App {
                         print("Failed to load Clerk: \(error)")
                         #endif
                     }
+                    await syncManager.submitTelemetryEvent(
+                        eventType: "app_launched",
+                        taskType: "foreground"
+                    )
                     whoopService.handleAppDidBecomeActive()
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in

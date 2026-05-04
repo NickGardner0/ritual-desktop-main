@@ -100,6 +100,13 @@ final class HealthKitManagerV2: @unchecked Sendable {
         MetricType.workout.rawValue,
         MetricType.mindfulMinutes.rawValue,
     ]
+
+    private struct StatisticsValue {
+        let value: Double
+        let unit: MetricUnit
+        let sourceBundleId: String
+        let sourceDeviceName: String
+    }
     
     /// Types we want to read from HealthKit
     private let readTypes: Set<HKSampleType> = {
@@ -162,6 +169,12 @@ final class HealthKitManagerV2: @unchecked Sendable {
         let added: [NormalizedMetric]
         let deleted: [String]  // HealthKit UUIDs
         let modified: [NormalizedMetric]
+        let newAnchor: HKQueryAnchor?
+        let metricType: String
+    }
+
+    struct IncrementalDeletionResult {
+        let deleted: [String]
         let newAnchor: HKQueryAnchor?
         let metricType: String
     }
@@ -327,6 +340,46 @@ final class HealthKitManagerV2: @unchecked Sendable {
         
         return results
     }
+
+    /// Fetch HealthKit deletions since the last confirmed anchor without pushing
+    /// raw added samples into the daily aggregate fast path. If no anchor exists
+    /// yet, bootstrap one at "now" so future observer deliveries can report
+    /// true deletes durably.
+    func fetchIncrementalDeletions(for metricType: String) async throws -> IncrementalDeletionResult {
+        guard let sampleType = healthKitType(for: metricType) else {
+            throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
+        }
+
+        guard let existingAnchor = anchorStorage.getAnchor(for: metricType) else {
+            return IncrementalDeletionResult(
+                deleted: [],
+                newAnchor: try await captureAnchorBaseline(for: metricType),
+                metricType: metricType
+            )
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKAnchoredObjectQuery(
+                type: sampleType,
+                predicate: nil,
+                anchor: existingAnchor,
+                limit: 5000
+            ) { _, _, deletedSamples, newAnchor, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                continuation.resume(returning: IncrementalDeletionResult(
+                    deleted: (deletedSamples ?? []).map { $0.uuid.uuidString },
+                    newAnchor: newAnchor,
+                    metricType: metricType
+                ))
+            }
+
+            healthStore.execute(query)
+        }
+    }
     
     /// Save anchor after successful backend ACK
     func confirmAnchor(for metricType: String, anchor: HKQueryAnchor) {
@@ -422,7 +475,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         var metrics: [NormalizedMetric] = []
         
         // Get source preference for this metric type
-        let preference = sourcePreferences[MetricType(rawValue: metricType) ?? .steps] ?? .bestAvailable
+        let preference = sourcePreference(for: metricType)
         
         // Filter samples by source preference
         let filteredSamples = filterSamplesBySource(samples, preference: preference)
@@ -436,6 +489,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
         return metrics
     }
     
+    private static func sourcePreference(for metricType: String) -> SourcePreference {
+        guard let type = MetricType(rawValue: metricType) else { return .bestAvailable }
+        return sourcePreferences[type] ?? .bestAvailable
+    }
+
     private static func filterSamplesBySource(_ samples: [HKSample], preference: SourcePreference) -> [HKSample] {
         switch preference {
         case .appleWatchOnly:
@@ -456,15 +514,44 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     private static func isFromAppleWatch(_ sample: HKSample) -> Bool {
-        let source = sample.sourceRevision.source
+        return isAppleWatchSource(sample.sourceRevision.source, deviceName: sample.device?.name)
+    }
+
+    private static func isAppleWatchSource(_ source: HKSource, deviceName: String? = nil) -> Bool {
         let name = source.name.lowercased()
+        let resolvedDeviceName = (deviceName ?? "").lowercased()
         let bundleId = source.bundleIdentifier
         
         // Apple Watch sources
         if name.contains("apple watch") { return true }
+        if resolvedDeviceName.contains("apple watch") { return true }
+        if resolvedDeviceName.contains("watch") && bundleId.hasPrefix("com.apple") { return true }
         if bundleId.hasPrefix("com.apple.health") && !name.lowercased().contains("iphone") { return true }
         
         return false
+    }
+
+    private static func sourceKey(for sample: HKSample) -> String {
+        let source = sample.sourceRevision.source
+        return "\(source.bundleIdentifier)|\(sample.device?.name ?? source.name)"
+    }
+
+    private static func selectedSources(
+        from statistics: HKStatistics,
+        preference: SourcePreference
+    ) -> [HKSource]? {
+        guard preference != .bestAvailable else { return nil }
+        let sources = statistics.sources ?? []
+
+        switch preference {
+        case .bestAvailable:
+            return nil
+        case .appleWatchOnly:
+            return sources.filter { isAppleWatchSource($0) }
+        case .appleWatchPreferred:
+            let watchSources = sources.filter { isAppleWatchSource($0) }
+            return watchSources.isEmpty ? sources : watchSources
+        }
     }
     
     private static func convertSampleToMetric(_ sample: HKSample, metricType: String) -> NormalizedMetric? {
@@ -849,7 +936,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         
         // Get the right statistics options
         let aggregation = aggregationType(for: metricType)
-        let options: HKStatisticsOptions
+        var options: HKStatisticsOptions
         switch aggregation {
         case .cumulativeSum:
             options = .cumulativeSum
@@ -861,6 +948,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
             options = .discreteMax
         case .duration:
             options = .cumulativeSum
+        }
+
+        let preference = Self.sourcePreference(for: metricType)
+        if preference != .bestAvailable {
+            options.insert(.separateBySource)
         }
         
         let predicate = HKQuery.predicateForSamples(withStart: normalizedStart, end: queryEnd, options: .strictStartDate)
@@ -891,7 +983,8 @@ final class HealthKitManagerV2: @unchecked Sendable {
                     guard let metric = Self.convertStatisticsToMetric(
                         statistics,
                         metricType: metricType,
-                        aggregation: aggregation
+                        aggregation: aggregation,
+                        sourcePreference: preference
                     ) else { return }
                     
                     metrics.append(metric)
@@ -1029,7 +1122,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         var interval = DateComponents()
         interval.minute = windowMinutes
 
-        let options: HKStatisticsOptions
+        var options: HKStatisticsOptions
         switch aggregation {
         case .cumulativeSum:
             options = .cumulativeSum
@@ -1041,6 +1134,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
             options = .discreteMax
         case .duration:
             options = .cumulativeSum
+        }
+
+        let preference = Self.sourcePreference(for: metricType)
+        if preference != .bestAvailable {
+            options.insert(.separateBySource)
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -1069,22 +1167,14 @@ final class HealthKitManagerV2: @unchecked Sendable {
                 var metrics: [NormalizedMetric] = []
 
                 statsCollection.enumerateStatistics(from: normalizedStart, to: normalizedEnd) { statistics, _ in
-                    let quantity: HKQuantity?
-                    switch aggregation {
-                    case .cumulativeSum:
-                        quantity = statistics.sumQuantity()
-                    case .discreteAverage:
-                        quantity = statistics.averageQuantity()
-                    case .discreteMin:
-                        quantity = statistics.minimumQuantity()
-                    case .discreteMax:
-                        quantity = statistics.maximumQuantity()
-                    case .duration:
-                        quantity = statistics.sumQuantity()
-                    }
-
-                    guard let quantity else { return }
-                    let (value, unit) = Self.extractValueFromQuantity(quantity, metricType: metricType)
+                    guard let statValue = Self.extractStatisticsValue(
+                        statistics,
+                        metricType: metricType,
+                        aggregation: aggregation,
+                        sourcePreference: preference
+                    ) else { return }
+                    let value = statValue.value
+                    let unit = statValue.unit
                     guard value > 0, let metricTypeEnum = MetricType(rawValue: metricType) else { return }
 
                     let bucketStart = statistics.startDate
@@ -1100,8 +1190,8 @@ final class HealthKitManagerV2: @unchecked Sendable {
                             value: value,
                             unit: unit,
                             externalId: externalId,
-                            sourceBundleId: "com.apple.health.bucketed",
-                            sourceDeviceName: "Apple Health (\(windowMinutes)m Buckets)",
+                            sourceBundleId: statValue.sourceBundleId,
+                            sourceDeviceName: "\(statValue.sourceDeviceName) (\(windowMinutes)m Buckets)",
                             attributedDate: bucketStart,
                             recordedAt: Date(),
                             aggregationKind: aggregationKind,
@@ -1127,26 +1217,18 @@ final class HealthKitManagerV2: @unchecked Sendable {
     private static func convertStatisticsToMetric(
         _ statistics: HKStatistics,
         metricType: String,
-        aggregation: AggregationType
+        aggregation: AggregationType,
+        sourcePreference: SourcePreference = .bestAvailable
     ) -> NormalizedMetric? {
-        // Get the aggregated value
-        let quantity: HKQuantity?
-        switch aggregation {
-        case .cumulativeSum:
-            quantity = statistics.sumQuantity()
-        case .discreteAverage:
-            quantity = statistics.averageQuantity()
-        case .discreteMin:
-            quantity = statistics.minimumQuantity()
-        case .discreteMax:
-            quantity = statistics.maximumQuantity()
-        case .duration:
-            quantity = statistics.sumQuantity()
-        }
-        
-        guard let qty = quantity else { return nil }
-        
-        let (value, unit) = extractValueFromQuantity(qty, metricType: metricType)
+        guard let statValue = extractStatisticsValue(
+            statistics,
+            metricType: metricType,
+            aggregation: aggregation,
+            sourcePreference: sourcePreference
+        ) else { return nil }
+
+        let value = statValue.value
+        let unit = statValue.unit
         
         // Skip zero values (no data for that day)
         guard value > 0 else { return nil }
@@ -1170,8 +1252,8 @@ final class HealthKitManagerV2: @unchecked Sendable {
             value: value,
             unit: unit,
             externalId: externalId,
-            sourceBundleId: "com.apple.health.aggregated",
-            sourceDeviceName: "Apple Health (Daily)",
+            sourceBundleId: statValue.sourceBundleId,
+            sourceDeviceName: "\(statValue.sourceDeviceName) (Daily)",
             attributedDate: dayStart,  // Day start for daily aggregates
             recordedAt: Date(),
             aggregationKind: .daily,
@@ -1180,6 +1262,90 @@ final class HealthKitManagerV2: @unchecked Sendable {
             shouldProjectToHabitLogs: true,
             rawPayload: ["aggregation": AnyCodable(String(describing: aggregation))]
         )
+    }
+
+    private static func extractStatisticsValue(
+        _ statistics: HKStatistics,
+        metricType: String,
+        aggregation: AggregationType,
+        sourcePreference: SourcePreference
+    ) -> StatisticsValue? {
+        guard let selectedSources = selectedSources(from: statistics, preference: sourcePreference) else {
+            guard let quantity = quantity(from: statistics, aggregation: aggregation) else { return nil }
+            let (value, unit) = extractValueFromQuantity(quantity, metricType: metricType)
+            return StatisticsValue(
+                value: value,
+                unit: unit,
+                sourceBundleId: "com.apple.health.aggregated",
+                sourceDeviceName: "Apple Health"
+            )
+        }
+
+        guard !selectedSources.isEmpty else { return nil }
+
+        let sourceValues: [(Double, MetricUnit, HKSource)] = selectedSources.compactMap { source in
+            guard let quantity = quantity(from: statistics, aggregation: aggregation, source: source) else {
+                return nil
+            }
+            let (value, unit) = extractValueFromQuantity(quantity, metricType: metricType)
+            return (value, unit, source)
+        }
+
+        guard !sourceValues.isEmpty else { return nil }
+
+        let values = sourceValues.map { $0.0 }
+        let unit = sourceValues[0].1
+        let value: Double
+        switch aggregation {
+        case .cumulativeSum, .duration:
+            value = values.reduce(0, +)
+        case .discreteAverage:
+            value = values.reduce(0, +) / Double(values.count)
+        case .discreteMin:
+            value = values.min() ?? 0
+        case .discreteMax:
+            value = values.max() ?? 0
+        }
+
+        let sourceBundleId: String
+        let sourceDeviceName: String
+        if sourceValues.count == 1 {
+            let source = sourceValues[0].2
+            sourceBundleId = source.bundleIdentifier
+            sourceDeviceName = source.name
+        } else {
+            sourceBundleId = "com.apple.health.selected_sources"
+            let watchOnly = sourceValues.allSatisfy { isAppleWatchSource($0.2) }
+            sourceDeviceName = watchOnly ? "Apple Watch Sources" : "Apple Health Selected Sources"
+        }
+
+        return StatisticsValue(
+            value: value,
+            unit: unit,
+            sourceBundleId: sourceBundleId,
+            sourceDeviceName: sourceDeviceName
+        )
+    }
+
+    private static func quantity(
+        from statistics: HKStatistics,
+        aggregation: AggregationType,
+        source: HKSource? = nil
+    ) -> HKQuantity? {
+        switch aggregation {
+        case .cumulativeSum, .duration:
+            if let source { return statistics.sumQuantity(for: source) }
+            return statistics.sumQuantity()
+        case .discreteAverage:
+            if let source { return statistics.averageQuantity(for: source) }
+            return statistics.averageQuantity()
+        case .discreteMin:
+            if let source { return statistics.minimumQuantity(for: source) }
+            return statistics.minimumQuantity()
+        case .discreteMax:
+            if let source { return statistics.maximumQuantity(for: source) }
+            return statistics.maximumQuantity()
+        }
     }
     
     /// Extract value and unit from an HKQuantity
@@ -1231,19 +1397,21 @@ final class HealthKitManagerV2: @unchecked Sendable {
             healthStore.execute(query)
         }
         
-        // Aggregate by day
+        // Aggregate by day after applying source policy. Sleep is special:
+        // overlapping sources are common, so choose one best source per day.
         return aggregateSamplesByDay(samples, metricType: metricType)
     }
     
     /// Aggregate raw samples into daily totals
     private func aggregateSamplesByDay(_ samples: [HKSample], metricType: String) -> [NormalizedMetric] {
         let calendar = Calendar.current
+        let selectedSamples = Self.samplesForDailyCategoryAggregation(samples, metricType: metricType)
         
         // Group samples by attributed date
         var dailyTotals: [Date: Double] = [:]
         
-        for sample in samples {
-            guard shouldIncludeCategorySample(sample, for: metricType) else { continue }
+        for sample in selectedSamples {
+            guard Self.shouldIncludeCategorySample(sample, for: metricType) else { continue }
 
             let attributedDate = Self.calculateAttributedDate(for: sample, metricType: metricType)
             let dayStart = calendar.startOfDay(for: attributedDate)
@@ -1299,7 +1467,38 @@ final class HealthKitManagerV2: @unchecked Sendable {
 
     /// Restrict sleep metrics to the expected HealthKit sleep stage(s).
     /// Without this filtering, every sleep_* metric can incorrectly include all sleep samples.
-    private func shouldIncludeCategorySample(_ sample: HKSample, for metricType: String) -> Bool {
+    private static func samplesForDailyCategoryAggregation(_ samples: [HKSample], metricType: String) -> [HKSample] {
+        let preference = sourcePreference(for: metricType)
+        let eligible = samples.filter { shouldIncludeCategorySample($0, for: metricType) }
+
+        guard metricType.hasPrefix("sleep") else {
+            return filterSamplesBySource(eligible, preference: preference)
+        }
+
+        let calendar = Calendar.current
+        var grouped: [Date: [String: [HKSample]]] = [:]
+
+        for sample in eligible {
+            let day = calendar.startOfDay(for: calculateAttributedDate(for: sample, metricType: metricType))
+            grouped[day, default: [:]][sourceKey(for: sample), default: []].append(sample)
+        }
+
+        var selected: [HKSample] = []
+        for (_, sourceGroups) in grouped {
+            guard let bestGroup = sourceGroups.values.max(by: { lhs, rhs in
+                totalDuration(lhs) < totalDuration(rhs)
+            }) else { continue }
+            selected.append(contentsOf: bestGroup)
+        }
+
+        return selected
+    }
+
+    private static func totalDuration(_ samples: [HKSample]) -> TimeInterval {
+        samples.reduce(0) { $0 + $1.endDate.timeIntervalSince($1.startDate) }
+    }
+
+    private static func shouldIncludeCategorySample(_ sample: HKSample, for metricType: String) -> Bool {
         guard metricType.hasPrefix("sleep") else { return true }
         guard let categorySample = sample as? HKCategorySample else { return false }
 

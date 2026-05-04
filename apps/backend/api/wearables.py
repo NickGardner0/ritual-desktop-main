@@ -2038,6 +2038,7 @@ def create_wearables_router(
     from schemas.wearables_apple import (
         AppleIngestRequestV2,
         AppleIngestResponseV2,
+        AppleSyncTelemetryRequest,
         DeleteResult,
         SyncStatusResponse,
     )
@@ -2108,6 +2109,63 @@ def create_wearables_router(
             raise
         except Exception as e:
             logger.error(f"❌ V2 Ingest error: {str(e)}")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.post("/api/wearables/apple/telemetry")
+    @limiter.limit("120/minute")
+    async def submit_apple_sync_telemetry(
+        request: Request,
+        telemetry_request: AppleSyncTelemetryRequest,
+        current_user=Depends(get_current_user),
+    ):
+        """
+        Accept mobile-side Apple Health sync diagnostics.
+
+        These events are intentionally stored in application logs and mirrored to
+        the device's last_seen_at timestamp instead of requiring a migration. The
+        payload lets us distinguish "iOS never tried", "HealthKit query returned
+        zero", "upload queued", and "backend rejected upload" in production logs.
+        """
+        try:
+            from database.connection import get_db_session
+            from database.models import WearableDeviceDB
+            from sqlalchemy import select
+
+            if telemetry_request.device_id:
+                async with get_db_session() as session:
+                    result = await session.execute(
+                        select(WearableDeviceDB).where(
+                            WearableDeviceDB.id == telemetry_request.device_id,
+                            WearableDeviceDB.user_id == current_user["id"],
+                        )
+                    )
+                    device = result.scalar_one_or_none()
+                    if device:
+                        device.last_seen_at = datetime.utcnow()
+                        if telemetry_request.sdk_version:
+                            device.sdk_version = telemetry_request.sdk_version
+                        await session.commit()
+
+            for event in telemetry_request.events:
+                logger.info(
+                    "📱 Apple Health telemetry: user=%s device=%s event=%s metric=%s success=%s records=%s duration_ms=%s queue_pending=%s error=%s",
+                    current_user["id"],
+                    telemetry_request.device_id,
+                    event.event_type,
+                    event.metric_type,
+                    event.success,
+                    event.record_count,
+                    event.duration_ms,
+                    event.queue_pending_count,
+                    event.error_message,
+                )
+
+            return {
+                "accepted": len(telemetry_request.events),
+                "server_time": datetime.utcnow().isoformat() + "Z",
+            }
+        except Exception as e:
+            logger.error(f"❌ Apple telemetry error: {str(e)}")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
     
     

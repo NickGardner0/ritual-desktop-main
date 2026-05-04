@@ -253,6 +253,18 @@ final class AppState: ObservableObject {
             let response = try await apiClient.fetchTrackedMetrics()
             trackedMetricTypes = response.metricTypes
             trackedHabits = response.habits
+            await syncManager.submitTelemetryEvent(
+                eventType: "credentials_valid",
+                taskType: "foreground",
+                success: true
+            )
+            await syncManager.submitTelemetryEvent(
+                eventType: "tracked_metrics_received",
+                taskType: "foreground",
+                success: true,
+                recordCount: trackedMetricTypes.count,
+                metadata: ["metric_types": AnyCodable(trackedMetricTypes)]
+            )
             #if DEBUG
             print("📊 Tracked metrics: \(trackedMetricTypes)")
             #endif
@@ -262,24 +274,48 @@ final class AppState: ObservableObject {
                 #if DEBUG
                 print("❌ Token expired (401)")
                 #endif
+                await syncManager.submitTelemetryEvent(
+                    eventType: "credentials_invalid",
+                    taskType: "foreground",
+                    success: false,
+                    errorMessage: error.localizedDescription
+                )
                 return false
             }
             if case .serverError(401, _) = error {
                 #if DEBUG
                 print("❌ Token expired (401)")
                 #endif
+                await syncManager.submitTelemetryEvent(
+                    eventType: "credentials_invalid",
+                    taskType: "foreground",
+                    success: false,
+                    errorMessage: error.localizedDescription
+                )
                 return false
             }
             // Other errors (network, etc.) - assume still valid
             #if DEBUG
             print("⚠️ Error checking connection: \(error)")
             #endif
+            await syncManager.submitTelemetryEvent(
+                eventType: "credentials_check_error",
+                taskType: "foreground",
+                success: false,
+                errorMessage: error.localizedDescription
+            )
             return true
         } catch {
             // Non-API errors - assume still valid
             #if DEBUG
             print("⚠️ Error checking connection: \(error)")
             #endif
+            await syncManager.submitTelemetryEvent(
+                eventType: "credentials_check_error",
+                taskType: "foreground",
+                success: false,
+                errorMessage: error.localizedDescription
+            )
             return true
         }
     }
@@ -299,6 +335,13 @@ final class AppState: ObservableObject {
             let response = try await apiClient.fetchTrackedMetrics()
             trackedMetricTypes = response.metricTypes
             trackedHabits = response.habits
+            await syncManager.submitTelemetryEvent(
+                eventType: "tracked_metrics_received",
+                taskType: "foreground",
+                success: true,
+                recordCount: trackedMetricTypes.count,
+                metadata: ["metric_types": AnyCodable(trackedMetricTypes)]
+            )
             #if DEBUG
             print("📊 Tracked metrics: \(trackedMetricTypes)")
             #endif
@@ -318,6 +361,12 @@ final class AppState: ObservableObject {
                 #if DEBUG
                 print("❌ Token expired during fetch - disconnecting")
                 #endif
+                await syncManager.submitTelemetryEvent(
+                    eventType: "credentials_invalid",
+                    taskType: "foreground",
+                    success: false,
+                    errorMessage: error.localizedDescription
+                )
                 await disconnect()
                 return false
             }
@@ -325,6 +374,12 @@ final class AppState: ObservableObject {
                 #if DEBUG
                 print("❌ Token expired during fetch - disconnecting")
                 #endif
+                await syncManager.submitTelemetryEvent(
+                    eventType: "credentials_invalid",
+                    taskType: "foreground",
+                    success: false,
+                    errorMessage: error.localizedDescription
+                )
                 await disconnect()
                 return false
             }
@@ -333,6 +388,12 @@ final class AppState: ObservableObject {
             #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
+            await syncManager.submitTelemetryEvent(
+                eventType: "tracked_metrics_fetch_failed",
+                taskType: "foreground",
+                success: false,
+                errorMessage: error.localizedDescription
+            )
             refreshSyncDiagnostics()
             return false
         } catch {
@@ -341,15 +402,34 @@ final class AppState: ObservableObject {
             #endif
             trackedMetricTypes = previousMetricTypes
             trackedHabits = previousHabits
+            await syncManager.submitTelemetryEvent(
+                eventType: "tracked_metrics_fetch_failed",
+                taskType: "foreground",
+                success: false,
+                errorMessage: error.localizedDescription
+            )
             refreshSyncDiagnostics()
             return false
         }
     }
 
     func requestHealthAccess() async {
+        await syncManager.submitTelemetryEvent(
+            eventType: "healthkit_authorization_requested",
+            taskType: "foreground",
+            recordCount: trackedMetricTypes.count,
+            metadata: ["metric_types": AnyCodable(trackedMetricTypes)]
+        )
         do {
             let authorized = try await healthKitManager.requestAuthorization(forMetricTypes: trackedMetricTypes)
             healthAccessStatus = authorized ? .authorized : .denied
+            await syncManager.submitTelemetryEvent(
+                eventType: "healthkit_authorization_completed",
+                taskType: "foreground",
+                success: authorized,
+                recordCount: trackedMetricTypes.count,
+                metadata: ["status": AnyCodable(healthAccessStatus.displayText)]
+            )
             
             // If we got access and are connected, enable background delivery
             if authorized && isConnected && !trackedMetricTypes.isEmpty {
@@ -357,6 +437,13 @@ final class AppState: ObservableObject {
             }
         } catch {
             healthAccessStatus = .denied
+            await syncManager.submitTelemetryEvent(
+                eventType: "healthkit_authorization_completed",
+                taskType: "foreground",
+                success: false,
+                recordCount: trackedMetricTypes.count,
+                errorMessage: error.localizedDescription
+            )
             showError(message: "Failed to request health access: \(error.localizedDescription)")
         }
     }

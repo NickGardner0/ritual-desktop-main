@@ -230,6 +230,47 @@ struct NormalizedMetric: Codable {
     }
 }
 
+extension NormalizedMetric {
+    func withShouldProjectToHabitLogs(_ shouldProject: Bool) -> NormalizedMetric {
+        let decoder = ISO8601DateFormatter()
+        let start = decoder.date(from: startTime) ?? Date()
+        let end = decoder.date(from: endTime) ?? start
+        let recorded = recordedAt.flatMap { decoder.date(from: $0) }
+
+        let attributed: Date?
+        if let attributedDate {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.timeZone = TimeZone.current
+            attributed = formatter.date(from: attributedDate)
+        } else {
+            attributed = nil
+        }
+
+        return NormalizedMetric(
+            source: source,
+            metricType: metricType,
+            startTime: start,
+            endTime: end,
+            timezone: timezone,
+            value: value,
+            unit: unit,
+            confidence: confidence,
+            deviceId: deviceId,
+            externalId: externalId,
+            sourceBundleId: sourceBundleId,
+            sourceDeviceName: sourceDeviceName,
+            attributedDate: attributed,
+            recordedAt: recorded,
+            aggregationKind: aggregationKind,
+            rollupWindowMinutes: rollupWindowMinutes,
+            sampleCount: sampleCount,
+            shouldProjectToHabitLogs: shouldProject,
+            rawPayload: rawPayload
+        )
+    }
+}
+
 /// Workout-specific metric with additional details
 struct WorkoutMetric: Codable {
     let metric: NormalizedMetric

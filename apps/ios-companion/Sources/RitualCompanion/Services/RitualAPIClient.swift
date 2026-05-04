@@ -261,6 +261,36 @@ actor RitualAPIClient {
             body: request
         )
     }
+
+    /// Send best-effort mobile sync diagnostics. Telemetry must never block or
+    /// fail a HealthKit sync, so this method swallows all errors after logging.
+    func submitAppleSyncTelemetry(_ events: [AppleSyncTelemetryEvent]) async {
+        guard !events.isEmpty else { return }
+        guard authToken != nil else { return }
+
+        do {
+            try await ensureValidToken()
+            let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+            let batchSize = 100
+            for startIndex in stride(from: 0, to: events.count, by: batchSize) {
+                let eventBatch = Array(events[startIndex..<min(startIndex + batchSize, events.count)])
+                let request = AppleSyncTelemetryRequest(
+                    deviceId: deviceId,
+                    platform: "ios",
+                    sdkVersion: version,
+                    events: eventBatch
+                )
+                let _: EmptyResponse = try await post(
+                    path: "/api/wearables/apple/telemetry",
+                    body: request
+                )
+            }
+        } catch {
+            #if DEBUG
+            print("⚠️ Apple sync telemetry failed: \(error.localizedDescription)")
+            #endif
+        }
+    }
     
     // MARK: - Silent Token Refresh
 
@@ -806,13 +836,38 @@ enum MetricSyncMode: String, Codable {
 
 struct TrackedMetricSyncPreference: Codable {
     let syncMode: MetricSyncMode
+    let syncPlan: WearableSyncPlan?
 
     enum CodingKeys: String, CodingKey {
         case syncMode = "sync_mode"
+        case syncPlan = "sync_plan"
     }
 
-    init(syncMode: MetricSyncMode) {
+    init(syncMode: MetricSyncMode, syncPlan: WearableSyncPlan? = nil) {
         self.syncMode = syncMode
+        self.syncPlan = syncPlan
+    }
+}
+
+struct WearableSyncPlan: Codable {
+    let provider: String?
+    let metricType: String?
+    let syncMode: MetricSyncMode?
+    let deliveryMode: String?
+    let backfillMode: String?
+    let safeHistoryDays: Int?
+    let projectsToHabitLogs: Bool?
+    let capabilityProvider: String?
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case metricType = "metric_type"
+        case syncMode = "sync_mode"
+        case deliveryMode = "delivery_mode"
+        case backfillMode = "backfill_mode"
+        case safeHistoryDays = "safe_history_days"
+        case projectsToHabitLogs = "projects_to_habit_logs"
+        case capabilityProvider = "capability_provider"
     }
 }
 
