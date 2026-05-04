@@ -26,9 +26,9 @@ function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolea
   useEffect(() => {
     if (!detachedSidebarMode || !isTauri()) return;
     (async () => {
-      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
-      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      const sidebarWindow = await WebviewWindow.getByLabel('sidebar');
       await sidebarWindow?.emit('sidebar:route', route);
     })();
   }, [detachedSidebarMode, pathname, searchParams]);
@@ -80,9 +80,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
     let unlisten: (() => void) | null = null;
     (async () => {
-      const { invoke } = await import('@tauri-apps/api/tauri');
+      const { invoke } = await import('@tauri-apps/api/core');
       const { listen } = await import('@tauri-apps/api/event');
-      const { WebviewWindow } = await import('@tauri-apps/api/window');
+      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
 
       try {
         const state = await invoke<{ width?: number }>('sidebar_get_main_state');
@@ -100,7 +100,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       });
 
       const route = `${window.location.pathname}${window.location.search}`;
-      const sidebarWindow = WebviewWindow.getByLabel('sidebar');
+      const sidebarWindow = await WebviewWindow.getByLabel('sidebar');
       await sidebarWindow?.emit('sidebar:route', route);
     })();
 
@@ -147,9 +147,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
         >
           {isChatRoute && (
-            <div className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]" />
+            <div
+              data-tauri-drag-region
+              className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]"
+            />
           )}
-          <div className="relative flex items-center w-full translate-y-[4px]">
+          <div
+            data-tauri-drag-region
+            className="relative flex items-center w-full translate-y-[4px]"
+          >
             {/* Left zone — Search + page-specific left actions */}
             <div
               className="no-drag flex items-center space-x-2.5 min-w-0"

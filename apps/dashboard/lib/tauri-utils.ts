@@ -2,7 +2,11 @@
  * Tauri utility functions for desktop app
  */
 
-import { invokeDesktopCommand, openDesktopExternalUrl } from '@/lib/desktop-bridge/commands';
+import {
+  invokeDesktopCommand,
+  openDesktopExternalUrl,
+  openDesktopExternalUrlWithFallback,
+} from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 
 /**
@@ -28,7 +32,7 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
   if (!isTauri()) return true;
 
   try {
-    const { invoke } = await import('@tauri-apps/api/tauri');
+    const { invoke } = await import('@tauri-apps/api/core');
 
     const alreadyGranted = await invoke<boolean>('check_native_microphone_permission').catch(() => false);
     if (alreadyGranted) {
@@ -70,7 +74,8 @@ export async function showMainWindow(): Promise<void> {
   } catch (error) {
     // Fallback to direct window API
     try {
-      const { appWindow } = await import('@tauri-apps/api/window');
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      const appWindow = getCurrentWindow();
       await appWindow.show();
       await appWindow.setFocus();
       windowShown = true;
@@ -99,6 +104,17 @@ export async function openInBrowser(url: string): Promise<void> {
   }
 }
 
+export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
+  try {
+    await openDesktopExternalUrlWithFallback(url, { preferNative: true });
+  } catch (error) {
+    console.error('Failed to open desktop auth URL in browser:', error);
+    if (typeof window !== 'undefined') {
+      window.location.assign(url);
+    }
+  }
+}
+
 /**
  * Resize the Tauri window
  */
@@ -108,8 +124,8 @@ export async function resizeWindow(width: number, height: number): Promise<void>
   }
 
   try {
-    const { appWindow } = await import('@tauri-apps/api/window');
-    const { LogicalSize } = await import('@tauri-apps/api/window');
+    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
+    const appWindow = getCurrentWindow();
     await appWindow.setSize(new LogicalSize(width, height));
     await appWindow.center();
   } catch (error) {

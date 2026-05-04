@@ -54,7 +54,7 @@ export function AppIcon({
     
     setLoading(true)
     try {
-      const { invoke } = await import('@tauri-apps/api/tauri')
+      const { invoke } = await import('@tauri-apps/api/core')
       const result = await invoke<{
         bundle_id: string
         icon_path: string | null
@@ -189,7 +189,7 @@ export function RankedBars({
 
     const loadIcons = async () => {
       try {
-        const { invoke } = await import('@tauri-apps/api/tauri')
+        const { invoke } = await import('@tauri-apps/api/core')
         const responses = await invoke<Array<{
           bundle_id: string
           icon_path: string | null

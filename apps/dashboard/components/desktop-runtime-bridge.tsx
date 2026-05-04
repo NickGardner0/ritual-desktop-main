@@ -21,12 +21,12 @@ interface RuntimeBridgeSignalsResponse {
 
 type DesktopBridgeMode = 'probing' | 'native' | 'legacy';
 
-type TauriInvoke = typeof import('@tauri-apps/api/tauri').invoke;
+type TauriInvoke = typeof import('@tauri-apps/api/core').invoke;
 let tauriInvokePromise: Promise<TauriInvoke> | null = null;
 
 async function getTauriInvoke(): Promise<TauriInvoke> {
   if (!tauriInvokePromise) {
-    tauriInvokePromise = import('@tauri-apps/api/tauri').then((module) => module.invoke);
+    tauriInvokePromise = import('@tauri-apps/api/core').then((module) => module.invoke);
   }
   return tauriInvokePromise;
 }
@@ -131,7 +131,7 @@ function RuntimeSyncBridge() {
           return;
         }
 
-        const { invoke } = await import('@tauri-apps/api/tauri');
+        const { invoke } = await import('@tauri-apps/api/core');
         await invoke('write_auth_token_to_file', {
           token,
           origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_auth_token_to_file'),

@@ -84,8 +84,8 @@ export default function WidgetPage() {
     if (typeof window !== 'undefined') {
       // Try to close the Tauri window
       try {
-        import('@tauri-apps/api/window').then(({ getCurrent }) => {
-          getCurrent().close()
+        import('@tauri-apps/api/window').then(({ getCurrentWindow }) => {
+          getCurrentWindow().close()
         })
       } catch {
         window.close()
@@ -112,8 +112,8 @@ export default function WidgetPage() {
     if (typeof window !== 'undefined') {
       const resizeWindow = async () => {
         try {
-          const { getCurrent, LogicalSize } = await import('@tauri-apps/api/window');
-          const currentWindow = getCurrent();
+          const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
+          const currentWindow = getCurrentWindow();
           
           if (showHabitSelector) {
             // Expand window height to show dropdown

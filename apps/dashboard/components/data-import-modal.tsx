@@ -379,7 +379,7 @@ export function DataImportModal({
             
             // Read the file using Tauri's fs API
             try {
-              const { readBinaryFile, BaseDirectory } = await import("@tauri-apps/api/fs");
+              const { readFile } = await import("@tauri-apps/plugin-fs");
               const fileName = filePath.split("/").pop() || filePath.split("\\").pop() || "file";
               
               // Check if it's an acceptable file type
@@ -392,7 +392,7 @@ export function DataImportModal({
               }
               
               // Read file content
-              const contents = await readBinaryFile(filePath);
+              const contents = await readFile(filePath);
               
               // Create a File object from the binary data
               const mimeTypes: Record<string, string> = {

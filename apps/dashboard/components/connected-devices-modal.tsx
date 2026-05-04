@@ -153,7 +153,7 @@ export function ConnectedDevicesBar() {
                   className={cn(
                     'flex items-center justify-center overflow-visible',
                     d.id === 'oura'
-                      ? 'h-[17px] w-[17px]'
+                      ? 'h-[20px] w-[20px]'
                       : d.id === 'plaid'
                         ? 'h-[13px] w-[13px]'
                         : 'h-[14px] w-[14px]'
@@ -165,7 +165,7 @@ export function ConnectedDevicesBar() {
                     className={cn(
                       'object-contain',
                       d.id === 'oura'
-                        ? 'h-[17px] w-[17px]'
+                        ? 'h-[20px] w-[20px]'
                         : d.id === 'plaid'
                           ? 'h-[12px] w-[12px]'
                           : 'h-[14px] w-[14px]'

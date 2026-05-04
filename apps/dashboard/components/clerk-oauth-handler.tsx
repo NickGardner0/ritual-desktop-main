@@ -2,16 +2,19 @@
 
 import { useEffect } from 'react';
 
-import { isTauri, openInBrowser } from '@/lib/tauri-utils';
+import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
+import { openInBrowserFromDesktopAuth } from '@/lib/tauri-utils';
 
 type DesktopOAuthMode = 'sign_in' | 'sign_up';
+type DesktopOAuthStrategy = 'oauth_google' | 'oauth_apple';
 
 interface ClerkOAuthHandlerProps {
   mode?: DesktopOAuthMode;
   enabled?: boolean;
+  desktopMode?: boolean;
 }
 
-function getOAuthStrategyFromElement(element: HTMLElement | null): 'oauth_google' | 'oauth_apple' | null {
+function getOAuthStrategyFromElement(element: HTMLElement | null): DesktopOAuthStrategy | null {
   if (!element) return null;
 
   const button = element.closest('button, a');
@@ -31,7 +34,7 @@ function getOAuthStrategyFromElement(element: HTMLElement | null): 'oauth_google
   return null;
 }
 
-function buildDesktopOAuthStartUrl(mode: DesktopOAuthMode, strategy: 'oauth_google' | 'oauth_apple'): string {
+function buildDesktopOAuthStartUrl(mode: DesktopOAuthMode, strategy: DesktopOAuthStrategy): string {
   const url = new URL('/auth/desktop-start-oauth', window.location.origin);
   url.searchParams.set('mode', mode);
   url.searchParams.set('strategy', strategy);
@@ -41,9 +44,10 @@ function buildDesktopOAuthStartUrl(mode: DesktopOAuthMode, strategy: 'oauth_goog
 export function ClerkOAuthHandler({
   mode = 'sign_in',
   enabled = true,
+  desktopMode = false,
 }: ClerkOAuthHandlerProps) {
   useEffect(() => {
-    if (!enabled || !isTauri()) {
+    if (!enabled || !desktopMode) {
       return;
     }
 
@@ -61,7 +65,12 @@ export function ClerkOAuthHandler({
       }
 
       const oauthStartUrl = buildDesktopOAuthStartUrl(mode, strategy);
-      void openInBrowser(oauthStartUrl);
+      void recordDesktopShellEvent('desktop.auth_oauth.launch_requested', 'info', {
+        mode,
+        strategy,
+        oauthStartUrl,
+      });
+      void openInBrowserFromDesktopAuth(oauthStartUrl);
     };
 
     document.addEventListener('click', handleClickCapture, true);
@@ -69,7 +78,7 @@ export function ClerkOAuthHandler({
     return () => {
       document.removeEventListener('click', handleClickCapture, true);
     };
-  }, [enabled, mode]);
+  }, [desktopMode, enabled, mode]);
 
   return null;
 }

@@ -1032,9 +1032,9 @@ export function MetricsView({
       const fileName = getShareFileName();
 
       if (isTauri()) {
-        const [{ save }, { writeBinaryFile }] = await Promise.all([
-          import('@tauri-apps/api/dialog'),
-          import('@tauri-apps/api/fs'),
+        const [{ save }, { writeFile }] = await Promise.all([
+          import('@tauri-apps/plugin-dialog'),
+          import('@tauri-apps/plugin-fs'),
         ]);
         const destination = await save({
           defaultPath: fileName,
@@ -1043,10 +1043,7 @@ export function MetricsView({
         if (!destination) return;
 
         const bytes = new Uint8Array(await blob.arrayBuffer());
-        await writeBinaryFile({
-          path: destination,
-          contents: bytes,
-        });
+        await writeFile(destination, bytes);
       } else {
         const downloadUrl = URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -1085,7 +1082,7 @@ export function MetricsView({
       }
 
       if (isTauri()) {
-        const { invoke } = await import('@tauri-apps/api/tauri');
+        const { invoke } = await import('@tauri-apps/api/core');
         const bytes = new Uint8Array(await blob.arrayBuffer());
         let binary = '';
         const chunkSize = 0x8000;

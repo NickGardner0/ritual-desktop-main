@@ -17,7 +17,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser, useClerk } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
-import { invoke } from '@tauri-apps/api/tauri';
+import { invoke } from '@tauri-apps/api/core';
 import { ChevronRight, Monitor, Search } from 'lucide-react';
 import { openInBrowser, isTauri } from '@/lib/tauri-utils';
 import { useHabits } from '@/contexts/HabitsContext';
@@ -3305,8 +3305,8 @@ export function IntegrationsClient() {
       if (isTauri()) {
         // Desktop: use Tauri save dialog
         try {
-          const { save } = await import('@tauri-apps/api/dialog');
-          const { writeTextFile } = await import('@tauri-apps/api/fs');
+          const { save } = await import('@tauri-apps/plugin-dialog');
+          const { writeTextFile } = await import('@tauri-apps/plugin-fs');
           exportedContent = exportFormat === 'json' ? JSON.stringify(await res.json(), null, 2) : await res.text();
           const filePath = await save({
             defaultPath: filename,
@@ -3319,7 +3319,7 @@ export function IntegrationsClient() {
             if (exportWriteMode === 'skip') {
               // Check if file exists first
               try {
-                const { exists } = await import('@tauri-apps/api/fs');
+                const { exists } = await import('@tauri-apps/plugin-fs');
                 if (await exists(filePath)) {
                   setExportResult({ type: 'success', message: `Skipped — file already exists: ${filePath}` });
                   return;
@@ -3330,7 +3330,7 @@ export function IntegrationsClient() {
             }
             if (exportWriteMode === 'append') {
               try {
-                const { readTextFile } = await import('@tauri-apps/api/fs');
+                const { readTextFile } = await import('@tauri-apps/plugin-fs');
                 const existing = await readTextFile(filePath);
                 exportedContent = existing + '\n\n' + exportedContent;
               } catch {
