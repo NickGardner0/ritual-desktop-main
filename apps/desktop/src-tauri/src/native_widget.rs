@@ -13,6 +13,7 @@ extern "C" {
 }
 
 use crate::watcher;
+use chrono::{DateTime, Utc};
 use std::time::Instant;
 use tracing::instrument;
 
@@ -111,6 +112,32 @@ pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
     }
 
     Ok(Some(config))
+}
+
+pub(crate) fn turso_sync_config_is_fresh_enough(config: &TursoSyncConfig) -> bool {
+    let expires_at = config.expires_at.trim();
+    if expires_at.is_empty() {
+        return false;
+    }
+
+    let Ok(expires_at) = DateTime::parse_from_rfc3339(expires_at) else {
+        return false;
+    };
+
+    let refresh_at = expires_at.with_timezone(&Utc) - chrono::Duration::minutes(30);
+    refresh_at > Utc::now()
+}
+
+pub(crate) fn persisted_turso_sync_config_is_fresh_enough() -> bool {
+    let Ok(Some(config)) = load_turso_sync_config() else {
+        return false;
+    };
+
+    turso_sync_config_is_fresh_enough(&config)
+}
+
+pub(crate) fn set_turso_sync_env(config: Option<&TursoSyncConfig>) {
+    apply_turso_env(config);
 }
 
 fn persist_turso_sync_config_file(config: &TursoSyncConfig) -> Result<std::path::PathBuf, String> {
@@ -245,13 +272,8 @@ pub(crate) async fn apply_turso_sync_config_internal(
 
     if let Err(error) = apply_result {
         nw_error!("❌ Failed to apply Turso sync config: {}", error);
-        if let Err(rollback_error) = rollback_turso_config(
-            &origin,
-            &previous_config,
-            &previous_env,
-            &None,
-        )
-        .await
+        if let Err(rollback_error) =
+            rollback_turso_config(&origin, &previous_config, &previous_env, &None).await
         {
             return Err(format!(
                 "Failed to apply Turso sync config: {error}; rollback also failed: {rollback_error}"

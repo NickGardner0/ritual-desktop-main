@@ -433,6 +433,12 @@ impl BlockingDatabase {
     pub fn mark_sync_failed(&self, queue_id: i64) -> Result<()> {
         self.rt.block_on(self.db.mark_sync_failed(queue_id))
     }
+
+    /// Mark sync item as permanently invalid.
+    pub fn mark_sync_dead_letter(&self, queue_id: i64, last_error: &str) -> Result<()> {
+        self.rt
+            .block_on(self.db.mark_sync_dead_letter(queue_id, last_error))
+    }
 }
 
 /// Database statistics (compatible with watcher binary)

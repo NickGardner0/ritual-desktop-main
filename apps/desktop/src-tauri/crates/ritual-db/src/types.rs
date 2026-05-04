@@ -588,6 +588,8 @@ pub enum SyncStatus {
     Pending,
     Synced,
     Failed,
+    #[serde(rename = "dead_letter")]
+    DeadLetter,
 }
 
 impl SyncStatus {
@@ -596,6 +598,7 @@ impl SyncStatus {
             SyncStatus::Pending => "pending",
             SyncStatus::Synced => "synced",
             SyncStatus::Failed => "failed",
+            SyncStatus::DeadLetter => "dead_letter",
         }
     }
 
@@ -603,6 +606,7 @@ impl SyncStatus {
         match s.to_lowercase().as_str() {
             "synced" | "uploaded" => SyncStatus::Synced,
             "failed" => SyncStatus::Failed,
+            "dead_letter" => SyncStatus::DeadLetter,
             _ => SyncStatus::Pending,
         }
     }

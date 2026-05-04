@@ -197,7 +197,10 @@ fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
     *in_progress = false;
 }
 
-fn set_pending_update<R: Runtime + 'static>(app: &AppHandle<R>, update: Option<PendingUpdateManifest>) {
+fn set_pending_update<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+    update: Option<PendingUpdateManifest>,
+) {
     let state = app.state::<DesktopShellState>();
     let mut pending = state
         .pending_update
@@ -263,21 +266,7 @@ fn normalize_backend_base(value: Option<String>) -> Option<String> {
 }
 
 fn persisted_turso_config_is_fresh_enough() -> bool {
-    let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() else {
-        return false;
-    };
-
-    let expires_at = config.expires_at.trim();
-    if expires_at.is_empty() {
-        return false;
-    }
-
-    let Ok(expires_at) = DateTime::parse_from_rfc3339(expires_at) else {
-        return false;
-    };
-
-    let refresh_at = expires_at.with_timezone(&Utc) - chrono::Duration::minutes(30);
-    refresh_at > Utc::now()
+    crate::native_widget::persisted_turso_sync_config_is_fresh_enough()
 }
 
 fn should_skip_immediate_turso_refresh<R: Runtime>(app: &AppHandle<R>) -> bool {
@@ -336,7 +325,7 @@ fn build_auth_runtime_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthRuntim
     }
 }
 
-fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
+pub(crate) fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
     let _ = app.emit(
         TOKEN_REFRESH_NEEDED_EVENT,
         Utc::now().timestamp_millis() as f64,
@@ -449,10 +438,11 @@ async fn prompt_for_native_install<R: Runtime>(
     latest_version: String,
     body: Option<String>,
 ) -> Result<bool, String> {
-    let release_notes = body.unwrap_or_else(|| "This update includes the latest Ritual desktop improvements.".to_string());
-    let prompt = format!(
-        "Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nInstall now?"
-    );
+    let release_notes = body.unwrap_or_else(|| {
+        "This update includes the latest Ritual desktop improvements.".to_string()
+    });
+    let prompt =
+        format!("Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nInstall now?");
 
     tauri::async_runtime::spawn_blocking(move || {
         Ok::<bool, String>(
@@ -912,6 +902,9 @@ pub fn desktop_frontend_ready<R: Runtime>(app: AppHandle<R>) -> DesktopRuntimeIn
     drop(frontend_ready);
 
     flush_pending_auth_deep_link(&app);
+    if !persisted_turso_config_is_fresh_enough() {
+        request_token_refresh(&app);
+    }
 
     build_runtime_info(&app)
 }

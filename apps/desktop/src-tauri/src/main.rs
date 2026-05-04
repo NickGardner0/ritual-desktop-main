@@ -2,9 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
+mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
-mod cloud_sync;
 mod native_widget;
 #[cfg(feature = "native-recorder")]
 mod recorder;
@@ -89,6 +89,14 @@ struct DesktopShellFeatureFlags {
     shell_heartbeat_enabled: bool,
     shell_auto_recover_enabled: bool,
     deep_link_v2_enabled: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PersistedTursoSyncConfigLoadStatus {
+    LoadedFresh,
+    Missing,
+    ExpiredOrStale,
+    Error,
 }
 
 impl DesktopShellFeatureFlags {
@@ -318,24 +326,29 @@ fn env_flag_enabled(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn load_persisted_turso_sync_config() {
+fn load_persisted_turso_sync_config() -> PersistedTursoSyncConfigLoadStatus {
     match native_widget::load_turso_sync_config() {
         Ok(Some(config)) => {
-            env::set_var("TURSO_SYNC_URL", &config.sync_url);
-            env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
-            if !config.expires_at.trim().is_empty() {
-                env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
+            if native_widget::turso_sync_config_is_fresh_enough(&config) {
+                native_widget::set_turso_sync_env(Some(&config));
+                println!("🔄 Loaded persisted Turso sync config");
+                PersistedTursoSyncConfigLoadStatus::LoadedFresh
+            } else {
+                native_widget::set_turso_sync_env(None);
+                println!(
+                    "⚠️ Persisted Turso sync config is expired or near expiry; requesting refresh"
+                );
+                PersistedTursoSyncConfigLoadStatus::ExpiredOrStale
             }
-            if !config.database_name.trim().is_empty() {
-                env::set_var("TURSO_DATABASE_NAME", &config.database_name);
-            }
-            println!("🔄 Loaded persisted Turso sync config");
         }
         Ok(None) => {
             println!("📂 No persisted Turso sync config found");
+            PersistedTursoSyncConfigLoadStatus::Missing
         }
         Err(error) => {
             eprintln!("⚠️ Failed to load persisted Turso sync config: {}", error);
+            native_widget::set_turso_sync_env(None);
+            PersistedTursoSyncConfigLoadStatus::Error
         }
     }
 }
@@ -401,11 +414,19 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
 
         let persisted_sync_started_at = Instant::now();
         match tauri::async_runtime::spawn_blocking(load_persisted_turso_sync_config).await {
-            Ok(()) => {
+            Ok(status) => {
                 info!(
+                    status = ?status,
                     duration_ms = persisted_sync_started_at.elapsed().as_millis() as u64,
                     "Loaded persisted Turso sync config"
                 );
+                if matches!(
+                    status,
+                    PersistedTursoSyncConfigLoadStatus::ExpiredOrStale
+                        | PersistedTursoSyncConfigLoadStatus::Error
+                ) {
+                    desktop_runtime::request_token_refresh(&app);
+                }
             }
             Err(error) => {
                 warn!(

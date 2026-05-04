@@ -2,8 +2,8 @@ use crate::{desktop_runtime, native_widget, ritual_database};
 use chrono::Utc;
 use libsql::{Builder, Connection, Database};
 use serde_json::Value;
-use std::time::Duration;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tauri::{AppHandle, Runtime};
 use tracing::{debug, info, warn};
 
@@ -51,7 +51,7 @@ async fn run_cloud_sync_pass<R: Runtime + 'static>(app: AppHandle<R>) -> Result<
     result
 }
 
-async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> Result<(), String> {
+async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> {
     let local_metrics = read_local_cloud_sync_metrics().await?;
 
     let Some(config) = native_widget::load_turso_sync_config()? else {
@@ -63,6 +63,18 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> 
         );
         return Ok(());
     };
+
+    if !native_widget::turso_sync_config_is_fresh_enough(&config) {
+        native_widget::set_turso_sync_env(None);
+        desktop_runtime::request_token_refresh(&app);
+        ritual_database::record_cloud_sync_runtime_state(
+            local_metrics.latest_local_event_ts,
+            ritual_database::database_runtime_state_snapshot().latest_cloud_sync_ts,
+            local_metrics.backlog,
+            Some("turso_sync_config_expired".to_string()),
+        );
+        return Ok(());
+    }
 
     let guard = ritual_database::get_activity_db().await?;
     let db = guard
@@ -93,9 +105,9 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> 
     for item in pending {
         match upload_outbox_item(&remote_conn, &item).await {
             Ok(()) => {
-                db.mark_synced(item.id)
-                    .await
-                    .map_err(|error| format!("Failed to ack uploaded cloud sync row {}: {error}", item.id))?;
+                db.mark_synced(item.id).await.map_err(|error| {
+                    format!("Failed to ack uploaded cloud sync row {}: {error}", item.id)
+                })?;
                 uploaded += 1;
             }
             Err(error) => {
@@ -103,14 +115,25 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> 
                 if looks_like_auth_error(&error) {
                     auth_failure = true;
                 }
-                db.mark_sync_failed(item.id)
-                    .await
-                    .map_err(|ack_error| {
-                        format!(
-                            "Cloud sync row {} failed with '{error}', and marking it failed also errored: {ack_error}",
-                            item.id
-                        )
-                    })?;
+                if is_permanent_payload_error(&error) {
+                    db.mark_sync_dead_letter(item.id, &truncate_sync_error(&error))
+                        .await
+                        .map_err(|ack_error| {
+                            format!(
+                                "Cloud sync row {} failed permanently with '{error}', and dead-lettering it also errored: {ack_error}",
+                                item.id
+                            )
+                        })?;
+                } else {
+                    db.mark_sync_failed(item.id)
+                        .await
+                        .map_err(|ack_error| {
+                            format!(
+                                "Cloud sync row {} failed with '{error}', and marking it failed also errored: {ack_error}",
+                                item.id
+                            )
+                        })?;
+                }
                 if auth_failure {
                     break;
                 }
@@ -119,7 +142,8 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> 
     }
 
     let refreshed_metrics = read_local_cloud_sync_metrics().await?;
-    let previous_cloud_sync_ts = ritual_database::database_runtime_state_snapshot().latest_cloud_sync_ts;
+    let previous_cloud_sync_ts =
+        ritual_database::database_runtime_state_snapshot().latest_cloud_sync_ts;
     ritual_database::record_cloud_sync_runtime_state(
         refreshed_metrics.latest_local_event_ts,
         if uploaded > 0 {
@@ -141,6 +165,10 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(_app: AppHandle<R>) -> 
         debug!(error = %error, backlog = refreshed_metrics.backlog, "Desktop cloud sync made no progress");
     }
 
+    if auth_failure {
+        desktop_runtime::request_token_refresh(&app);
+    }
+
     Ok(())
 }
 
@@ -157,7 +185,10 @@ async fn open_remote_connection(
     Ok((db, conn))
 }
 
-async fn upload_outbox_item(conn: &Connection, item: &ritual_db::QueuedSyncItem) -> Result<(), String> {
+async fn upload_outbox_item(
+    conn: &Connection,
+    item: &ritual_db::QueuedSyncItem,
+) -> Result<(), String> {
     let payload_json = item
         .payload_json
         .as_ref()
@@ -462,8 +493,8 @@ async fn upsert_context_snapshot(conn: &Connection, payload: &Value) -> Result<(
             optional_string(payload, "browser_domain"),
             optional_string(payload, "tab_title"),
             optional_string(payload, "document_title"),
-            required_string(payload, "visible_text_raw")?,
-            required_string(payload, "visible_text_norm")?,
+            string_or_empty(payload, "visible_text_raw"),
+            string_or_empty(payload, "visible_text_norm"),
             required_f64(payload, "capture_quality")?,
             optional_string(payload, "capture_components_json"),
             required_f64(payload, "ax_richness_score")?,
@@ -582,6 +613,19 @@ fn looks_like_auth_error(error: &str) -> bool {
         || lowered.contains("invalid jwt")
 }
 
+fn is_permanent_payload_error(error: &str) -> bool {
+    let lowered = error.to_ascii_lowercase();
+    lowered.contains("invalid cloud sync payload")
+        || lowered.contains("missing payload_json")
+        || lowered.contains("missing required")
+        || lowered.contains("unsupported cloud sync entity_type")
+}
+
+fn truncate_sync_error(error: &str) -> String {
+    const MAX_ERROR_LEN: usize = 500;
+    error.chars().take(MAX_ERROR_LEN).collect()
+}
+
 #[derive(Debug, Clone, Copy)]
 struct LocalCloudSyncMetrics {
     latest_local_event_ts: Option<i64>,
@@ -598,7 +642,9 @@ async fn read_local_cloud_sync_metrics() -> Result<LocalCloudSyncMetrics, String
     let mut event_rows = conn
         .query("SELECT MAX(ts_end) FROM activity_events", ())
         .await
-        .map_err(|error| format!("Failed reading latest local activity event timestamp: {error}"))?;
+        .map_err(|error| {
+            format!("Failed reading latest local activity event timestamp: {error}")
+        })?;
     let latest_local_event_ts = event_rows
         .next()
         .await
@@ -640,6 +686,10 @@ fn optional_string(payload: &Value, key: &str) -> Option<String> {
         .and_then(|value| value.as_str())
         .map(|value| value.to_string())
         .filter(|value| !value.trim().is_empty())
+}
+
+fn string_or_empty(payload: &Value, key: &str) -> String {
+    optional_string(payload, key).unwrap_or_default()
 }
 
 fn required_i64(payload: &Value, key: &str) -> Result<i64, String> {

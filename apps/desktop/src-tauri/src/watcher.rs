@@ -43,7 +43,20 @@ struct LocalWatcherFreshness {
 }
 
 fn apply_turso_sync_env(command: &mut Command) {
-    let _ = command;
+    set_command_env_default(command, "RITUAL_DISABLE_APP_SWITCH_NOTIFICATIONS", "1");
+    set_command_env_default(command, "RITUAL_DISABLE_SCREEN_EVENT_NOTIFICATIONS", "1");
+    set_command_env_default(command, "RITUAL_DISABLE_WINDOW_TITLE_OBSERVER", "1");
+}
+
+fn set_command_env_default(command: &mut Command, key: &str, default_value: &str) {
+    match std::env::var(key) {
+        Ok(value) => {
+            command.env(key, value);
+        }
+        Err(_) => {
+            command.env(key, default_value);
+        }
+    }
 }
 
 fn require_db<'a, T>(db: Option<&'a T>) -> Result<&'a T, String> {
@@ -617,19 +630,7 @@ fn bundled_vision_helper_binary_path() -> Option<PathBuf> {
 }
 
 fn copy_external_support_binary(source: &Path, target: &Path, label: &str) {
-    let needs_copy = match (source.metadata(), target.metadata()) {
-        (Ok(source_meta), Ok(target_meta)) => {
-            let source_mtime = source_meta.modified().ok();
-            let target_mtime = target_meta.modified().ok();
-            source_meta.len() != target_meta.len()
-                || source_mtime
-                    .zip(target_mtime)
-                    .map(|(s, t)| s > t)
-                    .unwrap_or(false)
-        }
-        (Ok(_), Err(_)) => true,
-        _ => false,
-    };
+    let needs_copy = support_binary_needs_copy(source, target);
 
     if !needs_copy {
         return;
@@ -659,8 +660,7 @@ fn copy_external_support_binary(source: &Path, target: &Path, label: &str) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if let Err(err) = std::fs::set_permissions(target, std::fs::Permissions::from_mode(0o755))
-        {
+        if let Err(err) = std::fs::set_permissions(target, std::fs::Permissions::from_mode(0o755)) {
             watcher_info!(
                 "⚠️ Failed to mark external {label} binary executable {:?}: {}",
                 target,
@@ -670,6 +670,23 @@ fn copy_external_support_binary(source: &Path, target: &Path, label: &str) {
     }
 
     watcher_info!("✅ Installed external {label} helper at {:?}", target);
+}
+
+fn support_binary_needs_copy(source: &Path, target: &Path) -> bool {
+    let Ok(source_meta) = source.metadata() else {
+        return false;
+    };
+    let Ok(target_meta) = target.metadata() else {
+        return true;
+    };
+    if source_meta.len() != target_meta.len() {
+        return true;
+    }
+
+    match (std::fs::read(source), std::fs::read(target)) {
+        (Ok(source_bytes), Ok(target_bytes)) => source_bytes != target_bytes,
+        _ => true,
+    }
 }
 
 fn ensure_external_watcher_binary() {

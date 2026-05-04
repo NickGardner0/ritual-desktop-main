@@ -736,6 +736,14 @@ impl RitualDatabase {
         sync::SyncOps::new(&conn).mark_failed(queue_id).await
     }
 
+    /// Mark sync item as permanently invalid.
+    pub async fn mark_sync_dead_letter(&self, queue_id: i64, last_error: &str) -> Result<()> {
+        let conn = self.conn.read().await;
+        sync::SyncOps::new(&conn)
+            .mark_dead_letter(queue_id, last_error)
+            .await
+    }
+
     // --------------------------------------------------------------------
     // Segment Operations
     // --------------------------------------------------------------------
