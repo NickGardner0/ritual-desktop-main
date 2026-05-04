@@ -1295,8 +1295,21 @@ fn macos_feature_enabled(enable_var: &str, disable_var: &str) -> bool {
 }
 
 #[cfg(target_os = "macos")]
+fn macos_feature_opt_in(enable_var: &str, disable_var: &str) -> bool {
+    if let Some(disabled) = env_flag(disable_var) {
+        if disabled {
+            return false;
+        }
+    }
+    env_flag(enable_var).unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
 fn event_driven_app_switch_enabled() -> bool {
-    macos_feature_enabled(
+    // Keep NSWorkspace activation notifications opt-in for now. The polling loop
+    // still refreshes the active app/window every 2s, so capture richness stays
+    // intact while we remove one of the remaining Objective-C callback surfaces.
+    macos_feature_opt_in(
         "RITUAL_ENABLE_APP_SWITCH_NOTIFICATIONS",
         "RITUAL_DISABLE_APP_SWITCH_NOTIFICATIONS",
     )
@@ -1309,7 +1322,10 @@ fn event_driven_app_switch_enabled() -> bool {
 
 #[cfg(target_os = "macos")]
 fn screen_event_detection_enabled() -> bool {
-    macos_feature_enabled(
+    // Screen lock/sleep notifications improve boundary precision but are not
+    // required for OCR or activity capture. Keep them opt-in until the native
+    // observer crash surface is fully eliminated.
+    macos_feature_opt_in(
         "RITUAL_ENABLE_SCREEN_EVENT_NOTIFICATIONS",
         "RITUAL_DISABLE_SCREEN_EVENT_NOTIFICATIONS",
     )
@@ -1337,7 +1353,10 @@ fn browser_tab_tracker_enabled() -> bool {
 
 #[cfg(target_os = "macos")]
 fn window_title_observer_enabled() -> bool {
-    macos_feature_enabled(
+    // The dedicated AX observer is a responsiveness enhancement, not the source
+    // of truth for titles or OCR. Polling + CGWindow + focused AX text still
+    // run without it, so default this to off for stability.
+    macos_feature_opt_in(
         "RITUAL_ENABLE_WINDOW_TITLE_OBSERVER",
         "RITUAL_DISABLE_WINDOW_TITLE_OBSERVER",
     )
