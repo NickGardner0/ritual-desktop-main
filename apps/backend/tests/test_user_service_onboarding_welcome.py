@@ -18,6 +18,11 @@ class _Result:
         return self._first
 
 
+class _ExecResult:
+    def __init__(self, rowcount: int):
+        self.rowcount = rowcount
+
+
 class _SessionContext:
     def __init__(self, session):
         self._session = session
@@ -69,7 +74,7 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
         service = UserService()
         session = AsyncMock()
         session.add = Mock()
-        session.execute = AsyncMock(side_effect=[_Result(first=None), None])
+        session.execute = AsyncMock(side_effect=[_Result(first=None), _ExecResult(1)])
 
         with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
             "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
@@ -98,7 +103,7 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
             side_effect=[
                 _Result(first=_user_row(user_id="user-1", phone_number=None, sms_welcome_sent_at=None)),
                 None,
-                None,
+                _ExecResult(1),
             ]
         )
 
@@ -120,6 +125,33 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(user.phone_number, "+16317450064")
         self.assertIsInstance(user.sms_welcome_sent_at, datetime)
+        self.assertEqual(session.commit.await_count, 2)
+
+    async def test_ensure_user_exists_skips_welcome_when_claim_already_taken(self):
+        service = UserService()
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _Result(first=_user_row(user_id="user-1", phone_number=None, sms_welcome_sent_at=None)),
+                None,
+                _ExecResult(0),
+            ]
+        )
+
+        with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
+            "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",
+            AsyncMock(return_value={"event_id": "evt_1", "sent": True, "conversation_id": "conv_1"}),
+        ) as send_welcome:
+            user = await service.ensure_user_exists(
+                user_id="user-1",
+                email="nick@example.com",
+                full_name="Nick Gardner",
+                phone_number="631-745-0064",
+            )
+
+        send_welcome.assert_not_awaited()
+        self.assertEqual(user.phone_number, "+16317450064")
+        self.assertIsNone(user.sms_welcome_sent_at)
         self.assertEqual(session.commit.await_count, 2)
 
     async def test_ensure_user_exists_skips_welcome_when_already_sent(self):
@@ -175,7 +207,7 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
                 _Result(first=_user_row(user_id="user-1")),
                 None,
                 _Result(first=_user_row(user_id="user-1", phone_number="+16317450064")),
-                None,
+                _ExecResult(1),
             ]
         )
 

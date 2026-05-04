@@ -77,7 +77,27 @@ class UserService:
         if not phone_number or sms_welcome_sent_at:
             return False
 
+        claim_sent_at = datetime.now(timezone.utc)
+
         try:
+            claim_result = await session.execute(
+                update(UserDB)
+                .where(UserDB.id == user_id)
+                .where(UserDB.sms_welcome_sent_at.is_(None))
+                .values(
+                    sms_welcome_sent_at=claim_sent_at,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await session.commit()
+
+            if getattr(claim_result, "rowcount", 0) != 1:
+                logger.info(
+                    "ℹ️ Welcome SMS already claimed by another request for user %s",
+                    user_id,
+                )
+                return False
+
             from services.sms_onboarding_service import sms_onboarding_service
 
             onboarding_result = await sms_onboarding_service.send_desktop_welcome(
@@ -86,21 +106,20 @@ class UserService:
                 full_name=full_name,
             )
             if not onboarding_result.get("sent"):
+                await session.execute(
+                    update(UserDB)
+                    .where(UserDB.id == user_id)
+                    .where(UserDB.sms_welcome_sent_at == claim_sent_at)
+                    .values(
+                        sms_welcome_sent_at=None,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+                await session.commit()
                 return False
 
-            sent_at = datetime.now(timezone.utc)
-            await session.execute(
-                update(UserDB)
-                .where(UserDB.id == user_id)
-                .values(
-                    sms_welcome_sent_at=sent_at,
-                    updated_at=datetime.utcnow(),
-                )
-            )
-            await session.commit()
-
             if user_obj is not None:
-                user_obj.sms_welcome_sent_at = sent_at
+                user_obj.sms_welcome_sent_at = claim_sent_at
 
             logger.info(
                 "✅ Ritual welcome SMS sent to %s for user %s",
@@ -109,6 +128,22 @@ class UserService:
             )
             return True
         except Exception as sms_exc:
+            try:
+                await session.execute(
+                    update(UserDB)
+                    .where(UserDB.id == user_id)
+                    .where(UserDB.sms_welcome_sent_at == claim_sent_at)
+                    .values(
+                        sms_welcome_sent_at=None,
+                        updated_at=datetime.utcnow(),
+                    )
+                )
+                await session.commit()
+            except Exception:
+                logger.warning(
+                    "⚠️ Failed to clear welcome SMS claim for user %s after send error",
+                    user_id,
+                )
             logger.warning(
                 "⚠️ Failed to send Ritual welcome SMS for user %s: %s",
                 user_id,
