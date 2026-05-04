@@ -647,7 +647,7 @@ export function CalendarClient() {
   }, [currentDate, viewMode, weekStartsOnMonday]);
 
   // Fetch habit logs
-  const { data: logs = [] } = useQuery<HabitLog[]>({
+  const { data: logs = [], isPending: logsPending } = useQuery<HabitLog[]>({
     queryKey: [
       'habit-logs-calendar',
       user?.id,
@@ -833,7 +833,7 @@ export function CalendarClient() {
     setAiSummary('');
     setAiSummaryLoading(false);
 
-    if (!selectedDate) return;
+    if (!selectedDate || logsPending) return;
 
     const controller = new AbortController();
     aiAbortRef.current = controller;
@@ -894,7 +894,7 @@ export function CalendarClient() {
     })();
 
     return () => controller.abort();
-  }, [selectedDate]);
+  }, [getToken, logsByDate, logsPending, selectedDate]);
 
   // Keyboard navigation
   useHotkeys('arrowLeft', () => navigatePrevious(), {

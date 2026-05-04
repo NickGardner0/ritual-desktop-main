@@ -55,10 +55,18 @@ export async function POST(req: NextRequest) {
     const localDate = new Date(year, month - 1, day, 12, 0, 0);
     const dayOfWeek = localDate.toLocaleDateString('en-US', { weekday: 'long' });
 
-    const metricsText =
-      habitMetrics && habitMetrics.length > 0
-        ? habitMetrics.map((m) => `${m.name}: ${m.value}`).join('\n')
-        : 'No habit data logged.';
+    const normalizedHabitMetrics = Array.isArray(habitMetrics)
+      ? habitMetrics
+          .map((metric) => ({
+            name: String(metric?.name || '').trim(),
+            value: String(metric?.value || '').trim(),
+          }))
+          .filter((metric) => metric.name && metric.value)
+      : [];
+    const hasHabitMetrics = normalizedHabitMetrics.length > 0;
+    const metricsText = hasHabitMetrics
+      ? normalizedHabitMetrics.map((m) => `${m.name}: ${m.value}`).join('\n')
+      : 'No habit data logged.';
 
     // Fetch screen evidence + top apps/domains in parallel (fast, <5s)
     const params = new URLSearchParams({
@@ -168,7 +176,9 @@ export async function POST(req: NextRequest) {
 
     const context = contextParts.join('\n\n');
 
-    if (!context) {
+    const hasActivityEvidence = Boolean(context);
+
+    if (!hasActivityEvidence && !hasHabitMetrics) {
       return new Response('No activity data found for this day.', { status: 200 });
     }
 
@@ -178,8 +188,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Single-pass summary with screen evidence
-    const prompt = `You are an expert daily activity summarizer. You have access to a user's screen recordings — window titles, app usage times, accessibility-extracted text from their screen, semantic summaries of each capture, and git commit history. Your job is to reconstruct what they actually DID and ACCOMPLISHED, not just list what was open.
+    const activityEvidenceText = hasActivityEvidence
+      ? context
+      : 'No screen, app, website, or git evidence was available for this day. Use only the habit metrics.';
+
+    // Single-pass summary with whatever evidence is available.
+    const prompt = `You are an expert daily activity summarizer. You have access to a user's habit metrics and, when available, screen recordings — window titles, app usage times, accessibility-extracted text from their screen, semantic summaries of each capture, and git commit history. Your job is to summarize what the evidence actually supports.
 
 When a "Semantic:" line is provided for a capture, TRUST IT — it's a pre-analyzed description of what was happening. Use it as your primary signal for that workstream.
 
@@ -196,17 +210,19 @@ ${timezone ? `Timezone: ${timezone}` : ''}
 === HABIT METRICS ===
 ${metricsText}
 
-=== SCREEN EVIDENCE ===
-${context}
+=== ACTIVITY EVIDENCE ===
+${activityEvidenceText}
 
 === OUTPUT FORMAT ===
-Write 3-6 workstreams. Each workstream has a **bold title**, a time range on the next line, then 1-3 sentences.
+If screen evidence, app/domain usage, OCR, semantic summaries, or git commits are available, write 3-6 workstreams. Each workstream has a **bold title**, a time range on the next line, then 1-3 sentences.
 
 **Workstream Title**
 *9:30 AM – 11:45 AM*
 One to three sentences about what was specifically done. Only state what the evidence directly shows.
 
 The time range should be derived from the timestamps in the screen evidence — use the earliest and latest timestamps for captures related to that workstream. Format as "*9:30 AM – 11:45 AM*" (italic, 12-hour, with en dash). If timestamps overlap across workstreams, that's fine — show each workstream's own range.
+
+If only habit metrics are available, do not create workstreams or time ranges. Write 2-4 short factual lines that summarize the logged metrics only. Do not infer activities, accomplishments, productivity, or intent from metrics alone.
 
 Rules:
 
