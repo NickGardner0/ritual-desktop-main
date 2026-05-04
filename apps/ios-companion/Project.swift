@@ -1,7 +1,12 @@
 import Foundation
 import ProjectDescription
 
-let screenTimeEnabled = ProcessInfo.processInfo.environment["RITUAL_ENABLE_SCREEN_TIME"] == "1"
+// Tuist 4 sandboxes manifests from the ambient shell env unless the var is
+// prefixed with `TUIST_`. Accept both the legacy `RITUAL_ENABLE_SCREEN_TIME=1`
+// form (useful outside Tuist) and the Tuist-forwarded
+// `TUIST_RITUAL_ENABLE_SCREEN_TIME=1` form so `tuist generate` can opt in.
+let screenTimeEnabled = ["RITUAL_ENABLE_SCREEN_TIME", "TUIST_RITUAL_ENABLE_SCREEN_TIME"]
+    .contains { ProcessInfo.processInfo.environment[$0] == "1" }
 
 var appInfoPlist: [String: Plist.Value] = [
     "CFBundleDisplayName": "Ritual",
@@ -48,6 +53,15 @@ var companionDependencies: [TargetDependency] = [
     .package(product: "Clerk"),
     .target(name: "RitualScreenTimeShared"),
 ]
+
+if screenTimeEnabled {
+    // The app has to depend on the extension target so Tuist emits an
+    // "Embed Foundation Extensions" build phase and ships the .appex inside
+    // RitualCompanion.app/PlugIns/. Without this, DeviceActivityReport
+    // renders an empty view because iOS can't find an extension for the
+    // `dailyTotal` context.
+    companionDependencies.append(.target(name: "RitualScreenTimeReportExtension"))
+}
 
 // Developer-local secrets (Clerk keys, backend URLs) live in Config/Local.xcconfig
 // which is gitignored. If the file is missing we fall back to nil so `tuist generate`
@@ -103,7 +117,12 @@ let projectTargets: [Target] = {
                 deploymentTargets: .iOS("17.0"),
                 infoPlist: .extendingDefault(with: [
                     "NSExtension": [
-                        "NSExtensionPointIdentifier": "com.apple.deviceactivity-report-extension",
+                        // Apple's extension point identifier uses a dot between
+                        // `deviceactivity` and `report-extension`. The hyphen-only
+                        // form (`com.apple.deviceactivity-report-extension`) is
+                        // silently ignored by iOS, which is why the hosted
+                        // DeviceActivityReport view renders as a blank card.
+                        "NSExtensionPointIdentifier": "com.apple.deviceactivity.report-extension",
                         "NSExtensionPrincipalClass": "$(PRODUCT_MODULE_NAME).ScreenTimeReportExtension"
                     ]
                 ]),
@@ -116,7 +135,8 @@ let projectTargets: [Target] = {
                 ]),
                 dependencies: [
                     .target(name: "RitualScreenTimeShared")
-                ]
+                ],
+                settings: companionSettings
             )
         )
     }

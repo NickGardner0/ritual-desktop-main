@@ -8,3 +8,8 @@ CLERK_PUBLISHABLE_KEY = pk_test_your_key_here
 CLERK_FRONTEND_API = your-instance.clerk.accounts.dev
 API_BASE_URL_DEBUG = http:/$()/YOUR_MAC_LAN_IP:8000
 API_BASE_URL = https:/$()/backend-api-production-a37e.up.railway.app
+// Your Apple Developer Team ID (Certificates, Identifiers & Profiles → Membership).
+// Only needed when building for device / TestFlight. Required for the optional
+// RitualScreenTimeReportExtension target.
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+CODE_SIGN_STYLE = Automatic

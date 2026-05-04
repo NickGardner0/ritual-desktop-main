@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 55;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -18,7 +18,9 @@
 		210BD4D8B9211661A43D2AFA /* LocalExportManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */; };
 		22A29727DF8C48FDB093475C /* HabitMapping.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE1AF4769467834D6C61A6DD /* HabitMapping.swift */; };
 		26AA41D23B4C8ACA46C25D69 /* BLEHeartRateParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = 171C169FA35F85FC7ADA04D9 /* BLEHeartRateParser.swift */; };
+		2D20E7C64245A17F77BEBAF2 /* DailyTotalReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A326D7DACE528D4C2EB7080A /* DailyTotalReport.swift */; };
 		2F8FE9690DEA7AE8CDFB881F /* LocalExportManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */; };
+		31A827645C61DDEB024F974C /* FocusSelectionReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C248FC038D89F31B8834478 /* FocusSelectionReport.swift */; };
 		3523A2DF8211D981D40694CB /* ScreenTimeReportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 346F9A48EB41862659B45C50 /* ScreenTimeReportModels.swift */; };
 		39AB3EB76D3A954E77561AC3 /* AnchorStorage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */; };
 		42D9D6AFB79B688346CA08AA /* HabitMappingEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45C26FBE3B38077930CE8964 /* HabitMappingEditorView.swift */; };
@@ -34,6 +36,7 @@
 		831330EC2DCD9D07F0A50647 /* ExportDestinationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A3C8403B70312EF3D7C5815 /* ExportDestinationStore.swift */; };
 		850687E2AED981E54C577D17 /* MarkdownExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D2935FC3D64BDA5B1FA5C07 /* MarkdownExporter.swift */; };
 		879619240373A8AFB7603B48 /* BiometricsUploadQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F5782D9D391771469B2E67D /* BiometricsUploadQueue.swift */; };
+		8852AFFB6A11EE6E1118D3BC /* ScreenTimeReportExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 867B0C4FE07A40DDDDA05D45 /* ScreenTimeReportExtension.swift */; };
 		8A4CC7782613BFA71A4AF765 /* LocalExportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B2AB31181EAEB1A5F455C80 /* LocalExportModels.swift */; };
 		8BB5E8890F64DA1DA0010DC1 /* HabitMappingResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D415312C15325BB2CF548937 /* HabitMappingResolverTests.swift */; };
 		8D10BA196D80EBEE02405CB7 /* PermissionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DA50B04943907060448DFF /* PermissionsView.swift */; };
@@ -46,6 +49,7 @@
 		AF1DE4BECF23E098D8C4A53E /* WhoopBroadcastService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 288CA0FD677B9211B801ADE6 /* WhoopBroadcastService.swift */; };
 		AF65CAB72369B51D6943421F /* Clerk in Frameworks */ = {isa = PBXBuildFile; productRef = 86E70812549362DEB89C713C /* Clerk */; };
 		B0C41CD6048C7E237921659A /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6EDDEAADF641B87AE9F6F98 /* AppState.swift */; };
+		B2BE48AE3AAD92C6471F58C5 /* RitualScreenTimeShared.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */; };
 		B5CC21BAEA0A267B152D413B /* ScreenTimeSharedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7B875B748F12703760523BE /* ScreenTimeSharedStore.swift */; };
 		B714240F19604E247ECA31F8 /* HeartRateBiometrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */; };
 		B8BB567982B89441F20CC495 /* BiometricsLocalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6260A7C6150515A1745EC60B /* BiometricsLocalStore.swift */; };
@@ -58,6 +62,7 @@
 		CD5EA7E5CFD7D13D0D091B83 /* HabitMappingListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */; };
 		CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */; };
 		D2084AF2C75A38D2EA2DB475 /* BLEPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70CC74C0F075A70FF36FED1 /* BLEPermissionState.swift */; };
+		D73B96625C7DD704123583DA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */; };
 		DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */; };
 		E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */; };
 		E0D70D8ADF2BF7BD24F3B51D /* FilenameTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */; };
@@ -69,9 +74,24 @@
 		ED563A10AC36E49790EC9D82 /* BiometricsFeatureFlags.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80241D4B55982304269D4BBC /* BiometricsFeatureFlags.swift */; };
 		EE6236C7F349690B66FE30C4 /* APIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFCBF61B7805AA46DC7C8B69 /* APIModels.swift */; };
 		F8CFFAA21413D9E7A3B686BF /* BLEManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A372E1AB880BB65A4FD278 /* BLEManager.swift */; };
+		FF1187387F3DE3517EBFF885 /* RitualScreenTimeReportExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 7F3EC096CB777148B9BA30C2 /* RitualScreenTimeReportExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		132FD33A6656A864ED0B5282 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE141121784F535662CB10AC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B7BEEE322C1DD2797BA8B582;
+			remoteInfo = RitualScreenTimeShared;
+		};
+		3A8026DA2165058E6C913B3C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DE141121784F535662CB10AC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D5DE6B1A59565AAF2771FDD0;
+			remoteInfo = RitualScreenTimeReportExtension;
+		};
 		60238B85D9E7C7DD623773A8 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = DE141121784F535662CB10AC /* Project object */;
@@ -89,6 +109,16 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
+		385E4B312963E0C05458CDED /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		47EB9CB1C6DF0F4CD6CBDB9E /* Embed Frameworks */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -98,6 +128,16 @@
 				A6B0ED1438509B93E043895C /* RitualScreenTimeShared.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9A65DC471AE5FBFFDE89D9D5 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstSubfolderSpec = 13;
+			files = (
+				FF1187387F3DE3517EBFF885 /* RitualScreenTimeReportExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A741B72908BF4038DFFA7E95 /* Embed Frameworks */ = {
@@ -137,6 +177,7 @@
 		3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NormalizedMetric.swift; sourceTree = "<group>"; };
 		459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualCompanion-Info.plist"; sourceTree = "<group>"; };
 		45C26FBE3B38077930CE8964 /* HabitMappingEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingEditorView.swift; sourceTree = "<group>"; };
+		480D36949E7F8AC8BA26C86D /* RitualScreenTimeReportExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualScreenTimeReportExtension.entitlements; sourceTree = "<group>"; };
 		4F5782D9D391771469B2E67D /* BiometricsUploadQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsUploadQueue.swift; sourceTree = "<group>"; };
 		53DA50B04943907060448DFF /* PermissionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsView.swift; sourceTree = "<group>"; };
 		55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RitualAPIClient.swift; sourceTree = "<group>"; };
@@ -151,13 +192,17 @@
 		7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateBiometrics.swift; sourceTree = "<group>"; };
 		7A9FDEFC8AB90A51E7A3B6EA /* LocalExportHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportHistoryStore.swift; sourceTree = "<group>"; };
 		7E8F1323007A298B2EEAC412 /* AnchorStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnchorStorage.swift; sourceTree = "<group>"; };
+		7F3EC096CB777148B9BA30C2 /* RitualScreenTimeReportExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RitualScreenTimeReportExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		80241D4B55982304269D4BBC /* BiometricsFeatureFlags.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsFeatureFlags.swift; sourceTree = "<group>"; };
+		867B0C4FE07A40DDDDA05D45 /* ScreenTimeReportExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension.swift; sourceTree = "<group>"; };
 		86EF155B9BF0E2167EFA3D36 /* ScreenTimeSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeSnapshot.swift; sourceTree = "<group>"; };
 		87A2B06D409DF895C7CE9033 /* ScreenTimeSelectionCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeSelectionCard.swift; sourceTree = "<group>"; };
 		889E6C394079DDFA9201011C /* BiometricsSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsSyncService.swift; sourceTree = "<group>"; };
 		8A94C38D6A9F09F7FB7C4498 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		8C248FC038D89F31B8834478 /* FocusSelectionReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusSelectionReport.swift; sourceTree = "<group>"; };
 		8F570F54536DD9BF51461F72 /* SourceStatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceStatusCard.swift; sourceTree = "<group>"; };
 		900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TuistBundle+RitualCompanion.swift"; sourceTree = "<group>"; };
+		92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		92F4AD53C1D9AF747A125E0C /* BLEDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEDevice.swift; sourceTree = "<group>"; };
 		96367BEC75CDC9B16DDDB8AF /* HabitMappingStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingStoreTests.swift; sourceTree = "<group>"; };
 		9AE1F6D0F377D42EB3893655 /* ScreenTimeContexts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeContexts.swift; sourceTree = "<group>"; };
@@ -165,6 +210,7 @@
 		9B85CAB6C5F6F0FA437A5998 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		9D2935FC3D64BDA5B1FA5C07 /* MarkdownExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExporter.swift; sourceTree = "<group>"; };
 		A189782B40B87843079C0C2C /* RitualScreenTimeShared-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualScreenTimeShared-Info.plist"; sourceTree = "<group>"; };
+		A326D7DACE528D4C2EB7080A /* DailyTotalReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DailyTotalReport.swift; sourceTree = "<group>"; };
 		A32FE695D7B5296906618A77 /* LocalExportHistoryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportHistoryStoreTests.swift; sourceTree = "<group>"; };
 		A4460558012097894E301FA6 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A70CC74C0F075A70FF36FED1 /* BLEPermissionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEPermissionState.swift; sourceTree = "<group>"; };
@@ -172,6 +218,7 @@
 		B45947887D2B1447F7269E0F /* BackgroundSyncManagerV2.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSyncManagerV2.swift; sourceTree = "<group>"; };
 		B54D2F5C648437AF926BAD1D /* WhoopConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhoopConnectView.swift; sourceTree = "<group>"; };
 		B57EA1C2EF0854ECCCC26858 /* BLERestorationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLERestorationCoordinator.swift; sourceTree = "<group>"; };
+		B8467AE6E06CEE4B56BF88D5 /* RitualScreenTimeReportExtension-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualScreenTimeReportExtension-Info.plist"; sourceTree = "<group>"; };
 		BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingListView.swift; sourceTree = "<group>"; };
 		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
 		C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RitualScreenTimeShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -216,6 +263,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D17CBABF6FD5C28D0BE3738D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B2BE48AE3AAD92C6471F58C5 /* RitualScreenTimeShared.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -235,6 +290,7 @@
 			isa = PBXGroup;
 			children = (
 				08E018384061968A49ABC4CB /* RitualCompanion */,
+				307211622CBAE69AD437BEFD /* RitualScreenTimeReportExtension */,
 				BE924D774D7861C561E60204 /* RitualScreenTimeShared */,
 			);
 			path = Sources;
@@ -270,6 +326,15 @@
 			path = Habits;
 			sourceTree = "<group>";
 		};
+		307211622CBAE69AD437BEFD /* RitualScreenTimeReportExtension */ = {
+			isa = PBXGroup;
+			children = (
+				BF5CC05DD684953868449C9E /* Reports */,
+				867B0C4FE07A40DDDDA05D45 /* ScreenTimeReportExtension.swift */,
+			);
+			path = RitualScreenTimeReportExtension;
+			sourceTree = "<group>";
+		};
 		447876D9DBEDE83790E431E7 /* Export */ = {
 			isa = PBXGroup;
 			children = (
@@ -292,6 +357,7 @@
 			children = (
 				FA754A79233A468B7DD2F651 /* RitualCompanion.app */,
 				F0C3E0C59B910AAABCBC2F3B /* RitualCompanionTests.xctest */,
+				7F3EC096CB777148B9BA30C2 /* RitualScreenTimeReportExtension.appex */,
 				C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */,
 			);
 			name = Products;
@@ -360,6 +426,7 @@
 			children = (
 				459058E6B5537C3E07F0F641 /* RitualCompanion-Info.plist */,
 				E60426B03E8489A5DF8C81A2 /* RitualCompanionTests-Info.plist */,
+				B8467AE6E06CEE4B56BF88D5 /* RitualScreenTimeReportExtension-Info.plist */,
 				A189782B40B87843079C0C2C /* RitualScreenTimeShared-Info.plist */,
 			);
 			path = InfoPlists;
@@ -466,10 +533,20 @@
 			path = RitualScreenTimeShared;
 			sourceTree = "<group>";
 		};
+		BF5CC05DD684953868449C9E /* Reports */ = {
+			isa = PBXGroup;
+			children = (
+				A326D7DACE528D4C2EB7080A /* DailyTotalReport.swift */,
+				8C248FC038D89F31B8834478 /* FocusSelectionReport.swift */,
+			);
+			path = Reports;
+			sourceTree = "<group>";
+		};
 		C40281E43268AF867560CF7E /* Resources */ = {
 			isa = PBXGroup;
 			children = (
 				A4460558012097894E301FA6 /* Assets.xcassets */,
+				92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -486,6 +563,7 @@
 			isa = PBXGroup;
 			children = (
 				BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */,
+				480D36949E7F8AC8BA26C86D /* RitualScreenTimeReportExtension.entitlements */,
 			);
 			path = Entitlements;
 			sourceTree = "<group>";
@@ -566,12 +644,14 @@
 			buildPhases = (
 				E96494FF8F60AD57F25DD724 /* Sources */,
 				5CCD3F7E130DA234FA1C6D2A /* Resources */,
+				9A65DC471AE5FBFFDE89D9D5 /* Embed Foundation Extensions */,
 				40749DD238717B6EEAA5B794 /* Frameworks */,
 				47EB9CB1C6DF0F4CD6CBDB9E /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				2CB4D04507C738BE48C1A36E /* PBXTargetDependency */,
 				5A93E3B63C643618E6AEE8DA /* PBXTargetDependency */,
 			);
 			name = RitualCompanion;
@@ -581,6 +661,27 @@
 			productName = RitualCompanion;
 			productReference = FA754A79233A468B7DD2F651 /* RitualCompanion.app */;
 			productType = "com.apple.product-type.application";
+		};
+		D5DE6B1A59565AAF2771FDD0 /* RitualScreenTimeReportExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 583F8BA58F73EE425F929A15 /* Build configuration list for PBXNativeTarget "RitualScreenTimeReportExtension" */;
+			buildPhases = (
+				FB441A5C77217D1EA10282FA /* Sources */,
+				327EBDF1F9265A72FABDBBFD /* Resources */,
+				D17CBABF6FD5C28D0BE3738D /* Frameworks */,
+				385E4B312963E0C05458CDED /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				274B44EC8636BFE0FDC3FB32 /* PBXTargetDependency */,
+			);
+			name = RitualScreenTimeReportExtension;
+			packageProductDependencies = (
+			);
+			productName = RitualScreenTimeReportExtension;
+			productReference = 7F3EC096CB777148B9BA30C2 /* RitualScreenTimeReportExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -614,6 +715,7 @@
 			targets = (
 				BCF5BC13F2A2D8CFCB36089A /* RitualCompanion */,
 				69F16EB2F5335C11DE820533 /* RitualCompanionTests */,
+				D5DE6B1A59565AAF2771FDD0 /* RitualScreenTimeReportExtension */,
 				B7BEEE322C1DD2797BA8B582 /* RitualScreenTimeShared */,
 			);
 		};
@@ -621,6 +723,13 @@
 
 /* Begin PBXResourcesBuildPhase section */
 		1866124B8369D97B52D925ED /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		327EBDF1F9265A72FABDBBFD /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -639,6 +748,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */,
+				D73B96625C7DD704123583DA /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -724,9 +834,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FB441A5C77217D1EA10282FA /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2D20E7C64245A17F77BEBAF2 /* DailyTotalReport.swift in Sources */,
+				31A827645C61DDEB024F974C /* FocusSelectionReport.swift in Sources */,
+				8852AFFB6A11EE6E1118D3BC /* ScreenTimeReportExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		274B44EC8636BFE0FDC3FB32 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RitualScreenTimeShared;
+			target = B7BEEE322C1DD2797BA8B582 /* RitualScreenTimeShared */;
+			targetProxy = 132FD33A6656A864ED0B5282 /* PBXContainerItemProxy */;
+		};
+		2CB4D04507C738BE48C1A36E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = RitualScreenTimeReportExtension;
+			target = D5DE6B1A59565AAF2771FDD0 /* RitualScreenTimeReportExtension */;
+			targetProxy = 3A8026DA2165058E6C913B3C /* PBXContainerItemProxy */;
+		};
 		5A93E3B63C643618E6AEE8DA /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			name = RitualScreenTimeShared;
@@ -836,7 +968,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = D657T2LVR2;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanion-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -857,6 +988,32 @@
 			};
 			name = Release;
 		};
+		6BD794D65CB513590F3A7D75 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6000DCD5158BD5D266A3BB99 /* Local.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualScreenTimeReportExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Derived/InfoPlists/RitualScreenTimeReportExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ritual.companion.screentime-report";
+				PRODUCT_NAME = RitualScreenTimeReportExtension;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		6C7242AF6B182249C723A5A7 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 6000DCD5158BD5D266A3BB99 /* Local.xcconfig */;
@@ -865,7 +1022,6 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualCompanion.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
-				DEVELOPMENT_TEAM = D657T2LVR2;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = "Derived/InfoPlists/RitualCompanion-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -879,7 +1035,10 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					DEBUG,
+				);
 				SWIFT_COMPILATION_MODE = singlefile;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -964,7 +1123,10 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					DEBUG,
+				);
 				SWIFT_COMPILATION_MODE = singlefile;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -1007,6 +1169,36 @@
 			};
 			name = Release;
 		};
+		A24195B381FFF0BCEBA01353 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 6000DCD5158BD5D266A3BB99 /* Local.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Derived/Entitlements/RitualScreenTimeReportExtension.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = "Derived/InfoPlists/RitualScreenTimeReportExtension-Info.plist";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.ritual.companion.screentime-report";
+				PRODUCT_NAME = RitualScreenTimeReportExtension;
+				SDKROOT = iphoneos;
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					DEBUG,
+				);
+				SWIFT_COMPILATION_MODE = singlefile;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
 		FF1560F3A594342F8E05B9BE /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1025,7 +1217,10 @@
 				SUPPORTS_MACCATALYST = NO;
 				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
 				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "$(inherited) DEBUG";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = (
+					"$(inherited)",
+					DEBUG,
+				);
 				SWIFT_COMPILATION_MODE = singlefile;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -1052,6 +1247,15 @@
 			buildConfigurations = (
 				2F479DE4CBD06C2731145CF1 /* Debug */,
 				6DB869137F5A869B0C12C1E4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		583F8BA58F73EE425F929A15 /* Build configuration list for PBXNativeTarget "RitualScreenTimeReportExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A24195B381FFF0BCEBA01353 /* Debug */,
+				6BD794D65CB513590F3A7D75 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

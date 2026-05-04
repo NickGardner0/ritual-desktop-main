@@ -33,7 +33,7 @@ struct FocusSelectionReport: DeviceActivityReportScene {
     }()
 }
 
-private struct FocusSelectionReportView: View {
+struct FocusSelectionReportView: View {
     let configuration: ScreenTimeReportConfiguration
 
     var body: some View {

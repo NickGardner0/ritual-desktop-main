@@ -259,8 +259,33 @@ struct StatusView: View {
                     )
                 }
                 .buttonStyle(.plain)
+
+                if AppConfig.screenTimeEnabled {
+                    Divider().padding(.leading, 74)
+
+                    NavigationLink(destination: ScreenTimeView()) {
+                        CompanionSourceRow(
+                            icon: "hourglass",
+                            tint: .black,
+                            title: "Screen Time",
+                            detail: screenTimeCardDetail,
+                            badgeText: nil
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+    }
+
+    private var screenTimeCardDetail: String {
+        guard let snapshot = ScreenTimeManager.shared.loadLatestSnapshot() else {
+            return "Track iPhone app and website usage"
+        }
+        let hours = snapshot.totalSeconds / 3600
+        let minutes = (snapshot.totalSeconds % 3600) / 60
+        let duration = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+        return "\(duration) on \(snapshot.day)"
     }
 
     private var habitMappingsDetail: String {

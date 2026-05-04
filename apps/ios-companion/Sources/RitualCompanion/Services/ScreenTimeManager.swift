@@ -16,7 +16,9 @@ final class ScreenTimeManager {
     private init() {}
 
     func checkAuthorizationStatus() -> ScreenTimeAccessStatus {
-        switch AuthorizationCenter.shared.authorizationStatus {
+        let raw = AuthorizationCenter.shared.authorizationStatus
+        print("🕒 ScreenTime: authorizationStatus=\(raw)")
+        switch raw {
         case .approved:
             return .approved
         case .denied:
@@ -30,8 +32,17 @@ final class ScreenTimeManager {
 
     @discardableResult
     func requestAuthorization() async throws -> ScreenTimeAccessStatus {
-        try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-        return checkAuthorizationStatus()
+        print("🕒 ScreenTime: requesting authorization (.individual)…")
+        do {
+            try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+        } catch {
+            print("🕒 ScreenTime: requestAuthorization threw \(error)")
+            throw error
+        }
+        // If requestAuthorization returned without throwing, the user approved.
+        // `authorizationStatus` can lag behind the dialog result, so don't rely on it here.
+        print("🕒 ScreenTime: grant succeeded; reported status=\(AuthorizationCenter.shared.authorizationStatus)")
+        return .approved
     }
 
     func saveSelection(_ selection: FamilyActivitySelection) throws {
