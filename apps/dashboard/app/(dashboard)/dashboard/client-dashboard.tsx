@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
@@ -9,6 +9,15 @@ import type { ViewMode } from '@/components/analytics/view-mode-toggle';
 import { perfInfo } from '@/lib/perf-debug';
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1';
+const DESKTOP_AUTH_LOAD_TIMEOUT_MS = 6_000;
+
+function isDesktopDashboardRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const userAgent = window.navigator.userAgent || '';
+  const params = new URLSearchParams(window.location.search);
+  return userAgent.includes('RitualDesktop/') || params.has('ritual_desktop_env');
+}
 
 export function ClientDashboard({
   initialViewMode,
@@ -22,6 +31,28 @@ export function ClientDashboard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { isLoaded: userLoaded, isSignedIn } = useUser();
+  const startSignInRedirect = useCallback((reason: 'signed-out' | 'auth-timeout') => {
+    if (signedOutRedirectStartedRef.current) {
+      return;
+    }
+
+    signedOutRedirectStartedRef.current = true;
+
+    const query = searchParams.toString();
+    const returnUrl = query ? `${pathname}?${query}` : pathname;
+
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(DASHBOARD_RETURN_URL_KEY, returnUrl);
+    }
+
+    perfInfo('client-dashboard', 'signed-out-dashboard-redirect', {
+      reason,
+      initial_view_mode: initialViewMode,
+      has_server_snapshot: Boolean(initialUserId),
+    });
+
+    router.replace('/sign-in');
+  }, [initialUserId, initialViewMode, pathname, router, searchParams]);
 
   useEffect(() => {
     const mountTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -55,26 +86,24 @@ export function ClientDashboard({
   }, [initialUserId, initialViewMode]);
 
   useEffect(() => {
-    if (!userLoaded || isSignedIn || signedOutRedirectStartedRef.current) {
+    if (!userLoaded || isSignedIn) {
       return;
     }
 
-    signedOutRedirectStartedRef.current = true;
+    startSignInRedirect('signed-out');
+  }, [isSignedIn, startSignInRedirect, userLoaded]);
 
-    const query = searchParams.toString();
-    const returnUrl = query ? `${pathname}?${query}` : pathname;
-
-    if (typeof window !== 'undefined') {
-      window.sessionStorage.setItem(DASHBOARD_RETURN_URL_KEY, returnUrl);
+  useEffect(() => {
+    if (userLoaded || isSignedIn || !isDesktopDashboardRuntime()) {
+      return;
     }
 
-    perfInfo('client-dashboard', 'signed-out-dashboard-redirect', {
-      initial_view_mode: initialViewMode,
-      has_server_snapshot: Boolean(initialUserId),
-    });
+    const timer = window.setTimeout(() => {
+      startSignInRedirect('auth-timeout');
+    }, DESKTOP_AUTH_LOAD_TIMEOUT_MS);
 
-    router.replace('/sign-in');
-  }, [initialUserId, initialViewMode, isSignedIn, pathname, router, searchParams, userLoaded]);
+    return () => window.clearTimeout(timer);
+  }, [isSignedIn, startSignInRedirect, userLoaded]);
 
   if (userLoaded && !isSignedIn) {
     return (
