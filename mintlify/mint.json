@@ -37,6 +37,7 @@
     {
       "group": "Roadmap",
       "pages": [
+        "changelog",
         "future-updates"
       ]
     }

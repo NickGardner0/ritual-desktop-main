@@ -7,7 +7,7 @@ Ritual is a collection of self-tracking and observability tools used to measure 
 ## What is Ritual?
 
 Ritual connects to the devices you use and wear every day.
-You can connect your wearable devices (Apple Watch, Whoop, Oura Ring, Garmin), computer, phone, car (Tesla), and bank accounts (Plaid) to generate logs that update automatically — or you can manually submit logs in natural language or voice mode. AI chat with tool-calling and vector search can be used to make sense of your behavioral data, parsing it to find new insights, correlations, and patterns.
+You can connect your wearable devices (Apple Watch, Whoop, Oura Ring, Garmin), computer, phone, car (Tesla), and bank accounts (Plaid) to generate logs that update automatically — or you can manually submit logs in natural language or voice mode. Chat with pre-defined tool calls and vector search can be used to make sense of your behavioral data, parsing it to find new insights, correlations, and patterns.
 
 ## Who is Ritual for?
 
@@ -20,83 +20,10 @@ Ritual is built for anyone that wants deeper observability of their life. It is 
 - **Logs:** Searchable records and traces of events with virtualized infinite-scroll tables
 - **Calendar:** Plan tasks and visualize your daily/weekly/monthly schedule
 - **Integrations:** Connect your computer, phone, wearable devices, car, and bank accounts
-- **AI Chat:** Conversational AI with 16+ tool calls — ask questions about your habits, get weekly/monthly overviews, anomaly detection, correlation analysis, and computer activity breakdowns
-- **Voice Mode:** Native macOS speech recognition with real-time waveform visualization, contextual vocabulary hints, and streaming transcription
+- **Chat:** Conversational AI with 16+ tool calls — ask questions about your habits, get weekly/monthly overviews, anomaly detection, correlation analysis, and computer activity breakdowns
 - **Context Understanding:** Combine Ritual Watcher, Ritual Recorder, OCR, and cloud memory search to reconstruct what you were doing
 - **Analytics:** Habit statistics, trend analysis, correlation matrices, streak tracking, and anomaly detection
 - **Data Import:** Bulk import from CSV, screenshots, Apple Health, Whoop, Oura, Garmin, and Fitbit with validation, conflict resolution, and undo support
 - **Ritual Watcher:** Tracks your app and browser usage statistics with accessibility-based context capture
 - **Ritual Recorder:** Records your screen and converts frames to OCR text via Apple Vision
-- **Vector Search:** Hybrid lexical + semantic search over screen recording data, activity context, and cloud memory
-- **Onboarding:** Multi-step onboarding with SMS welcome messages and contact card delivery
-
----
-
-## AI Chat & Voice
-
-The chat interface supports two input modes: **log mode** for quickly submitting habit logs in natural language (e.g. "I read 30 pages") and **chat mode** for asking questions about your data.
-
-### Tool calls
-
-The AI has access to 16+ tools that query your behavioral data in real time:
-
-| Tool | What it returns |
-|------|-----------------|
-| `getHabitStats` | Totals, averages, min/max, and standard deviation for any habit |
-| `getDailyBreakdown` | Day-by-day values for a habit |
-| `getCorrelation` | Statistical correlation between two habits |
-| `getHabitTrends` | Direction, percent change, and confidence vs. a previous period |
-| `getHabitAnomalies` | Statistical outlier detection using z-scores |
-| `getWeeklyOverview` | Comprehensive week recap including top apps and domains |
-| `getDailyOverview` | Today's summary across all tracked habits |
-| `getMonthlyOverview` | Last 30 days summary with trends |
-| `getComputerTimeSpentBreakdown` | Where computer time was spent by app and domain |
-| `getScreenTimeSummary` | App-level and domain-level screen time breakdowns |
-| `getActivitySummary` | Narrative summary of recent activity |
-| `searchContextMemory` | Search over visible window/tab text history from Ritual Watcher |
-| `getCalendarEvents` | Calendar events for a date range |
-
-After each response, smart reply chips provide contextual follow-up actions like "Show app time table", "Last 30 days", "Show anomalies", or "Compare periods".
-
-### Voice mode
-
-Voice mode uses native macOS speech recognition through the Tauri desktop app's Swift FFI layer with real-time waveform visualization.
-
-| Feature | Detail |
-|---------|--------|
-| Server-side recognition | Apple's server-side speech recognition for higher accuracy (macOS 13+) |
-| Contextual vocabulary | Ritual-specific terms hinted to the recognizer: pages, caffeine, milligrams, steps, miles, workout, sleep, reading, heart rate, BPM, etc. |
-| Graceful stop | Audio stream ends cleanly with a short grace period, preventing mid-word cutoffs |
-| Auto-stop | Stops after 3 seconds of silence post-speech |
-| Voice responses | Concise spoken-style responses limited to 650 characters with follow-up questions |
-
----
-
-## Analytics & Insights
-
-### Habit statistics
-
-For any habit over a given date range, Ritual computes totals, averages, min/max, standard deviation, current and longest streaks, and trend direction with percent change and confidence.
-
-Different habit types use different daily aggregation: **MAX** for sleep-like habits (takes the highest value per day) and **SUM** for duration and count habits.
-
-### Correlation analysis
-
-Ritual calculates the statistical correlation between any two habits to identify relationships like sleep duration vs. steps taken, caffeine intake vs. sleep quality, or screen time vs. exercise time.
-
-### Anomaly detection
-
-Z-score analysis identifies statistical outliers — days where a logged value deviates significantly from your historical mean.
-
-### Computer activity analytics
-
-When Ritual Watcher is active, computer usage is broken down by daily active hours, time per application, time per website domain, and daily averages. Computer time participates in the same statistics, trends, and correlation analysis as any other habit.
-
-### Dashboard views
-
-| View | What it shows |
-|------|---------------|
-| Overview | Habit list with totals, averages, min/max, standard deviation, and computer time summary |
-| Metrics | Draggable metric cards with charts, streaks, bar comparisons, and percent-change indicators |
-
-Both views support date range filtering with presets (7, 30, 90 days) and custom ranges, plus category filtering.
+- **Vector Search:** Hybrid lexical + semantic search over screen recording/watcher data, activity context, and cloud memory
