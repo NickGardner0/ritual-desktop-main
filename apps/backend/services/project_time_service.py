@@ -7,6 +7,7 @@ activity_events without requiring raw OCR/accessibility text.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import time
@@ -15,6 +16,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from services.watcher_service_local_db import open_activity_connection_for_user
+
+logger = logging.getLogger(__name__)
 
 ATTRIBUTION_VERSION = "project_time_v1"
 SESSION_GAP_MS = 5 * 60 * 1000
@@ -171,6 +174,42 @@ def _counts_json(counts: Dict[str, int]) -> str:
     return json.dumps(rows, separators=(",", ":"))
 
 
+async def _fetch_remote_project_time_rows(
+    user_id: str,
+    sql: str,
+    params: List[Any],
+    columns: List[str],
+) -> Optional[Dict[str, Any]]:
+    """Read per-user project-time data through libSQL HTTP instead of replica sync.
+
+    Production project-time reads should not block on embedded replica startup.
+    The direct remote path is the fast path for per-user Turso databases; legacy
+    shared databases still fall through to the local replica path below.
+    """
+    try:
+        from services.turso_activity_remote import fetch_remote_activity_rows
+    except Exception as exc:
+        logger.warning("Project-time remote client unavailable for %s: %s", user_id, exc)
+        return None
+
+    result = await fetch_remote_activity_rows(user_id, sql, params)
+    if not result.expected_remote:
+        return None
+    if result.error:
+        logger.warning("Project-time remote read failed for %s: %s", user_id, result.error)
+        return {
+            "success": True,
+            "data": [],
+            "source": "project_time_remote_error",
+            "error": result.error,
+        }
+    return {
+        "success": True,
+        "data": [dict(zip(columns, row)) for row in result.rows],
+        "source": "project_time_remote",
+    }
+
+
 def _classify_event(row: sqlite3.Row, rules: List[sqlite3.Row]) -> Classification:
     bundle = str(row["app_bundle_id"] or "").lower()
     app_name = str(row["app_name"] or "")
@@ -258,6 +297,72 @@ async def get_project_time_rollups(
 ) -> Dict[str, Any]:
     group_by = group_by if group_by in {"project", "task", "day"} else "project"
     limit = max(1, min(int(limit or 50), 200))
+    if group_by == "day":
+        sql = """
+            SELECT date, SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
+                   AVG(confidence_avg) AS confidence_avg
+            FROM project_time_daily_rollups
+            WHERE user_id = ? AND date >= ? AND date <= ?
+            GROUP BY date
+            ORDER BY date ASC
+            LIMIT ?
+        """
+        params: List[Any] = [user_id, start_date, end_date, limit]
+        columns = ["date", "active_ms", "session_count", "confidence_avg"]
+    elif group_by == "task":
+        sql = """
+            SELECT project_key, project_name, task_key, task_name,
+                   SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
+                   AVG(confidence_avg) AS confidence_avg,
+                   MAX(summary_text) AS summary_text
+            FROM project_time_daily_rollups
+            WHERE user_id = ? AND date >= ? AND date <= ?
+            GROUP BY project_key, project_name, task_key, task_name
+            ORDER BY active_ms DESC
+            LIMIT ?
+        """
+        params = [user_id, start_date, end_date, limit]
+        columns = [
+            "project_key",
+            "project_name",
+            "task_key",
+            "task_name",
+            "active_ms",
+            "session_count",
+            "confidence_avg",
+            "summary_text",
+        ]
+    else:
+        sql = """
+            SELECT project_key, project_name,
+                   SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
+                   AVG(confidence_avg) AS confidence_avg,
+                   MAX(summary_text) AS summary_text
+            FROM project_time_daily_rollups
+            WHERE user_id = ? AND date >= ? AND date <= ?
+            GROUP BY project_key, project_name
+            ORDER BY active_ms DESC
+            LIMIT ?
+        """
+        params = [user_id, start_date, end_date, limit]
+        columns = [
+            "project_key",
+            "project_name",
+            "active_ms",
+            "session_count",
+            "confidence_avg",
+            "summary_text",
+        ]
+
+    remote = await _fetch_remote_project_time_rows(user_id, sql, params, columns)
+    if remote is not None:
+        return {
+            **remote,
+            "start_date": start_date,
+            "end_date": end_date,
+            "group_by": group_by,
+        }
+
     async with open_activity_connection_for_user(user_id, write=False) as conn:
         if conn is None:
             return {"success": True, "data": [], "source": "unavailable"}
@@ -271,48 +376,11 @@ async def get_project_time_rollups(
                 "source": "project_time_rollups_missing",
             }
         if group_by == "day":
-            rows = conn.execute(
-                """
-                SELECT date, SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
-                       AVG(confidence_avg) AS confidence_avg
-                FROM project_time_daily_rollups
-                WHERE user_id = ? AND date >= ? AND date <= ?
-                GROUP BY date
-                ORDER BY date ASC
-                LIMIT ?
-                """,
-                (user_id, start_date, end_date, limit),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         elif group_by == "task":
-            rows = conn.execute(
-                """
-                SELECT project_key, project_name, task_key, task_name,
-                       SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
-                       AVG(confidence_avg) AS confidence_avg,
-                       MAX(summary_text) AS summary_text
-                FROM project_time_daily_rollups
-                WHERE user_id = ? AND date >= ? AND date <= ?
-                GROUP BY project_key, project_name, task_key, task_name
-                ORDER BY active_ms DESC
-                LIMIT ?
-                """,
-                (user_id, start_date, end_date, limit),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
         else:
-            rows = conn.execute(
-                """
-                SELECT project_key, project_name,
-                       SUM(active_ms) AS active_ms, SUM(session_count) AS session_count,
-                       AVG(confidence_avg) AS confidence_avg,
-                       MAX(summary_text) AS summary_text
-                FROM project_time_daily_rollups
-                WHERE user_id = ? AND date >= ? AND date <= ?
-                GROUP BY project_key, project_name
-                ORDER BY active_ms DESC
-                LIMIT ?
-                """,
-                (user_id, start_date, end_date, limit),
-            ).fetchall()
+            rows = conn.execute(sql, params).fetchall()
     return {
         "success": True,
         "data": [dict(row) for row in rows],
@@ -342,6 +410,46 @@ async def get_project_time_sessions(
         filters.append("task_key = ?")
         params.append(task_key)
     params.append(limit)
+    sql = f"""
+        SELECT session_uid, date, start_ts, end_ts, active_ms, afk_ms,
+               project_key, project_name, task_key, task_name,
+               classification_source, confidence, status,
+               apps_json, domains_json, artifacts_json, summary_text,
+               updated_at
+        FROM project_time_sessions
+        WHERE {' AND '.join(filters)}
+        ORDER BY start_ts ASC
+        LIMIT ?
+    """
+    columns = [
+        "session_uid",
+        "date",
+        "start_ts",
+        "end_ts",
+        "active_ms",
+        "afk_ms",
+        "project_key",
+        "project_name",
+        "task_key",
+        "task_name",
+        "classification_source",
+        "confidence",
+        "status",
+        "apps_json",
+        "domains_json",
+        "artifacts_json",
+        "summary_text",
+        "updated_at",
+    ]
+    remote = await _fetch_remote_project_time_rows(user_id, sql, params, columns)
+    if remote is not None:
+        return {
+            **remote,
+            "data": [_compact_session_mapping(row) for row in remote.get("data", [])],
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+
     async with open_activity_connection_for_user(user_id, write=False) as conn:
         if conn is None:
             return {"success": True, "data": [], "source": "unavailable"}
@@ -353,20 +461,7 @@ async def get_project_time_sessions(
                 "end_date": end_date,
                 "source": "project_time_sessions_missing",
             }
-        rows = conn.execute(
-            f"""
-            SELECT session_uid, date, start_ts, end_ts, active_ms, afk_ms,
-                   project_key, project_name, task_key, task_name,
-                   classification_source, confidence, status,
-                   apps_json, domains_json, artifacts_json, summary_text,
-                   updated_at
-            FROM project_time_sessions
-            WHERE {' AND '.join(filters)}
-            ORDER BY start_ts ASC
-            LIMIT ?
-            """,
-            params,
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
     return {
         "success": True,
         "data": [_compact_session_row(row) for row in rows],
@@ -377,7 +472,10 @@ async def get_project_time_sessions(
 
 
 def _compact_session_row(row: sqlite3.Row) -> Dict[str, Any]:
-    data = dict(row)
+    return _compact_session_mapping(dict(row))
+
+
+def _compact_session_mapping(data: Dict[str, Any]) -> Dict[str, Any]:
     data["apps"] = _json_loads(data.pop("apps_json", None))
     data["domains"] = _json_loads(data.pop("domains_json", None))
     data["artifacts"] = _json_loads(data.pop("artifacts_json", None))
