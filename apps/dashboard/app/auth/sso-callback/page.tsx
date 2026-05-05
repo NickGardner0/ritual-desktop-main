@@ -17,11 +17,29 @@ import {
 } from '@/lib/onboarding-flow'
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1';
 const devLog = (...args: unknown[]) => {
   if (process.env.NODE_ENV !== 'production') {
     console.log(...args);
   }
 };
+
+function readDashboardReturnUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  const value = window.sessionStorage.getItem(DASHBOARD_RETURN_URL_KEY);
+  window.sessionStorage.removeItem(DASHBOARD_RETURN_URL_KEY);
+
+  if (!value?.startsWith('/dashboard')) {
+    return null;
+  }
+
+  return value;
+}
+
+function resolvePostSignInRoute(userId?: string | null): string {
+  return getPostOnboardingRoute(readDashboardReturnUrl() ?? '/dashboard', userId);
+}
 
 export default function SSOCallback() {
   const router = useRouter()
@@ -60,7 +78,7 @@ export default function SSOCallback() {
         if (hasCompletedOnboardingLocally) {
           devLog('[SSO Callback] User has local onboarding flag, going to dashboard')
           setStatus('Welcome back! Taking you to your dashboard...')
-          router.replace(getPostOnboardingRoute('/dashboard', user.id))
+          router.replace(resolvePostSignInRoute(user.id))
           return
         }
 
@@ -76,7 +94,7 @@ export default function SSOCallback() {
 
         if (!token) {
           devLog('No token in SSO callback, redirecting to dashboard');
-          router.replace(getPostOnboardingRoute('/dashboard', user.id))
+          router.replace(resolvePostSignInRoute(user.id))
           return
         }
 
@@ -105,7 +123,7 @@ export default function SSOCallback() {
             markOnboardingCompleted(user.id)
             setStatus('Welcome back! Taking you to your dashboard...')
             devLog('[SSO Callback] Redirecting to dashboard - onboarding already completed')
-            router.replace(getPostOnboardingRoute('/dashboard', user.id))
+            router.replace(resolvePostSignInRoute(user.id))
           } else {
             // Backend says not completed - check if user has habits (existing user)
             try {
@@ -119,7 +137,7 @@ export default function SSOCallback() {
                   // User is clearly an existing user, set local flag and mark in backend
                   markOnboardingCompleted(user.id)
                   setStatus('Welcome back! Taking you to your dashboard...')
-                  router.replace(getPostOnboardingRoute('/dashboard', user.id));
+                  router.replace(resolvePostSignInRoute(user.id));
                   return;
                 }
               }
@@ -139,7 +157,7 @@ export default function SSOCallback() {
               // Default to dashboard since they're trying to sign in (not sign up)
               devLog('[SSO Callback] Backend shows incomplete but user is signing in - going to dashboard')
               setStatus('Taking you to your dashboard...')
-              router.replace(getPostOnboardingRoute('/dashboard', user.id))
+              router.replace(resolvePostSignInRoute(user.id))
             }
           }
         } else {
@@ -153,13 +171,13 @@ export default function SSOCallback() {
             // Returning user but profile fetch failed - go to dashboard
             devLog('[SSO Callback] Profile fetch failed, status:', response?.status)
             setStatus('Taking you to your dashboard...')
-            router.replace(getPostOnboardingRoute('/dashboard', user.id))
+            router.replace(resolvePostSignInRoute(user.id))
           }
         }
       } catch (error) {
         console.error('Error checking onboarding:', error)
         // On error, go to dashboard and let it handle the flow
-        router.replace(getPostOnboardingRoute('/dashboard', user.id))
+        router.replace(resolvePostSignInRoute(user.id))
       }
     }
 
