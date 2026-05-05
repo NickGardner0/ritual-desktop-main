@@ -34,7 +34,7 @@ pub enum DatabaseError {
     #[error("I/O error: {0}")]
     Io(String),
 
-    /// Embedding/vector operation error
+    /// Local model operation error
     #[error("Embedding error: {0}")]
     Embedding(String),
 

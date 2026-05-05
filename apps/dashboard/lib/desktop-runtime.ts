@@ -74,7 +74,6 @@ export type DesktopRuntimeState = {
   auth: DesktopAuthRuntimeState;
   database: DesktopDatabaseRuntimeState;
   watcher: DesktopWatcherRuntimeState;
-  memoryCloudUploadAllowed: boolean;
 };
 
 export type DesktopCompatibilityIssue =

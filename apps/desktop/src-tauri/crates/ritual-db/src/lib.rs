@@ -32,6 +32,7 @@ pub mod activity_classifier;
 pub mod blocking;
 pub mod context;
 pub mod error;
+pub mod project_time;
 pub mod recorder;
 pub mod schema;
 pub mod segments;
@@ -73,8 +74,6 @@ pub struct DatabaseConfig {
     pub data_dir: PathBuf,
     /// Whether to run migrations on startup
     pub auto_migrate: bool,
-    /// Deprecated compatibility flag; local embeddings are no longer used.
-    pub enable_embeddings: bool,
     /// Maximum number of connections in the pool (not used for embedded, but for future)
     pub max_connections: u32,
     /// Turso cloud sync URL for the desktop uploader (e.g., "libsql://ritual-xxx.turso.io").
@@ -96,7 +95,6 @@ impl Default for DatabaseConfig {
             db_path: data_dir.join("ritual.db"),
             data_dir,
             auto_migrate: true,
-            enable_embeddings: true,
             max_connections: 1,
             sync_url: None,
             sync_auth_token: None,
@@ -139,7 +137,6 @@ impl DatabaseConfig {
             db_path: temp_dir.join("test_ritual.db"),
             data_dir: temp_dir.to_path_buf(),
             auto_migrate: true,
-            enable_embeddings: false, // Disable for faster tests
             max_connections: 1,
             sync_url: None,
             sync_auth_token: None,
@@ -323,16 +320,6 @@ impl RitualDatabase {
             .map(|row| row.get::<i64>(0).unwrap_or(0))
             .unwrap_or(0);
 
-        let embedding_count: i64 = conn
-            .query("SELECT COUNT(*) FROM ocr_embeddings", ())
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-            .map(|row| row.get::<i64>(0).unwrap_or(0))
-            .unwrap_or(0);
-
         let video_chunk_count: i64 = conn
             .query("SELECT COUNT(*) FROM video_chunks", ())
             .await
@@ -365,7 +352,6 @@ impl RitualDatabase {
         Ok(DatabaseStats {
             activity_event_count: activity_count,
             ocr_frame_count: frame_count,
-            embedding_count,
             video_chunk_count,
             sync_queue_pending,
             db_size_bytes,
@@ -378,7 +364,6 @@ impl RitualDatabase {
 pub struct DatabaseStats {
     pub activity_event_count: i64,
     pub ocr_frame_count: i64,
-    pub embedding_count: i64,
     pub video_chunk_count: i64,
     pub sync_queue_pending: i64,
     pub db_size_bytes: i64,
@@ -643,19 +628,11 @@ impl RitualDatabase {
         recorder::RecorderOps::new(&conn).get_stats().await
     }
 
-    /// Get frames without embeddings
-    pub async fn get_frames_without_embeddings(&self, limit: usize) -> Result<Vec<OcrFrame>> {
-        let conn = self.conn.read().await;
-        recorder::RecorderOps::new(&conn)
-            .get_frames_without_embeddings(limit)
-            .await
-    }
-
     // --------------------------------------------------------------------
     // Context Memory Operations
     // --------------------------------------------------------------------
 
-    /// Record a context snapshot and update its owning session/doc.
+    /// Record a context snapshot and update its owning session.
     pub async fn record_context_snapshot(
         &self,
         snapshot: &ContextSnapshot,
@@ -676,19 +653,6 @@ impl RitualDatabase {
         let conn = self.conn.read().await;
         context::ContextOps::new(&conn)
             .get_recent_context_snapshots(start_ts, end_ts, limit)
-            .await
-    }
-
-    /// Get context-derived retrieval docs in a time range.
-    pub async fn get_session_retrieval_docs(
-        &self,
-        start_ts: i64,
-        end_ts: i64,
-        limit: i64,
-    ) -> Result<Vec<SessionRetrievalDoc>> {
-        let conn = self.conn.read().await;
-        context::ContextOps::new(&conn)
-            .get_session_retrieval_docs(start_ts, end_ts, limit)
             .await
     }
 

@@ -3,15 +3,13 @@
 use libsql::Connection;
 
 use crate::error::{DatabaseError, Result};
-use crate::types::{ContextSession, ContextSnapshot, SessionRetrievalDoc};
+use crate::types::{ContextSession, ContextSnapshot};
 
 const SESSION_GAP_MS: i64 = 5 * 60 * 1000;
 const APP_CHANGE_GAP_MS: i64 = 15 * 1000;
 const DOMAIN_CHANGE_GAP_MS: i64 = 20 * 1000;
 const TITLE_CHANGE_GAP_MS: i64 = 20 * 1000;
 const MAX_SESSION_DURATION_MS: i64 = 18 * 60 * 1000;
-const RAW_TEXT_LIMIT: usize = 16_000;
-const CONTEXTUAL_TEXT_LIMIT: usize = 24_000;
 
 #[derive(Debug, Clone)]
 pub struct ContextRecordOutcome {
@@ -163,7 +161,6 @@ impl<'a> ContextOps<'a> {
 
         let snapshot_id = self.last_insert_row_id().await?;
         self.refresh_session_rollup(session_id).await?;
-        self.upsert_session_retrieval_doc(session_id).await?;
 
         Ok(ContextRecordOutcome {
             snapshot_id,
@@ -233,59 +230,6 @@ impl<'a> ContextOps<'a> {
             snapshots.push(row_to_context_snapshot(&row));
         }
         Ok(snapshots)
-    }
-
-    pub async fn get_session_retrieval_docs(
-        &self,
-        start_ts: i64,
-        end_ts: i64,
-        limit: i64,
-    ) -> Result<Vec<SessionRetrievalDoc>> {
-        let mut rows = self
-            .conn
-            .query(
-                r#"
-                SELECT
-                    id,
-                    session_id,
-                    session_uid,
-                    logical_chunk_id,
-                    device_id,
-                    user_id,
-                    source_kind,
-                    chunk_start_ts,
-                    chunk_end_ts,
-                    app_name,
-                    browser_domain,
-                    window_title,
-                    document_title,
-                    raw_visible_text,
-                    contextual_retrieval_text,
-                    capture_quality,
-                    context_version,
-                    session_position,
-                    session_count,
-                    created_at,
-                    updated_at
-                FROM session_retrieval_docs
-                WHERE chunk_end_ts >= ? AND chunk_start_ts <= ?
-                ORDER BY chunk_end_ts DESC
-                LIMIT ?
-                "#,
-                libsql::params![start_ts, end_ts, limit],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        let mut docs = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-        {
-            docs.push(row_to_session_retrieval_doc(&row));
-        }
-        Ok(docs)
     }
 
     async fn last_insert_row_id(&self) -> Result<i64> {
@@ -595,167 +539,6 @@ impl<'a> ContextOps<'a> {
         Ok(())
     }
 
-    async fn upsert_session_retrieval_doc(&self, session_id: i64) -> Result<()> {
-        if session_id <= 0 {
-            return Ok(());
-        }
-        let session = self.load_context_session(session_id).await?;
-        let Some(session) = session else {
-            return Ok(());
-        };
-
-        let raw_text = self.collect_session_raw_text(session_id).await?;
-        let contextual_text = build_contextual_text(&session, &raw_text);
-        let updated_at = chrono::Utc::now().timestamp_millis();
-        let logical_chunk_id = format!("session-doc:{}", session.session_uid);
-
-        let mut existing_rows = self
-            .conn
-            .query(
-                r#"
-                SELECT id
-                FROM session_retrieval_docs
-                WHERE session_id = ?
-                LIMIT 1
-                "#,
-                libsql::params![session_id],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        if let Some(row) = existing_rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-        {
-            let doc_id: i64 = row.get(0).unwrap_or(0);
-            self.conn
-                .execute(
-                    r#"
-                    UPDATE session_retrieval_docs
-                    SET session_uid = ?,
-                        logical_chunk_id = ?,
-                        chunk_start_ts = ?,
-                        chunk_end_ts = ?,
-                        app_name = ?,
-                        browser_domain = ?,
-                        window_title = ?,
-                        document_title = ?,
-                        raw_visible_text = ?,
-                        contextual_retrieval_text = ?,
-                        capture_quality = ?,
-                        session_count = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                    "#,
-                    libsql::params![
-                        session.session_uid.clone(),
-                        logical_chunk_id.clone(),
-                        session.start_ts,
-                        session.end_ts,
-                        session.primary_app_name.clone(),
-                        session.primary_domain.clone(),
-                        session.dominant_title.clone(),
-                        session.dominant_title.clone(),
-                        clip_text(&raw_text, RAW_TEXT_LIMIT),
-                        clip_text(&contextual_text, CONTEXTUAL_TEXT_LIMIT),
-                        session.coverage_score,
-                        session.snapshot_count,
-                        updated_at,
-                        doc_id,
-                    ],
-                )
-                .await
-                .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        } else {
-            self.conn
-                .execute(
-                    r#"
-                    INSERT INTO session_retrieval_docs (
-                        session_id,
-                        session_uid,
-                        logical_chunk_id,
-                        device_id,
-                        user_id,
-                        source_kind,
-                        chunk_start_ts,
-                        chunk_end_ts,
-                        app_name,
-                        browser_domain,
-                        window_title,
-                        document_title,
-                        raw_visible_text,
-                        contextual_retrieval_text,
-                        capture_quality,
-                        context_version,
-                        session_position,
-                        session_count,
-                        created_at,
-                        updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 'context_session', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?)
-                    "#,
-                    libsql::params![
-                        session_id,
-                        session.session_uid,
-                        logical_chunk_id,
-                        session.device_id,
-                        session.user_id,
-                        session.start_ts,
-                        session.end_ts,
-                        session.primary_app_name,
-                        session.primary_domain,
-                        session.dominant_title.clone(),
-                        session.dominant_title,
-                        clip_text(&raw_text, RAW_TEXT_LIMIT),
-                        clip_text(&contextual_text, CONTEXTUAL_TEXT_LIMIT),
-                        session.coverage_score,
-                        session.snapshot_count,
-                        updated_at,
-                        updated_at,
-                    ],
-                )
-                .await
-                .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        }
-        Ok(())
-    }
-
-    async fn load_context_session(&self, session_id: i64) -> Result<Option<ContextSession>> {
-        let mut rows = self
-            .conn
-            .query(
-                r#"
-                SELECT
-                    id,
-                    session_uid,
-                    device_id,
-                    user_id,
-                    start_ts,
-                    end_ts,
-                    primary_app_bundle_id,
-                    primary_app_name,
-                    primary_domain,
-                    dominant_title,
-                    representative_text,
-                    coverage_score,
-                    snapshot_count,
-                    created_at,
-                    updated_at
-                FROM context_sessions
-                WHERE id = ?
-                LIMIT 1
-                "#,
-                libsql::params![session_id],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-        Ok(rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-            .map(|row| row_to_context_session(&row)))
-    }
-
     async fn load_context_session_uid(&self, session_id: i64) -> Result<Option<String>> {
         if session_id <= 0 {
             return Ok(None);
@@ -800,71 +583,6 @@ impl<'a> ContextOps<'a> {
             .filter(|value| !value.trim().is_empty()))
     }
 
-    async fn collect_session_raw_text(&self, session_id: i64) -> Result<String> {
-        let mut rows = self
-            .conn
-            .query(
-                r#"
-                SELECT
-                    COALESCE(NULLIF(visible_text_raw, ''), ''),
-                    COALESCE(window_title, ''),
-                    COALESCE(document_title, ''),
-                    COALESCE(tab_title, ''),
-                    COALESCE(app_name, ''),
-                    COALESCE(browser_domain, ''),
-                    COALESCE(source_type, '')
-                FROM context_snapshots
-                WHERE session_id = ?
-                ORDER BY ts ASC
-                "#,
-                libsql::params![session_id],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        let mut parts: Vec<String> = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-        {
-            let raw: String = row.get(0).unwrap_or_default();
-            let window: String = row.get(1).unwrap_or_default();
-            let document: String = row.get(2).unwrap_or_default();
-            let tab: String = row.get(3).unwrap_or_default();
-            let app: String = row.get(4).unwrap_or_default();
-            let browser_domain: String = row.get(5).unwrap_or_default();
-            let source_type: String = row.get(6).unwrap_or_default();
-            for candidate in build_snapshot_text_candidates(
-                &raw,
-                &document,
-                &tab,
-                &window,
-                &app,
-                &browser_domain,
-                &source_type,
-            ) {
-                let trimmed = candidate.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                if parts
-                    .iter()
-                    .any(|existing| normalize_text(existing) == normalize_text(trimmed))
-                {
-                    continue;
-                }
-                parts.push(trimmed.to_string());
-                if parts.len() >= 12 {
-                    break;
-                }
-            }
-            if parts.len() >= 12 {
-                break;
-            }
-        }
-        Ok(parts.join("\n\n"))
-    }
 }
 
 fn should_start_new_session(
@@ -933,171 +651,6 @@ fn representative_text(snapshot: &ContextSnapshot) -> Option<String> {
     dominant_title(snapshot)
 }
 
-fn build_contextual_text(session: &ContextSession, raw_text: &str) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let mut parent_context: Vec<String> = Vec::new();
-    if let Some(app) = session.primary_app_name.as_deref() {
-        if !app.trim().is_empty() {
-            parts.push(format!("App: {}", app.trim()));
-            parent_context.push(app.trim().to_string());
-        }
-    }
-    if let Some(domain) = session.primary_domain.as_deref() {
-        if !domain.trim().is_empty() {
-            parts.push(format!("Domain: {}", domain.trim()));
-            parent_context.push(domain.trim().to_string());
-        }
-    }
-    if let Some(title) = session.dominant_title.as_deref() {
-        if !title.trim().is_empty() {
-            parts.push(format!("Title: {}", title.trim()));
-            parent_context.push(title.trim().to_string());
-        }
-    }
-    if !parent_context.is_empty() {
-        parts.insert(0, format!("Context: {}", parent_context.join(" / ")));
-    }
-    parts.push(format!(
-        "Time range: {} to {}",
-        session.start_ts, session.end_ts
-    ));
-    if !raw_text.trim().is_empty() {
-        parts.push(format!("Visible content: {}", raw_text.trim()));
-    }
-
-    // Extract structured artifacts from raw text for better search relevance
-    let extracted = extract_contextual_artifacts(raw_text);
-    if !extracted.files.is_empty() {
-        parts.push(format!("Files: {}", extracted.files.join(", ")));
-    }
-    if !extracted.commands.is_empty() {
-        parts.push(format!("Commands: {}", extracted.commands.join(", ")));
-    }
-    if !extracted.errors.is_empty() {
-        parts.push(format!("Errors: {}", extracted.errors.join(", ")));
-    }
-    if !extracted.git_ops.is_empty() {
-        parts.push(format!("Git: {}", extracted.git_ops.join(", ")));
-    }
-
-    parts.join(" | ")
-}
-
-struct ExtractedArtifacts {
-    files: Vec<String>,
-    commands: Vec<String>,
-    errors: Vec<String>,
-    git_ops: Vec<String>,
-}
-
-fn extract_contextual_artifacts(text: &str) -> ExtractedArtifacts {
-    use std::collections::HashSet;
-
-    let file_extensions = [
-        ".rs", ".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".toml", ".json", ".yaml", ".yml",
-        ".sql", ".css", ".scss", ".html", ".sh", ".swift", ".go", ".rb", ".java", ".c", ".cpp",
-        ".h",
-    ];
-
-    let command_prefixes = [
-        "cargo ", "npm ", "pnpm ", "pytest ", "python ", "uv ", "git ", "bun ", "make ", "docker ",
-        "brew ",
-    ];
-
-    let error_markers = [
-        "fatal:",
-        "error:",
-        "panic:",
-        "exception:",
-        "failed:",
-        "crash:",
-        "traceback:",
-        "abort:",
-        "fatal ",
-        "error ",
-        "panic ",
-    ];
-
-    let git_ops = [
-        "git push",
-        "git pull",
-        "git commit",
-        "git merge",
-        "git rebase",
-        "git checkout",
-        "git stash",
-    ];
-
-    let mut files: HashSet<String> = HashSet::new();
-    let mut commands: HashSet<String> = HashSet::new();
-    let mut errors: HashSet<String> = HashSet::new();
-    let mut git: HashSet<String> = HashSet::new();
-
-    let text_lower = text.to_lowercase();
-
-    // Extract file references
-    for word in text.split_whitespace() {
-        let clean = word.trim_matches(|c: char| {
-            !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-'
-        });
-        for ext in &file_extensions {
-            if clean.ends_with(ext) && clean.len() > ext.len() + 1 && files.len() < 16 {
-                files.insert(clean.to_string());
-            }
-        }
-    }
-
-    // Extract commands
-    for prefix in &command_prefixes {
-        for (idx, _) in text_lower.match_indices(prefix) {
-            if commands.len() >= 8 {
-                break;
-            }
-            let snippet: String = text[idx..]
-                .chars()
-                .take(60)
-                .take_while(|c| *c != '\n')
-                .collect();
-            let trimmed = snippet.trim();
-            if !trimmed.is_empty() {
-                commands.insert(trimmed.to_string());
-            }
-        }
-    }
-
-    // Extract error markers
-    for marker in &error_markers {
-        for (idx, _) in text_lower.match_indices(marker) {
-            if errors.len() >= 6 {
-                break;
-            }
-            let snippet: String = text[idx..]
-                .chars()
-                .take(80)
-                .take_while(|c| *c != '\n')
-                .collect();
-            let trimmed = snippet.trim();
-            if !trimmed.is_empty() {
-                errors.insert(trimmed.to_string());
-            }
-        }
-    }
-
-    // Extract git operations
-    for op in &git_ops {
-        if text_lower.contains(op) && git.len() < 6 {
-            git.insert(op.to_string());
-        }
-    }
-
-    ExtractedArtifacts {
-        files: files.into_iter().collect(),
-        commands: commands.into_iter().collect(),
-        errors: errors.into_iter().collect(),
-        git_ops: git.into_iter().collect(),
-    }
-}
-
 fn clip_text(value: &str, limit: usize) -> String {
     if value.len() <= limit {
         return value.to_string();
@@ -1159,99 +712,6 @@ fn normalized_title_signature(snapshot: &ContextSnapshot) -> String {
     normalize_text(&title)
 }
 
-fn is_low_signal_snapshot_text(value: &str) -> bool {
-    let normalized = normalize_text(value);
-    if normalized.is_empty() {
-        return true;
-    }
-    let low_signal_patterns = [
-        "accessibility links",
-        "add files and more",
-        "address and search bar",
-        "ask for follow up changes",
-        "chat history",
-        "dashboard ritual",
-        "deep research",
-        "favorites",
-        "file explorer",
-        "new chat",
-        "posted in",
-        "prediction markets",
-        "quick look",
-        "recents",
-        "reddit the heart of the internet",
-        "search chats",
-        "skip to content",
-        "subscribe",
-        "to view keyboard shortcuts",
-        "watch later",
-        "youtube shorts",
-    ];
-    if normalized.split_whitespace().count() <= 3
-        && !normalized.contains("activity breakdown")
-        && !normalized.contains("context memory")
-        && !normalized.contains("contribution graph")
-        && !normalized.contains("clerk")
-        && !normalized.contains("paper")
-        && !normalized.contains("ritual")
-        && !normalized.contains("v0")
-        && !normalized.contains("watcher")
-        && !normalized.contains("py")
-        && !normalized.contains("tsx")
-    {
-        return true;
-    }
-    low_signal_patterns
-        .iter()
-        .any(|pattern| normalized.contains(pattern))
-}
-
-fn normalize_snapshot_candidate(value: &str, limit: usize) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if is_low_signal_snapshot_text(trimmed) {
-        return None;
-    }
-    let clipped = clip_text(trimmed, limit);
-    if normalize_text(&clipped).len() < 4 {
-        return None;
-    }
-    Some(clipped)
-}
-
-fn build_snapshot_text_candidates(
-    raw: &str,
-    document: &str,
-    tab: &str,
-    window: &str,
-    app: &str,
-    browser_domain: &str,
-    source_type: &str,
-) -> Vec<String> {
-    let mut candidates = Vec::new();
-    if let Some(value) = normalize_snapshot_candidate(raw, 1400) {
-        candidates.push(value);
-    }
-    if let Some(value) = normalize_snapshot_candidate(document, 220) {
-        candidates.push(value);
-    }
-    if let Some(value) = normalize_snapshot_candidate(tab, 220) {
-        candidates.push(value);
-    }
-    if let Some(value) = normalize_snapshot_candidate(window, 220) {
-        candidates.push(value);
-    }
-    if !browser_domain.trim().is_empty() && source_type == "browser_extension" {
-        candidates.push(browser_domain.trim().to_string());
-    }
-    if let Some(value) = normalize_snapshot_candidate(app, 80) {
-        candidates.push(value);
-    }
-    candidates
-}
-
 fn row_to_context_snapshot(row: &libsql::Row) -> ContextSnapshot {
     ContextSnapshot {
         id: row.get(0).ok(),
@@ -1305,32 +765,6 @@ fn row_to_context_session(row: &libsql::Row) -> ContextSession {
         snapshot_count: row.get(12).unwrap_or(0),
         created_at: row.get(13).unwrap_or(0),
         updated_at: row.get(14).unwrap_or(0),
-    }
-}
-
-fn row_to_session_retrieval_doc(row: &libsql::Row) -> SessionRetrievalDoc {
-    SessionRetrievalDoc {
-        id: row.get(0).ok(),
-        session_id: row.get(1).unwrap_or(0),
-        session_uid: row.get(2).unwrap_or_default(),
-        logical_chunk_id: row.get(3).unwrap_or_default(),
-        device_id: row.get(4).unwrap_or_default(),
-        user_id: row.get(5).unwrap_or_default(),
-        source_kind: row.get(6).unwrap_or_default(),
-        chunk_start_ts: row.get(7).unwrap_or(0),
-        chunk_end_ts: row.get(8).unwrap_or(0),
-        app_name: row.get(9).ok(),
-        browser_domain: row.get(10).ok(),
-        window_title: row.get(11).ok(),
-        document_title: row.get(12).ok(),
-        raw_visible_text: row.get(13).unwrap_or_default(),
-        contextual_retrieval_text: row.get(14).unwrap_or_default(),
-        capture_quality: row.get(15).unwrap_or(0.0),
-        context_version: row.get(16).unwrap_or(1),
-        session_position: row.get(17).unwrap_or(0),
-        session_count: row.get(18).unwrap_or(1),
-        created_at: row.get(19).unwrap_or(0),
-        updated_at: row.get(20).unwrap_or(0),
     }
 }
 
@@ -1406,20 +840,6 @@ mod tests {
         assert_eq!(first_outcome.session_id, second_outcome.session_id);
         assert_eq!(count_rows(&db, "context_snapshots").await, 1);
         assert_eq!(count_rows(&db, "context_sessions").await, 1);
-
-        let docs = db
-            .get_session_retrieval_docs(0, 1_700_000_100_000, 10)
-            .await
-            .unwrap();
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].session_id, first_outcome.session_id);
-        assert!(docs[0]
-            .raw_visible_text
-            .contains("Ritual dashboard and active chat thread"));
-        assert!(docs[0]
-            .contextual_retrieval_text
-            .contains("Visible content: Ritual dashboard and active chat thread"));
-        assert_eq!(docs[0].session_count, 1);
     }
 
     #[tokio::test]
@@ -1482,17 +902,17 @@ mod tests {
 
         assert_ne!(first_outcome.session_id, second_outcome.session_id);
 
-        let docs = db
-            .get_session_retrieval_docs(0, 1_700_000_200_000, 10)
+        let snapshots = db
+            .get_recent_context_snapshots(0, 1_700_000_200_000, 10)
             .await
             .unwrap();
-        assert_eq!(docs.len(), 2);
-        assert!(docs
+        assert_eq!(snapshots.len(), 2);
+        assert!(snapshots
             .iter()
-            .any(|doc| doc.browser_domain.as_deref() == Some("docs.rs")));
-        assert!(docs
+            .any(|snapshot| snapshot.browser_domain.as_deref() == Some("docs.rs")));
+        assert!(snapshots
             .iter()
-            .any(|doc| doc.browser_domain.as_deref() == Some("github.com")));
+            .any(|snapshot| snapshot.browser_domain.as_deref() == Some("github.com")));
     }
 
     #[tokio::test]
@@ -1597,19 +1017,20 @@ mod tests {
 
         assert_eq!(first_outcome.session_id, second_outcome.session_id);
 
-        let docs = db
-            .get_session_retrieval_docs(0, 1_700_000_200_000, 10)
+        let conn = db.connection().await;
+        let mut rows = conn
+            .query(
+                "SELECT primary_domain, dominant_title, snapshot_count FROM context_sessions WHERE id = ?",
+                libsql::params![first_outcome.session_id],
+            )
             .await
             .unwrap();
-        assert_eq!(docs.len(), 1);
-        assert_eq!(docs[0].browser_domain.as_deref(), Some("paper.design"));
-        assert_eq!(
-            docs[0].document_title.as_deref(),
-            Some("Paper MCP server integration")
-        );
-        assert!(!docs[0]
-            .raw_visible_text
-            .to_lowercase()
-            .contains("short shell text"));
+        let row = rows.next().await.unwrap().unwrap();
+        let primary_domain: Option<String> = row.get(0).ok();
+        let dominant_title: Option<String> = row.get(1).ok();
+        let snapshot_count: i64 = row.get(2).unwrap_or(0);
+        assert_eq!(primary_domain.as_deref(), Some("paper.design"));
+        assert_eq!(dominant_title.as_deref(), Some("Paper MCP server integration"));
+        assert_eq!(snapshot_count, 2);
     }
 }

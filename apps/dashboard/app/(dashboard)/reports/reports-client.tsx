@@ -131,6 +131,25 @@ interface ArtifactEditorState {
   base_version: number;
 }
 
+interface ProjectTimeRollupRow {
+  project_key?: string;
+  project_name?: string;
+  task_key?: string;
+  task_name?: string;
+  active_ms?: number;
+  session_count?: number;
+  confidence_avg?: number;
+}
+
+interface ProjectTimeRollupResponse {
+  success: boolean;
+  data?: ProjectTimeRollupRow[];
+  start_date?: string;
+  end_date?: string;
+  group_by?: string;
+  source?: string;
+}
+
 const EMPTY_BLOCK: EditableArtifactBlock = {
   id: "block-new",
   type: "summary",
@@ -268,6 +287,21 @@ function formatDateTime(value: string | null | undefined): string {
   });
 }
 
+function toLocalYmd(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatProjectDuration(ms: number | null | undefined): string {
+  const minutes = Math.round(Number(ms || 0) / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder > 0 ? `${hours}h ${remainder}m` : `${hours}h`;
+}
+
 function formatTime(hour: number, minute: number): string {
   const date = new Date();
   date.setHours(hour, minute, 0, 0);
@@ -362,6 +396,12 @@ export function ReportsClient() {
   const [isArtifactEditorOpen, setIsArtifactEditorOpen] = useState(false);
   const [editor, setEditor] = useState<WorkflowEditorState | null>(null);
   const [artifactEditor, setArtifactEditor] = useState<ArtifactEditorState | null>(null);
+  const projectTimeRange = useMemo(() => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 29);
+    return { start: toLocalYmd(start), end: toLocalYmd(end) };
+  }, []);
 
   const artifactsQuery = useQuery({
     queryKey: ["artifacts", filter],
@@ -423,6 +463,14 @@ export function ReportsClient() {
     queryFn: async () => (await fetchJson<WorkflowRunListResponse>("/api/workflows/runs?limit=12")).items || [],
     staleTime: QUERY_POLICY.general.staleTime,
     refetchInterval: 5_000,
+  });
+
+  const projectTimeQuery = useQuery({
+    queryKey: ["project-time-rollups", "reports", projectTimeRange.start, projectTimeRange.end],
+    queryFn: () => fetchJson<ProjectTimeRollupResponse>(
+      `/api/watcher/project-time/rollups?start_date=${projectTimeRange.start}&end_date=${projectTimeRange.end}&group_by=project&limit=8`,
+    ),
+    staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const workflowDefinitions = workflowDefinitionsQuery.data || [];
@@ -639,6 +687,8 @@ export function ReportsClient() {
   const ambientArtifacts = artifactLibrary.filter((item) => item.kind === "ambient_digest");
   const activeFacts = facts.filter((fact) => fact.status === "active");
   const pendingFacts = facts.filter((fact) => fact.status === "pending");
+  const projectTimeRows = projectTimeQuery.data?.data || [];
+  const projectTimeTotalMs = projectTimeRows.reduce((sum, row) => sum + Number(row.active_ms || 0), 0);
 
   useEffect(() => {
     const artifactIdFromUrl = searchParams.get("artifactId");
@@ -774,6 +824,57 @@ export function ReportsClient() {
                 {approvals.length} approvals
               </Button>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-[32px] border border-[rgba(15,23,42,0.08)] bg-white/82 p-5 shadow-[0_18px_60px_rgba(15,23,42,0.05)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-[18px] font-[620] tracking-[-0.02em] text-[#111827]">
+                <Clock3 className="h-5 w-5" />
+                Project time
+              </div>
+              <p className="mt-1 text-sm text-[#6b7280]">
+                Last 30 days, grouped from local activity attribution.
+              </p>
+            </div>
+            <div className="rounded-full border border-[rgba(15,23,42,0.10)] bg-white px-4 py-2 text-sm font-[650] text-[#111827]">
+              {formatProjectDuration(projectTimeTotalMs)}
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {projectTimeQuery.isLoading ? (
+              [0, 1, 2].map((item) => (
+                <div key={item} className="h-16 animate-pulse rounded-[22px] bg-[#f5f7f5]" />
+              ))
+            ) : projectTimeRows.length ? (
+              projectTimeRows.map((row) => {
+                const activeMs = Number(row.active_ms || 0);
+                const share = projectTimeTotalMs > 0 ? Math.max(3, Math.round((activeMs / projectTimeTotalMs) * 100)) : 0;
+                return (
+                  <div key={`${row.project_key || row.project_name || "unknown"}`} className="rounded-[22px] border border-[rgba(15,23,42,0.08)] bg-white px-4 py-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-[650] text-[#111827]">{row.project_name || "Unclassified"}</div>
+                        <div className="mt-1 text-xs text-[#6b7280]">
+                          {Number(row.session_count || 0)} session{Number(row.session_count || 0) === 1 ? "" : "s"}
+                          {Number(row.confidence_avg || 0) > 0 ? ` · ${Math.round(Number(row.confidence_avg || 0) * 100)}% confidence` : ""}
+                        </div>
+                      </div>
+                      <div className="text-sm font-[650] text-[#111827]">{formatProjectDuration(activeMs)}</div>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf1ed]">
+                      <div className="h-full rounded-full bg-[#73bf1d]" style={{ width: `${share}%` }} />
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-[22px] border border-dashed border-[rgba(15,23,42,0.12)] bg-[#fbfcfb] px-5 py-7 text-sm text-[#6b7280]">
+                No project-time rollups yet. Keep using the desktop app and the local attribution worker will populate this section.
+              </div>
+            )}
           </div>
         </section>
 

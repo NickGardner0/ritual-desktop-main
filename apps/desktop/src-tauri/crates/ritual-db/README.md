@@ -1,6 +1,6 @@
 # ritual-db
 
-Unified libSQL database layer for the Ritual desktop application with vector search support.
+Unified libSQL database layer for the Ritual desktop application.
 
 ## Overview
 
@@ -9,13 +9,12 @@ This crate provides a consolidated database layer that replaces the previous sep
 - `frames.db` → Screen recording metadata and OCR
 - `sync_queue.db` → Backend sync queue
 
-All data is now stored in a single `ritual.db` file using [libSQL](https://github.com/tursodatabase/libsql), a SQLite fork with native vector search support.
+All data is now stored in a single `ritual.db` file using [libSQL](https://github.com/tursodatabase/libsql).
 
 ## Features
 
 - **Unified Schema**: All data in one database with proper foreign keys
 - **Automatic Migration**: Seamlessly migrates existing SQLite databases
-- **Vector Search**: Semantic search using embeddings (all-MiniLM-L6-v2)
 - **Full-Text Search**: FTS5 for keyword search on OCR text
 - **Type Safety**: Rust types for all database records
 - **Async API**: Built on tokio for async operations
@@ -160,7 +159,6 @@ Migration is idempotent - if interrupted, it will resume on next open.
 - `watcher_heartbeat` - Device liveness tracking
 - `video_chunks` - Video file metadata
 - `ocr_frames` - OCR text with thumbnails and video references
-- `ocr_embeddings` - Vector embeddings for semantic search
 - `sync_queue` - Backend sync queue with retry support
 - `daily_rollup_cache` - Cached daily summaries
 
@@ -170,7 +168,6 @@ All tables have indexes optimized for common query patterns:
 - Time-range queries (device + timestamp)
 - App/domain grouping
 - Full-text search on OCR content
-- Vector similarity search on embeddings
 
 ## Testing
 
@@ -197,7 +194,7 @@ ritual-db/
 │   ├── activity.rs     # Activity event operations
 │   ├── recorder.rs     # OCR/video operations
 │   ├── sync.rs         # Sync queue operations
-│   ├── vector.rs       # Embedding and vector search
+│   ├── project_time.rs # Local project/task time attribution
 │   ├── types.rs        # Shared data types
 │   └── error.rs        # Error types
 └── tests/
@@ -206,7 +203,7 @@ ritual-db/
 
 ## Dependencies
 
-- `libsql` - Database engine with vector support
+- `libsql` - Database engine
 - `rusqlite` - For reading legacy databases during migration
 - `tokio` - Async runtime
 - `serde` - Serialization

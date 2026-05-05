@@ -7,10 +7,7 @@
  */
 
 import { getStrictThisWeekRange } from './weekly-overview-utils.js';
-import {
-  shiftYmd,
-  parseRelativeTimeWindowMs,
-} from './executors/index.js';
+import { shiftYmd } from './executors/index.js';
 import {
   formatNarrativeDateLabel,
   parseExplicitRecapAnchorDate,
@@ -23,6 +20,18 @@ export type RetrievalRoute =
   | 'time_breakdown'
   | 'habit_metrics'
   | 'generic_chat';
+
+function parseRelativeTimeWindowMs(text: string): number | null {
+  const match = (text || '').toLowerCase().match(/\b(?:last|past)\s+(\d+)\s+(minute|minutes|hour|hours|day|days|week|weeks)\b/);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const unit = match[2];
+  if (unit.startsWith('minute')) return amount * 60_000;
+  if (unit.startsWith('hour')) return amount * 3_600_000;
+  if (unit.startsWith('day')) return amount * 86_400_000;
+  return amount * 7 * 86_400_000;
+}
 
 // ---------------------------------------------------------------------------
 // Core intent classifiers
@@ -243,23 +252,6 @@ export function hasRelativeTimeHint(text: string): boolean {
   return /\b(today|yesterday|this week|last week|this month|last month)\b/.test(normalized);
 }
 
-export function isBroadScreenOverviewQuery(text: string): boolean {
-  const normalized = (text || '').toLowerCase().trim();
-  if (!normalized) return false;
-  const patterns = [
-    'what did i work on',
-    'what was i working on',
-    'what was i doing',
-    'what did i do',
-    'show me what i was doing',
-    'activity recap',
-    'activity overview',
-    'screen recap',
-    'screen overview',
-  ];
-  return patterns.some((pattern) => normalized.includes(pattern));
-}
-
 export function classifyRetrievalRoute(text: string): RetrievalRoute {
   const normalized = (text || '').toLowerCase().trim();
   if (!normalized) return 'generic_chat';
@@ -321,36 +313,9 @@ export function getOverviewTitleFromQuery(
   if (toolName === 'getActivitySummary') {
     return formatNarrativeDateLabel((contextMemoryRecap || {}) as { results?: Array<{ timestamp?: string }>; days_searched?: number }, query, timezone);
   }
-  if (toolName === 'searchContextMemory') {
-    return formatNarrativeDateLabel((contextMemoryRecap || {}) as { results?: Array<{ timestamp?: string }>; days_searched?: number }, query, timezone);
-  }
   if (toolName === 'getMonthlyOverview') return 'Monthly Activity Overview';
   if (toolName === 'getWeeklyOverview' && isExplicitLastWeekQuery(query)) {
     return 'Last Week Overview';
   }
   return 'Weekly Activity Overview';
-}
-
-export function chooseScreenSearchQuery(toolQuery: unknown, userQuery: string): string {
-  const toolText = String(toolQuery || '').trim();
-  const userText = String(userQuery || '').trim();
-  if (!userText) return toolText;
-  if (!toolText) return userText;
-
-  const toolNormalized = toolText.toLowerCase();
-  const userNormalized = userText.toLowerCase();
-
-  const toolGeneric = (
-    toolNormalized === 'what was i working on'
-    || toolNormalized === 'what was i doing'
-    || toolNormalized === 'what did i do'
-  );
-  const appearsTruncated = userNormalized.includes(toolNormalized) && (toolText.length + 8 < userText.length);
-  const userHasWindow = hasRelativeTimeHint(userText);
-  const toolHasWindow = hasRelativeTimeHint(toolText);
-
-  if (userHasWindow && !toolHasWindow) return userText;
-  if (toolGeneric) return userText;
-  if (appearsTruncated) return userText;
-  return toolText;
 }

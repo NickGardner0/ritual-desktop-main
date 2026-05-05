@@ -2,8 +2,6 @@
  * Barrel re-export for narrative builder modules.
  */
 
-export { buildContextMemoryNarrative, formatNarrativeDateLabel } from './context-memory';
-
 export {
   generateWeeklyOverviewNarrative,
   streamWeeklyOverviewNarrative,
@@ -22,5 +20,6 @@ export {
   inferRecapAnchorDate,
   buildCalendarStyleActivitySummary,
   buildRichActivitySummaryFromStoryPlan,
+  formatNarrativeDateLabel,
   parseExplicitRecapAnchorDate,
 } from './activity-summary';

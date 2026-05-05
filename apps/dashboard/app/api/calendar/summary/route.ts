@@ -68,18 +68,30 @@ export async function POST(req: NextRequest) {
       ? normalizedHabitMetrics.map((m) => `${m.name}: ${m.value}`).join('\n')
       : 'No habit data logged.';
 
-    // Fetch screen evidence + top apps/domains in parallel (fast, <5s)
+    // Fetch compact project-time attribution plus app/domain context. Raw OCR/accessibility
+    // snippets are intentionally excluded from the cloud summary path.
     const params = new URLSearchParams({
       start_date: date,
       end_date: date,
       limit: '8',
     });
+    const sessionParams = new URLSearchParams({
+      start_date: date,
+      end_date: date,
+      limit: '24',
+    });
 
-    const [screenEvidence, appsData, domainsData, gitData] = await Promise.all([
+    const [projectRollups, projectSessions, appsData, domainsData, gitData] = await Promise.all([
       fetch(
-        `${BACKEND_URL}/api/watcher/screen-evidence?date=${date}&limit=80`,
+        `${BACKEND_URL}/api/watcher/project-time/rollups?${params}&group_by=task`,
         { headers, signal: AbortSignal.timeout(8000) }
       )
+        .then(async (res) => (res.ok ? res.json() : null))
+        .catch(() => null),
+      fetch(`${BACKEND_URL}/api/watcher/project-time/sessions?${sessionParams}`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      })
         .then(async (res) => (res.ok ? res.json() : null))
         .catch(() => null),
       fetch(`${BACKEND_URL}/api/watcher/stats/top-apps?${params}`, {
@@ -106,39 +118,45 @@ export async function POST(req: NextRequest) {
     // Build context
     const contextParts: string[] = [];
 
-    if (screenEvidence?.success) {
-      const titles = screenEvidence.window_titles || [];
-      if (titles.length > 0) {
-        const lines = titles.map(
-          (t: any) =>
-            `${t.app_name}${t.window_title ? ' — ' + t.window_title : ''} (${t.frequency} captures)`
-        );
-        contextParts.push('Screen activity (window titles, sorted by time spent):\n' + lines.join('\n'));
-      }
-      const snippets = screenEvidence.ocr_snippets || [];
-      if (snippets.length > 0) {
-        // Include richer OCR content with timestamps — lets the LLM understand WHAT was being done and WHEN
-        const snippetLines = snippets.map((s: any) => {
-          let timeStr = '';
-          if (s.time) {
-            const d = new Date(typeof s.time === 'number' && s.time > 1e12 ? s.time : s.time * 1000);
-            if (!isNaN(d.getTime())) {
-              timeStr = d.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true,
-                ...(timezone ? { timeZone: timezone } : {}),
-              });
-            }
-          }
-          const docPath = s.document_path ? ` (${s.document_path})` : '';
-          const semanticLine = s.semantic_summary ? `\nSemantic: ${s.semantic_summary}` : '';
-          const header = timeStr
-            ? `[${timeStr}] ${s.app_name} — ${s.window_title}${docPath}`
-            : `${s.app_name} — ${s.window_title}${docPath}`;
-          return `${header}${semanticLine}\n${s.snippet}`;
-        });
-        contextParts.push('Screen content samples (OCR text with timestamps, in chronological order):\n\n' + snippetLines.join('\n\n'));
+    if (projectRollups?.success && Array.isArray(projectRollups.data) && projectRollups.data.length > 0) {
+      const rollupLines = projectRollups.data.slice(0, 12).map((row: any) => {
+        const project = row.project_name || 'Unclassified';
+        const task = row.task_name || 'General';
+        const ms = Number(row.active_ms || 0);
+        const confidence = Number(row.confidence_avg || 0);
+        return `${project} / ${task}: ${formatMs(ms)}${confidence > 0 ? `, confidence ${Math.round(confidence * 100)}%` : ''}`;
+      });
+      contextParts.push('Project/task time rollups:\n' + rollupLines.join('\n'));
+    }
+
+    if (projectSessions?.success && Array.isArray(projectSessions.data) && projectSessions.data.length > 0) {
+      const sessionLines = projectSessions.data.slice(0, 18).map((session: any) => {
+        const started = new Date(Number(session.start_ts || 0));
+        const ended = new Date(Number(session.end_ts || 0));
+        const timeRange = !Number.isNaN(started.getTime()) && !Number.isNaN(ended.getTime())
+          ? `${started.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              ...(timezone ? { timeZone: timezone } : {}),
+            })}-${ended.toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              ...(timezone ? { timeZone: timezone } : {}),
+            })}`
+          : 'Unknown time';
+        const apps = Array.isArray(session.apps)
+          ? session.apps.slice(0, 3).map((item: any) => item.name).filter(Boolean).join(', ')
+          : '';
+        const domains = Array.isArray(session.domains)
+          ? session.domains.slice(0, 3).map((item: any) => item.name).filter(Boolean).join(', ')
+          : '';
+        const appDomain = [apps ? `apps: ${apps}` : '', domains ? `domains: ${domains}` : ''].filter(Boolean).join('; ');
+        return `${timeRange}: ${session.project_name || 'Unclassified'} / ${session.task_name || 'General'} (${formatMs(Number(session.active_ms || 0))}${appDomain ? `; ${appDomain}` : ''})`;
+      });
+      if (sessionLines.length) {
+        contextParts.push('Project/task sessions:\n' + sessionLines.join('\n'));
       }
     }
 
@@ -190,19 +208,18 @@ export async function POST(req: NextRequest) {
 
     const activityEvidenceText = hasActivityEvidence
       ? context
-      : 'No screen, app, website, or git evidence was available for this day. Use only the habit metrics.';
+      : 'No project-time, app, website, or git evidence was available for this day. Use only the habit metrics.';
 
     // Single-pass summary with whatever evidence is available.
-    const prompt = `You are an expert daily activity summarizer. You have access to a user's habit metrics and, when available, screen recordings — window titles, app usage times, accessibility-extracted text from their screen, semantic summaries of each capture, and git commit history. Your job is to summarize what the evidence actually supports.
+    const prompt = `You are an expert daily activity summarizer. You have access to a user's habit metrics and, when available, compact local project/task time attribution, app usage times, website usage times, and git commit history. Your job is to summarize what the evidence actually supports.
 
-When a "Semantic:" line is provided for a capture, TRUST IT — it's a pre-analyzed description of what was happening. Use it as your primary signal for that workstream.
+Project/task attribution is generated locally from app, window, domain, and short safe artifact signals. Treat it as the primary computer-work signal. Do not refer to raw capture internals.
 
-CRITICAL: You must INFER the specific work being done from the evidence:
-- Window title "vector.rs — ritual-desktop-main — Modified" + app "Cursor" = "You edited the vector search implementation in \`vector.rs\`, working on the ritual-desktop project"
-- Window title "Configure | Clerk.com" + app "Chrome" = "You configured authentication settings on Clerk.com"
-- Git commits are the STRONGEST evidence — use commit messages to describe concrete outcomes
-- OCR text reveals WHAT was on screen — use it to understand the actual content being worked on
-- Multiple captures of the same app/file = extended focused session there
+CRITICAL: Use compact project/task rows to describe the specific workstreams:
+- Project/task rollups show what work was attributed and for how long.
+- Project/task sessions show when a workstream happened and the apps/domains involved.
+- Git commits are strong evidence of concrete coding outcomes.
+- App/domain usage can support the summary but should not override explicit project/task attribution.
 
 Date: ${dayOfWeek}, ${date}
 ${timezone ? `Timezone: ${timezone}` : ''}
@@ -214,13 +231,13 @@ ${metricsText}
 ${activityEvidenceText}
 
 === OUTPUT FORMAT ===
-If screen evidence, app/domain usage, OCR, semantic summaries, or git commits are available, write 3-6 workstreams. Each workstream has a **bold title**, a time range on the next line, then 1-3 sentences.
+If project-time sessions, app/domain usage, or git commits are available, write 3-6 workstreams. Each workstream has a **bold title**, a time range on the next line, then 1-3 sentences.
 
 **Workstream Title**
 *9:30 AM – 11:45 AM*
 One to three sentences about what was specifically done. Only state what the evidence directly shows.
 
-The time range should be derived from the timestamps in the screen evidence — use the earliest and latest timestamps for captures related to that workstream. Format as "*9:30 AM – 11:45 AM*" (italic, 12-hour, with en dash). If timestamps overlap across workstreams, that's fine — show each workstream's own range.
+The time range should be derived from project-time session timestamps. Format as "*9:30 AM – 11:45 AM*" (italic, 12-hour, with en dash). If timestamps overlap across workstreams, that's fine — show each workstream's own range.
 
 If only habit metrics are available, do not create workstreams or time ranges. Write 2-4 short factual lines that summarize the logged metrics only. Do not infer activities, accomplishments, productivity, or intent from metrics alone.
 
@@ -228,19 +245,19 @@ Rules:
 
 EVIDENCE QUALITY TIERS — match your confidence and detail to the evidence strength:
 
-RICH EVIDENCE (git commit messages, OCR showing specific code/text, file paths, terminal commands, semantic summaries describing specific work, detailed page content):
+RICH EVIDENCE (project/task labels with high confidence, git commit messages, safe artifact/file names, specific app/domain combinations):
 → Write detailed, confident narrative. Name specific files, quote commit messages, describe what the code change accomplishes. Be assertive — this evidence is trustworthy.
-→ Example: "You implemented vector similarity search in \`vector.rs\`, adding a cosine distance function and integrating it with the pgvector extension. Your commit 'add cosine similarity scoring' confirmed the work landed."
+→ Example: "You updated \`project_time.rs\` to recompute daily task rollups, and your commit 'add project-time rollup sync' confirmed the work landed."
 
-MODERATE EVIDENCE (window titles with specific content, domain + page titles, app name + document path):
+MODERATE EVIDENCE (project/task labels with medium confidence, domain + app combinations, safe document/repo names):
 → Write specific but measured statements. Describe what was visible and what the work likely involved.
 → Example: "You worked in the Tinybird console, navigating the data sources and query editor for the analytics pipeline."
 
-THIN EVIDENCE (just app name + domain, no OCR, no semantic summary, no file paths):
+THIN EVIDENCE (just app name + domain, no project labels, no file paths):
 → Write ONE factual sentence. Do not elaborate or speculate.
 → Example: "You used Chrome on cloud.tinybird.co."
 
-CROSS-APP PROJECT THREADING: The evidence is in chronological order. When captures from DIFFERENT apps appear close in time (within ~15 minutes) and share keywords, file paths, or topics, thread them into ONE workstream. Example: Cursor editing \`vector.rs\` at 10:15 + Chrome reading "pgvector documentation" at 10:18 + Terminal running \`cargo test\` at 10:25 = one "Vector Search Implementation" workstream. Derive the workstream title from the shared project/task, not from any single app.
+CROSS-APP PROJECT THREADING: The evidence is in chronological order. When project/task sessions from DIFFERENT apps/domains are adjacent and share the same project or task, thread them into ONE workstream. Derive the workstream title from the shared project/task, not from any single app.
 
 - NEVER PAD WITH GENERIC FILLER. These patterns say NOTHING — delete them:
   Bad: "This work was essential for analyzing large volumes of data efficiently"

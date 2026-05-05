@@ -23,7 +23,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async runtime for JXA execution
 # (serde_json already included above for JSON parsing)
 
-# Unified database with vector search
+# Unified local activity database
 ritual-db = { path = "../../crates/ritual-db", default-features = false }
 
 # macOS specific

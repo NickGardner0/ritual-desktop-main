@@ -384,7 +384,6 @@ function buildCanvasFromToolData(
     correlation?: any;
     trends?: any;
     anomalies?: any;
-    screenRecordings?: any;
     screenTimeSpent?: any;
     weeklyOverview?: any;
     dailyOverview?: any;
@@ -444,24 +443,6 @@ function buildCanvasFromToolData(
     };
   }
 
-  if (toolData.screenTimeSpent && toolData.screenTimeSpent.success) {
-    const groupBy = toolData.screenTimeSpent.group_by || 'app';
-    const title = groupBy === 'domain'
-      ? 'Computer Time by Domain'
-      : groupBy === 'window'
-        ? 'Computer Time by Window'
-        : 'Computer Time by App';
-    return {
-      type: 'screenTimeSpent',
-      title,
-      dateRange: {
-        start: toolData.screenTimeSpent.summary?.range_start || '',
-        end: toolData.screenTimeSpent.summary?.range_end || '',
-      },
-      screenTimeSpent: toolData.screenTimeSpent,
-    };
-  }
-  
   // Phase 3: Handle trends data
   if (toolData.trends && toolData.trends.success) {
     return {
@@ -1471,7 +1452,6 @@ export function ChatClient() {
           timezone,
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
-          screenSearchResults: null,
           localOverviewActivity,
         }),
       });
@@ -1482,7 +1462,7 @@ export function ChatClient() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenRecordings?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
+      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
       let streamBuffer = '';
       let toolMarkedDone = false;
 
@@ -1566,12 +1546,9 @@ export function ChatClient() {
         }
       }
       
-      const isScreenQuery = false;
-
       // Build canvas data - prefer tool data, then optional text extraction fallback.
-      // For screen/vector queries, avoid text-based fallback so we keep a clean prose-only answer.
       let extractedCanvas = buildCanvasFromToolData(toolData, text);
-      if (!extractedCanvas && !isScreenQuery) {
+      if (!extractedCanvas) {
         extractedCanvas = extractCanvasData(fullResponse, text);
       }
       
@@ -1594,7 +1571,6 @@ export function ChatClient() {
         : td?.monthlyOverview ? ['Compare to last month', 'Show my trends', 'What were my best days?']
         : td?.trends ? ['Show weekly recap', 'Any anomalies?', 'What habits are improving?']
         : td?.stats ? ['Show daily breakdown', 'Compare with another habit', 'Any unusual days?']
-        : td?.screenRecordings ? ['Summarize my day', 'What else did I work on?', 'Show weekly recap']
         : undefined;
 
       const assistantMessage: Message = {

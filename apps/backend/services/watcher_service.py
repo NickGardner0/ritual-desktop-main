@@ -71,11 +71,6 @@ from services.watcher_service_exclusions import (
     get_suggested_exclusions_impl,
     remove_app_exclusion_impl,
 )
-from services.watcher_service_search import (
-    search_context_memory_impl,
-    search_screen_recordings_impl,
-)
-
 logger = logging.getLogger(__name__)
 
 
@@ -601,42 +596,6 @@ class WatcherService:
             start_date=start_date,
             end_date=end_date,
             device_id=device_id,
-        )
-
-    # ============================================================
-    # LOCAL SCREEN SEARCH (for AI chat on-demand retrieval)
-    # ============================================================
-
-    async def search_screen_recordings(
-        self,
-        user_id: str,
-        query: str,
-        days_back: int = 7,
-        limit: int = 20,
-    ) -> Dict[str, Any]:
-        """Search local screen history via extracted search module."""
-        return await search_screen_recordings_impl(
-            self,
-            user_id=user_id,
-            query=query,
-            days_back=days_back,
-            limit=limit,
-        )
-
-    async def search_context_memory(
-        self,
-        user_id: str,
-        query: str,
-        days_back: int = 7,
-        limit: int = 20,
-    ) -> Dict[str, Any]:
-        """Search context snapshots/session docs via context-first retrieval."""
-        return await search_context_memory_impl(
-            self,
-            user_id=user_id,
-            query=query,
-            days_back=days_back,
-            limit=limit,
         )
 
     # ============================================================

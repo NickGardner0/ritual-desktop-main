@@ -29,33 +29,11 @@ def validate_environment() -> Tuple[bool, List[str], List[str]]:
         'CLERK_JWKS_URL',
     ]
 
-    memory_cloud_enabled = (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if memory_cloud_enabled:
-        required_vars.extend(
-            [
-                "TURBOPUFFER_API_KEY",
-                "OPENAI_API_KEY",
-                "COHERE_API_KEY",
-            ]
-        )
-    
     # Highly recommended variables (warnings only)
     recommended_vars = [
         'DATABASE_URL',
         'TINYBIRD_TOKEN',
-        'TURBOPUFFER_BASE_URL',
-        'TURBOPUFFER_NAMESPACE_PREFIX',
-        'OPENAI_EMBED_MODEL',
         'OPENAI_ANSWER_MODEL',
-        'COHERE_RERANK_MODEL',
-        'RITUAL_MEMORY_RETENTION_DAYS',
-        'RITUAL_MEMORY_WATCHER_ALIASES_ENABLED',
-        'RITUAL_MEMORY_WATCHER_ALIASES_SUNSET',
     ]
     
     # Check required variables

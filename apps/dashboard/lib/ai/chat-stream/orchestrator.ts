@@ -19,21 +19,17 @@ import {
   executeGetWeeklyOverview,
   executeGetDailyOverview,
   executeGetMonthlyOverview,
-  executeSearchContextMemory as executeSearchContextMemoryFromExecutors,
   executeGetActivitySummary as executeGetActivitySummaryFromExecutors,
   executeGetComputerTimeSpentBreakdown as executeGetComputerTimeSpentBreakdownFromExecutors,
-  executeSearchScreenRecordings as executeSearchScreenRecordingsFromExecutors,
   executeGetDailyBiometrics,
   executeGetScreenTimeSummary,
   executeGetCalendarEvents,
   executeGetSmsPreferences,
   executeUpdateSmsPreferences,
-  inferScreenDaysBackFromQuery,
 } from './executors';
 
 // Narrative builders
 import {
-  buildContextMemoryNarrative,
   streamWeeklyOverviewNarrative,
   inferRecapAnchorDate,
   buildCalendarStyleActivitySummary,
@@ -49,10 +45,8 @@ import {
   isMonthlyOverviewQuery,
   isExplicitLastWeekQuery,
   isScreenTimeSpentQuery,
-  isBroadScreenOverviewQuery,
   resolveWeeklyOverviewParamsFromQuery,
   getOverviewTitleFromQuery,
-  chooseScreenSearchQuery,
 } from './query-classifier';
 import { buildSystemPrompt, isSmsV2PromptActive } from './system-prompt';
 
@@ -65,8 +59,6 @@ import type {
   CalendarEventsResult,
   ChatToolResults,
   OverviewResult,
-  ScreenRecordingResult,
-  ScreenSearchContext,
 } from './types';
 
 // Voice mode & persistence
@@ -80,52 +72,25 @@ function elapsed(startMs: number): string {
   return `${(performance.now() - startMs).toFixed(0)}ms`;
 }
 
-// Thin wrappers that inject orchestrator-local dependencies into extracted executors
-async function executeSearchContextMemory(
-  token: string,
-  params: { query: string; daysBack?: number; limit?: number },
-): Promise<string> {
-  return executeSearchContextMemoryFromExecutors(token, params);
-}
-
 async function executeGetComputerTimeSpentBreakdown(
   token: string,
   params: { query: string; daysBack?: number; limit?: number; groupBy?: 'app' | 'window' | 'domain' },
-  prefetchedScreenSearchContext: ScreenSearchContext | null,
   timezone?: string,
 ): Promise<string> {
-  return executeGetComputerTimeSpentBreakdownFromExecutors(token, params, prefetchedScreenSearchContext, timezone);
+  return executeGetComputerTimeSpentBreakdownFromExecutors(token, params, timezone);
 }
 
 async function executeGetActivitySummary(
   token: string,
   params: { query?: string; daysBack?: number },
-  prefetchedScreenSearchContext: ScreenSearchContext | null,
   timezone?: string,
 ) {
   return executeGetActivitySummaryFromExecutors(
     token,
     params,
-    prefetchedScreenSearchContext,
     timezone,
     inferRecapAnchorDate,
     buildCalendarStyleActivitySummary,
-    buildRichActivitySummaryFromStoryPlan,
-    isScreenTimeSpentQuery,
-  );
-}
-
-async function executeSearchScreenRecordings(
-  token: string,
-  params: { query: string; daysBack?: number; limit?: number },
-  prefetchedScreenSearchContext: ScreenSearchContext | null,
-): Promise<string> {
-  return executeSearchScreenRecordingsFromExecutors(
-    token,
-    params,
-    prefetchedScreenSearchContext,
-    isScreenTimeSpentQuery,
-    isBroadScreenOverviewQuery,
   );
 }
 
@@ -255,9 +220,6 @@ async function enrichActivitySummaryContext(
   const enrichedNarrative = await buildRichActivitySummaryFromStoryPlan(
     {
       success: true,
-      story_plan: enrichedActivitySummary.story_plan,
-      semantic_work_items: enrichedActivitySummary.semantic_work_items,
-      renderer: (enrichedActivitySummary.story_plan as Record<string, unknown> | undefined)?.renderer || null,
       results: [],
       citations: enrichedActivitySummary.citations || [],
       daily_biometrics: dailyBiometrics?.success ? dailyBiometrics : null,
@@ -310,25 +272,6 @@ async function tryEnrichActivitySummaryContext(
 
 // Tool definitions imported from ./tools (see tools.ts)
 
-function normalizeScreenSearchContext(
-  screenSearchResults: unknown,
-  legacyScreenRecordingResults: unknown,
-): ScreenSearchContext | null {
-  if (screenSearchResults && typeof screenSearchResults === 'object' && 'results' in (screenSearchResults as Record<string, unknown>)) {
-    return screenSearchResults as ScreenSearchContext;
-  }
-
-  if (Array.isArray(legacyScreenRecordingResults)) {
-    return {
-      modeUsed: 'hybrid',
-      status: 'hybrid',
-      results: legacyScreenRecordingResults as ScreenRecordingResult[],
-    };
-  }
-
-  return null;
-}
-
 // ====================
 // PARALLEL TOOL DISPATCH (Phase 4)
 // ====================
@@ -336,7 +279,6 @@ function normalizeScreenSearchContext(
 /** Context passed to dispatchToolCall so each tool has the info it needs. */
 interface ToolExecutionContext {
   timezone?: string;
-  normalizedScreenSearchContext: ScreenSearchContext | null;
   localOverviewActivity?: unknown;
   latestUserContent: string;
   weeklyOverviewQueryParams: { startDate?: string; endDate?: string; daysBack?: number; strictThisWeek?: boolean };
@@ -407,54 +349,14 @@ async function dispatchToolCall(
       return executeGetHabitAnomalies(token, a);
     case 'getStreaks':
       return executeGetStreaks(token, a);
-    case 'searchScreenRecordings':
-      return executeSearchContextMemory(token, {
-        ...a,
-        query: chooseScreenSearchQuery(a?.query, ctx.latestUserContent),
-      });
-    case 'searchContextMemory': {
-      const normalizedArgs = {
-        ...a,
-        query: chooseScreenSearchQuery(a?.query, ctx.latestUserContent),
-        limit: Math.max((a?.limit as number) || 0, 30),
-        daysBack: Math.max((a?.daysBack as number) || 0, 1),
-      };
-      let result = await executeSearchContextMemory(token, normalizedArgs);
-      // Trim the result for the LLM: keep story_plan but drop raw results
-      // to avoid flooding GPT-4o-mini's context with screen dumps
-      try {
-        const parsed = JSON.parse(result);
-        if (parsed.success && parsed.story_plan) {
-          const richContextNarrative = buildContextMemoryNarrative(
-            {
-              success: parsed.success,
-              story_plan: parsed.story_plan,
-              renderer: parsed.renderer || null,
-              results: Array.isArray(parsed.results) ? parsed.results : [],
-            },
-            normalizedArgs.query as string,
-            ctx.timezone,
-          );
-          result = JSON.stringify({
-            success: parsed.success,
-            story_plan: parsed.story_plan,
-            renderer: parsed.renderer || null,
-            rich_context_narrative: richContextNarrative,
-            result_count: Array.isArray(parsed.results) ? parsed.results.length : 0,
-            message: parsed.message,
-          });
-        }
-      } catch (e) { console.warn('⚠️ Context memory trim error:', e); }
-      return result;
-    }
     case 'getComputerTimeSpentBreakdown':
-      return executeGetComputerTimeSpentBreakdown(token, a, ctx.normalizedScreenSearchContext, ctx.timezone);
+      return executeGetComputerTimeSpentBreakdown(token, a, ctx.timezone);
     case 'getActivitySummary':
       {
         const result = await executeGetActivitySummary(token, {
         ...a,
-        query: chooseScreenSearchQuery(a?.query, ctx.latestUserContent),
-        }, ctx.normalizedScreenSearchContext, ctx.timezone);
+        query: String(a?.query || ctx.latestUserContent || 'activity summary'),
+        }, ctx.timezone);
         try {
           const parsed = JSON.parse(result);
           if (parsed.success) {
@@ -463,10 +365,6 @@ async function dispatchToolCall(
               query: parsed.query,
               intent_resolved: parsed.intent_resolved,
               retrieval_tier: parsed.retrieval_tier,
-              story_plan: parsed.story_plan || null,
-              semantic_work_items: Array.isArray(parsed.semantic_work_items)
-                ? parsed.semantic_work_items
-                : [],
               citations: Array.isArray(parsed.citations) ? parsed.citations : [],
               citations_count: parsed.citations_count,
               workstreams: Array.isArray(parsed.workstreams) ? parsed.workstreams : [],
@@ -571,18 +469,6 @@ function collectToolResult(toolResults: ChatToolResults, name: string, raw: stri
           }
         }
         break;
-      case 'searchScreenRecordings':
-        console.log('🖥️ screen tool parsed status:', {
-          success: parsed?.success,
-          result_count: parsed?.result_count,
-          status: parsed?.status,
-          mode_used: parsed?.mode_used,
-        });
-        if (parsed.success && parsed.results) toolResults.screenRecordings = parsed;
-        break;
-      case 'searchContextMemory':
-        if (parsed.success && (parsed.results || parsed.story_plan)) toolResults.contextMemoryRecap = parsed;
-        break;
       case 'getComputerTimeSpentBreakdown':
         if (parsed.success) toolResults.screenTimeSpent = parsed;
         break;
@@ -660,12 +546,9 @@ export async function handleChatStreamPost(req: NextRequest) {
       timezone,
       conversationId: providedConversationId,
       responseMode = 'text',
-      screenSearchResults,
-      screenRecordingResults,
       localOverviewActivity,
     } = await req.json();
     console.log(`⏱️ [${elapsed(t0)}] Body parsed`);
-    const normalizedScreenSearchContext = normalizeScreenSearchContext(screenSearchResults, screenRecordingResults);
 
     // Start conversation creation in the background — don't block the OpenAI
     // call. We only need the ID at response-creation time (after all tools run).
@@ -869,9 +752,8 @@ export async function handleChatStreamPost(req: NextRequest) {
             token,
             {
               query: latestUserContent,
-              daysBack: inferScreenDaysBackFromQuery(latestUserContent, 7),
+              daysBack: isComprehensiveWeeklyRecapQuery(latestUserContent) ? 7 : 1,
             },
-            normalizedScreenSearchContext,
             timezone,
           );
           break;
@@ -919,7 +801,7 @@ export async function handleChatStreamPost(req: NextRequest) {
       const title = getOverviewTitleFromQuery(
         forcedToolName,
         latestUserContent,
-        toolResults.activitySummary || toolResults.contextMemoryRecap,
+        toolResults.activitySummary,
         timezone,
       );
 
@@ -927,8 +809,7 @@ export async function handleChatStreamPost(req: NextRequest) {
         toolResults.weeklyOverview
         || toolResults.dailyOverview
         || toolResults.monthlyOverview
-        || toolResults.activitySummary
-        || toolResults.contextMemoryRecap;
+        || toolResults.activitySummary;
 
       const canvasToolPayload = buildCanvasToolPayload(toolResults);
       console.log('📦 Tool results collected:', Object.keys(toolResults));
@@ -948,7 +829,7 @@ export async function handleChatStreamPost(req: NextRequest) {
             : (typeof toolResults.activitySummary?.calendar_style_summary === 'string'
                 && toolResults.activitySummary.calendar_style_summary.trim().length > 0)
               ? toolResults.activitySummary.calendar_style_summary.trim()
-              : buildContextMemoryNarrative(overviewPayload, latestUserContent, timezone);
+              : String(toolResults.activitySummary?.rich_activity_summary || '');
         streamSource = { type: 'complete', text: activityText };
       } else {
         // Overview queries (weekly/daily/monthly) — real-stream the synthesis call
@@ -1044,7 +925,7 @@ export async function handleChatStreamPost(req: NextRequest) {
             toolCall.function.name,
             () => dispatchToolCall(
               toolCall.function.name, token, args,
-              { timezone, normalizedScreenSearchContext, localOverviewActivity, latestUserContent, weeklyOverviewQueryParams, strictThisWeekForWeeklyOverview },
+              { timezone, localOverviewActivity, latestUserContent, weeklyOverviewQueryParams, strictThisWeekForWeeklyOverview },
             ),
           );
 
@@ -1573,48 +1454,6 @@ function maybeBuildDeterministicSmsActivityReply(toolExecutions: SmsToolExecutio
     return null;
   }
 
-  const storyPlan = (parsed.story_plan && typeof parsed.story_plan === 'object')
-    ? parsed.story_plan as Record<string, unknown>
-    : null;
-  const mainEvent = (storyPlan?.main_event && typeof storyPlan.main_event === 'object')
-    ? storyPlan.main_event as Record<string, unknown>
-    : null;
-  const mainTitle = cleanSmsSentence(
-    typeof mainEvent?.title === 'string'
-      ? mainEvent.title
-      : typeof mainEvent?.label === 'string'
-        ? mainEvent.label
-        : '',
-  );
-
-  const semanticWorkItems = Array.isArray(parsed.semantic_work_items) ? parsed.semantic_work_items : [];
-  const itemTitles = semanticWorkItems.map((item) => {
-    if (!item || typeof item !== 'object') return null;
-    const row = item as Record<string, unknown>;
-    return typeof row.title === 'string'
-      ? row.title
-      : typeof row.label === 'string'
-        ? row.label
-        : typeof row.task === 'string'
-          ? row.task
-          : null;
-  });
-
-  const taskCandidates = uniqueSmsStrings([
-    ...(Array.isArray(storyPlan?.concrete_tasks_completed) ? storyPlan.concrete_tasks_completed : []),
-    ...(Array.isArray(storyPlan?.specific_tasks) ? storyPlan.specific_tasks : []),
-    ...itemTitles,
-  ]).map(cleanSmsSentence).filter((item) => {
-    if (!item) return false;
-    if (mainTitle && item.toLowerCase() === mainTitle.toLowerCase()) return false;
-    if (item.length < 8) return false;
-    if (/notifications\s*\/\s*x/i.test(item)) return false;
-    if (/suggests an interest in/i.test(item)) return false;
-    if (/no heart rate data/i.test(item)) return false;
-    if (/no scheduled events/i.test(item)) return false;
-    return true;
-  });
-
   const fallbackSummary = typeof parsed.calendar_style_summary === 'string'
     ? parsed.calendar_style_summary
     : typeof parsed.rich_activity_summary === 'string'
@@ -1627,12 +1466,6 @@ function maybeBuildDeterministicSmsActivityReply(toolExecutions: SmsToolExecutio
     .slice(0, 2);
 
   const sentences: string[] = [];
-  if (mainTitle) {
-    sentences.push(`Today centered on ${mainTitle}.`);
-  }
-  for (const task of taskCandidates.slice(0, 2)) {
-    sentences.push(`${task}.`);
-  }
   if (sentences.length === 0) {
     sentences.push(...fallbackSentences);
   }
@@ -1780,10 +1613,9 @@ export async function handleSmsChatPost(req: NextRequest): Promise<Response> {
     const toolCallsMade: string[] = [];
     const smsToolExecutions: SmsToolExecution[] = [];
 
-    // Tool execution context — SMS doesn't send screen search data
+    // Tool execution context for SMS requests.
     const toolCtx: ToolExecutionContext = {
       timezone,
-      normalizedScreenSearchContext: null,
       latestUserContent: user_message,
       weeklyOverviewQueryParams: {},
     };
@@ -2007,7 +1839,6 @@ export async function handleSmsProactivePost(req: NextRequest): Promise<Response
 
     const toolCtx: ToolExecutionContext = {
       timezone,
-      normalizedScreenSearchContext: null,
       latestUserContent: trigger_prompt,
       weeklyOverviewQueryParams: {},
     };

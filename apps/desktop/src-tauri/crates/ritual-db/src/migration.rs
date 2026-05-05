@@ -32,7 +32,6 @@ pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()>
 
     if !has_watcher && !has_frames && !has_sync {
         debug!("No legacy databases found, skipping migration");
-        update_pipeline_watermarks(conn, false, None).await?;
         return Ok(());
     }
 
@@ -41,8 +40,6 @@ pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()>
         debug!("Migration already completed");
         if has_frames {
             let _ = resync_legacy_tail(conn, &frames_db).await;
-        } else {
-            update_pipeline_watermarks(conn, false, None).await?;
         }
         return Ok(());
     }
@@ -132,19 +129,11 @@ pub async fn migrate_if_needed(conn: &Connection, data_dir: &Path) -> Result<()>
             "Migration completed with errors (will retry on next startup): {:?}",
             result.errors
         );
-        update_pipeline_watermarks(
-            conn,
-            true,
-            Some("Legacy migration completed with partial errors; migration marker not advanced."),
-        )
-        .await?;
         return Ok(());
     }
 
     if has_frames {
         let _ = resync_legacy_tail(conn, &frames_db).await;
-    } else {
-        update_pipeline_watermarks(conn, false, None).await?;
     }
 
     Ok(())
@@ -181,93 +170,6 @@ async fn mark_migration_complete(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-async fn update_pipeline_watermarks(
-    conn: &Connection,
-    source_mismatch: bool,
-    source_note: Option<&str>,
-) -> Result<()> {
-    let now = chrono::Utc::now().timestamp_millis();
-
-    conn.execute(
-        r#"
-        INSERT OR IGNORE INTO pipeline_watermarks (id, updated_at)
-        VALUES (1, ?)
-        "#,
-        libsql::params![now],
-    )
-    .await
-    .map_err(|e| DatabaseError::Migration(e.to_string()))?;
-
-    let last_activity_ts = get_max_i64(conn, "SELECT MAX(ts_end) FROM activity_events").await?;
-    let last_ocr_frame_ts = get_max_i64(conn, "SELECT MAX(timestamp) FROM ocr_frames").await?;
-    let last_capture_ts = get_max_i64(
-        conn,
-        "SELECT MAX(COALESCE(end_time, start_time)) FROM video_chunks",
-    )
-    .await?;
-    let pending_chunks = get_max_i64(
-        conn,
-        r#"
-        SELECT COUNT(*)
-        FROM ocr_frames f
-        LEFT JOIN ocr_embeddings e ON e.frame_id = f.id
-        WHERE (e.id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
-          AND (
-            COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
-            OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
-            OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
-          )
-        "#,
-    )
-    .await?
-    .unwrap_or(0);
-    let oldest_pending = get_max_i64(
-        conn,
-        r#"
-        SELECT MIN(f.timestamp)
-        FROM ocr_frames f
-        LEFT JOIN ocr_embeddings e ON e.frame_id = f.id
-        WHERE (e.id IS NULL OR COALESCE(e.status, 'pending') != 'ok')
-          AND (
-            COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
-            OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
-            OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
-          )
-        "#,
-    )
-    .await?;
-
-    conn.execute(
-        r#"
-        UPDATE pipeline_watermarks
-        SET
-          last_capture_ts = ?,
-          last_activity_ts = ?,
-          last_ocr_frame_ts = ?,
-          pending_chunks = ?,
-          oldest_pending_chunk_ts = ?,
-          source_mismatch = ?,
-          source_mismatch_note = ?,
-          updated_at = ?
-        WHERE id = 1
-        "#,
-        libsql::params![
-            last_capture_ts,
-            last_activity_ts,
-            last_ocr_frame_ts,
-            pending_chunks,
-            oldest_pending,
-            if source_mismatch { 1 } else { 0 },
-            source_note,
-            now,
-        ],
-    )
-    .await
-    .map_err(|e| DatabaseError::Migration(e.to_string()))?;
-
-    Ok(())
-}
-
 async fn get_max_i64(conn: &Connection, sql: &str) -> Result<Option<i64>> {
     let mut rows = conn
         .query(sql, ())
@@ -282,7 +184,6 @@ async fn get_max_i64(conn: &Connection, sql: &str) -> Result<Option<i64>> {
 
 async fn resync_legacy_tail(conn: &Connection, frames_db_path: &Path) -> Result<()> {
     if !frames_db_path.exists() {
-        update_pipeline_watermarks(conn, false, None).await?;
         return Ok(());
     }
 
@@ -297,7 +198,6 @@ async fn resync_legacy_tail(conn: &Connection, frames_db_path: &Path) -> Result<
         |row| row.get::<_, i32>(0).map(|count| count > 0),
     )?;
     if !has_source_ocr_table {
-        update_pipeline_watermarks(conn, false, None).await?;
         return Ok(());
     }
 
@@ -308,16 +208,8 @@ async fn resync_legacy_tail(conn: &Connection, frames_db_path: &Path) -> Result<
     )?;
 
     if source_latest <= target_latest + SOURCE_MISMATCH_THRESHOLD_MS {
-        update_pipeline_watermarks(conn, false, None).await?;
         return Ok(());
     }
-
-    update_pipeline_watermarks(
-        conn,
-        true,
-        Some("Legacy frames.db is newer than ritual.db; running tail resync."),
-    )
-    .await?;
 
     let tail_start = target_latest.saturating_sub(RESYNC_TAIL_WINDOW_MS);
     let has_source_video_chunks: bool = source.query_row(
@@ -434,17 +326,6 @@ async fn resync_legacy_tail(conn: &Connection, frames_db_path: &Path) -> Result<
         .await
         .map_err(|e| DatabaseError::Migration(e.to_string()))?;
     }
-
-    let updated_target_latest = get_max_i64(conn, "SELECT MAX(timestamp) FROM ocr_frames")
-        .await?
-        .unwrap_or(0);
-    let still_mismatch = source_latest > updated_target_latest + SOURCE_MISMATCH_THRESHOLD_MS;
-    let note = if still_mismatch {
-        Some("Legacy frames.db still ahead after tail resync; full resync recommended.")
-    } else {
-        Some("Legacy tail resync completed.")
-    };
-    update_pipeline_watermarks(conn, still_mismatch, note).await?;
 
     Ok(())
 }

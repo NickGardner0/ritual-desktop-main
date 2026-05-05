@@ -142,23 +142,6 @@ def get_local_activity_db_path_impl() -> str:
     )
 
 
-def get_local_memory_db_path_impl() -> str:
-    """Resolve the local memory DB path (context fallback + upload outbox)."""
-    home = os.environ.get("HOME") or str(Path.home())
-    ritual_dir = os.path.join(home, ".ritual")
-    resolved = _resolve_db_path(
-        override_env="RITUAL_MEMORY_DB_PATH",
-        preferred_path=os.path.join(ritual_dir, "memory.db"),
-        fallback_path=os.path.join(ritual_dir, "ritual.db"),
-        required_table="context_snapshots",
-        legacy_candidates=[
-            os.path.join(ritual_dir, "frames.db"),
-            os.path.join(ritual_dir, "frames.db.migrated"),
-        ],
-    )
-    return resolved
-
-
 def _legacy_replica_path() -> Optional[Path]:
     database_url = os.environ.get("DATABASE_URL", "")
     if not database_url or "turso.io" not in database_url:
@@ -217,10 +200,7 @@ def _sqlite_integrity_ok(path: Path) -> bool:
 
 
 def _has_required_activity_tables(path: Path) -> bool:
-    return any(
-        _has_table(str(path), table_name)
-        for table_name in ("context_snapshots", "session_retrieval_docs", "activity_events")
-    )
+    return _has_table(str(path), "activity_events")
 
 
 def _open_cached_per_user_replica_conn(
@@ -272,11 +252,10 @@ def get_turso_activity_conn():
     """Get a read-only connection to the backend-managed Turso replica.
 
     The backend already maintains `.turso_replica.db` via
-    ``database.connection``. Activity/search routes should read from that
+    ``database.connection``. Activity routes should read from that
     replica instead of creating and syncing a second replica file on every
-    request. That per-request sync path was fragile on Railway and caused the
-    calendar summary and memory query endpoints to fall back to empty local
-    SQLite databases.
+    request. That per-request sync path was fragile on Railway and caused
+    calendar/reporting endpoints to fall back to empty local SQLite databases.
     """
     replica_path = _legacy_replica_path()
     if replica_path is None:
@@ -285,19 +264,19 @@ def get_turso_activity_conn():
     try:
         conn = _open_sqlite_conn(replica_path, write=False)
         has_table = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='context_snapshots' LIMIT 1"
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='activity_events' LIMIT 1"
         ).fetchone()
         if not has_table:
             conn.close()
             return None
 
-        count = conn.execute("SELECT COUNT(*) FROM context_snapshots").fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM activity_events").fetchone()[0]
         if count == 0:
             conn.close()
             return None
 
         logger.info(
-            "Turso activity conn: %d context_snapshots via backend replica %s",
+            "Turso activity conn: %d activity_events via backend replica %s",
             count,
             replica_path.name,
         )
@@ -395,7 +374,7 @@ async def _build_per_user_bundle(user_id: str) -> Optional[PerUserReplicaBundle]
         sync_url=access.sync_url,
         replica_path=replica_path,
         auth_token=token,
-        expires_at_epoch=expiry_epoch,
+        expires_at_epoch=expires_at_epoch,
         libsql_conn=libsql_conn,
         last_sync_epoch=time.time(),
     )

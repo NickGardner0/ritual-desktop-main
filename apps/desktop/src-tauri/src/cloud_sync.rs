@@ -199,9 +199,9 @@ async fn upload_outbox_item(
     match item.entry_type.as_str() {
         "activity_event" => upsert_activity_event(conn, &payload).await,
         "afk_event" => upsert_afk_event(conn, &payload).await,
-        "context_session" => upsert_context_session(conn, &payload).await,
-        "context_snapshot" => upsert_context_snapshot(conn, &payload).await,
-        "session_retrieval_doc" => upsert_session_retrieval_doc(conn, &payload).await,
+        "project_time_session" => upsert_project_time_session(conn, &payload).await,
+        "project_time_daily_rollup" => upsert_project_time_daily_rollup(conn, &payload).await,
+        "project_classification_rule" => upsert_project_classification_rule(conn, &payload).await,
         other => Err(format!("Unsupported cloud sync entity_type '{other}'")),
     }
 }
@@ -327,279 +327,182 @@ async fn upsert_afk_event(conn: &Connection, payload: &Value) -> Result<(), Stri
     Ok(())
 }
 
-async fn upsert_context_session(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_time_session(conn: &Connection, payload: &Value) -> Result<(), String> {
+    ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
-        INSERT INTO context_sessions (
-            session_uid,
-            device_id,
-            user_id,
-            start_ts,
-            end_ts,
-            primary_app_bundle_id,
-            primary_app_name,
-            primary_domain,
-            dominant_title,
-            representative_text,
-            coverage_score,
-            snapshot_count,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO project_time_sessions (
+            session_uid, user_id, device_id, date, timezone,
+            start_ts, end_ts, active_ms, afk_ms,
+            project_key, project_name, task_key, task_name,
+            classification_source, confidence, status,
+            apps_json, domains_json, artifacts_json, summary_text,
+            created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_uid) DO UPDATE SET
-            device_id = excluded.device_id,
             user_id = excluded.user_id,
-            start_ts = CASE
-                WHEN context_sessions.start_ts <= 0 OR excluded.start_ts < context_sessions.start_ts
-                THEN excluded.start_ts
-                ELSE context_sessions.start_ts
-            END,
-            end_ts = CASE
-                WHEN excluded.end_ts > context_sessions.end_ts
-                THEN excluded.end_ts
-                ELSE context_sessions.end_ts
-            END,
-            primary_app_bundle_id = excluded.primary_app_bundle_id,
-            primary_app_name = excluded.primary_app_name,
-            primary_domain = excluded.primary_domain,
-            dominant_title = excluded.dominant_title,
-            representative_text = excluded.representative_text,
-            coverage_score = excluded.coverage_score,
-            snapshot_count = CASE
-                WHEN excluded.snapshot_count > context_sessions.snapshot_count
-                THEN excluded.snapshot_count
-                ELSE context_sessions.snapshot_count
-            END,
-            created_at = CASE
-                WHEN context_sessions.created_at <= 0 OR excluded.created_at < context_sessions.created_at
-                THEN excluded.created_at
-                ELSE context_sessions.created_at
-            END,
+            device_id = excluded.device_id,
+            date = excluded.date,
+            timezone = excluded.timezone,
+            start_ts = excluded.start_ts,
+            end_ts = excluded.end_ts,
+            active_ms = excluded.active_ms,
+            afk_ms = excluded.afk_ms,
+            project_key = excluded.project_key,
+            project_name = excluded.project_name,
+            task_key = excluded.task_key,
+            task_name = excluded.task_name,
+            classification_source = excluded.classification_source,
+            confidence = excluded.confidence,
+            status = excluded.status,
+            apps_json = excluded.apps_json,
+            domains_json = excluded.domains_json,
+            artifacts_json = excluded.artifacts_json,
+            summary_text = excluded.summary_text,
             updated_at = CASE
-                WHEN excluded.updated_at > context_sessions.updated_at
+                WHEN excluded.updated_at > project_time_sessions.updated_at
                 THEN excluded.updated_at
-                ELSE context_sessions.updated_at
+                ELSE project_time_sessions.updated_at
             END
         "#,
         libsql::params![
             required_string(payload, "session_uid")?,
-            required_string(payload, "device_id")?,
             required_string(payload, "user_id")?,
+            required_string(payload, "device_id")?,
+            required_string(payload, "date")?,
+            required_string(payload, "timezone")?,
             required_i64(payload, "start_ts")?,
             required_i64(payload, "end_ts")?,
-            optional_string(payload, "primary_app_bundle_id"),
-            optional_string(payload, "primary_app_name"),
-            optional_string(payload, "primary_domain"),
-            optional_string(payload, "dominant_title"),
-            optional_string(payload, "representative_text"),
-            required_f64(payload, "coverage_score")?,
-            required_i64(payload, "snapshot_count")?,
+            required_i64(payload, "active_ms")?,
+            required_i64(payload, "afk_ms")?,
+            required_string(payload, "project_key")?,
+            required_string(payload, "project_name")?,
+            required_string(payload, "task_key")?,
+            required_string(payload, "task_name")?,
+            required_string(payload, "classification_source")?,
+            required_f64(payload, "confidence")?,
+            required_string(payload, "status")?,
+            string_or_empty(payload, "apps_json"),
+            string_or_empty(payload, "domains_json"),
+            string_or_empty(payload, "artifacts_json"),
+            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
         ],
     )
     .await
-    .map_err(|error| format!("Failed upserting context_session: {error}"))?;
+    .map_err(|error| format!("Failed upserting project_time_session: {error}"))?;
     Ok(())
 }
 
-async fn upsert_context_snapshot(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) -> Result<(), String> {
+    ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
-        INSERT INTO context_snapshots (
-            device_id,
-            user_id,
-            activity_event_id,
-            activity_event_uid,
-            session_id,
-            session_uid,
-            ts,
-            source_type,
-            app_bundle_id,
-            app_name,
-            window_title,
-            browser_url,
-            browser_domain,
-            tab_title,
-            document_title,
-            visible_text_raw,
-            visible_text_norm,
-            capture_quality,
-            capture_components_json,
-            ax_richness_score,
-            selected_text_present,
-            document_path,
-            ax_source,
-            capture_trigger,
-            trigger_to_snapshot_ms,
-            ui_elements_json,
-            dedup_key,
-            is_sensitive_redacted,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(dedup_key) DO UPDATE SET
-            device_id = excluded.device_id,
+        INSERT INTO project_time_daily_rollups (
+            rollup_uid, user_id, device_id, date, timezone,
+            project_key, project_name, task_key, task_name,
+            active_ms, session_count, confidence_avg,
+            top_apps_json, top_domains_json, summary_text,
+            source_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(rollup_uid) DO UPDATE SET
             user_id = excluded.user_id,
-            activity_event_id = excluded.activity_event_id,
-            activity_event_uid = excluded.activity_event_uid,
-            session_id = excluded.session_id,
-            session_uid = excluded.session_uid,
-            ts = excluded.ts,
-            source_type = excluded.source_type,
-            app_bundle_id = excluded.app_bundle_id,
-            app_name = excluded.app_name,
-            window_title = excluded.window_title,
-            browser_url = excluded.browser_url,
-            browser_domain = excluded.browser_domain,
-            tab_title = excluded.tab_title,
-            document_title = excluded.document_title,
-            visible_text_raw = excluded.visible_text_raw,
-            visible_text_norm = excluded.visible_text_norm,
-            capture_quality = excluded.capture_quality,
-            capture_components_json = excluded.capture_components_json,
-            ax_richness_score = excluded.ax_richness_score,
-            selected_text_present = excluded.selected_text_present,
-            document_path = excluded.document_path,
-            ax_source = excluded.ax_source,
-            capture_trigger = excluded.capture_trigger,
-            trigger_to_snapshot_ms = excluded.trigger_to_snapshot_ms,
-            ui_elements_json = excluded.ui_elements_json,
-            is_sensitive_redacted = excluded.is_sensitive_redacted,
-            created_at = CASE
-                WHEN context_snapshots.created_at <= 0 OR excluded.created_at < context_snapshots.created_at
-                THEN excluded.created_at
-                ELSE context_snapshots.created_at
-            END,
-            updated_at = CASE
-                WHEN excluded.updated_at > context_snapshots.updated_at
-                THEN excluded.updated_at
-                ELSE context_snapshots.updated_at
-            END
-        "#,
-        libsql::params![
-            required_string(payload, "device_id")?,
-            required_string(payload, "user_id")?,
-            optional_i64(payload, "activity_event_id"),
-            optional_string(payload, "activity_event_uid"),
-            optional_i64(payload, "session_id"),
-            optional_string(payload, "session_uid"),
-            required_i64(payload, "ts")?,
-            required_string(payload, "source_type")?,
-            required_string(payload, "app_bundle_id")?,
-            required_string(payload, "app_name")?,
-            optional_string(payload, "window_title"),
-            optional_string(payload, "browser_url"),
-            optional_string(payload, "browser_domain"),
-            optional_string(payload, "tab_title"),
-            optional_string(payload, "document_title"),
-            string_or_empty(payload, "visible_text_raw"),
-            string_or_empty(payload, "visible_text_norm"),
-            required_f64(payload, "capture_quality")?,
-            optional_string(payload, "capture_components_json"),
-            required_f64(payload, "ax_richness_score")?,
-            bool_as_i64(payload.get("selected_text_present")),
-            optional_string(payload, "document_path"),
-            optional_string(payload, "ax_source"),
-            optional_string(payload, "capture_trigger"),
-            optional_i64(payload, "trigger_to_snapshot_ms"),
-            optional_string(payload, "ui_elements_json"),
-            required_string(payload, "dedup_key")?,
-            bool_as_i64(payload.get("is_sensitive_redacted")),
-            required_i64(payload, "created_at")?,
-            required_i64(payload, "updated_at")?,
-        ],
-    )
-    .await
-    .map_err(|error| format!("Failed upserting context_snapshot: {error}"))?;
-    Ok(())
-}
-
-async fn upsert_session_retrieval_doc(conn: &Connection, payload: &Value) -> Result<(), String> {
-    conn.execute(
-        r#"
-        INSERT INTO session_retrieval_docs (
-            session_id,
-            session_uid,
-            logical_chunk_id,
-            device_id,
-            user_id,
-            source_kind,
-            chunk_start_ts,
-            chunk_end_ts,
-            app_name,
-            browser_domain,
-            window_title,
-            document_title,
-            raw_visible_text,
-            contextual_retrieval_text,
-            capture_quality,
-            context_version,
-            session_position,
-            session_count,
-            embedded_at,
-            provider_doc_id,
-            created_at,
-            updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(logical_chunk_id) DO UPDATE SET
-            session_id = excluded.session_id,
-            session_uid = excluded.session_uid,
             device_id = excluded.device_id,
-            user_id = excluded.user_id,
-            source_kind = excluded.source_kind,
-            chunk_start_ts = excluded.chunk_start_ts,
-            chunk_end_ts = excluded.chunk_end_ts,
-            app_name = excluded.app_name,
-            browser_domain = excluded.browser_domain,
-            window_title = excluded.window_title,
-            document_title = excluded.document_title,
-            raw_visible_text = excluded.raw_visible_text,
-            contextual_retrieval_text = excluded.contextual_retrieval_text,
-            capture_quality = excluded.capture_quality,
-            context_version = excluded.context_version,
-            session_position = excluded.session_position,
+            date = excluded.date,
+            timezone = excluded.timezone,
+            project_key = excluded.project_key,
+            project_name = excluded.project_name,
+            task_key = excluded.task_key,
+            task_name = excluded.task_name,
+            active_ms = excluded.active_ms,
             session_count = excluded.session_count,
-            embedded_at = COALESCE(excluded.embedded_at, session_retrieval_docs.embedded_at),
-            provider_doc_id = COALESCE(excluded.provider_doc_id, session_retrieval_docs.provider_doc_id),
-            created_at = CASE
-                WHEN session_retrieval_docs.created_at <= 0 OR excluded.created_at < session_retrieval_docs.created_at
-                THEN excluded.created_at
-                ELSE session_retrieval_docs.created_at
-            END,
+            confidence_avg = excluded.confidence_avg,
+            top_apps_json = excluded.top_apps_json,
+            top_domains_json = excluded.top_domains_json,
+            summary_text = excluded.summary_text,
+            source_version = excluded.source_version,
             updated_at = CASE
-                WHEN excluded.updated_at > session_retrieval_docs.updated_at
+                WHEN excluded.updated_at > project_time_daily_rollups.updated_at
                 THEN excluded.updated_at
-                ELSE session_retrieval_docs.updated_at
+                ELSE project_time_daily_rollups.updated_at
             END
         "#,
         libsql::params![
-            required_i64(payload, "session_id")?,
-            required_string(payload, "session_uid")?,
-            required_string(payload, "logical_chunk_id")?,
-            required_string(payload, "device_id")?,
+            required_string(payload, "rollup_uid")?,
             required_string(payload, "user_id")?,
-            required_string(payload, "source_kind")?,
-            required_i64(payload, "chunk_start_ts")?,
-            required_i64(payload, "chunk_end_ts")?,
-            optional_string(payload, "app_name"),
-            optional_string(payload, "browser_domain"),
-            optional_string(payload, "window_title"),
-            optional_string(payload, "document_title"),
-            required_string(payload, "raw_visible_text")?,
-            required_string(payload, "contextual_retrieval_text")?,
-            required_f64(payload, "capture_quality")?,
-            required_i64(payload, "context_version")?,
-            required_i64(payload, "session_position")?,
+            required_string(payload, "device_id")?,
+            required_string(payload, "date")?,
+            required_string(payload, "timezone")?,
+            required_string(payload, "project_key")?,
+            required_string(payload, "project_name")?,
+            required_string(payload, "task_key")?,
+            required_string(payload, "task_name")?,
+            required_i64(payload, "active_ms")?,
             required_i64(payload, "session_count")?,
-            optional_i64(payload, "embedded_at"),
-            optional_string(payload, "provider_doc_id"),
+            required_f64(payload, "confidence_avg")?,
+            string_or_empty(payload, "top_apps_json"),
+            string_or_empty(payload, "top_domains_json"),
+            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
+            required_string(payload, "source_version")?,
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
         ],
     )
     .await
-    .map_err(|error| format!("Failed upserting session_retrieval_doc: {error}"))?;
+    .map_err(|error| format!("Failed upserting project_time_daily_rollup: {error}"))?;
+    Ok(())
+}
+
+async fn upsert_project_classification_rule(conn: &Connection, payload: &Value) -> Result<(), String> {
+    ensure_no_raw_memory_fields(payload)?;
+    conn.execute(
+        r#"
+        INSERT INTO project_classification_rules (
+            rule_uid, user_id, matcher_app_bundle_id, matcher_domain,
+            matcher_title_pattern, matcher_artifact_pattern, matcher_keyword_pattern,
+            project_key, project_name, task_key, task_name,
+            priority, enabled, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(rule_uid) DO UPDATE SET
+            user_id = excluded.user_id,
+            matcher_app_bundle_id = excluded.matcher_app_bundle_id,
+            matcher_domain = excluded.matcher_domain,
+            matcher_title_pattern = excluded.matcher_title_pattern,
+            matcher_artifact_pattern = excluded.matcher_artifact_pattern,
+            matcher_keyword_pattern = excluded.matcher_keyword_pattern,
+            project_key = excluded.project_key,
+            project_name = excluded.project_name,
+            task_key = excluded.task_key,
+            task_name = excluded.task_name,
+            priority = excluded.priority,
+            enabled = excluded.enabled,
+            updated_at = CASE
+                WHEN excluded.updated_at > project_classification_rules.updated_at
+                THEN excluded.updated_at
+                ELSE project_classification_rules.updated_at
+            END
+        "#,
+        libsql::params![
+            required_string(payload, "rule_uid")?,
+            required_string(payload, "user_id")?,
+            optional_string(payload, "matcher_app_bundle_id"),
+            optional_string(payload, "matcher_domain"),
+            optional_string(payload, "matcher_title_pattern"),
+            optional_string(payload, "matcher_artifact_pattern"),
+            optional_string(payload, "matcher_keyword_pattern"),
+            required_string(payload, "project_key")?,
+            required_string(payload, "project_name")?,
+            required_string(payload, "task_key")?,
+            required_string(payload, "task_name")?,
+            required_i64(payload, "priority")?,
+            bool_as_i64(payload.get("enabled")),
+            required_i64(payload, "created_at")?,
+            required_i64(payload, "updated_at")?,
+        ],
+    )
+    .await
+    .map_err(|error| format!("Failed upserting project_classification_rule: {error}"))?;
     Ok(())
 }
 
@@ -624,6 +527,43 @@ fn is_permanent_payload_error(error: &str) -> bool {
 fn truncate_sync_error(error: &str) -> String {
     const MAX_ERROR_LEN: usize = 500;
     error.chars().take(MAX_ERROR_LEN).collect()
+}
+
+fn ensure_no_raw_memory_fields(payload: &Value) -> Result<(), String> {
+    const FORBIDDEN_KEYS: &[&str] = &[
+        "visible_text_raw",
+        "raw_visible_text",
+        "contextual_retrieval_text",
+        "ocr_text",
+        "thumbnail_path",
+        "screenshot_path",
+        "embedding",
+        "segment_embedding",
+    ];
+
+    fn visit(value: &Value, forbidden: &[&str]) -> Option<String> {
+        match value {
+            Value::Object(map) => {
+                for (key, nested) in map {
+                    if forbidden.iter().any(|item| item == key) {
+                        return Some(key.clone());
+                    }
+                    if let Some(found) = visit(nested, forbidden) {
+                        return Some(found);
+                    }
+                }
+                None
+            }
+            Value::Array(items) => items.iter().find_map(|item| visit(item, forbidden)),
+            _ => None,
+        }
+    }
+
+    if let Some(key) = visit(payload, FORBIDDEN_KEYS) {
+        Err(format!("Project-time cloud payload contains forbidden raw memory field '{key}'"))
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

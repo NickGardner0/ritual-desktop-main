@@ -300,7 +300,7 @@ fn get_recorder_config_path() -> PathBuf {
     }
 }
 
-/// Get memory pipeline database path (OCR/chunks/embeddings).
+/// Get local capture database path (OCR/chunks).
 fn get_memory_database_path() -> PathBuf {
     if let Ok(home) = std::env::var("HOME") {
         PathBuf::from(home).join(".ritual/memory.db")

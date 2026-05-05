@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { executeGetCalendarEvents } from '@/lib/ai/chat-stream/executors/calendar';
 import { executeGetDailyBiometrics } from '@/lib/ai/chat-stream/executors/biometrics';
 import { executeGetComputerTimeSpentBreakdown } from '@/lib/ai/chat-stream/executors/computer-time';
+import { executeGetActivitySummary } from '@/lib/ai/chat-stream/executors/context-memory';
 import {
   executeGetDailyOverview,
   executeGetMonthlyOverview,
@@ -10,7 +11,11 @@ import {
 } from '@/lib/ai/chat-stream/executors/overviews';
 import { executeGetScreenTimeSummary } from '@/lib/ai/chat-stream/executors/screen-time';
 import { executeGetStreaks } from '@/lib/ai/chat-stream/executors/habits';
-import { fetchPythonApiPost, shiftYmd } from '@/lib/ai/chat-stream/executors/shared-api';
+import { shiftYmd } from '@/lib/ai/chat-stream/executors/shared-api';
+import {
+  buildCalendarStyleActivitySummary,
+  inferRecapAnchorDate,
+} from '@/lib/ai/chat-stream/narrative/activity-summary';
 
 export type WorkflowKind = 'morning_brief' | 'shutdown_review' | 'daily_narrative' | 'distraction_spiral';
 export type WorkflowArtifactKind =
@@ -139,22 +144,20 @@ async function collectShutdownReview(token: string, payload: WorkflowExecutePayl
   ];
 
   const [activitySummary, dailyOverviewRaw, computerTimeRaw, screenTimeRaw] = await Promise.all([
-    fetchPythonApiPost(
-      '/api/memory/recap/day',
+    executeGetActivitySummary(
       token,
       {
         query: 'what did I do today',
-        anchor_date: day,
-        timezone: payload.timezone,
-        days_back: 1,
+        daysBack: 1,
       },
-      { timeoutMs: 25_000 },
+      payload.timezone,
+      inferRecapAnchorDate,
+      buildCalendarStyleActivitySummary,
     ),
     executeGetDailyOverview(token, { appLimit: 5 }, payload.timezone),
     executeGetComputerTimeSpentBreakdown(
       token,
       { query: 'overall computer time today', daysBack: 1, limit: 8, groupBy: 'app' },
-      null,
       payload.timezone,
     ),
     executeGetScreenTimeSummary(token, { daysBack: 1, appLimit: 5 }, payload.timezone),
@@ -182,16 +185,15 @@ async function collectDailyNarrative(token: string, payload: WorkflowExecutePayl
   ];
 
   const [activitySummary, dailyOverviewRaw, biometricsRaw, calendarRaw] = await Promise.all([
-    fetchPythonApiPost(
-      '/api/memory/recap/day',
+    executeGetActivitySummary(
       token,
       {
         query: 'what did I do today',
-        anchor_date: day,
-        timezone: payload.timezone,
-        days_back: 1,
+        daysBack: 1,
       },
-      { timeoutMs: 25_000 },
+      payload.timezone,
+      inferRecapAnchorDate,
+      buildCalendarStyleActivitySummary,
     ),
     executeGetDailyOverview(token, { appLimit: 6 }, payload.timezone),
     executeGetDailyBiometrics(token, { day }, payload.timezone),
@@ -224,7 +226,6 @@ async function collectDistractionSpiral(token: string, payload: WorkflowExecuteP
     executeGetComputerTimeSpentBreakdown(
       token,
       { query: 'where did my time go today', daysBack: 1, limit: 10, groupBy: 'app' },
-      null,
       payload.timezone,
     ),
     executeGetScreenTimeSummary(token, { daysBack: 1, appLimit: 8 }, payload.timezone),

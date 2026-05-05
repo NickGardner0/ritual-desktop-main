@@ -4,7 +4,6 @@
 //! It wraps ritual-db and provides Tauri commands for:
 //! - Database statistics
 //! - Migration status
-//! - Cloud-memory upload outbox management
 //!
 //! The existing rusqlite code continues to work alongside this for backward compatibility.
 
@@ -16,7 +15,11 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
-use ritual_db::{blocking::BlockingDatabase, DatabaseConfig, RitualDatabase};
+use ritual_db::{
+    blocking::BlockingDatabase,
+    project_time::{ProjectTimeOps, ProjectTimeRecomputeResult, ProjectTimeRetentionResult},
+    DatabaseConfig, RitualDatabase,
+};
 
 macro_rules! db_info {
     ($($arg:tt)*) => {
@@ -385,9 +388,6 @@ fn ensure_split_local_databases() -> Result<(), String> {
         for table in [
             "video_chunks",
             "recorder_stats",
-            "pipeline_watermarks",
-            "memory_upload_outbox",
-            "capture_events_raw",
             "schema_migrations",
         ] {
             copy_table_if_exists(&conn, table)?;
@@ -564,7 +564,6 @@ pub fn get_ritual_db_stats() -> Result<RitualDbStats, String> {
         Ok(RitualDbStats {
             activity_event_count: stats.activity_event_count,
             ocr_frame_count: stats.ocr_frame_count,
-            embedding_count: stats.embedding_count,
             video_chunk_count: stats.video_chunk_count,
             sync_queue_pending: stats.sync_queue_pending,
             db_size_mb: stats.db_size_bytes as f64 / 1024.0 / 1024.0,
@@ -577,13 +576,12 @@ pub fn get_ritual_db_stats() -> Result<RitualDbStats, String> {
 pub struct RitualDbStats {
     pub activity_event_count: i64,
     pub ocr_frame_count: i64,
-    pub embedding_count: i64,
     pub video_chunk_count: i64,
     pub sync_queue_pending: i64,
     pub db_size_mb: f64,
 }
 
-/// Text search (full-text search, faster than semantic)
+/// Local OCR full-text search.
 #[tauri::command]
 pub fn text_search(query: String, limit: Option<usize>) -> Result<Vec<TextSearchResult>, String> {
     RUNTIME.block_on(async {
@@ -627,64 +625,6 @@ pub struct TextSearchResult {
     pub frame_offset: Option<i64>,
 }
 
-/// Emit a one-line startup snapshot for cloud-memory upload readiness.
-pub fn log_startup_pipeline_snapshot() -> Result<(), String> {
-    RUNTIME.block_on(async {
-        let guard = get_activity_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-        let conn = db.connection().await;
-
-        let (outbox_pending, outbox_uploading, outbox_failed, outbox_uploaded) = {
-            let mut rows = conn
-                .query(
-                    r#"
-                    SELECT
-                        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                        SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
-                        SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                        SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count
-                    FROM memory_upload_outbox
-                    "#,
-                    (),
-                )
-                .await
-                .map_err(|e| format!("Failed to read memory_upload_outbox startup stats: {}", e))?;
-
-            if let Some(row) = rows
-                .next()
-                .await
-                .map_err(|e| format!("Failed reading memory_upload_outbox startup stats row: {}", e))?
-            {
-                (
-                    row.get::<i64>(0).unwrap_or(0),
-                    row.get::<i64>(1).unwrap_or(0),
-                    row.get::<i64>(2).unwrap_or(0),
-                    row.get::<i64>(3).unwrap_or(0),
-                )
-            } else {
-                (0, 0, 0, 0)
-            }
-        };
-
-        db_info!(
-            "📈 Startup pipeline snapshot: outbox_pending={}, outbox_uploading={}, outbox_failed={}, outbox_uploaded={}",
-            outbox_pending,
-            outbox_uploading,
-            outbox_failed,
-            outbox_uploaded
-        );
-        eprintln!(
-            "[Ritual][startup] outbox_pending={} outbox_uploading={} outbox_failed={} outbox_uploaded={}",
-            outbox_pending,
-            outbox_uploading,
-            outbox_failed,
-            outbox_uploaded
-        );
-
-        Ok(())
-    })
-}
-
 /// Check migration status for both legacy and split local databases.
 #[tauri::command]
 pub fn check_migration_status() -> Result<MigrationStatus, String> {
@@ -724,676 +664,180 @@ pub struct MigrationStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryUploadOutboxSeedResult {
-    pub inserted: i64,
-    pub scanned_limit: i64,
+pub struct ProjectTimeAttributionHealth {
+    pub latest_session_ts: Option<i64>,
+    pub session_count: i64,
+    pub rollup_count: i64,
+    pub unclassified_session_count: i64,
+    pub latest_rollup_updated_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryUploadOutboxStats {
-    pub pending: i64,
-    pub uploading: i64,
-    pub failed: i64,
-    pub uploaded: i64,
-    pub total: i64,
-    pub oldest_pending_created_at: Option<i64>,
-    pub newest_uploaded_at: Option<i64>,
+fn project_time_range_start(days_back: Option<i64>) -> i64 {
+    let days = days_back.unwrap_or(3).clamp(1, 90);
+    Utc::now()
+        .timestamp_millis()
+        .saturating_sub(days * 24 * 60 * 60 * 1000)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryUploadOutboxItem {
-    pub id: i64,
-    pub user_id: String,
-    pub device_id: String,
-    pub chunk_id: i64,
-    pub logical_chunk_id: Option<String>,
-    pub content_hash: Option<String>,
-    pub payload_json: String,
-    pub retry_count: i64,
+async fn project_time_incremental_range_start(conn: &libsql::Connection) -> Result<i64, String> {
+    let now = Utc::now().timestamp_millis();
+    let fallback = now.saturating_sub(3 * 24 * 60 * 60 * 1000);
+    let mut rows = conn
+        .query(
+            "SELECT MAX(end_ts) FROM project_time_sessions",
+            (),
+        )
+        .await
+        .map_err(|e| format!("Failed to read project-time watermark: {}", e))?;
+    let latest = rows
+        .next()
+        .await
+        .map_err(|e| format!("Failed reading project-time watermark row: {}", e))?
+        .and_then(|row| row.get::<Option<i64>>(0).ok().flatten())
+        .unwrap_or(0);
+    if latest <= 0 {
+        return Ok(fallback);
+    }
+    Ok(latest.saturating_sub(10 * 60 * 1000).max(fallback))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MemoryUploadOutboxAckResult {
-    pub updated: i64,
-    pub failed_updates: i64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocalRetrievalHealthStats {
-    pub latest_context_snapshots_ts: Option<i64>,
-    pub latest_session_retrieval_docs_ts: Option<i64>,
-    pub context_snapshot_count: i64,
-    pub session_retrieval_doc_count: i64,
-    pub latest_activity_event_ts: Option<i64>,
-    pub cloud_sync_outbox: MemoryUploadOutboxStats,
-    pub memory_upload_outbox: MemoryUploadOutboxStats,
-}
-
-/// Seed upload outbox rows from session_retrieval_docs for cloud ingestion.
 #[tauri::command]
-pub fn seed_memory_upload_outbox(
-    limit: Option<usize>,
+pub fn run_project_time_attribution_once(
+    days_back: Option<i64>,
     origin: Option<String>,
-) -> Result<MemoryUploadOutboxSeedResult, String> {
+) -> Result<ProjectTimeRecomputeResult, String> {
     RUNTIME.block_on(async {
         let origin = normalize_db_command_origin(
             origin.as_deref(),
-            "tauri:seed_memory_upload_outbox:unknown",
+            "tauri:run_project_time_attribution_once:unknown",
         );
+        log_db_command("run_project_time_attribution_once", &origin, "");
+        let active_identity = resolve_active_identity().ok_or_else(|| {
+            "Cannot run project-time attribution without an active Ritual user/device identity."
+                .to_string()
+        })?;
         let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
-        let now = Utc::now().timestamp_millis();
-        let fresh_cutoff = now.saturating_sub(2 * 60 * 60 * 1000);
-        let safe_limit = limit.unwrap_or(500).clamp(1, 10_000) as i64;
-        log_db_command(
-            "seed_memory_upload_outbox",
-            &origin,
-            &format!("limit={safe_limit}"),
-        );
-        let active_identity = resolve_active_identity().ok_or_else(|| {
-            "Cannot seed memory upload outbox without an active Ritual user/device identity."
-                .to_string()
-        })?;
-        let mut inserted: i64 = 0;
-
-        let mut session_doc_rows = conn
-            .query(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='session_retrieval_docs' LIMIT 1",
-                (),
+        let start_ts = match days_back {
+            Some(_) => project_time_range_start(days_back),
+            None => project_time_incremental_range_start(&conn).await?,
+        };
+        let end_ts = Utc::now().timestamp_millis().saturating_add(60_000);
+        ProjectTimeOps::new(&conn)
+            .recompute_range(
+                start_ts,
+                end_ts,
+                Some(&active_identity.user_id),
+                Some(&active_identity.device_id),
             )
             .await
-            .map_err(|e| format!("Failed to check session_retrieval_docs existence: {}", e))?;
-        let has_session_retrieval_docs = session_doc_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading session_retrieval_docs existence: {}", e))?
-            .is_some();
-
-        if has_session_retrieval_docs {
-            inserted += conn.execute(
-                r#"
-                INSERT INTO memory_upload_outbox
-                (user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, status, retry_count, next_retry_at, last_error, created_at, updated_at)
-                SELECT
-                    COALESCE(NULLIF(src.user_id, ''), ?),
-                    COALESCE(NULLIF(src.device_id, ''), ?),
-                    -src.session_id,
-                    printf('context-session-%d', src.session_id),
-                    printf('context-session-%d-%d-%d-%d', src.session_id, src.chunk_start_ts, src.chunk_end_ts, COALESCE(src.updated_at, 0)),
-                    json_object(
-                        'chunk_id', printf('context-session-%d', src.session_id),
-                        'logical_chunk_id', printf('context-session-%d', src.session_id),
-                        'chunk_start_ts', src.chunk_start_ts,
-                        'chunk_end_ts', src.chunk_end_ts,
-                        'source_kind', COALESCE(NULLIF(src.source_kind, ''), 'context_session'),
-                        'session_id', CAST(src.session_id AS TEXT),
-                        'app_name', COALESCE(src.app_name, ''),
-                        'window_title', COALESCE(src.window_title, ''),
-                        'document_title', COALESCE(src.document_title, ''),
-                        'browser_domain', COALESCE(src.browser_domain, ''),
-                        'raw_visible_text', COALESCE(src.raw_visible_text, ''),
-                        'contextual_retrieval_text', COALESCE(src.contextual_retrieval_text, ''),
-                        'text_compact', COALESCE(src.contextual_retrieval_text, ''),
-                        'context_version', COALESCE(src.context_version, 1),
-                        'session_key', CAST(src.session_id AS TEXT),
-                        'session_position', COALESCE(src.session_position, 0),
-                        'session_count', COALESCE(src.session_count, 1),
-                        'quality_score', COALESCE(src.capture_quality, 0.0),
-                        'capture_quality', COALESCE(src.capture_quality, 0.0),
-                        'source_frame_ids', json('[]'),
-                        'content_hash', printf('context-session-%d-%d-%d-%d', src.session_id, src.chunk_start_ts, src.chunk_end_ts, COALESCE(src.updated_at, 0))
-                    ),
-                    'pending',
-                    0,
-                    NULL,
-                    NULL,
-                    ?,
-                    ?
-                FROM (
-                    SELECT
-                        session_id,
-                        device_id,
-                        user_id,
-                        chunk_start_ts,
-                        chunk_end_ts,
-                        'context_session' AS source_kind,
-                        app_name,
-                        window_title,
-                        document_title,
-                        browser_domain,
-                        raw_visible_text,
-                        contextual_retrieval_text,
-                        capture_quality,
-                        context_version,
-                        session_position,
-                        session_count,
-                        updated_at
-                    FROM session_retrieval_docs
-                    WHERE TRIM(COALESCE(contextual_retrieval_text, '')) != ''
-                    ORDER BY
-                        CASE
-                            WHEN chunk_end_ts >= ? THEN 0
-                            ELSE 1
-                        END ASC,
-                        chunk_end_ts DESC
-                    LIMIT ?
-                ) AS src
-                WHERE 1=1
-                ON CONFLICT(user_id, device_id, logical_chunk_id) DO UPDATE SET
-                    chunk_id = excluded.chunk_id,
-                    content_hash = excluded.content_hash,
-                    payload_json = excluded.payload_json,
-                    status = CASE
-                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
-                        THEN 'pending'
-                        ELSE memory_upload_outbox.status
-                    END,
-                    retry_count = CASE
-                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
-                        THEN 0
-                        ELSE memory_upload_outbox.retry_count
-                    END,
-                    next_retry_at = CASE
-                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
-                        THEN NULL
-                        ELSE memory_upload_outbox.next_retry_at
-                    END,
-                    last_error = CASE
-                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
-                        THEN NULL
-                        ELSE memory_upload_outbox.last_error
-                    END,
-                    updated_at = CASE
-                        WHEN COALESCE(memory_upload_outbox.content_hash, '') != COALESCE(excluded.content_hash, '')
-                        THEN excluded.updated_at
-                        ELSE memory_upload_outbox.updated_at
-                    END
-                "#,
-                libsql::params![
-                    active_identity.user_id.clone(),
-                    active_identity.device_id.clone(),
-                    now,
-                    now,
-                    fresh_cutoff,
-                    safe_limit
-                ],
-            ).await.map_err(|e| format!("Failed to seed context session docs into memory upload outbox: {}", e))? as i64;
-        }
-
-        Ok(MemoryUploadOutboxSeedResult {
-            inserted: inserted as i64,
-            scanned_limit: safe_limit,
-        })
+            .map_err(|e| format!("Failed to recompute project-time attribution: {}", e))
     })
 }
 
-/// Get upload outbox health/status for UI and diagnostics.
 #[tauri::command]
-pub fn get_memory_upload_outbox_stats(
+pub fn run_project_time_retention_once(
+    retention_days: Option<i64>,
     origin: Option<String>,
-) -> Result<MemoryUploadOutboxStats, String> {
+) -> Result<ProjectTimeRetentionResult, String> {
     RUNTIME.block_on(async {
         let origin = normalize_db_command_origin(
             origin.as_deref(),
-            "tauri:get_memory_upload_outbox_stats:unknown",
+            "tauri:run_project_time_retention_once:unknown",
         );
-        log_db_command("get_memory_upload_outbox_stats", &origin, "");
+        log_db_command("run_project_time_retention_once", &origin, "");
         let guard = get_activity_db().await?;
         let db = require_db_ref(guard.as_ref())?;
         let conn = db.connection().await;
+        ProjectTimeOps::new(&conn)
+            .run_retention(retention_days)
+            .await
+            .map_err(|e| format!("Failed to run project-time retention: {}", e))
+    })
+}
 
+#[tauri::command]
+pub fn get_project_time_attribution_health(
+    origin: Option<String>,
+) -> Result<ProjectTimeAttributionHealth, String> {
+    RUNTIME.block_on(async {
+        let origin = normalize_db_command_origin(
+            origin.as_deref(),
+            "tauri:get_project_time_attribution_health:unknown",
+        );
+        log_db_command("get_project_time_attribution_health", &origin, "");
+        let guard = get_activity_db().await?;
+        let db = require_db_ref(guard.as_ref())?;
+        let conn = db.connection().await;
         let mut rows = conn
             .query(
                 r#"
                 SELECT
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                    SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                    SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count,
-                    COUNT(*) AS total_count,
-                    MIN(CASE WHEN status IN ('pending','failed') THEN created_at ELSE NULL END) AS oldest_pending_created_at,
-                    MAX(CASE WHEN status = 'uploaded' THEN updated_at ELSE NULL END) AS newest_uploaded_at
-                FROM memory_upload_outbox
+                    (SELECT MAX(end_ts) FROM project_time_sessions),
+                    (SELECT COUNT(*) FROM project_time_sessions),
+                    (SELECT COUNT(*) FROM project_time_daily_rollups),
+                    (SELECT COUNT(*) FROM project_time_sessions WHERE project_key = 'unclassified'),
+                    (SELECT MAX(updated_at) FROM project_time_daily_rollups)
                 "#,
                 (),
             )
             .await
-            .map_err(|e| format!("Failed to read memory upload outbox stats: {}", e))?;
-
+            .map_err(|e| format!("Failed to read project-time health: {}", e))?;
         let row = rows
             .next()
             .await
-            .map_err(|e| format!("Failed to read memory upload outbox stats row: {}", e))?;
-        let row = row.ok_or_else(|| "Outbox stats row missing".to_string())?;
+            .map_err(|e| format!("Failed reading project-time health row: {}", e))?
+            .ok_or_else(|| "Project-time health row missing".to_string())?;
 
-        Ok(MemoryUploadOutboxStats {
-            pending: row.get::<i64>(0).unwrap_or(0),
-            uploading: row.get::<i64>(1).unwrap_or(0),
-            failed: row.get::<i64>(2).unwrap_or(0),
-            uploaded: row.get::<i64>(3).unwrap_or(0),
-            total: row.get::<i64>(4).unwrap_or(0),
-            oldest_pending_created_at: row.get::<Option<i64>>(5).ok().flatten(),
-            newest_uploaded_at: row.get::<Option<i64>>(6).ok().flatten(),
+        Ok(ProjectTimeAttributionHealth {
+            latest_session_ts: row.get::<Option<i64>>(0).ok().flatten(),
+            session_count: row.get::<i64>(1).unwrap_or(0),
+            rollup_count: row.get::<i64>(2).unwrap_or(0),
+            unclassified_session_count: row.get::<i64>(3).unwrap_or(0),
+            latest_rollup_updated_at: row.get::<Option<i64>>(4).ok().flatten(),
         })
     })
 }
 
-/// Read local retrieval freshness directly from the live desktop activity DB.
-#[tauri::command]
-pub fn get_local_retrieval_health(
-    origin: Option<String>,
-) -> Result<LocalRetrievalHealthStats, String> {
-    RUNTIME.block_on(async {
-        let origin = normalize_db_command_origin(
-            origin.as_deref(),
-            "tauri:get_local_retrieval_health:unknown",
-        );
-        log_db_command("get_local_retrieval_health", &origin, "");
-
-        let guard = get_activity_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-        let conn = db.connection().await;
-
-        let mut context_rows = conn
-            .query(
-                "SELECT MAX(ts) AS latest_ts, COUNT(*) AS total_count FROM context_snapshots",
-                (),
-            )
+pub fn spawn_project_time_attribution_worker() {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        loop {
+            match tauri::async_runtime::spawn_blocking(|| {
+                let attribution = run_project_time_attribution_once(
+                    None,
+                    Some("worker:project_time_attribution".to_string()),
+                );
+                let retention = run_project_time_retention_once(
+                    Some(30),
+                    Some("worker:project_time_retention".to_string()),
+                );
+                (attribution, retention)
+            })
             .await
-            .map_err(|e| format!("Failed to read context snapshot health: {}", e))?;
-        let context_row = context_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading context snapshot health row: {}", e))?;
-
-        let mut session_rows = conn
-            .query(
-                "SELECT MAX(chunk_end_ts) AS latest_ts, COUNT(*) AS total_count FROM session_retrieval_docs",
-                (),
-            )
-            .await
-            .map_err(|e| format!("Failed to read session retrieval health: {}", e))?;
-        let session_row = session_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading session retrieval health row: {}", e))?;
-
-        let mut activity_rows = conn
-            .query(
-                "SELECT MAX(ts_end) AS latest_ts FROM activity_events",
-                (),
-            )
-            .await
-            .map_err(|e| format!("Failed to read activity event health: {}", e))?;
-        let activity_row = activity_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading activity event health row: {}", e))?;
-
-        let mut cloud_outbox_rows = conn
-            .query(
-                r#"
-                SELECT
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                    SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                    SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count,
-                    COUNT(*) AS total_count,
-                    MIN(CASE WHEN status IN ('pending','failed') THEN created_at ELSE NULL END) AS oldest_pending_created_at,
-                    MAX(CASE WHEN status = 'uploaded' THEN updated_at ELSE NULL END) AS newest_uploaded_at
-                FROM cloud_sync_outbox
-                "#,
-                (),
-            )
-            .await
-            .map_err(|e| format!("Failed to read cloud sync outbox health: {}", e))?;
-        let cloud_outbox_row = cloud_outbox_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading cloud sync outbox health row: {}", e))?;
-
-        let mut outbox_rows = conn
-            .query(
-                r#"
-                SELECT
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-                    SUM(CASE WHEN status = 'uploading' THEN 1 ELSE 0 END) AS uploading_count,
-                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                    SUM(CASE WHEN status = 'uploaded' THEN 1 ELSE 0 END) AS uploaded_count,
-                    COUNT(*) AS total_count,
-                    MIN(CASE WHEN status IN ('pending','failed') THEN created_at ELSE NULL END) AS oldest_pending_created_at,
-                    MAX(CASE WHEN status = 'uploaded' THEN updated_at ELSE NULL END) AS newest_uploaded_at
-                FROM memory_upload_outbox
-                "#,
-                (),
-            )
-            .await
-            .map_err(|e| format!("Failed to read memory upload outbox health: {}", e))?;
-        let outbox_row = outbox_rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading memory upload outbox health row: {}", e))?;
-
-        Ok(LocalRetrievalHealthStats {
-            latest_context_snapshots_ts: context_row
-                .as_ref()
-                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
-            latest_session_retrieval_docs_ts: session_row
-                .as_ref()
-                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
-            latest_activity_event_ts: activity_row
-                .as_ref()
-                .and_then(|row| row.get::<Option<i64>>(0).ok().flatten()),
-            context_snapshot_count: context_row
-                .as_ref()
-                .and_then(|row| row.get::<i64>(1).ok())
-                .unwrap_or(0),
-            session_retrieval_doc_count: session_row
-                .as_ref()
-                .and_then(|row| row.get::<i64>(1).ok())
-                .unwrap_or(0),
-            cloud_sync_outbox: MemoryUploadOutboxStats {
-                pending: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(0).ok())
-                    .unwrap_or(0),
-                uploading: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(1).ok())
-                    .unwrap_or(0),
-                failed: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(2).ok())
-                    .unwrap_or(0),
-                uploaded: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(3).ok())
-                    .unwrap_or(0),
-                total: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(4).ok())
-                    .unwrap_or(0),
-                oldest_pending_created_at: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<Option<i64>>(5).ok().flatten()),
-                newest_uploaded_at: cloud_outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<Option<i64>>(6).ok().flatten()),
-            },
-            memory_upload_outbox: MemoryUploadOutboxStats {
-                pending: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(0).ok())
-                    .unwrap_or(0),
-                uploading: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(1).ok())
-                    .unwrap_or(0),
-                failed: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(2).ok())
-                    .unwrap_or(0),
-                uploaded: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(3).ok())
-                    .unwrap_or(0),
-                total: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<i64>(4).ok())
-                    .unwrap_or(0),
-                oldest_pending_created_at: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<Option<i64>>(5).ok().flatten()),
-                newest_uploaded_at: outbox_row
-                    .as_ref()
-                    .and_then(|row| row.get::<Option<i64>>(6).ok().flatten()),
-            },
-        })
-    })
-}
-
-/// Claim a batch of outbox rows for upload processing.
-#[tauri::command]
-pub fn claim_memory_upload_outbox_batch(
-    limit: Option<usize>,
-    origin: Option<String>,
-) -> Result<Vec<MemoryUploadOutboxItem>, String> {
-    RUNTIME.block_on(async {
-        let origin = normalize_db_command_origin(
-            origin.as_deref(),
-            "tauri:claim_memory_upload_outbox_batch:unknown",
-        );
-        let guard = get_activity_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-        let conn = db.connection().await;
-        let now = Utc::now().timestamp_millis();
-        let stale_uploading_cutoff = now.saturating_sub(5 * 60 * 1000);
-        let reclaim_next_retry_at = now.saturating_add(15_000);
-        let safe_limit = limit.unwrap_or(100).clamp(1, 1000);
-        log_db_command(
-            "claim_memory_upload_outbox_batch",
-            &origin,
-            &format!("limit={safe_limit}"),
-        );
-
-        // Recover rows left in uploading by interrupted desktop sessions/network failures.
-        let _ = conn
-            .execute(
-                r#"
-                UPDATE memory_upload_outbox
-                SET status='failed',
-                    retry_count=COALESCE(retry_count, 0) + 1,
-                    next_retry_at=?,
-                    last_error='stale_uploading_reclaimed',
-                    updated_at=?
-                WHERE status='uploading'
-                  AND COALESCE(updated_at, 0) <= ?
-                "#,
-                libsql::params![reclaim_next_retry_at, now, stale_uploading_cutoff],
-            )
-            .await
-            .map_err(|e| format!("Failed to reclaim stale uploading rows: {}", e))?;
-
-        let mut rows = conn
-            .query(
-                r#"
-            SELECT id, user_id, device_id, chunk_id, logical_chunk_id, content_hash, payload_json, retry_count
-            FROM memory_upload_outbox
-            WHERE status IN ('pending', 'failed')
-              AND COALESCE(next_retry_at, 0) <= ?
-            -- Freshness-first claim order so recent user queries can ground quickly.
-            -- Pending rows are preferred over retries, then newest chunk_end_ts first.
-            ORDER BY
-                CASE status WHEN 'pending' THEN 0 ELSE 1 END ASC,
-                CASE
-                    WHEN status = 'pending'
-                    THEN COALESCE(CAST(json_extract(payload_json, '$.chunk_end_ts') AS INTEGER), 0)
-                    ELSE 0
-                END DESC,
-                COALESCE(next_retry_at, 0) ASC,
-                created_at ASC
-            LIMIT ?
-            "#,
-                libsql::params![now, safe_limit as i64],
-            )
-            .await
-            .map_err(|e| format!("Failed to query memory upload outbox batch: {}", e))?;
-
-        let mut items: Vec<MemoryUploadOutboxItem> = Vec::new();
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| format!("Failed reading outbox row: {}", e))?
-        {
-            let id = row.get::<i64>(0).unwrap_or(0);
-            if id <= 0 {
-                continue;
+            {
+                Ok((Ok(result), Ok(retention))) => {
+                    db_info!(
+                        "🧭 project-time attribution sessions={} rollups={} delta_ms={} retention_deleted={} raw_snapshots={}",
+                        result.sessions_written,
+                        result.rollups_written,
+                        result.active_ms_delta,
+                        retention.local_evidence_deleted,
+                        retention.context_snapshots_deleted
+                    );
+                }
+                Ok((Err(error), _)) => {
+                    db_error!("Project-time attribution worker failed: {}", error);
+                }
+                Ok((_, Err(error))) => {
+                    db_error!("Project-time retention worker failed: {}", error);
+                }
+                Err(error) => {
+                    db_error!("Project-time worker task join failed: {}", error);
+                }
             }
-            let claimed = conn.execute(
-                r#"
-                UPDATE memory_upload_outbox
-                SET status='uploading',
-                    updated_at=?
-                WHERE id=?
-                  AND status IN ('pending', 'failed')
-                  AND COALESCE(next_retry_at, 0) <= ?
-                "#,
-                libsql::params![now, id, now],
-            ).await
-            .map_err(|e| format!("Failed to mark outbox row uploading: {}", e))?;
-            if claimed <= 0 {
-                continue;
-            }
-
-            let user_id = row.get::<String>(1).unwrap_or_default();
-            let device_id = row.get::<String>(2).unwrap_or_default();
-            if user_id.trim().is_empty() || device_id.trim().is_empty() {
-                let reason = if user_id.trim().is_empty() {
-                    "missing_user_id"
-                } else {
-                    "missing_device_id"
-                };
-                let _ = conn
-                    .execute(
-                        r#"
-                        UPDATE memory_upload_outbox
-                        SET status='failed',
-                            retry_count=COALESCE(retry_count, 0) + 1,
-                            last_error=?,
-                            updated_at=?
-                        WHERE id=?
-                        "#,
-                        libsql::params![reason, now, id],
-                    )
-                    .await;
-                continue;
-            }
-
-            items.push(MemoryUploadOutboxItem {
-                id,
-                user_id,
-                device_id,
-                chunk_id: row.get::<i64>(3).unwrap_or(0),
-                logical_chunk_id: row.get::<Option<String>>(4).ok().flatten(),
-                content_hash: row.get::<Option<String>>(5).ok().flatten(),
-                payload_json: row.get::<String>(6).unwrap_or_default(),
-                retry_count: row.get::<i64>(7).unwrap_or(0),
-            });
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
-
-        Ok(items)
-    })
-}
-
-/// Acknowledge upload results for outbox rows (success/failure with retry backoff).
-#[tauri::command]
-pub fn ack_memory_upload_outbox_batch(
-    ids: Vec<i64>,
-    success: bool,
-    error_message: Option<String>,
-    origin: Option<String>,
-) -> Result<MemoryUploadOutboxAckResult, String> {
-    RUNTIME.block_on(async {
-        let origin = normalize_db_command_origin(
-            origin.as_deref(),
-            "tauri:ack_memory_upload_outbox_batch:unknown",
-        );
-        log_db_command(
-            "ack_memory_upload_outbox_batch",
-            &origin,
-            &format!("success={} ids={}", success, ids.len()),
-        );
-        if ids.is_empty() {
-            return Ok(MemoryUploadOutboxAckResult {
-                updated: 0,
-                failed_updates: 0,
-            });
-        }
-
-        let guard = get_activity_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-        let conn = db.connection().await;
-        let now = Utc::now().timestamp_millis();
-
-        let mut updated = 0i64;
-        let mut failed_updates = 0i64;
-
-        for id in ids {
-            if id <= 0 {
-                continue;
-            }
-
-            let update_result = if success {
-                conn.execute(
-                    r#"
-                    UPDATE memory_upload_outbox
-                    SET status='uploaded',
-                        last_error=NULL,
-                        next_retry_at=NULL,
-                        updated_at=?
-                    WHERE id=?
-                      AND status='uploading'
-                    "#,
-                    libsql::params![now, id],
-                )
-                .await
-            } else {
-                let mut retry_rows = conn
-                    .query(
-                        "SELECT retry_count FROM memory_upload_outbox WHERE id=?",
-                        libsql::params![id],
-                    )
-                    .await
-                    .map_err(|e| {
-                        format!("Failed loading retry_count for outbox row {}: {}", id, e)
-                    })?;
-                let retry_count = retry_rows
-                    .next()
-                    .await
-                    .map_err(|e| {
-                        format!("Failed reading retry_count for outbox row {}: {}", id, e)
-                    })?
-                    .and_then(|row| row.get::<i64>(0).ok())
-                    .unwrap_or(0)
-                    + 1;
-                let capped_retry = retry_count.clamp(1, 8);
-                let delay_ms = 15_000_i64.saturating_mul(1_i64 << (capped_retry - 1));
-                let next_retry_at = now.saturating_add(delay_ms);
-
-                conn.execute(
-                    r#"
-                    UPDATE memory_upload_outbox
-                    SET status='failed',
-                        retry_count=?,
-                        next_retry_at=?,
-                        last_error=?,
-                        updated_at=?
-                    WHERE id=?
-                      AND status='uploading'
-                    "#,
-                    libsql::params![
-                        retry_count,
-                        next_retry_at,
-                        error_message
-                            .clone()
-                            .unwrap_or_else(|| "upload failed".to_string()),
-                        now,
-                        id
-                    ],
-                )
-                .await
-            };
-
-            match update_result {
-                Ok(_) => updated += 1,
-                Err(_) => failed_updates += 1,
-            }
-        }
-
-        Ok(MemoryUploadOutboxAckResult {
-            updated,
-            failed_updates,
-        })
-    })
+    });
 }

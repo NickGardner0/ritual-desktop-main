@@ -24,7 +24,7 @@ use std::sync::Arc;
 use crate::{
     ActivityContext, ActivityEvent, AppSummary, ContextSnapshot, DailySummary, DatabaseConfig,
     DatabaseError, DomainSummary, FocusMetrics, LastEvent, OcrFrame, QueuedSyncItem, RecorderStats,
-    Result, RitualDatabase, SessionRetrievalDoc, VideoChunk,
+    Result, RitualDatabase, VideoChunk,
 };
 
 /// A blocking (synchronous) database handle
@@ -367,7 +367,7 @@ impl BlockingDatabase {
     // Context Memory Operations
     // ========================================================================
 
-    /// Record a context snapshot and update its owning session/doc.
+    /// Record a context snapshot and update its owning session.
     pub fn record_context_snapshot(
         &self,
         snapshot: &ContextSnapshot,
@@ -386,17 +386,6 @@ impl BlockingDatabase {
             self.db
                 .get_recent_context_snapshots(start_ts, end_ts, limit),
         )
-    }
-
-    /// Get context-derived retrieval docs in a time range.
-    pub fn get_session_retrieval_docs(
-        &self,
-        start_ts: i64,
-        end_ts: i64,
-        limit: i64,
-    ) -> Result<Vec<SessionRetrievalDoc>> {
-        self.rt
-            .block_on(self.db.get_session_retrieval_docs(start_ts, end_ts, limit))
     }
 
     // ========================================================================

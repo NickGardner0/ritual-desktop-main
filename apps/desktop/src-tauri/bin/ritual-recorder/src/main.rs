@@ -8,7 +8,7 @@
 //! - Tiered storage management
 //!
 //! Video encoding has been removed to save storage (~97% reduction).
-//! Thumbnails + OCR text provide sufficient context for semantic search.
+//! Thumbnails and OCR text stay local as attribution evidence.
 //!
 //! Designed to run as a sidecar process alongside the main Ritual app.
 

@@ -10,7 +10,7 @@ Add these on the backend host before rollout:
 - `TURSO_DATABASE_PREFIX=ritual_user`
 - `TURSO_MIGRATION_GATE_USER_ID=<rollout-clerk-user-id>`
 
-The existing shared activity replica still uses:
+The existing shared activity replica may still use:
 
 - `DATABASE_URL`
 - `TURSO_LOCAL_ENCRYPTION_KEY`
@@ -35,29 +35,17 @@ print({"missing": missing, "ok": not missing})
 PY
 ```
 
-## 2. Provision and migrate the rollout user
+## 2. Provision the rollout user
 
-```bash
-cd /path/to/repo/apps/backend
-python scripts/run_per_user_turso_migration.py \
-  --user-id "$TURSO_MIGRATION_GATE_USER_ID" \
-  --ensure-provisioned \
-  --migrate
-```
+Provisioning happens through the backend Turso user service when an authenticated user requests a desktop sync config. New per-user databases only create the compact activity/project-time schema:
 
-The script prints:
+- `activity_events`
+- `afk_events`
+- `project_time_sessions`
+- `project_time_daily_rollups`
+- `project_classification_rules`
 
-- provisioned DB name and URL
-- migration timestamp
-- per-table source/target counts
-- exact-match results
-- rollout-floor checks
-
-The rollout user should only cut over when:
-
-- `context_snapshots`, `session_retrieval_docs`, `context_sessions`, and `activity_events` all have exact source/target matches
-- rollout floor checks are all `true`
-- `migrated_at` is non-null
+Raw context snapshots, context sessions, session retrieval docs, memory chunks, and embedding jobs are not part of new per-user Turso provisioning.
 
 ## 3. Verify authenticated backend endpoints
 
@@ -80,7 +68,7 @@ Expected:
   - `expires_at`
   - `database_name`
 
-If the rollout user has not passed migration verification yet, `/api/user/turso-sync-config` should return `409`.
+If the rollout user is still configured as a migration-gated user and has not been marked migrated, `/api/user/turso-sync-config` should return `409`.
 
 ## 4. Desktop verification
 

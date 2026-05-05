@@ -4,10 +4,10 @@
  * Components for screen recording with OCR functionality.
  * 
  * Note: Video scrubber components (ScreenTimeline, ScreenTimelineCard) have been deprecated.
- * Screen recordings are now explored via semantic search in the AI chat.
+ * Local OCR/accessibility evidence is used for project-time attribution.
  */
 
 export { RecorderSettings } from './RecorderSettings';
-// Deprecated: Video scrubber components removed - use AI Search instead
+// Deprecated: Video scrubber components removed.
 // export { ScreenTimeline } from './ScreenTimeline';
 // export { ScreenTimelineCard } from './ScreenTimelineCard';

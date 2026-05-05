@@ -15,28 +15,8 @@ export {
   formatTzTimestamp,
   clampDaysBack,
   clampSearchLimit,
-  compactScreenWarning,
   formatWeeklyNumber,
 } from './shared-api.js';
-
-// Screen search helpers (also used by orchestrator for normalizing prefetched context)
-export {
-  parseRelativeTimeWindowMs,
-  inferScreenDaysBackFromQuery,
-  inferRelativeCutoffTimestamp,
-  rerankScreenResultsByQuery,
-  mergeScreenResults,
-  hasSubstantiveOcrEvidence,
-  isActivityAggregateText,
-  buildScreenSearchDebug,
-  mapRetrievalTierToStatus,
-  mapRetrievalTierToMode,
-  buildActivityFallbackResults,
-  fetchOnDemandScreenSearchContext,
-  fetchLocalScreenSearchContext,
-  resolveScreenSearchContext,
-  buildBroadOverviewEvidence,
-} from './screen-search-helpers.js';
 
 // Habit executors
 export {
@@ -58,10 +38,8 @@ export {
   executeGetMonthlyOverview,
 } from './overviews.js';
 
-// Context memory & screen recording executors
+// Project-time activity summary executor
 export {
-  executeSearchScreenRecordings,
-  executeSearchContextMemory,
   executeGetActivitySummary,
 } from './context-memory.js';
 

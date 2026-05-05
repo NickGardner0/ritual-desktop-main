@@ -67,7 +67,6 @@ pub struct DesktopRuntimeState {
     pub auth: DesktopAuthRuntimeState,
     pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
     pub watcher: crate::watcher::WatcherLifecycleSnapshot,
-    pub memory_cloud_upload_allowed: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -339,22 +338,10 @@ async fn build_runtime_state<R: Runtime>(
     let database = crate::ritual_database::database_runtime_state_snapshot();
     let watcher = crate::watcher::get_watcher_lifecycle_snapshot().await;
 
-    let memory_ready = matches!(
-        database.memory.status,
-        crate::ritual_database::DatabaseConnectionState::ReadyLocal
-    );
-    let activity_ready_for_upload = matches!(
-        database.activity.status,
-        crate::ritual_database::DatabaseConnectionState::ReadyLocal
-    );
-    let memory_cloud_upload_allowed =
-        auth.token_ready && auth.user_id.is_some() && memory_ready && activity_ready_for_upload;
-
     Ok(DesktopRuntimeState {
         auth,
         database,
         watcher,
-        memory_cloud_upload_allowed,
     })
 }
 

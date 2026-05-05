@@ -90,7 +90,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showRetrievalHealth, setShowRetrievalHealth] = useState(false);
+  const [showAttributionHealth, setShowAttributionHealth] = useState(false);
   const wasOpenRef = useRef(false);
 
   useEffect(() => {
@@ -109,8 +109,8 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
     const email = user?.primaryEmailAddress?.emailAddress || '';
     const enabled =
       email.includes('nickgardner') ||
-      window.localStorage.getItem('ritual-show-retrieval-health') === '1';
-    setShowRetrievalHealth(enabled);
+      window.localStorage.getItem('ritual-show-attribution-health') === '1';
+    setShowAttributionHealth(enabled);
   }, [user]);
 
   useEffect(() => {
@@ -398,7 +398,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
               <div className="p-5">
                 <ComputerTrackingSettings
                   userId={user?.id || ''}
-                  showRetrievalHealth={showRetrievalHealth}
+                  showAttributionHealth={showAttributionHealth}
                   onClose={() => setActiveTab('account')}
                 />
               </div>

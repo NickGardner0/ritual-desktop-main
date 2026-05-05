@@ -4,189 +4,141 @@
  * Extracted from orchestrator.ts (lines 4403-4576) during Phase 1 refactoring.
  */
 
-import type { ScreenSearchContext, MemoryQueryApiResponse } from '../types';
 import {
-  fetchPythonApiPost,
+  fetchPythonApi,
   clampDaysBack,
   clampSearchLimit,
-  compactScreenWarning,
-  formatTzDay,
   formatTzTimestamp,
+  getTimezoneYmd,
+  shiftYmd,
 } from './shared-api';
-import {
-  mapRetrievalTierToMode,
-  mapRetrievalTierToStatus,
-  buildScreenSearchDebug,
-} from './screen-search-helpers';
 
 export async function executeGetComputerTimeSpentBreakdown(
   token: string,
   params: { query: string; daysBack?: number; limit?: number; groupBy?: 'app' | 'window' | 'domain' },
-  prefetchedScreenSearchContext: ScreenSearchContext | null,
   timezone?: string,
 ): Promise<string> {
   console.log('🖥️ getComputerTimeSpentBreakdown called:', params);
   const safeDaysBack = clampDaysBack(params.daysBack);
   const safeLimit = clampSearchLimit(params.limit ?? 8);
-  const groupBy = params.groupBy === 'window' || params.groupBy === 'domain' ? params.groupBy : 'app';
+  const endDate = getTimezoneYmd(new Date(), timezone);
+  const startDate = shiftYmd(endDate, -Math.max(0, safeDaysBack - 1));
 
   try {
-    const response = await fetchPythonApiPost('/api/memory/query', token, {
-      query: params.query,
-      intent: 'time_spent',
-      days_back: safeDaysBack,
-      timezone: timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
-      group_by: groupBy,
-      limit: safeLimit,
-    }) as MemoryQueryApiResponse;
+    const [rollupsResponse, sessionsResponse] = await Promise.all([
+      fetchPythonApi('/api/watcher/project-time/rollups', token, {
+        start_date: startDate,
+        end_date: endDate,
+        group_by: 'task',
+        limit: safeLimit,
+      }),
+      fetchPythonApi('/api/watcher/project-time/sessions', token, {
+        start_date: startDate,
+        end_date: endDate,
+        limit: Math.min(20, safeLimit * 3),
+      }),
+    ]) as [any, any];
 
-    if (!response?.success) {
+    if (!rollupsResponse?.success) {
       return JSON.stringify({
         success: false,
-        error: response?.error || 'Computer time breakdown is unavailable.',
+        error: rollupsResponse?.error || 'Project time breakdown is unavailable.',
       });
     }
 
-    const timeTruth = response.time_truth || {};
-    const topBuckets = Array.isArray(timeTruth.top_buckets) ? timeTruth.top_buckets : [];
-    const dailyRows = Array.isArray(timeTruth.daily_breakdown) ? timeTruth.daily_breakdown : [];
-    const citations = Array.isArray(response.citations) ? response.citations : [];
+    const rollups = Array.isArray(rollupsResponse.data) ? rollupsResponse.data : [];
+    const sessions = Array.isArray(sessionsResponse?.data) ? sessionsResponse.data : [];
+    const totalActiveMs = rollups.reduce((sum: number, row: any) => sum + Number(row.active_ms || 0), 0);
+    const totalActiveHours = Number((totalActiveMs / 3_600_000).toFixed(2));
+    const totalActiveMinutes = Math.round(totalActiveMs / 60_000);
+    const daysWithActivity = new Set(rollups.map((row: any) => row.date).filter(Boolean)).size || undefined;
 
-    const totalActiveHours = Number(timeTruth.total_active_hours || 0);
-    const totalActiveMinutes = Math.round(Number(timeTruth.total_active_ms || 0) / (60 * 1000));
-    const totalHits = Number(timeTruth.total_events || 0);
-    const daysWithActivity = Number(timeTruth.days_with_activity || 0);
-    const uniqueBuckets = Number(timeTruth.unique_buckets || 0);
-
-    const topCategories = topBuckets.slice(0, safeLimit).map((row, index) => ({
+    const topCategories = rollups.slice(0, safeLimit).map((row: any, index: number) => {
+      const label = [row.project_name, row.task_name].filter(Boolean).join(' / ') || row.project_name || 'Unclassified';
+      const activeMs = Number(row.active_ms || 0);
+      return {
       rank: index + 1,
-      category: row.bucket || 'Unknown',
-      estimated_minutes: Math.round(Number(row.total_active_ms || 0) / (60 * 1000)),
-      estimated_hours: Number(row.total_active_hours || 0),
-      share_percent: Number(row.share_percent || 0),
-      hit_count: Number(row.hits || 0),
-      last_seen: row.last_seen_ts ? formatTzTimestamp(Number(row.last_seen_ts), timezone) : 'In selected range',
-      sample_app: groupBy === 'domain' ? undefined : (row.bucket || 'Unknown'),
+      category: label,
+      project: row.project_name || 'Unclassified',
+      task: row.task_name || 'General',
+      estimated_minutes: Math.round(activeMs / 60_000),
+      estimated_hours: Number((activeMs / 3_600_000).toFixed(2)),
+      share_percent: totalActiveMs > 0 ? Number(((activeMs / totalActiveMs) * 100).toFixed(1)) : 0,
+      hit_count: Number(row.session_count || 0),
+      confidence: Number(row.confidence_avg || 0),
+      sample_app: undefined,
       sample_window: null,
-    }));
+      };
+    });
 
-    const dailyBreakdown = dailyRows.map((row) => ({
+    const dailyTotals = new Map<string, { date: string; active_ms: number; session_count: number }>();
+    for (const row of rollups) {
+      const date = String(row.date || '');
+      if (!date) continue;
+      const current = dailyTotals.get(date) || { date, active_ms: 0, session_count: 0 };
+      current.active_ms += Number(row.active_ms || 0);
+      current.session_count += Number(row.session_count || 0);
+      dailyTotals.set(date, current);
+    }
+    const dailyBreakdown = Array.from(dailyTotals.values()).map((row) => ({
       date: row.date,
-      estimated_minutes: Math.round(Number(row.total_active_ms || 0) / (60 * 1000)),
-      estimated_hours: Number(row.total_active_hours || 0),
-      hit_count: Number(row.hits || 0),
+      estimated_minutes: Math.round(row.active_ms / 60_000),
+      estimated_hours: Number((row.active_ms / 3_600_000).toFixed(2)),
+      hit_count: row.session_count,
     }));
 
-    const sampleMoments = citations.slice(0, 5).map((citation) => ({
-      timestamp: citation.timestamp ? formatTzTimestamp(Number(citation.timestamp), timezone) : 'Unknown',
-      app: citation.app_name || 'Unknown',
-      window: citation.window_title || 'Unknown',
-      relevance: `${Math.round(Math.max(0, Math.min(1, Number(citation.score || 0))) * 100)}%`,
-      preview: (citation.snippet || '').slice(0, 180),
+    const sampleMoments = sessions.slice(0, 8).map((session: any) => ({
+      timestamp: session.start_ts ? formatTzTimestamp(Number(session.start_ts), timezone) : 'Unknown',
+      project: session.project_name || 'Unclassified',
+      task: session.task_name || 'General',
+      duration_minutes: Math.round(Number(session.active_ms || 0) / 60_000),
+      confidence: `${Math.round(Math.max(0, Math.min(1, Number(session.confidence || 0))) * 100)}%`,
+      summary: String(session.summary_text || `${session.project_name || 'Unclassified'} / ${session.task_name || 'General'}`).slice(0, 180),
     }));
-
-    const retrievalTier = response.retrieval_tier as ScreenSearchContext['retrievalTier'] | undefined;
-    const retrievalTierMode = mapRetrievalTierToMode(retrievalTier);
-    const retrievalTierStatus = mapRetrievalTierToStatus(retrievalTier);
-    const freshnessStatus = response.freshness?.status || 'healthy';
-    const modeUsed = retrievalTierMode || response.semantic_truth?.mode_used || response.answer_mode || 'activity_only';
-    const status: ScreenSearchContext['status'] = retrievalTierStatus || (
-      freshnessStatus === 'healthy'
-        ? 'hybrid'
-        : freshnessStatus === 'degraded_semantic'
-          ? 'text-fallback'
-          : freshnessStatus === 'degraded_ocr'
-            ? 'text-fallback'
-            : freshnessStatus === 'stale' || freshnessStatus === 'unavailable'
-              ? 'unavailable'
-              : 'text-only'
-    );
-
-    const warningRaw = response.warning
-      || response.semantic_truth?.warning
-      || (prefetchedScreenSearchContext?.warning ? String(prefetchedScreenSearchContext.warning) : undefined);
-    const warning = retrievalTier === 'activity_only'
-      ? (() => {
-        const cleaned = String(warningRaw || '')
-          .split(/\.\s+/)
-          .map((segment) => segment.trim())
-          .filter((segment) => segment.length > 0)
-          .filter((segment) => !/semantic|embeddings?\s+finish|vector|matched moments/i.test(segment))
-          .filter((segment) => !/ocr evidence is stale|time totals still come from activity events/i.test(segment))
-          .join('. ')
-          .trim();
-        return cleaned ? `${cleaned}${cleaned.endsWith('.') ? '' : '.'}` : undefined;
-      })()
-      : compactScreenWarning(warningRaw);
-    const resultCount = retrievalTier === 'activity_only'
-      ? totalHits
-      : citations.length;
 
     return JSON.stringify({
       success: true,
       query: params.query,
-      group_by: groupBy,
-      days_searched: response.days_back || safeDaysBack,
-      result_count: resultCount,
-      status,
-      mode_used: modeUsed,
-      retrieval_tier: retrievalTier,
-      warning,
-      freshness: response.freshness,
-      confidence: response.confidence,
-      provider_path: response.provider_path,
+      group_by: 'task',
+      days_searched: safeDaysBack,
+      result_count: rollups.length,
+      status: 'project-time',
+      mode_used: 'project_time_rollups',
+      warning: rollups.length === 0 ? 'No project-time attribution rows were available for the selected range.' : undefined,
+      freshness: { status: rollups.length > 0 ? 'healthy' : 'empty', source: rollupsResponse.source },
+      confidence: {
+        status: rollups.length > 0 ? 'grounded' : 'empty',
+        source: 'project_time_daily_rollups',
+      },
+      provider_path: { source: 'project_time_api' },
       summary: {
         estimated_total_minutes: totalActiveMinutes,
         estimated_total_hours: totalActiveHours,
-        total_hits: totalHits,
-        unique_apps: uniqueBuckets,
-        days_with_activity: daysWithActivity,
-        range_start: timeTruth.range_start || response.start_date,
-        range_end: timeTruth.range_end || response.end_date,
+        total_hits: sessions.length,
+        unique_apps: topCategories.length,
+        days_with_activity: daysWithActivity || 0,
+        range_start: startDate,
+        range_end: endDate,
         metric_source: 'watcher_aggregate',
-        metric_label: 'Total active time',
-        matched_total_minutes: retrievalTier === 'activity_only' ? undefined : Math.round(sampleMoments.length > 0 ? sampleMoments.length * 1.5 : 0),
-        matched_total_hours: retrievalTier === 'activity_only' ? undefined : Number((sampleMoments.length * 1.5 / 60).toFixed(2)),
-        matched_hits: retrievalTier === 'activity_only' ? undefined : citations.length,
-        matched_days_with_activity: retrievalTier === 'activity_only'
-          ? undefined
-          : new Set(
-            citations
-              .map((item) => Number(item.timestamp || 0))
-              .filter((ts) => Number.isFinite(ts) && ts > 0)
-              .map((ts) => formatTzDay(ts, timezone)),
-          ).size,
+        metric_label: 'Attributed project time',
       },
       top_categories: topCategories,
       daily_breakdown: dailyBreakdown,
       sample_moments: sampleMoments,
       estimation: {
-        method: 'Activity-events rollup for totals + context-memory citations for evidence',
-        default_chunk_seconds: 90,
-        max_gap_minutes: 10,
-        note: 'Totals come from activity_events only. Semantic citations are supporting evidence, not time totals.',
+        method: 'Project-time daily rollups and compact session summaries generated from local activity attribution',
+        default_chunk_seconds: null,
+        max_gap_minutes: 5,
+        note: 'Totals come from activity_events-derived project_time rows and compact session summaries.',
       },
-      debug: buildScreenSearchDebug(
-        {
-          modeUsed: modeUsed.includes('hybrid')
-            ? 'hybrid'
-            : modeUsed.includes('activity')
-              ? 'activity'
-              : modeUsed.includes('unavailable')
-                ? 'unavailable'
-                : 'text',
-          status,
-          retrievalTier,
-          results: [],
-          warning,
-          freshness: response.freshness,
-          confidence: response.confidence,
-        },
-        [],
-      ),
+      debug: {
+        source: 'project_time_api',
+        rollup_source: rollupsResponse.source,
+        sessions_source: sessionsResponse?.source,
+      },
     });
   } catch (error) {
-    console.error('❌ getComputerTimeSpentBreakdown query-memory error:', error);
+    console.error('❌ getComputerTimeSpentBreakdown project-time error:', error);
     return JSON.stringify({
       success: false,
       error: 'Computer time breakdown is currently unavailable.',

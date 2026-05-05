@@ -97,9 +97,6 @@ def main():
                 ".turso_replica.db",
                 ".turso_replica.db-*",
                 ".turso_replica.db.*",
-                ".memory_cloud.db",
-                ".memory_cloud.db-*",
-                ".memory_cloud.db.*",
             ]
 
         uvicorn.run(

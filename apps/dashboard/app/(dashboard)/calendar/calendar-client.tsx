@@ -73,6 +73,23 @@ type ScheduledBlockPayload = {
   end_minutes: number;
 };
 
+type ProjectTimeSessionRow = {
+  session_uid: string;
+  project_name?: string;
+  task_name?: string;
+  start_ts?: number;
+  end_ts?: number;
+  active_ms?: number;
+  confidence?: number;
+  apps?: Array<{ name?: string; active_ms?: number }>;
+  domains?: Array<{ name?: string; active_ms?: number }>;
+};
+
+type ProjectTimeSessionsResponse = {
+  success: boolean;
+  data?: ProjectTimeSessionRow[];
+};
+
 const LEGACY_SCHEDULED_BLOCK_KEYS = [
   'calendar-scheduled-blocks',
   'calendar-week-scheduled-blocks',
@@ -442,6 +459,26 @@ export function CalendarClient() {
   const [taskComposer, setTaskComposer] = useState<TaskComposerState | null>(null);
   const [isSavingTaskComposer, setIsSavingTaskComposer] = useState(false);
   const [taskComposerError, setTaskComposerError] = useState<string | null>(null);
+
+  const projectTimeSessionsQuery = useQuery({
+    queryKey: ['calendar-project-time-sessions', selectedDate],
+    queryFn: async () => {
+      if (!selectedDate) return { success: true, data: [] } as ProjectTimeSessionsResponse;
+      const params = new URLSearchParams({
+        start_date: selectedDate,
+        end_date: selectedDate,
+        limit: '16',
+      });
+      const response = await fetch(`/api/watcher/project-time/sessions?${params}`, {
+        cache: 'no-store',
+      });
+      if (!response.ok) return { success: false, data: [] } as ProjectTimeSessionsResponse;
+      return response.json() as Promise<ProjectTimeSessionsResponse>;
+    },
+    enabled: Boolean(selectedDate),
+    staleTime: 60_000,
+  });
+  const selectedProjectSessions = projectTimeSessionsQuery.data?.data || [];
 
   useEffect(() => {
     if (viewMode !== 'month' || !selectedDate || typeof document === 'undefined') return;
@@ -1534,6 +1571,38 @@ export function CalendarClient() {
                     ×
                   </button>
                 </div>
+                {selectedProjectSessions.length > 0 && (
+                  <div className="mb-4 space-y-2 border-b border-[rgba(39,37,30,0.10)] pb-4">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.05em] text-[rgba(39,37,30,0.35)]">
+                      Workstreams
+                    </p>
+                    {selectedProjectSessions.slice(0, 6).map((session) => {
+                      const started = session.start_ts ? new Date(session.start_ts) : null;
+                      const ended = session.end_ts ? new Date(session.end_ts) : null;
+                      const timeRange = started && ended && !Number.isNaN(started.getTime()) && !Number.isNaN(ended.getTime())
+                        ? `${started.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} - ${ended.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                        : 'Unknown time';
+                      const apps = Array.isArray(session.apps)
+                        ? session.apps.slice(0, 2).map((item) => item.name).filter(Boolean).join(', ')
+                        : '';
+                      return (
+                        <div key={session.session_uid} className="text-[12px] leading-5">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium text-[#27251E]">
+                                {session.project_name || 'Unclassified'} / {session.task_name || 'General'}
+                              </p>
+                              <p className="text-[#878787]">{timeRange}{apps ? ` · ${apps}` : ''}</p>
+                            </div>
+                            <span className="shrink-0 text-[#878787]">
+                              {formatDurationDisplay(Math.round(Number(session.active_ms || 0) / 1000))}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {aiSummaryLoading ? (
                   <p className="text-[13px] text-[rgba(39,37,30,0.35)] animate-pulse">
                     {aiSummary || 'Thinking...'}

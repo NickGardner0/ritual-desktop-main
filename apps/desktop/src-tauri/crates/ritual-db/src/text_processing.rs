@@ -451,7 +451,7 @@ fn is_stop_word(word: &str) -> bool {
     STOP_WORDS.contains(&word.to_lowercase().as_str())
 }
 
-/// Prepare enhanced text for embedding by combining summary and keywords
+/// Prepare enhanced local text by combining summary and keywords.
 pub fn prepare_enhanced_text(
     app_name: &str,
     window_title: Option<&str>,
@@ -1425,7 +1425,7 @@ pub fn prepare_enhanced_text_v2(
 /// Result from enhanced text preparation v2
 #[derive(Debug, Clone)]
 pub struct EnhancedTextResult {
-    /// The enhanced text ready for embedding
+    /// The enhanced text for local classification/search.
     pub enhanced_text: String,
     /// Summary result
     pub summary: SummaryResult,
@@ -1739,9 +1739,9 @@ mod tests {
     fn test_prepare_enhanced_text_v2() {
         let result = prepare_enhanced_text_v2(
             "Cursor",
-            Some("vector.rs - ritual-db"),
-            "This Rust code implements vector similarity search. \
-             The function uses FastAPI for embeddings at https://api.example.com. \
+            Some("project_time.rs - ritual-db"),
+            "This Rust code implements project time classification. \
+             The function uses FastAPI for telemetry at https://api.example.com. \
              Contact dev@ritual.com for support.",
         );
 

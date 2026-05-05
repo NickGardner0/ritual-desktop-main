@@ -7,7 +7,7 @@
 //! - Privacy settings (excluded apps)
 //!
 //! Note: Video encoding has been removed to save storage.
-//! Thumbnails + OCR text provide sufficient context for semantic search.
+//! Thumbnails and OCR text stay local as attribution evidence.
 
 #![allow(dead_code)] // Some config options reserved for future use
 

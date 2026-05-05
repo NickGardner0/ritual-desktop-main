@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from fastapi import Header, HTTPException, Request
 from pydantic import BaseModel
@@ -89,140 +89,6 @@ class AppExclusionRequest(BaseModel):
     bundle_id: str
     app_name: Optional[str] = None
     reason: str = "user_preference"
-
-
-class ScreenSearchResponse(BaseModel):
-    success: bool
-    query: str
-    days_back: int
-    result_count: int
-    results: List[Dict]
-    mode_used: str
-    status: str
-    retrieval_tier: Optional[str] = None
-    warning: Optional[str] = None
-    freshness: Optional[Dict] = None
-    confidence: Optional[Dict] = None
-    story_plan: Optional[Dict] = None
-    renderer: Optional[Dict] = None
-    debug: Optional[Dict] = None
-    source_db: Optional[str] = None
-    error: Optional[str] = None
-
-
-class MemoryQueryRequest(BaseModel):
-    query: str
-    intent: Optional[str] = "auto"
-    days_back: Optional[int] = 7
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    timezone: Optional[str] = None
-    group_by: Optional[str] = "app"
-    limit: Optional[int] = 20
-
-
-class MemoryQueryResponse(BaseModel):
-    success: bool
-    query: str
-    intent_resolved: str
-    answer_mode: str
-    retrieval_tier: Optional[str] = None
-    days_back: int
-    start_date: str
-    end_date: str
-    group_by: str
-    time_truth: Optional[Dict] = None
-    semantic_truth: Optional[Dict] = None
-    citations: List[Dict]
-    freshness: Dict
-    confidence: Dict
-    provider_path: Optional[Dict] = None
-    warning: Optional[str] = None
-    source_db: Optional[str] = None
-    error: Optional[str] = None
-
-
-class DayRecapRequest(BaseModel):
-    query: str
-    anchor_date: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    timezone: Optional[str] = None
-    days_back: Optional[int] = 1
-    scope: Optional[str] = None
-
-
-class DayRecapResponse(BaseModel):
-    success: bool
-    query: str
-    anchor_date: Optional[str] = None
-    days_back: int
-    rendered_summary: str
-    rich_activity_summary: Optional[str] = None
-    calendar_style_summary: Optional[str] = None
-    calendar_style_date: Optional[str] = None
-    bundle: Dict
-    workstreams: List[Dict]
-    health: Dict
-    degraded: bool = False
-    degradation_notes: List[str] = []
-    citations: List[Dict]
-    citations_count: int = 0
-    retrieval_tier: Optional[str] = None
-    intent_resolved: Optional[str] = None
-    start_date: Optional[str] = None
-    end_date: Optional[str] = None
-    freshness: Optional[Dict] = None
-    confidence: Optional[Dict] = None
-    time_truth: Optional[Dict] = None
-    semantic_truth: Optional[Dict] = None
-    error: Optional[str] = None
-
-
-class MemoryChunkIngestItem(BaseModel):
-    chunk_id: str
-    logical_chunk_id: Optional[str] = None
-    chunk_start_ts: int
-    chunk_end_ts: int
-    source_kind: Optional[str] = None
-    session_id: Optional[str] = None
-    app_name: Optional[str] = None
-    window_title: Optional[str] = None
-    document_title: Optional[str] = None
-    browser_domain: Optional[str] = None
-    text_compact: Optional[str] = None
-    raw_text_compact: Optional[str] = None
-    contextual_text_compact: Optional[str] = None
-    raw_visible_text: Optional[str] = None
-    contextual_retrieval_text: Optional[str] = None
-    context_version: Optional[int] = None
-    session_position: Optional[int] = None
-    session_count: Optional[int] = None
-    session_key: Optional[str] = None
-    quality_score: Optional[float] = 0.0
-    capture_quality: Optional[float] = None
-    source_frame_ids: Optional[List[int]] = None
-    content_hash: Optional[str] = None
-
-
-class MemoryIngestRequest(BaseModel):
-    device_id: str
-    chunks: List[MemoryChunkIngestItem]
-
-
-class MemoryIngestResponse(BaseModel):
-    success: bool
-    accepted: int
-    deduped: int
-    failed: int
-    accepted_count: Optional[int] = None
-    deduped_count: Optional[int] = None
-    failed_count: Optional[int] = None
-    superseded_count: Optional[int] = None
-    provider_delete_queued: Optional[int] = None
-    retry_after_seconds: int
-    warning: Optional[str] = None
-    error: Optional[str] = None
 
 
 async def get_current_user(

@@ -9,7 +9,6 @@ import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
 import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
-import { MemoryCloudUploader } from '@/components/memory-cloud-uploader';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
@@ -111,7 +110,6 @@ export function RootProviders({ children }: { children: ReactNode }) {
         <HabitsProvider>
           <DesktopAssetRecoveryBridge />
           <DesktopAuthDeepLinkBridge />
-          {!isDesktopBootstrap ? <MemoryCloudUploader /> : null}
           {children}
         </HabitsProvider>
       </QueryProvider>

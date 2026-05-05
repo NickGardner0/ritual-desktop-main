@@ -2,7 +2,7 @@
 name = "ritual-db"
 version = "0.1.0"
 edition = "2021"
-description = "Unified libSQL database layer for Ritual with vector search support"
+description = "Unified libSQL database layer for Ritual"
 authors = ["Ritual"]
 license = "MIT"
 
@@ -11,7 +11,7 @@ default = ["legacy-sqlite-migration"]
 legacy-sqlite-migration = ["dep:rusqlite"]
 
 [dependencies]
-# LibSQL - SQLite fork with vector search and Turso cloud sync
+# LibSQL - SQLite fork with Turso cloud sync
 # v0.9+ required for the "sync" feature (embedded replicas)
 libsql = { version = "0.9", features = ["sync"] }
 

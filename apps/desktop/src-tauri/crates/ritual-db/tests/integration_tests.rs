@@ -42,7 +42,6 @@ async fn test_database_creation() {
     let stats = db.get_stats().await.expect("Failed to get stats");
     assert_eq!(stats.activity_event_count, 0);
     assert_eq!(stats.ocr_frame_count, 0);
-    assert_eq!(stats.embedding_count, 0);
 }
 
 #[tokio::test]

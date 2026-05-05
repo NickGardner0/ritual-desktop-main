@@ -101,39 +101,15 @@ def _seed_rollout_user_source(path: str, user_id: str) -> None:
         now_ms = 1_710_000_000_000
         conn.execute(
             """
-            INSERT INTO context_sessions (
-                id, device_id, user_id, start_ts, end_ts, primary_app_bundle_id,
-                primary_app_name, primary_domain, dominant_title, representative_text,
-                coverage_score, snapshot_count, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                1,
-                "device-1",
-                user_id,
-                now_ms - 50_000,
-                now_ms - 10_000,
-                "com.todesktop.cursor",
-                "Cursor",
-                "",
-                "feature work",
-                "implemented migration gate",
-                0.9,
-                1,
-                now_ms,
-                now_ms,
-            ),
-        )
-        conn.execute(
-            """
             INSERT INTO activity_events (
-                id, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
+                id, event_uid, device_id, user_id, ts_start, ts_end, app_bundle_id, app_name,
                 window_title, window_title_hash, window_owner_pid, is_afk, browser_url,
                 browser_domain, is_incognito, source, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 1,
+                "activity-1",
                 "device-1",
                 user_id,
                 now_ms - 50_000,
@@ -153,79 +129,95 @@ def _seed_rollout_user_source(path: str, user_id: str) -> None:
         )
         conn.execute(
             """
-            INSERT INTO context_snapshots (
-                id, device_id, user_id, activity_event_id, session_id, ts, source_type,
-                app_bundle_id, app_name, window_title, browser_url, browser_domain,
-                tab_title, document_title, visible_text_raw, visible_text_norm,
-                capture_quality, capture_components_json, ax_richness_score,
-                selected_text_present, document_path, ax_source, capture_trigger,
-                trigger_to_snapshot_ms, ui_elements_json, dedup_key,
-                is_sensitive_redacted, semantic_summary, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO project_time_sessions (
+                id, session_uid, user_id, device_id, date, timezone, start_ts, end_ts,
+                active_ms, afk_ms, project_key, project_name, task_key, task_name,
+                classification_source, confidence, status, apps_json, domains_json,
+                artifacts_json, summary_text, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 1,
-                "device-1",
+                "session-1",
                 user_id,
-                1,
-                1,
-                now_ms - 20_000,
-                "ax",
-                "com.todesktop.cursor",
-                "Cursor",
-                "feature work",
-                None,
-                None,
-                None,
-                "migration gate plan",
-                "implemented migration gate",
-                "implemented migration gate",
-                0.95,
-                None,
-                0.8,
+                "device-1",
+                "2024-03-09",
+                "America/New_York",
+                now_ms - 50_000,
+                now_ms - 10_000,
+                40_000,
                 0,
-                None,
-                None,
-                "ax_event",
-                0,
-                None,
-                "dedup-1",
-                0,
-                None,
+                "ritual",
+                "Ritual",
+                "migration-gate",
+                "Migration Gate",
+                "rules",
+                0.9,
+                "active",
+                '["Cursor"]',
+                "[]",
+                "[]",
+                "Worked on migration gate.",
                 now_ms,
                 now_ms,
             ),
         )
         conn.execute(
             """
-            INSERT INTO session_retrieval_docs (
-                id, session_id, device_id, user_id, source_kind, chunk_start_ts,
-                chunk_end_ts, app_name, browser_domain, window_title, document_title,
-                raw_visible_text, contextual_retrieval_text, capture_quality,
-                context_version, session_position, session_count, embedded_at,
-                created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO project_time_daily_rollups (
+                id, rollup_uid, user_id, device_id, date, timezone, project_key,
+                project_name, task_key, task_name, active_ms, session_count,
+                confidence_avg, top_apps_json, top_domains_json, summary_text,
+                source_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 1,
-                1,
-                "device-1",
+                "rollup-1",
                 user_id,
-                "context_session",
-                now_ms - 50_000,
-                now_ms - 10_000,
-                "Cursor",
-                None,
-                "feature work",
-                "migration gate plan",
-                "implemented migration gate",
-                "implemented migration gate",
+                "device-1",
+                "2024-03-09",
+                "America/New_York",
+                "ritual",
+                "Ritual",
+                "migration-gate",
+                "Migration Gate",
+                40_000,
+                1,
                 0.9,
-                1,
-                0,
-                1,
-                None,
+                '["Cursor"]',
+                "[]",
+                "Worked on migration gate.",
+                "project_time_v1",
                 now_ms,
+                now_ms,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO project_classification_rules (
+                id, rule_uid, user_id, matcher_app_bundle_id, matcher_domain,
+                matcher_title_pattern, matcher_artifact_pattern, matcher_keyword_pattern,
+                project_key, project_name, task_key, task_name, priority, enabled,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                1,
+                "rule-1",
+                user_id,
+                "com.todesktop.cursor",
+                None,
+                "migration",
+                None,
+                None,
+                "ritual",
+                "Ritual",
+                "migration-gate",
+                "Migration Gate",
+                10,
+                1,
+                now_ms - 20_000,
                 now_ms,
             ),
         )
@@ -394,31 +386,29 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
             try:
                 self.assertEqual(
                     conn.execute(
-                        "SELECT COUNT(*) FROM context_snapshots WHERE user_id = ?",
-                        (target_user_id,),
-                    ).fetchone()[0],
-                    1,
-                )
-                self.assertEqual(
-                    conn.execute(
-                        "SELECT COUNT(*) FROM session_retrieval_docs WHERE user_id = ?",
-                        (target_user_id,),
-                    ).fetchone()[0],
-                    1,
-                )
-                self.assertEqual(
-                    conn.execute(
-                        "SELECT COUNT(*) FROM context_sessions WHERE user_id = ?",
-                        (target_user_id,),
-                    ).fetchone()[0],
-                    1,
-                )
-                self.assertEqual(
-                    conn.execute(
                         "SELECT COUNT(*) FROM activity_events WHERE user_id = ?",
                         (target_user_id,),
                     ).fetchone()[0],
                     1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM project_time_sessions WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertEqual(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM project_time_daily_rollups WHERE user_id = ?",
+                        (target_user_id,),
+                    ).fetchone()[0],
+                    1,
+                )
+                self.assertIsNone(
+                    conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='session_retrieval_docs'"
+                    ).fetchone()
                 )
             finally:
                 conn.close()
@@ -659,11 +649,11 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
                 "_verify_database_counts",
                 AsyncMock(
                     return_value={
-                        "context_snapshots": {"source": 1, "target": 1},
-                        "session_retrieval_docs": {"source": 1, "target": 1},
-                        "context_sessions": {"source": 1, "target": 1},
                         "activity_events": {"source": 1, "target": 1},
                         "afk_events": {"source": 0, "target": 0},
+                        "project_time_sessions": {"source": 1, "target": 1},
+                        "project_time_daily_rollups": {"source": 1, "target": 1},
+                        "project_classification_rules": {"source": 1, "target": 1},
                     }
                 ),
             ), patch.object(
@@ -696,10 +686,15 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     conn.execute(
-                        "SELECT COUNT(*) FROM context_snapshots WHERE user_id = ?",
+                        "SELECT COUNT(*) FROM project_time_daily_rollups WHERE user_id = ?",
                         (target_user_id,),
                     ).fetchone()[0],
                     1,
+                )
+                self.assertIsNone(
+                    conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='context_snapshots'"
+                    ).fetchone()
                 )
             finally:
                 conn.close()

@@ -353,38 +353,6 @@ async def health_check():
             status = "unhealthy"
             status_code = 503
 
-    # Cloud memory provider probe when enabled.
-    memory_cloud_enabled = (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if memory_cloud_enabled:
-        try:
-            from services.memory_embedding_service import get_memory_index_health
-            from services.memory_turbopuffer_service import TurbopufferService
-
-            index_health = get_memory_index_health()
-            provider_health = await TurbopufferService().health_check()
-            memory_status = "ok" if provider_health.get("status") == "ok" else "degraded"
-
-            checks["memory_cloud"] = {
-                "status": memory_status,
-                "provider": provider_health,
-                "index": index_health,
-            }
-            if memory_status != "ok" and status == "healthy":
-                status = "degraded"
-        except Exception as exc:
-            checks["memory_cloud"] = {
-                "status": "error",
-                "error": str(exc),
-            }
-            status = "degraded" if status == "healthy" else status
-    else:
-        checks["memory_cloud"] = {"status": "disabled"}
-
     return JSONResponse(
         status_code=status_code,
         content={
@@ -453,9 +421,6 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
 # WATCHER API ROUTER - Computer Activity Tracking
 # ================================
 
-from api.memory import router as memory_router
-app.include_router(memory_router)
-
 from api.watcher import router as watcher_router
 app.include_router(watcher_router)
 
@@ -476,103 +441,6 @@ app.include_router(create_sms_copilot_router())
 
 from api.vcard import router as vcard_router
 app.include_router(vcard_router)
-
-
-def _memory_cloud_enabled() -> bool:
-    return (os.getenv("RITUAL_MEMORY_CLOUD_ENABLED") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-
-
-async def _memory_embedding_worker_loop() -> None:
-    from services.memory_embedding_service import get_memory_index_health, process_embedding_jobs_with_guard
-
-    while True:
-        pending_jobs = 0
-        try:
-            health = get_memory_index_health()
-            pending_jobs = int(health.get("pending_jobs") or 0)
-            if pending_jobs > 2000:
-                batch_size = 256
-            elif pending_jobs > 500:
-                batch_size = 256
-            elif pending_jobs > 100:
-                batch_size = 128
-            else:
-                batch_size = 64
-            await process_embedding_jobs_with_guard(batch_size=batch_size)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Memory embedding worker loop error: %s", exc)
-
-        if pending_jobs > 2000:
-            sleep_seconds = 0.5
-        elif pending_jobs > 500:
-            sleep_seconds = 1.0
-        elif pending_jobs > 100:
-            sleep_seconds = 3.0
-        elif pending_jobs > 0:
-            sleep_seconds = 6.0
-        else:
-            sleep_seconds = 15.0
-        await asyncio.sleep(sleep_seconds)
-
-
-async def _memory_retention_loop() -> None:
-    from services.memory_retention_service import run_memory_retention_once
-
-    while True:
-        try:
-            await run_memory_retention_once(limit=2000)
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Memory retention loop error: %s", exc)
-        await asyncio.sleep(10 * 60)
-
-
-async def _semantic_summary_worker_loop() -> None:
-    """Background worker that generates semantic summaries for new context_snapshots.
-
-    Runs continuously with adaptive sleep:
-    - High backlog (>100 remaining): process every 30s
-    - Medium backlog (>0 remaining): process every 2 min
-    - Caught up: check every 5 min
-    """
-    from services.memory_semantic_summary_service import process_pending_summaries
-    from services.watcher_service_local_db import get_local_activity_db_path_impl
-
-    # Initial delay to let other services start first
-    await asyncio.sleep(10)
-
-    while True:
-        remaining = 0
-        try:
-            db_path = get_local_activity_db_path_impl()
-            result = await asyncio.to_thread(process_pending_summaries, db_path, 20)
-            remaining = result.get("remaining", 0)
-            processed = result.get("processed", 0)
-            if processed > 0:
-                logger.info(
-                    "Semantic summary worker: processed %d, remaining %d",
-                    processed, remaining,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("Semantic summary worker loop error: %s", exc)
-
-        if remaining > 100:
-            sleep_seconds = 30
-        elif remaining > 0:
-            sleep_seconds = 120
-        else:
-            sleep_seconds = 300
-        await asyncio.sleep(sleep_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -1016,22 +884,6 @@ async def _post_startup_initialization() -> None:
     except Exception as exc:
         logger.warning("⚠️ Typesense search initialization skipped: %s", exc)
 
-    if _memory_cloud_enabled():
-        try:
-            from services.memory_cloud_store import get_memory_db, memory_cloud_db_path
-
-            with get_memory_db() as conn:
-                conn.execute("SELECT COUNT(*) FROM memory_chunks").fetchone()
-            logger.info("🧠 Cloud memory metadata DB ready: %s", memory_cloud_db_path())
-
-            app.state.memory_worker_task = asyncio.create_task(_memory_embedding_worker_loop())
-            app.state.memory_retention_task = asyncio.create_task(_memory_retention_loop())
-            logger.info("🧠 Cloud memory worker loops started (embedding + retention)")
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.warning("⚠️ Cloud memory worker loops not started (schema preflight failed): %s", exc)
-
     # Start internal hourly scheduler (proactive SMS + wearable syncs)
     if ENABLE_INTERNAL_SCHEDULER:
         app.state.scheduler_task = asyncio.create_task(_internal_scheduler_loop())
@@ -1072,9 +924,6 @@ async def startup_event():
     await init_database(fast_startup=True)
     logger.info("🚀 Ritual Backend API started successfully!")
     logger.info("🖥️ Watcher API ready for computer activity tracking")
-    app.state.memory_worker_task = None
-    app.state.memory_retention_task = None
-    app.state.semantic_summary_task = None
     app.state.startup_maintenance_task = None
     app.state.scheduler_task = None
     app.state.report_scheduler_task = None
@@ -1091,23 +940,9 @@ async def startup_event():
     else:
         logger.info("⏭️ Deferred startup maintenance disabled for fast platform readiness")
 
-    # Semantic summaries are now JIT-only: generated when the user requests
-    # screen evidence (calendar day click or chat query). This avoids burning
-    # LLM tokens on captures the user never looks at.
-    # The background worker is disabled — JIT trigger is in get_screen_evidence.
-    # To re-enable continuous background processing, uncomment below:
-    # try:
-    #     app.state.semantic_summary_task = asyncio.create_task(_semantic_summary_worker_loop())
-    #     logger.info("🧠 Semantic summary worker started")
-    # except Exception as exc:
-    #     logger.warning("⚠️ Semantic summary worker not started: %s", exc)
-
 @app.on_event("shutdown") 
 async def shutdown_event():
     """Clean up on shutdown"""
-    worker_task = getattr(app.state, "memory_worker_task", None)
-    retention_task = getattr(app.state, "memory_retention_task", None)
-    semantic_task = getattr(app.state, "semantic_summary_task", None)
     startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
     scheduler_task = getattr(app.state, "scheduler_task", None)
     report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
@@ -1120,9 +955,6 @@ async def shutdown_event():
     tasks = [
         t
         for t in [
-            worker_task,
-            retention_task,
-            semantic_task,
             startup_maintenance_task,
             scheduler_task,
             report_scheduler_task,

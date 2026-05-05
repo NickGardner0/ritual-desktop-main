@@ -449,20 +449,7 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
                     duration_ms = db_init_started_at.elapsed().as_millis() as u64,
                     "Ritual unified database ready"
                 );
-                match tauri::async_runtime::spawn_blocking(
-                    ritual_database::log_startup_pipeline_snapshot,
-                )
-                .await
-                {
-                    Ok(Ok(())) => {}
-                    Ok(Err(error)) => {
-                        warn!(error = %error, "Failed to log startup pipeline snapshot");
-                    }
-                    Err(error) => {
-                        warn!(error = %error, "Startup pipeline snapshot task failed");
-                    }
-                }
-                info!("Local semantic bridge and local embedding startup disabled in cloud-first mode");
+                info!("Project-time attribution is the desktop computer activity cloud path");
             }
             Ok(Err(error)) => {
                 warn!(
@@ -482,6 +469,7 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
 
         if database_ready {
             cloud_sync::spawn_cloud_sync_worker(app.clone());
+            ritual_database::spawn_project_time_attribution_worker();
         }
 
         if let Some(config) = read_watcher_config() {
@@ -1356,16 +1344,14 @@ fn main() {
       desktop_runtime::desktop_frontend_ready,
       desktop_runtime::desktop_manual_update_check,
       desktop_runtime::desktop_install_update,
-      // Ritual Database commands (unified libSQL with vector search)
+      // Ritual Database commands (unified libSQL)
       ritual_database::init_ritual_database,
       ritual_database::get_ritual_db_stats,
       ritual_database::text_search,
       ritual_database::check_migration_status,
-      ritual_database::seed_memory_upload_outbox,
-      ritual_database::get_local_retrieval_health,
-      ritual_database::get_memory_upload_outbox_stats,
-      ritual_database::claim_memory_upload_outbox_batch,
-      ritual_database::ack_memory_upload_outbox_batch,
+      ritual_database::run_project_time_attribution_once,
+      ritual_database::run_project_time_retention_once,
+      ritual_database::get_project_time_attribution_health,
     ])
     .setup(|app| {
       let setup_started_at = Instant::now();

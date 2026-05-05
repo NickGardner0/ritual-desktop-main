@@ -755,75 +755,7 @@ describe("Canvas Payload Builder", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. QUERY SEARCH SELECTION TESTS
-//
-// chooseScreenSearchQuery decides whether to use the tool's query or the
-// user's original query. Getting this wrong means bad search results.
-// ---------------------------------------------------------------------------
-
-describe("chooseScreenSearchQuery", () => {
-  function chooseScreenSearchQuery(toolQuery, userQuery) {
-    const toolText = String(toolQuery || "").trim();
-    const userText = String(userQuery || "").trim();
-    if (!userText) return toolText;
-    if (!toolText) return userText;
-    const toolNormalized = toolText.toLowerCase();
-    const userNormalized = userText.toLowerCase();
-    const toolGeneric =
-      toolNormalized === "what was i working on" ||
-      toolNormalized === "what was i doing" ||
-      toolNormalized === "what did i do";
-    const appearsTruncated =
-      userNormalized.includes(toolNormalized) &&
-      toolText.length + 8 < userText.length;
-    if (toolGeneric || appearsTruncated) return userText;
-    return toolText;
-  }
-
-  test("prefers user query when tool query is generic", () => {
-    assert.equal(
-      chooseScreenSearchQuery(
-        "what was i working on",
-        "What was I working on in Cursor yesterday?",
-      ),
-      "What was I working on in Cursor yesterday?",
-    );
-  });
-
-  test("prefers user query when tool query is 'what did i do'", () => {
-    assert.equal(
-      chooseScreenSearchQuery("what did i do", "what did i do this morning on my computer"),
-      "what did i do this morning on my computer",
-    );
-  });
-
-  test("returns tool query when it's specific", () => {
-    assert.equal(
-      chooseScreenSearchQuery(
-        "Cursor TypeScript refactoring",
-        "What was I working on?",
-      ),
-      "Cursor TypeScript refactoring",
-    );
-  });
-
-  test("returns user query when tool query is empty", () => {
-    assert.equal(
-      chooseScreenSearchQuery("", "What did I do today?"),
-      "What did I do today?",
-    );
-  });
-
-  test("returns tool query when user query is empty", () => {
-    assert.equal(
-      chooseScreenSearchQuery("search for files", ""),
-      "search for files",
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. VOICE MODE POST-PROCESSING TESTS
+// 4. VOICE MODE POST-PROCESSING TESTS
 //
 // formatVoiceResponse must trim, add questions, and limit bullets.
 // If this breaks, voice mode returns huge or badly formatted responses.
@@ -964,8 +896,6 @@ describe("Tool Definitions Contract", () => {
     "listHabits",
     "getHabitTrends",
     "getHabitAnomalies",
-    "searchContextMemory",
-    "searchScreenRecordings",
   ];
 
   // Additional tools defined inline in orchestrator.ts

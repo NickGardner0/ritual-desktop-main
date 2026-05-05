@@ -25,18 +25,15 @@ from database.models import UserDB
 logger = logging.getLogger(__name__)
 
 ROLLOUT_COUNT_MINIMUMS = {
-    "context_snapshots": 18_513,
-    "session_retrieval_docs": 3_481,
-    "context_sessions": 3_549,
     "activity_events": 542_000,
 }
 
 MIGRATION_TABLES = (
-    "context_sessions",
     "activity_events",
-    "context_snapshots",
-    "session_retrieval_docs",
     "afk_events",
+    "project_time_sessions",
+    "project_time_daily_rollups",
+    "project_classification_rules",
 )
 
 MIGRATION_BATCH_SIZE = max(50, int((os.getenv("TURSO_MIGRATION_BATCH_SIZE") or "250").strip()))
@@ -44,25 +41,6 @@ MIGRATION_BATCH_RETRY_LIMIT = max(5, int((os.getenv("TURSO_MIGRATION_BATCH_RETRY
 REPLICA_OPEN_RETRY_LIMIT = max(2, int((os.getenv("TURSO_REPLICA_OPEN_RETRY_LIMIT") or "5").strip()))
 
 SCHEMA_STATEMENTS = (
-    """
-    CREATE TABLE IF NOT EXISTS context_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_uid TEXT NOT NULL DEFAULT '',
-        device_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        start_ts INTEGER NOT NULL,
-        end_ts INTEGER NOT NULL,
-        primary_app_bundle_id TEXT,
-        primary_app_name TEXT,
-        primary_domain TEXT,
-        dominant_title TEXT,
-        representative_text TEXT,
-        coverage_score REAL NOT NULL DEFAULT 0.0,
-        snapshot_count INTEGER NOT NULL DEFAULT 0,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
     """
     CREATE TABLE IF NOT EXISTS activity_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,118 +75,78 @@ SCHEMA_STATEMENTS = (
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS context_snapshots (
+    CREATE TABLE IF NOT EXISTS project_time_sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_uid TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
         device_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        activity_event_id INTEGER,
-        activity_event_uid TEXT,
-        session_id INTEGER,
-        session_uid TEXT,
-        ts INTEGER NOT NULL,
-        source_type TEXT NOT NULL,
-        app_bundle_id TEXT NOT NULL,
-        app_name TEXT NOT NULL,
-        window_title TEXT,
-        browser_url TEXT,
-        browser_domain TEXT,
-        tab_title TEXT,
-        document_title TEXT,
-        visible_text_raw TEXT NOT NULL DEFAULT '',
-        visible_text_norm TEXT NOT NULL DEFAULT '',
-        capture_quality REAL NOT NULL DEFAULT 0.0,
-        capture_components_json TEXT,
-        ax_richness_score REAL NOT NULL DEFAULT 0.0,
-        selected_text_present INTEGER NOT NULL DEFAULT 0,
-        document_path TEXT,
-        ax_source TEXT,
-        capture_trigger TEXT,
-        trigger_to_snapshot_ms INTEGER,
-        ui_elements_json TEXT,
-        dedup_key TEXT NOT NULL,
-        is_sensitive_redacted INTEGER NOT NULL DEFAULT 0,
-        semantic_summary TEXT DEFAULT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS session_retrieval_docs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_id INTEGER NOT NULL,
-        session_uid TEXT NOT NULL DEFAULT '',
-        logical_chunk_id TEXT NOT NULL DEFAULT '',
-        device_id TEXT NOT NULL,
-        user_id TEXT NOT NULL,
-        source_kind TEXT NOT NULL DEFAULT 'context_session',
-        chunk_start_ts INTEGER NOT NULL,
-        chunk_end_ts INTEGER NOT NULL,
-        app_name TEXT,
-        browser_domain TEXT,
-        window_title TEXT,
-        document_title TEXT,
-        raw_visible_text TEXT NOT NULL DEFAULT '',
-        contextual_retrieval_text TEXT NOT NULL DEFAULT '',
-        capture_quality REAL NOT NULL DEFAULT 0.0,
-        context_version INTEGER NOT NULL DEFAULT 1,
-        session_position INTEGER NOT NULL DEFAULT 0,
-        session_count INTEGER NOT NULL DEFAULT 1,
-        embedded_at INTEGER DEFAULT NULL,
-        provider_doc_id TEXT DEFAULT NULL,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS semantic_work_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        work_item_key TEXT NOT NULL UNIQUE,
-        user_id TEXT NOT NULL,
-        source_scope TEXT NOT NULL DEFAULT 'broad_overview',
-        range_start_ts INTEGER NOT NULL,
-        range_end_ts INTEGER NOT NULL,
-        session_id INTEGER,
+        date TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'local',
         start_ts INTEGER NOT NULL,
         end_ts INTEGER NOT NULL,
-        title TEXT NOT NULL,
-        action_summary TEXT NOT NULL DEFAULT '',
-        activity_class TEXT NOT NULL DEFAULT 'work',
-        story_kind TEXT NOT NULL DEFAULT 'general',
-        primary_app TEXT,
+        active_ms INTEGER NOT NULL DEFAULT 0,
+        afk_ms INTEGER NOT NULL DEFAULT 0,
+        project_key TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        task_key TEXT NOT NULL,
+        task_name TEXT NOT NULL,
+        classification_source TEXT NOT NULL DEFAULT 'rules',
+        confidence REAL NOT NULL DEFAULT 0.0,
+        status TEXT NOT NULL DEFAULT 'active',
         apps_json TEXT NOT NULL DEFAULT '[]',
         domains_json TEXT NOT NULL DEFAULT '[]',
-        files_json TEXT NOT NULL DEFAULT '[]',
-        commands_json TEXT NOT NULL DEFAULT '[]',
-        errors_json TEXT NOT NULL DEFAULT '[]',
         artifacts_json TEXT NOT NULL DEFAULT '[]',
-        semantic_summary TEXT NOT NULL DEFAULT '',
-        confidence REAL NOT NULL DEFAULT 0.0,
-        evidence_count INTEGER NOT NULL DEFAULT 0,
-        score_main_event REAL NOT NULL DEFAULT 0.0,
+        summary_text TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS semantic_work_item_evidence (
+    CREATE TABLE IF NOT EXISTS project_time_daily_rollups (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        work_item_id INTEGER NOT NULL,
-        evidence_id TEXT,
-        session_id INTEGER,
-        evidence_kind TEXT NOT NULL DEFAULT 'citation',
-        snippet TEXT NOT NULL DEFAULT '',
-        timestamp INTEGER NOT NULL,
-        score REAL NOT NULL DEFAULT 0.0,
+        rollup_uid TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'local',
+        project_key TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        task_key TEXT NOT NULL,
+        task_name TEXT NOT NULL,
+        active_ms INTEGER NOT NULL DEFAULT 0,
+        session_count INTEGER NOT NULL DEFAULT 0,
+        confidence_avg REAL NOT NULL DEFAULT 0.0,
+        top_apps_json TEXT NOT NULL DEFAULT '[]',
+        top_domains_json TEXT NOT NULL DEFAULT '[]',
+        summary_text TEXT NOT NULL DEFAULT '',
+        source_version TEXT NOT NULL DEFAULT 'project_time_v1',
         created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL,
-        UNIQUE(work_item_id, evidence_id, timestamp)
+        updated_at INTEGER NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS project_classification_rules (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rule_uid TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        matcher_app_bundle_id TEXT,
+        matcher_domain TEXT,
+        matcher_title_pattern TEXT,
+        matcher_artifact_pattern TEXT,
+        matcher_keyword_pattern TEXT,
+        project_key TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        task_key TEXT NOT NULL,
+        task_name TEXT NOT NULL,
+        priority INTEGER NOT NULL DEFAULT 100,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
     )
     """,
 )
 
 INDEX_STATEMENTS = (
-    "CREATE INDEX IF NOT EXISTS idx_context_sessions_time ON context_sessions(start_ts, end_ts)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_sessions_session_uid ON context_sessions(session_uid)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_start ON activity_events(ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_ts_end ON activity_events(ts_end)",
     "CREATE INDEX IF NOT EXISTS idx_activity_events_user_device_ts ON activity_events(user_id, device_id, ts_start)",
@@ -216,30 +154,15 @@ INDEX_STATEMENTS = (
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_events_event_uid ON activity_events(event_uid)",
     "CREATE INDEX IF NOT EXISTS idx_afk_events_user_device_ts ON afk_events(user_id, device_id, ts_start)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid ON afk_events(afk_uid)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts ON context_snapshots(ts)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_app_ts ON context_snapshots(app_bundle_id, ts)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_domain_ts ON context_snapshots(browser_domain, ts)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_context_snapshots_dedup ON context_snapshots(dedup_key)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_ts ON context_snapshots(session_id, ts)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_activity_event_uid ON context_snapshots(activity_event_uid)",
-    "CREATE INDEX IF NOT EXISTS idx_context_snapshots_session_uid ON context_snapshots(session_uid)",
-    "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_time ON session_retrieval_docs(chunk_start_ts, chunk_end_ts)",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_session_retrieval_docs_logical_chunk_id ON session_retrieval_docs(logical_chunk_id)",
-    "CREATE INDEX IF NOT EXISTS idx_session_retrieval_docs_session_uid ON session_retrieval_docs(session_uid)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_scope_range ON semantic_work_items(user_id, source_scope, range_start_ts, range_end_ts)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_work_items_user_time ON semantic_work_items(user_id, start_ts, end_ts)",
-    "CREATE INDEX IF NOT EXISTS idx_semantic_work_item_evidence_work_item ON semantic_work_item_evidence(work_item_id, timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_user_date ON project_time_sessions(user_id, date, start_ts)",
+    "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_project ON project_time_sessions(user_id, project_key, task_key, start_ts)",
+    "CREATE INDEX IF NOT EXISTS idx_project_time_daily_rollups_user_date ON project_time_daily_rollups(user_id, date, project_key, task_key)",
+    "CREATE INDEX IF NOT EXISTS idx_project_classification_rules_user_enabled ON project_classification_rules(user_id, enabled, priority)",
 )
 
 COLUMN_MIGRATIONS = (
-    ("context_sessions", "session_uid", "TEXT NOT NULL DEFAULT ''"),
     ("activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''"),
     ("afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''"),
-    ("context_snapshots", "activity_event_uid", "TEXT"),
-    ("context_snapshots", "session_uid", "TEXT"),
-    ("session_retrieval_docs", "session_uid", "TEXT NOT NULL DEFAULT ''"),
-    ("session_retrieval_docs", "logical_chunk_id", "TEXT NOT NULL DEFAULT ''"),
-    ("session_retrieval_docs", "provider_doc_id", "TEXT DEFAULT NULL"),
 )
 
 BACKFILL_STATEMENTS = (
@@ -252,46 +175,6 @@ BACKFILL_STATEMENTS = (
     UPDATE afk_events
     SET afk_uid = printf('legacy-afk:%s:%s:%lld', device_id, user_id, id)
     WHERE TRIM(COALESCE(afk_uid, '')) = ''
-    """,
-    """
-    UPDATE context_sessions
-    SET session_uid = printf('legacy-session:%s:%s:%lld', device_id, user_id, id)
-    WHERE TRIM(COALESCE(session_uid, '')) = ''
-    """,
-    """
-    UPDATE context_snapshots
-    SET activity_event_uid = (
-        SELECT activity_events.event_uid
-        FROM activity_events
-        WHERE activity_events.id = context_snapshots.activity_event_id
-    )
-    WHERE activity_event_id IS NOT NULL
-      AND TRIM(COALESCE(activity_event_uid, '')) = ''
-    """,
-    """
-    UPDATE context_snapshots
-    SET session_uid = (
-        SELECT context_sessions.session_uid
-        FROM context_sessions
-        WHERE context_sessions.id = context_snapshots.session_id
-    )
-    WHERE session_id IS NOT NULL
-      AND TRIM(COALESCE(session_uid, '')) = ''
-    """,
-    """
-    UPDATE session_retrieval_docs
-    SET session_uid = (
-        SELECT context_sessions.session_uid
-        FROM context_sessions
-        WHERE context_sessions.id = session_retrieval_docs.session_id
-    )
-    WHERE TRIM(COALESCE(session_uid, '')) = ''
-    """,
-    """
-    UPDATE session_retrieval_docs
-    SET logical_chunk_id = printf('session-doc:%s', session_uid)
-    WHERE TRIM(COALESCE(logical_chunk_id, '')) = ''
-      AND TRIM(COALESCE(session_uid, '')) != ''
     """,
 )
 
@@ -751,15 +634,6 @@ class TursoUserService:
         for statement in BACKFILL_STATEMENTS:
             conn.execute(statement)
 
-    def _table_sql(self, conn: Any, table_name: str) -> str:
-        row = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?",
-            (table_name,),
-        ).fetchone()
-        if not row:
-            return ""
-        return str(row[0] or "")
-
     def _table_exists(self, conn: Any, table_name: str) -> bool:
         row = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -767,127 +641,27 @@ class TursoUserService:
         ).fetchone()
         return row is not None
 
-    def _next_backup_table_name(self, conn: Any, base_name: str) -> str:
-        candidate = base_name
-        suffix = 1
-        while self._table_exists(conn, candidate):
-            candidate = f"{base_name}_{suffix}"
-            suffix += 1
-        return candidate
+    def _table_columns(self, conn: Any, table_name: str) -> list[str]:
+        try:
+            return [str(row[1]) for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
+        except Exception:
+            return []
 
-    def _repair_session_retrieval_docs_schema(self, conn: Any) -> None:
-        sql = self._table_sql(conn, "session_retrieval_docs")
-        if not sql:
-            return
-
-        normalized = re.sub(r"\s+", " ", sql.strip().lower())
-        if "session_id integer not null unique" not in normalized:
-            return
-
-        backup_table = self._next_backup_table_name(
-            conn, "session_retrieval_docs_legacy_unique_session_id"
-        )
-
-        logger.warning(
-            "Repairing legacy session_retrieval_docs schema; preserving backup table as %s",
-            backup_table,
-        )
-
-        conn.execute(f"ALTER TABLE session_retrieval_docs RENAME TO {backup_table}")
-        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_time")
-        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_logical_chunk_id")
-        conn.execute("DROP INDEX IF EXISTS idx_session_retrieval_docs_session_uid")
-
-        conn.execute(
-            """
-            CREATE TABLE session_retrieval_docs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id INTEGER NOT NULL,
-                session_uid TEXT NOT NULL DEFAULT '',
-                logical_chunk_id TEXT NOT NULL DEFAULT '',
-                device_id TEXT NOT NULL,
-                user_id TEXT NOT NULL,
-                source_kind TEXT NOT NULL DEFAULT 'context_session',
-                chunk_start_ts INTEGER NOT NULL,
-                chunk_end_ts INTEGER NOT NULL,
-                app_name TEXT,
-                browser_domain TEXT,
-                window_title TEXT,
-                document_title TEXT,
-                raw_visible_text TEXT NOT NULL DEFAULT '',
-                contextual_retrieval_text TEXT NOT NULL DEFAULT '',
-                capture_quality REAL NOT NULL DEFAULT 0.0,
-                context_version INTEGER NOT NULL DEFAULT 1,
-                session_position INTEGER NOT NULL DEFAULT 0,
-                session_count INTEGER NOT NULL DEFAULT 1,
-                embedded_at INTEGER DEFAULT NULL,
-                provider_doc_id TEXT DEFAULT NULL,
-                created_at INTEGER NOT NULL,
-                updated_at INTEGER NOT NULL
-            )
-            """
-        )
-
-        conn.execute(
-            f"""
-            INSERT INTO session_retrieval_docs (
-                id,
-                session_id,
-                session_uid,
-                logical_chunk_id,
-                device_id,
-                user_id,
-                source_kind,
-                chunk_start_ts,
-                chunk_end_ts,
-                app_name,
-                browser_domain,
-                window_title,
-                document_title,
-                raw_visible_text,
-                contextual_retrieval_text,
-                capture_quality,
-                context_version,
-                session_position,
-                session_count,
-                embedded_at,
-                provider_doc_id,
-                created_at,
-                updated_at
-            )
-            SELECT
-                id,
-                session_id,
-                session_uid,
-                logical_chunk_id,
-                device_id,
-                user_id,
-                source_kind,
-                chunk_start_ts,
-                chunk_end_ts,
-                app_name,
-                browser_domain,
-                window_title,
-                document_title,
-                raw_visible_text,
-                contextual_retrieval_text,
-                capture_quality,
-                context_version,
-                session_position,
-                session_count,
-                embedded_at,
-                provider_doc_id,
-                created_at,
-                updated_at
-            FROM {backup_table}
-            """
-        )
+    def _count_user_rows(self, conn: Any, table_name: str, user_id: str) -> int:
+        if "user_id" not in self._table_columns(conn, table_name):
+            return 0
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        if not row:
+            return 0
+        return int(row[0] or 0)
 
     def _apply_full_schema(self, conn: Any) -> None:
         for statement in SCHEMA_STATEMENTS:
             conn.execute(statement)
         self._apply_column_migrations(conn)
-        self._repair_session_retrieval_docs_schema(conn)
         self._apply_backfills(conn)
         for statement in INDEX_STATEMENTS:
             conn.execute(statement)
@@ -1002,12 +776,7 @@ class TursoUserService:
                 if table_name not in tables:
                     counts[table_name] = 0
                     continue
-                counts[table_name] = int(
-                    conn.execute(
-                        f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                        (source_user_id,),
-                    ).fetchone()[0]
-                )
+                counts[table_name] = self._count_user_rows(conn, table_name, source_user_id)
             return counts
         finally:
             conn.close()
@@ -1041,10 +810,12 @@ class TursoUserService:
                 if table_name not in tables:
                     counts[table_name] = 0
                     continue
-                columns = [
+                source_columns = [
                     row[1]
                     for row in conn.execute(f"PRAGMA source_db.table_info({table_name})").fetchall()
                 ]
+                destination_columns = self._table_columns(conn, table_name)
+                columns = [column for column in source_columns if column in destination_columns]
                 if not columns:
                     counts[table_name] = 0
                     continue
@@ -1070,10 +841,7 @@ class TursoUserService:
                     tuple(params),
                 )
                 counts[table_name] = int(
-                    conn.execute(
-                        f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                        (target_user_id,),
-                    ).fetchone()[0]
+                    self._count_user_rows(conn, table_name, target_user_id)
                 )
             conn.commit()
             conn.execute("DETACH DATABASE source_db")
@@ -1167,13 +935,8 @@ class TursoUserService:
             remote = self._open_remote_replica(replica_path, sync_url, token)
             try:
                 counts: Dict[str, Dict[str, int]] = {}
-                for table_name in ("context_snapshots", "session_retrieval_docs", "context_sessions", "activity_events", "afk_events"):
-                    target_count = int(
-                        remote.execute(
-                            f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (target_user_id,),
-                        ).fetchone()[0]
-                    )
+                for table_name in MIGRATION_TABLES:
+                    target_count = self._count_user_rows(remote, table_name, target_user_id)
                     counts[table_name] = {
                         "source": int(expected_counts.get(table_name, 0)),
                         "target": target_count,
@@ -1334,10 +1097,12 @@ class TursoUserService:
                         raise
 
                 for table_name in MIGRATION_TABLES:
-                    columns = [
+                    source_columns = [
                         row[1]
                         for row in source.execute(f"PRAGMA table_info({table_name})").fetchall()
                     ]
+                    target_columns = self._table_columns(remote, table_name)
+                    columns = [column for column in source_columns if column in target_columns]
                     if not columns:
                         continue
 
@@ -1423,29 +1188,14 @@ class TursoUserService:
                         raise
 
                 counts: Dict[str, Dict[str, int]] = {}
-                for table_name in ("context_snapshots", "session_retrieval_docs", "context_sessions", "activity_events"):
-                    source_count = int(
-                        source.execute(
-                            f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (source_user_id,),
-                        ).fetchone()[0]
-                    )
+                for table_name in MIGRATION_TABLES:
+                    source_count = self._count_user_rows(source, table_name, source_user_id)
                     try:
-                        target_count = int(
-                            remote.execute(
-                                f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                                (user.id,),
-                            ).fetchone()[0]
-                        )
+                        target_count = self._count_user_rows(remote, table_name, user.id)
                     except Exception as exc:
                         if _should_refresh_token(exc):
                             remote = _reopen_remote(refresh_token=True)
-                            target_count = int(
-                                remote.execute(
-                                    f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                                    (user.id,),
-                                ).fetchone()[0]
-                            )
+                            target_count = self._count_user_rows(remote, table_name, user.id)
                         else:
                             raise
                     counts[table_name] = {"source": source_count, "target": target_count}
@@ -1513,19 +1263,9 @@ class TursoUserService:
             try:
                 counts: Dict[str, Dict[str, int]] = {}
                 for table_name in MIGRATION_TABLES:
-                    source_count = int(
-                        source.execute(
-                            f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                            (source_user_id,),
-                        ).fetchone()[0]
-                    )
+                    source_count = self._count_user_rows(source, table_name, source_user_id)
                     try:
-                        target_count = int(
-                            remote.execute(
-                                f"SELECT COUNT(*) FROM {table_name} WHERE user_id = ?",
-                                (user.id,),
-                            ).fetchone()[0]
-                        )
+                        target_count = self._count_user_rows(remote, table_name, user.id)
                     except Exception:
                         target_count = 0
                     counts[table_name] = {"source": source_count, "target": target_count}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from services.day_recap_service import build_day_recap
+from services.project_time_service import get_project_time_rollups
 
 _SMS_SEGMENT_MAX = 220
 
@@ -39,6 +39,15 @@ def _segment_text(summary: str) -> List[str]:
     return segments[:2]
 
 
+def _format_duration(active_ms: int) -> str:
+    minutes = max(0, round(active_ms / 60_000))
+    if minutes < 60:
+        return f"{minutes}m"
+    hours = minutes // 60
+    rem = minutes % 60
+    return f"{hours}h {rem}m" if rem else f"{hours}h"
+
+
 class SmsNarrativeService:
     """Compress the day recap bundle into an SMS-friendly daily narrative."""
 
@@ -49,16 +58,26 @@ class SmsNarrativeService:
         anchor_date: str,
         timezone: Optional[str],
     ) -> Dict[str, Any]:
-        recap = await build_day_recap(
+        rollups = await get_project_time_rollups(
             user_id=user_id,
-            query="Summarize my day in a short narrative.",
-            anchor_date=anchor_date,
-            timezone_name=timezone,
-            days_back=1,
+            start_date=anchor_date,
+            end_date=anchor_date,
+            group_by="task",
+            limit=5,
         )
-        summary = (recap.get("rendered_summary") or "").strip()
-        if not summary:
-            summary = "I don't have enough activity yet to build a useful daily narrative."
+        rows = rollups.get("data") if rollups.get("success") else []
+        rows = rows if isinstance(rows, list) else []
+        if rows:
+            top = rows[:3]
+            parts = []
+            for row in top:
+                project = str(row.get("project_name") or "Unclassified").strip()
+                task = str(row.get("task_name") or "").strip()
+                label = f"{project} / {task}" if task and task != "General" else project
+                parts.append(f"{label} ({_format_duration(int(row.get('active_ms') or 0))})")
+            summary = f"Your main computer workstreams for {anchor_date}: {', '.join(parts)}."
+        else:
+            summary = "I don't have enough attributed computer activity yet to build a useful daily narrative."
 
         segments = _segment_text(summary) or [_truncate(summary, _SMS_SEGMENT_MAX)]
         headline = _truncate(segments[0], 96)
@@ -68,9 +87,10 @@ class SmsNarrativeService:
             "headline": headline,
             "metrics": {
                 "anchor_date": anchor_date,
-                "degraded": bool(recap.get("degraded")),
-                "citations_count": int(recap.get("citations_count") or 0),
-                "retrieval_tier": recap.get("retrieval_tier"),
+                "degraded": False,
+                "citations_count": 0,
+                "retrieval_tier": "project_time_rollups",
+                "timezone": timezone,
             },
         }
 

@@ -190,39 +190,6 @@ export function clampSearchLimit(limit?: number): number {
   return Math.min(Math.max(Math.round(limit), 1), 50);
 }
 
-// ---------------------------------------------------------------------------
-// Screen search warning / formatting
-// ---------------------------------------------------------------------------
-
-export function compactScreenWarning(raw: unknown): string | undefined {
-  const text = String(raw || '').trim();
-  if (!text) return undefined;
-
-  const noisyPatterns = [
-    /cloud semantic retrieval returned no grounded evidence/gi,
-    /semantic intent is fail-closed/gi,
-    /some semantic results may be missing while embeddings finish processing/gi,
-    /semantic retrieval is degraded; using lexical-first fallback where needed/gi,
-    /no cloud semantic evidence matched query in selected range/gi,
-  ];
-
-  let normalized = text;
-  for (const pattern of noisyPatterns) {
-    normalized = normalized.replace(pattern, '');
-  }
-  normalized = normalized
-    .replace(/\s+/g, ' ')
-    .replace(/\.\s*\./g, '.')
-    .trim();
-
-  if (!normalized) {
-    return 'Semantic evidence is still catching up, so this summary relies more on activity signals.';
-  }
-
-  const firstSentence = normalized.split(/(?<=[.!?])\s+/).find((part) => part.trim().length > 0) || normalized;
-  return firstSentence.trim();
-}
-
 export function formatWeeklyNumber(value: number, digits = 2): string {
   if (!Number.isFinite(value)) return '0';
   return value.toFixed(digits).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');

@@ -465,39 +465,6 @@ impl<'a> RecorderOps<'a> {
         Ok(frames)
     }
 
-    /// Get frames without embeddings (for background processing)
-    pub async fn get_frames_without_embeddings(&self, limit: usize) -> Result<Vec<OcrFrame>> {
-        let recent_cutoff = chrono::Utc::now()
-            .timestamp_millis()
-            .saturating_sub(24 * 60 * 60 * 1000);
-        let mut rows = self
-            .conn
-            .query(
-                r#"
-            SELECT f.id, f.timestamp, f.activity_event_id, f.app_bundle_id, f.app_name,
-                   f.window_title, f.ocr_text, f.ocr_confidence, f.thumbnail_path,
-                   f.video_chunk_id, f.frame_offset, f.image_hash, f.storage_tier, f.created_at,
-                   f.summary, f.activity_type, f.keywords, f.text_quality
-            FROM ocr_frames f
-            LEFT JOIN ocr_embeddings e ON f.id = e.frame_id
-            WHERE e.id IS NULL
-              AND f.timestamp >= ?
-              AND (
-                COALESCE(NULLIF(TRIM(f.ocr_text), ''), '') != ''
-                OR COALESCE(NULLIF(TRIM(f.app_name), ''), '') != ''
-                OR COALESCE(NULLIF(TRIM(f.window_title), ''), '') != ''
-              )
-            ORDER BY f.timestamp DESC
-            LIMIT ?
-            "#,
-                libsql::params![recent_cutoff, limit as i64],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
-        self.rows_to_ocr_frames(&mut rows).await
-    }
-
     // ========================================================================
     // ACTIVITY CONTEXT (for recorder to get current activity)
     // ========================================================================
@@ -617,16 +584,6 @@ impl<'a> RecorderOps<'a> {
 
     /// Delete an OCR frame by ID
     pub async fn delete_ocr_frame(&self, frame_id: i64) -> Result<()> {
-        // Delete associated embeddings first
-        let _ = self
-            .conn
-            .execute(
-                "DELETE FROM ocr_embeddings WHERE frame_id = ?",
-                libsql::params![frame_id],
-            )
-            .await;
-
-        // Delete the frame
         self.conn
             .execute(
                 "DELETE FROM ocr_frames WHERE id = ?",

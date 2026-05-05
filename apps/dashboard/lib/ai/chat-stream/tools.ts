@@ -151,47 +151,15 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
-      name: 'searchContextMemory',
-      description: 'Search context-awareness memory built from visible active-window and active-tab text. Use for questions like "What was I working on today?", "What did I do in Cursor?", "What planning work did I do this morning?", or "Find when I read about...".',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
-          daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
-          limit: { type: 'number', description: 'Maximum results to return (default 10)' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'searchScreenRecordings',
-      description: 'Compatibility alias for context memory search. Prefer visible-context answers instead of OCR/screen-recording framing.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query: { type: 'string', description: 'Natural language search query describing what to find in context memory' },
-          daysBack: { type: 'number', description: 'How many days back to search (default 7)' },
-          limit: { type: 'number', description: 'Maximum results to return (default 10)' },
-        },
-        required: ['query'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
       name: 'getComputerTimeSpentBreakdown',
-      description: 'Estimate where computer time was spent for a specific question/topic using visible-context memory plus hybrid retrieval, with legacy OCR only as fallback. Use for: "What did I spend time on?", "How much time did I spend on X?", "Where did my time go on my computer?", "What app did I spend the most time in?". Returns structured summary plus table rows.',
+      description: 'Estimate where computer time was spent using compact project/task time attribution rollups. Use for: "What did I spend time on?", "How much time did I spend on X?", "Where did my time go on my computer?", "What app did I spend the most time in?". Returns structured summary plus table rows.',
       parameters: {
         type: 'object',
         properties: {
           query: { type: 'string', description: 'Natural language description of what to measure (preserve user wording).' },
           daysBack: { type: 'number', description: 'How many days back to analyze (default 7).' },
           limit: { type: 'number', description: 'Max rows to return in top categories table (default 8, max 50).' },
-          groupBy: { type: 'string', description: 'Bucket dimension: "app" (default), "window", or "domain".' },
+          groupBy: { type: 'string', description: 'Legacy hint from the user wording. Project/task attribution is the default breakdown.' },
         },
         required: ['query'],
       },
@@ -201,7 +169,7 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'getActivitySummary',
-      description: 'Get a rich activity summary with structured workstreams, claim cards, timeline segments, and evidence from context memory. Use for "what did I do today", "give me an activity summary", "recap my day/week", "what happened today". Returns the full story plan with broad_overview intent. Prefer this over searchContextMemory for overview/recap questions.',
+      description: 'Get a rich activity summary with structured workstreams from compact project/task time attribution, habit context, and calendar context. Use for "what did I do today", "give me an activity summary", "recap my day/week", "what happened today".',
       parameters: {
         type: 'object',
         properties: {

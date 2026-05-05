@@ -855,7 +855,7 @@ mod tests {
         let result = classify_activity(
             "com.todesktop.230313mzl4w4u92",
             "Cursor",
-            Some("vector.rs - ritual-db"),
+            Some("project_time.rs - ritual-db"),
             None,
         );
 

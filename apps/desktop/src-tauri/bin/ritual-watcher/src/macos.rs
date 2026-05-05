@@ -2357,10 +2357,10 @@ mod tests {
     fn finalize_accessibility_text_prefers_richer_candidates() {
         let info = finalize_accessibility_text(
             Some("com.todesktop.230313mzl4w4u92"),
-            Some("watcher_service_search.py"),
+            Some("project_time_service.py"),
             vec![
                 (
-                    "apps/backend/services/watcher_service_search.py".to_string(),
+                    "apps/backend/services/project_time_service.py".to_string(),
                     "AXDocument",
                     0.82,
                     "window",
@@ -2381,11 +2381,11 @@ mod tests {
     #[test]
     fn candidate_is_redundant_filters_substrings() {
         let existing = vec![
-            "home-client.tsx ritual-desktop-main searchContextMemory orchestrator.ts".to_string(),
+            "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts".to_string(),
         ];
         assert!(candidate_is_redundant(
             &existing,
-            "searchContextMemory orchestrator.ts"
+            "projectTimeAttribution orchestrator.ts"
         ));
         assert!(!candidate_is_redundant(
             &existing,
@@ -2439,7 +2439,7 @@ mod tests {
             Some("com.todesktop.230313mzl4w4u92"),
             Some("home-client.tsx — ritual-desktop-main"),
             Some("home-client.tsx"),
-            "home-client.tsx ritual-desktop-main searchContextMemory orchestrator.ts",
+            "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts",
             "AXTitle",
             "sibling",
             0.64,
@@ -2534,7 +2534,7 @@ mod tests {
             vec![
                 ("npm run d".to_string(), "AXValue", 0.90, "focused"),
                 (
-                    "home-client.tsx ritual-desktop-main searchContextMemory orchestrator.ts"
+                    "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts"
                         .to_string(),
                     "AXTitle",
                     0.64,
@@ -2551,7 +2551,7 @@ mod tests {
         );
 
         let text = info.text.unwrap_or_default();
-        assert!(text.contains("searchContextMemory"));
+        assert!(text.contains("projectTimeAttribution"));
         assert!(text.contains("visible descendant ranking"));
         assert!(info.quality_score >= 0.86);
     }
@@ -2582,7 +2582,7 @@ mod tests {
                     "visible_descendant",
                 ),
                 (
-                    "page.tsx ritual-desktop-main searchContextMemory orchestrator".to_string(),
+                    "page.tsx ritual-desktop-main projectTimeAttribution orchestrator".to_string(),
                     "AXTitle",
                     0.68,
                     "visible_descendant",
@@ -2592,7 +2592,7 @@ mod tests {
 
         let text = info.text.unwrap_or_default().to_ascii_lowercase();
         assert!(text.contains("page.tsx"));
-        assert!(text.contains("searchcontextmemory"));
+        assert!(text.contains("projecttimeattribution"));
         assert!(!text.contains("zoom the window"));
         assert!(info.quality_score >= 0.86);
     }
@@ -2600,7 +2600,7 @@ mod tests {
     #[test]
     fn candidate_document_path_prefers_full_ax_path() {
         let path = candidate_document_path(&[(
-            "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/watcher_service_search.py"
+            "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py"
                 .to_string(),
             "AXDocument",
             0.82,
@@ -2608,7 +2608,7 @@ mod tests {
         )]);
         assert_eq!(
             path.as_deref(),
-            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/watcher_service_search.py")
+            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py")
         );
     }
 
@@ -2616,10 +2616,10 @@ mod tests {
     fn finalize_accessibility_text_tracks_selected_text_and_document_path() {
         let info = finalize_accessibility_text(
             Some("com.todesktop.230313mzl4w4u92"),
-            Some("watcher_service_search.py — ritual-desktop-main"),
+            Some("project_time_service.py — ritual-desktop-main"),
             vec![
                 (
-                    "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/watcher_service_search.py"
+                    "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py"
                         .to_string(),
                     "AXDocument",
                     0.82,
@@ -2647,7 +2647,7 @@ mod tests {
         ));
         assert_eq!(
             info.document_path.as_deref(),
-            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/watcher_service_search.py")
+            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py")
         );
         assert_eq!(
             info.capture_components.first().map(|value| value.as_str()),

@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useAuth } from '@clerk/nextjs';
 import {
   Shield,
   Eye,
@@ -18,8 +17,6 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 import { cn } from '@/lib/utils';
-
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 interface WatcherConfig {
   device_id: string;
@@ -63,43 +60,12 @@ interface BrowserExtensionDiagnostics {
   detection_note: string;
 }
 
-interface LocalRetrievalHealth {
-  latest_context_snapshots_ts: number | null;
-  latest_session_retrieval_docs_ts: number | null;
-  context_snapshot_count: number;
-  session_retrieval_doc_count: number;
-  memory_upload_outbox: {
-    pending: number;
-    uploading: number;
-    failed: number;
-    uploaded: number;
-    total: number;
-  };
-}
-
-interface RetrievalHealth {
-  latest_context_snapshots_ts: number | null;
-  latest_session_retrieval_docs_ts: number | null;
-  memory_upload_outbox?: {
-    pending?: number;
-    uploading?: number;
-    failed?: number;
-  };
-  cloud_embedding_freshness?: {
-    latest_cloud_chunk_ts?: number | null;
-  };
-  cloud_index?: {
-    current_user_chunk_count?: number;
-    current_user_embedded_chunk_count?: number;
-  };
-  lane_readiness?: {
-    semantic_ready?: boolean;
-  };
-  summary?: {
-    overall_status?: string;
-    primary_source_selected?: string;
-    degradation_reasons?: string[];
-  };
+interface ProjectTimeAttributionHealth {
+  latest_session_ts: number | null;
+  session_count: number;
+  rollup_count: number;
+  unclassified_session_count: number;
+  latest_rollup_updated_at: number | null;
 }
 
 const TITLE_MODE_OPTIONS = [
@@ -156,12 +122,11 @@ function setCachedState(state: Omit<CachedWatcherState, 'timestamp'>) {
 
 interface ComputerTrackingSettingsProps {
   userId: string;
-  showRetrievalHealth?: boolean;
+  showAttributionHealth?: boolean;
   onClose?: () => void;
 }
 
-export function ComputerTrackingSettings({ userId, showRetrievalHealth = false, onClose }: ComputerTrackingSettingsProps) {
-  const { getToken } = useAuth();
+export function ComputerTrackingSettings({ userId, showAttributionHealth = false, onClose }: ComputerTrackingSettingsProps) {
   const { habits, createHabit, fetchHabits } = useHabits();
   const cachedState = useRef(getCachedState());
 
@@ -185,9 +150,8 @@ export function ComputerTrackingSettings({ userId, showRetrievalHealth = false, 
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [browserDiagnostics, setBrowserDiagnostics] = useState<BrowserExtensionDiagnostics | null>(null);
-  const [localRetrievalHealth, setLocalRetrievalHealth] = useState<LocalRetrievalHealth | null>(null);
-  const [retrievalHealth, setRetrievalHealth] = useState<RetrievalHealth | null>(null);
-  const [retrievalHealthLoading, setRetrievalHealthLoading] = useState(false);
+  const [attributionHealth, setAttributionHealth] = useState<ProjectTimeAttributionHealth | null>(null);
+  const [attributionHealthLoading, setAttributionHealthLoading] = useState(false);
 
   // ------ callbacks ------
 
@@ -318,37 +282,26 @@ export function ComputerTrackingSettings({ userId, showRetrievalHealth = false, 
     return () => clearInterval(interval);
   }, [getBrowserExtensionDiagnostics]);
 
-  const loadRetrievalHealth = useCallback(async () => {
-    if (!showRetrievalHealth) return;
-    setRetrievalHealthLoading(true);
+  const loadAttributionHealth = useCallback(async () => {
+    if (!showAttributionHealth) return;
+    setAttributionHealthLoading(true);
     try {
-      const [localHealth, backendHealth] = await Promise.all([
-        invoke<LocalRetrievalHealth>('get_local_retrieval_health').catch(() => null),
-        (async () => {
-          try {
-            const token = await getToken();
-            const response = await fetch(`${PYTHON_API_BASE}/api/memory/diagnostics`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (!response.ok) throw new Error(`Diagnostics failed: ${response.status}`);
-            const payload = await response.json();
-            return (payload?.retrieval_health ?? null) as RetrievalHealth | null;
-          } catch { return null; }
-        })(),
-      ]);
-      setLocalRetrievalHealth(localHealth);
-      setRetrievalHealth(backendHealth);
+      const backendHealth = await invoke<ProjectTimeAttributionHealth>(
+        'get_project_time_attribution_health',
+        { origin: 'settings' },
+      ).catch(() => null);
+      setAttributionHealth(backendHealth);
     } finally {
-      setRetrievalHealthLoading(false);
+      setAttributionHealthLoading(false);
     }
-  }, [getToken, showRetrievalHealth]);
+  }, [showAttributionHealth]);
 
   useEffect(() => {
-    if (!showRetrievalHealth) return;
-    void loadRetrievalHealth();
-    const interval = setInterval(() => void loadRetrievalHealth(), 15_000);
+    if (!showAttributionHealth) return;
+    void loadAttributionHealth();
+    const interval = setInterval(() => void loadAttributionHealth(), 15_000);
     return () => clearInterval(interval);
-  }, [loadRetrievalHealth, showRetrievalHealth]);
+  }, [loadAttributionHealth, showAttributionHealth]);
 
   const requestAccessibility = async () => {
     try {
@@ -694,19 +647,19 @@ export function ComputerTrackingSettings({ userId, showRetrievalHealth = false, 
       </div>
 
       {/* ================================================================ */}
-      {/* Developer-only: Retrieval Health diagnostics                     */}
+      {/* Developer-only: Attribution Health diagnostics                   */}
       {/* ================================================================ */}
-      {showRetrievalHealth && (
+      {showAttributionHealth && (
         <>
           <div className="border-t border-gray-100" />
           <div>
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Database className="h-4 w-4 text-gray-400" />
-                <p className="text-sm font-medium text-gray-900">Retrieval Health</p>
+                <p className="text-sm font-medium text-gray-900">Attribution Health</p>
               </div>
-              <div className={cn('rounded-full border px-2.5 py-0.5 text-[11px] font-medium', retrievalHealthStatusClass(retrievalHealth?.summary?.overall_status))}>
-                {retrievalHealthLoading ? 'Loading...' : (retrievalHealth?.summary?.overall_status || 'Unavailable')}
+              <div className={cn('rounded-full border px-2.5 py-0.5 text-[11px] font-medium', attributionHealthStatusClass((attributionHealth?.session_count ?? 0) > 0 ? 'healthy' : 'Unavailable'))}>
+                {attributionHealthLoading ? 'Loading...' : ((attributionHealth?.session_count ?? 0) > 0 ? 'Healthy' : 'Unavailable')}
               </div>
             </div>
 
@@ -730,38 +683,11 @@ export function ComputerTrackingSettings({ userId, showRetrievalHealth = false, 
 
             <div className="space-y-2.5">
               <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-1.5">
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Local Capture</div>
-                <DiagRow label="Latest context capture" value={formatDebugTimestamp(localRetrievalHealth?.latest_context_snapshots_ts)} />
-                <DiagRow label="Latest session doc" value={formatDebugTimestamp(localRetrievalHealth?.latest_session_retrieval_docs_ts)} />
-                <DiagRow label="Local session docs" value={String(localRetrievalHealth?.session_retrieval_doc_count ?? 0)} />
-                <DiagRow label="Upload outbox" value={`${localRetrievalHealth?.memory_upload_outbox?.pending ?? 0} pending / ${localRetrievalHealth?.memory_upload_outbox?.total ?? 0} total`} />
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-1.5">
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Backend / Cloud</div>
-                <DiagRow label="Latest backend context" value={formatDebugTimestamp(retrievalHealth?.latest_context_snapshots_ts)} />
-                <DiagRow label="Latest backend session doc" value={formatDebugTimestamp(retrievalHealth?.latest_session_retrieval_docs_ts)} />
-                <DiagRow label="Latest cloud chunk" value={formatDebugTimestamp(retrievalHealth?.cloud_embedding_freshness?.latest_cloud_chunk_ts)} />
-                <DiagRow label="Cloud embedded docs" value={`${retrievalHealth?.cloud_index?.current_user_embedded_chunk_count ?? 0} / ${retrievalHealth?.cloud_index?.current_user_chunk_count ?? 0}`} />
-                <DiagRow label="Primary source" value={String(retrievalHealth?.summary?.primary_source_selected || 'unknown')} />
-                <DiagRow label="Fail-open mode" value={retrievalHealth?.lane_readiness?.semantic_ready ? 'Cloud primary' : 'Cloud degraded'} />
-                {retrievalHealthMismatchNote(localRetrievalHealth, retrievalHealth) && (
-                  <p className="text-[11px] text-amber-700">
-                    {retrievalHealthMismatchNote(localRetrievalHealth, retrievalHealth)}
-                  </p>
-                )}
-                {Array.isArray(retrievalHealth?.summary?.degradation_reasons) && retrievalHealth.summary.degradation_reasons.length > 0 && (
-                  <div className="pt-1">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Degradation reasons</div>
-                    <div className="flex flex-wrap gap-1">
-                      {retrievalHealth.summary.degradation_reasons.map((reason) => (
-                        <span key={reason} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-gray-200 text-gray-600">
-                          {reason}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Project Time Attribution</div>
+                <DiagRow label="Latest session" value={formatDebugTimestamp(attributionHealth?.latest_session_ts)} />
+                <DiagRow label="Latest rollup update" value={formatDebugTimestamp(attributionHealth?.latest_rollup_updated_at)} />
+                <DiagRow label="Sessions / rollups" value={`${attributionHealth?.session_count ?? 0} / ${attributionHealth?.rollup_count ?? 0}`} />
+                <DiagRow label="Unclassified sessions" value={String(attributionHealth?.unclassified_session_count ?? 0)} />
               </div>
             </div>
           </div>
@@ -817,25 +743,10 @@ function formatDebugTimestamp(value: unknown): string {
   });
 }
 
-function retrievalHealthStatusClass(status?: string): string {
-  if (status === 'Healthy') return 'border-green-200 bg-green-50 text-green-700';
-  if (status === 'Catching up') return 'border-amber-200 bg-amber-50 text-amber-700';
-  if (status === 'Degraded but usable') return 'border-orange-200 bg-orange-50 text-orange-700';
+function attributionHealthStatusClass(status?: string): string {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'healthy') return 'border-green-200 bg-green-50 text-green-700';
+  if (normalized === 'catching up') return 'border-amber-200 bg-amber-50 text-amber-700';
+  if (normalized === 'degraded but usable') return 'border-orange-200 bg-orange-50 text-orange-700';
   return 'border-red-200 bg-red-50 text-red-700';
-}
-
-function retrievalHealthMismatchNote(
-  localRetrievalHealth: LocalRetrievalHealth | null,
-  retrievalHealth: RetrievalHealth | null,
-): string | null {
-  const localTs = Number(localRetrievalHealth?.latest_session_retrieval_docs_ts || 0);
-  const backendTs = Number(retrievalHealth?.latest_session_retrieval_docs_ts || 0);
-  if (!localTs) return null;
-  if (!backendTs) {
-    return 'Local capture is active, but the backend/cloud pipeline has not observed any recent session docs yet.';
-  }
-  if (localTs - backendTs > 5 * 60 * 1000) {
-    return 'Local capture is newer than backend/cloud ingestion. The backend pipeline is still catching up.';
-  }
-  return null;
 }
