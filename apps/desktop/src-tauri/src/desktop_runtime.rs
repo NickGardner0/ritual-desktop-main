@@ -484,55 +484,6 @@ async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Result<(), Stri
     Ok(())
 }
 
-fn schedule_startup_native_prompt<R: Runtime + 'static>(
-    app: AppHandle<R>,
-    manifest: PendingUpdateManifest,
-) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(2)).await;
-
-        let still_pending = {
-            let state = app.state::<DesktopShellState>();
-            let is_pending = state
-                .pending_update
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .as_ref()
-                .map(|pending| pending.version == manifest.version)
-                .unwrap_or(false);
-            is_pending
-        };
-
-        if !still_pending {
-            return;
-        }
-
-        match prompt_for_native_install(
-            app.clone(),
-            manifest.version.clone(),
-            manifest.body.clone(),
-        )
-        .await
-        {
-            Ok(true) => {
-                if let Err(error) = install_latest_update(app.clone()).await {
-                    show_native_message::<R>(
-                        app.clone(),
-                        "Ritual Update Failed".to_string(),
-                        error,
-                    )
-                    .await;
-                }
-            }
-            Ok(false) => {}
-            Err(error) => {
-                show_native_message::<R>(app.clone(), "Ritual Update Failed".to_string(), error)
-                    .await;
-            }
-        }
-    });
-}
-
 #[instrument(skip(app), fields(origin = ?origin))]
 async fn run_update_check<R: Runtime + 'static>(
     app: AppHandle<R>,
@@ -581,7 +532,10 @@ async fn run_update_check<R: Runtime + 'static>(
 
         match origin {
             UpdateCheckOrigin::Startup => {
-                schedule_startup_native_prompt(app.clone(), manifest);
+                log::info!(
+                    "[DESKTOP_RUNTIME] update {} pending; branded frontend prompt will handle install",
+                    manifest.version
+                );
             }
             UpdateCheckOrigin::Tray => {
                 if prompt_for_native_install(
