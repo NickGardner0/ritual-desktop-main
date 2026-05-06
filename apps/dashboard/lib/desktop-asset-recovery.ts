@@ -202,7 +202,7 @@ export function useDesktopAssetRecovery(errorLike: unknown, source: string) {
   );
   const recoverable = useMemo(
     () => isRecoverableDesktopAssetError(errorLike),
-    [errorText],
+    [errorLike],
   );
   const [mode, setMode] = useState<DesktopAssetRecoveryMode>("none");
 

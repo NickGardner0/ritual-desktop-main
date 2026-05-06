@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { executeGetCalendarEvents } from '@/lib/ai/chat-stream/executors/calendar';
 import { executeGetDailyBiometrics } from '@/lib/ai/chat-stream/executors/biometrics';
 import { executeGetComputerTimeSpentBreakdown } from '@/lib/ai/chat-stream/executors/computer-time';
-import { executeGetActivitySummary } from '@/lib/ai/chat-stream/executors/context-memory';
+import { executeGetActivitySummary } from '@/lib/ai/chat-stream/executors/project-time';
 import {
   executeGetDailyOverview,
   executeGetMonthlyOverview,

@@ -45,7 +45,8 @@
     "trigger:dev": "cd apps/dashboard && npx trigger.dev@latest dev",
     "trigger:deploy": "npm run typecheck && cd apps/dashboard && npx trigger.dev@latest deploy",
     "trigger:deploy:prod": "npm run typecheck && cd apps/dashboard && npx trigger.dev@latest deploy --env prod",
-    "repo:check": "bash scripts/check-repo-structure.sh"
+    "repo:check": "bash scripts/check-repo-structure.sh",
+    "repo:clean-local": "bash scripts/clean-local-artifacts.sh"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.31",
