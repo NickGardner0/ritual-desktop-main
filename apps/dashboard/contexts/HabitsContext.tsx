@@ -15,7 +15,6 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
-import { usePathname, useSearchParams } from 'next/navigation';
 
 // Import types
 import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habit-types';
@@ -116,6 +115,15 @@ function shouldAutoLoadHabitLogs(pathname: string | null, viewParam: string | nu
   return true;
 }
 
+function shouldAutoLoadHabitLogsForCurrentLocation(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const viewParam = new URLSearchParams(window.location.search).get('view') || 'overview';
+  return shouldAutoLoadHabitLogs(window.location.pathname, viewParam);
+}
+
 // Create a provider component using React Query hooks
 export function HabitsProvider({ children }: { children: React.ReactNode }) {
   if (process.env.NODE_ENV !== 'production') {
@@ -124,12 +132,35 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const shouldLoadHabitLogs = React.useMemo(
-    () => shouldAutoLoadHabitLogs(pathname, searchParams.get('view') || 'overview'),
-    [pathname, searchParams],
+  const [shouldLoadHabitLogs, setShouldLoadHabitLogs] = React.useState(
+    shouldAutoLoadHabitLogsForCurrentLocation,
   );
+  React.useEffect(() => {
+    const updateFromLocation = () => {
+      setShouldLoadHabitLogs(shouldAutoLoadHabitLogsForCurrentLocation());
+    };
+
+    const originalPushState = window.history.pushState;
+    const originalReplaceState = window.history.replaceState;
+    window.history.pushState = function pushState(...args) {
+      const result = originalPushState.apply(this, args);
+      updateFromLocation();
+      return result;
+    };
+    window.history.replaceState = function replaceState(...args) {
+      const result = originalReplaceState.apply(this, args);
+      updateFromLocation();
+      return result;
+    };
+
+    updateFromLocation();
+    window.addEventListener('popstate', updateFromLocation);
+    return () => {
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
+      window.removeEventListener('popstate', updateFromLocation);
+    };
+  }, []);
   
   // Use React Query hooks
   const habitsQuery = useHabitsQuery();
