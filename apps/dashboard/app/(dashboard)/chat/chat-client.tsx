@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowUp, ArrowUpRight, AudioLines, BookOpen, Check, FilePenLine, ListTodo, MemoryStick, Plus, PanelRight, X } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, BookOpen, Check, FilePenLine, ListTodo, MemoryStick, Plus, X } from 'lucide-react';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -62,11 +62,10 @@ function SidebarToggleIcon({ className }: { className?: string }) {
       className={className}
       aria-hidden="true"
     >
-      <rect x="2.75" y="4" width="18.5" height="16" rx="3.25" stroke="currentColor" strokeWidth="1.75" />
-      <path d="M9.6 5.5V18.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-      <rect x="5.1" y="7.05" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
-      <rect x="5.1" y="11.1" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
-      <rect x="5.1" y="15.15" width="2.55" height="1.75" rx="0.875" fill="currentColor" />
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect width="20" height="18" x="2" y="3" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 3v18" />
+      </g>
     </svg>
   );
 }
@@ -2564,10 +2563,10 @@ export function ChatClient() {
               </button>
               <button
                 onClick={() => setIsSidebarCollapsed(true)}
-                className="flex h-8 w-8 items-center justify-center text-gray-500 transition-colors hover:text-gray-700"
+                className="flex h-8 w-8 items-center justify-center text-[rgb(95,98,102)] transition-colors hover:text-[#2f2c25]"
                 title="Collapse sidebar"
               >
-                <PanelRight className="h-4 w-4" />
+                <SidebarToggleIcon className="h-4 w-4" />
               </button>
             </div>
 
@@ -2648,10 +2647,10 @@ export function ChatClient() {
       ? createPortal(
         <button
           onClick={() => setIsSidebarCollapsed(false)}
-          className="flex h-8 w-8 items-center justify-center -ml-1 text-[rgb(87,88,89)] transition-colors hover:text-[#2f2c25]"
+          className="ml-[112px] flex h-5 w-5 -translate-y-px items-center justify-center text-[rgb(95,98,102)] transition-colors hover:text-[#2f2c25]"
           title="Expand sidebar"
         >
-          <SidebarToggleIcon className="h-[22px] w-[22px]" />
+          <SidebarToggleIcon className="h-4 w-4" />
         </button>
         ,
         headerLeftSlot,
