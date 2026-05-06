@@ -2647,7 +2647,7 @@ export function ChatClient() {
       ? createPortal(
         <button
           onClick={() => setIsSidebarCollapsed(false)}
-          className="ml-[112px] flex h-5 w-5 -translate-y-px items-center justify-center text-[rgb(95,98,102)] transition-colors hover:text-[#2f2c25]"
+          className="fixed left-[82px] top-[3px] z-[60] flex h-5 w-5 items-center justify-center text-[rgb(95,98,102)] transition-colors hover:text-[#2f2c25]"
           title="Expand sidebar"
         >
           <SidebarToggleIcon className="h-4 w-4" />
