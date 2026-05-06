@@ -96,7 +96,7 @@ export function Sidebar() {
         style={{ width: headerWidth, height: headerHeight }}
       >
         {showExpandedChrome ? (
-          <div className="no-drag absolute left-[82px] top-[5px] z-10 flex items-center">
+          <div className="no-drag absolute left-[82px] top-[3px] z-10 flex items-center">
             <button
               type="button"
               onMouseDown={(event) => event.stopPropagation()}
@@ -104,11 +104,11 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(128,131,136)] transition-colors hover:text-[#51545a]"
+              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(143,146,151)] transition-colors hover:text-[#666a70]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <SidebarChromeToggleIcon className="h-[17px] w-[17px]" />
+              <SidebarChromeToggleIcon className="h-[16px] w-[16px]" />
             </button>
             <div className="flex items-center gap-[10px]">
               <button
