@@ -249,7 +249,11 @@ export function useHabitsQuery() {
 /**
  * Fetch Habit Logs with React Query
  */
-export function useHabitLogsQuery() {
+export function useHabitLogsQuery({
+  enabled = true,
+}: {
+  enabled?: boolean;
+} = {}) {
   const { user, isLoaded } = useUser();
   const queryClient = useQueryClient();
   const bypassPersistedSnapshot = useMemo(
@@ -257,15 +261,15 @@ export function useHabitLogsQuery() {
     [user?.id],
   );
   const inMemorySnapshot = useMemo(() => {
-    if (!user?.id) return null;
+    if (!enabled || !user?.id) return null;
 
     return getSuccessfulQuerySnapshot<HabitLog[]>(queryClient, habitLogKeys.list(user.id));
-  }, [queryClient, user?.id]);
+  }, [enabled, queryClient, user?.id]);
   const persistedSnapshot = useMemo(() => {
-    if (!user?.id || inMemorySnapshot) return null;
+    if (!enabled || !user?.id || inMemorySnapshot) return null;
 
     return readPersistedSnapshot<HabitLog[]>(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, user.id);
-  }, [inMemorySnapshot, user?.id]);
+  }, [enabled, inMemorySnapshot, user?.id]);
   const fallbackSnapshot = inMemorySnapshot || persistedSnapshot;
   const bootstrappedFromPersistedSnapshot = !inMemorySnapshot && Boolean(persistedSnapshot);
 
@@ -309,7 +313,7 @@ export function useHabitLogsQuery() {
     },
     initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
     initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
-    enabled: isLoaded && !!user?.id,
+    enabled: enabled && isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background
     // polling/refetch-on-focus.

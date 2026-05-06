@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 import logging
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Guardrail: extremely long single events are typically stale heartbeat artifacts.
 # Keep this configurable, but default to 15 minutes for analytics rollups.
 MAX_SINGLE_EVENT_MS = max(60_000, int(os.getenv("WATCHER_MAX_SINGLE_EVENT_MS", "900000")))
+RAW_EVENT_FALLBACK_MAX_DAYS = max(1, int(os.getenv("WATCHER_RAW_EVENT_FALLBACK_MAX_DAYS", "45")))
 
 
 def _resolve_activity_user_ids(target_user_id: str) -> List[str]:
@@ -637,6 +639,150 @@ def _build_snapshot_from_event_rows_impl(
     }
 
 
+def _parse_rollup_counts_blob(blob: Any) -> List[Dict[str, Any]]:
+    if not blob:
+        return []
+    if isinstance(blob, list):
+        parsed = blob
+    else:
+        try:
+            parsed = json.loads(str(blob))
+        except Exception:
+            return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def _build_snapshot_from_project_time_rollup_rows_impl(
+    rows: List[tuple[Any, Any, Any, Any, Any]],
+    *,
+    source: str,
+    limit: int,
+) -> Dict[str, Any]:
+    daily: Dict[str, Dict[str, Any]] = {}
+    apps: Dict[str, Dict[str, Any]] = {}
+    domains: Dict[str, Dict[str, Any]] = {}
+
+    for date_value, active_ms, session_count, top_apps_json, top_domains_json in rows:
+        day = str(date_value or "")
+        if not day:
+            continue
+
+        active_i = max(0, int(active_ms or 0))
+        sessions_i = max(0, int(session_count or 0))
+        day_bucket = daily.setdefault(
+            day,
+            {
+                "day": day,
+                "active_ms": 0,
+                "afk_ms": 0,
+                "events_count": 0,
+                "apps_count": 0,
+                "domains_count": 0,
+                "source": source,
+            },
+        )
+        day_bucket["active_ms"] += active_i
+        day_bucket["events_count"] += sessions_i
+
+        for item in _parse_rollup_counts_blob(top_apps_json):
+            name = str(item.get("name") or item.get("app_name") or item.get("app_bundle_id") or "").strip()
+            item_ms = max(0, int(item.get("active_ms") or item.get("duration_ms") or 0))
+            if not name or item_ms <= 0:
+                continue
+            bucket = apps.setdefault(
+                name,
+                {
+                    "app_bundle_id": name,
+                    "app_name": name,
+                    "total_active_ms": 0,
+                    "total_events": 0,
+                    "days_used": set(),
+                },
+            )
+            bucket["total_active_ms"] += item_ms
+            bucket["total_events"] += sessions_i
+            bucket["days_used"].add(day)
+
+        for item in _parse_rollup_counts_blob(top_domains_json):
+            name = str(item.get("name") or item.get("domain") or "").strip()
+            item_ms = max(0, int(item.get("active_ms") or item.get("duration_ms") or 0))
+            if not name or item_ms <= 0:
+                continue
+            bucket = domains.setdefault(
+                name,
+                {
+                    "domain": name,
+                    "total_active_ms": 0,
+                    "total_events": 0,
+                    "days_used": set(),
+                },
+            )
+            bucket["total_active_ms"] += item_ms
+            bucket["total_events"] += sessions_i
+            bucket["days_used"].add(day)
+
+    daily_rows = sorted(daily.values(), key=lambda row: row["day"])
+    app_rows = sorted(apps.values(), key=lambda row: row["total_active_ms"], reverse=True)[: max(1, int(limit or 10))]
+    domain_rows = sorted(domains.values(), key=lambda row: row["total_active_ms"], reverse=True)[: max(1, int(limit or 10))]
+
+    for day_bucket in daily_rows:
+        day_bucket["active_hours"] = round(int(day_bucket["active_ms"]) / (1000 * 60 * 60), 2)
+    for day_bucket in daily_rows:
+        day_apps = {name for name, bucket in apps.items() if day_bucket["day"] in bucket["days_used"]}
+        day_domains = {name for name, bucket in domains.items() if day_bucket["day"] in bucket["days_used"]}
+        day_bucket["apps_count"] = len(day_apps)
+        day_bucket["domains_count"] = len(day_domains)
+
+    total_active_ms = sum(int(row["active_ms"]) for row in daily_rows)
+    total_events = sum(int(row["events_count"]) for row in daily_rows)
+    days_tracked = sum(1 for row in daily_rows if int(row["active_ms"]) > 0)
+    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+
+    return {
+        "summary": {
+            "total_active_ms": total_active_ms,
+            "total_hours": total_hours,
+            "total_events": total_events,
+            "days_tracked": days_tracked,
+            "unique_apps": len(apps),
+            "unique_domains": len(domains),
+            "total_afk_ms": 0,
+            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
+            "source": source,
+        },
+        "daily": daily_rows,
+        "apps": [
+            {
+                "app_bundle_id": row["app_bundle_id"],
+                "app_name": row["app_name"],
+                "total_active_ms": int(row["total_active_ms"]),
+                "total_events": int(row["total_events"]),
+                "days_used": len(row["days_used"]),
+                "hours": round(int(row["total_active_ms"]) / (1000 * 60 * 60), 2),
+                "source": source,
+            }
+            for row in app_rows
+        ],
+        "domains": [
+            {
+                "domain": row["domain"],
+                "total_active_ms": int(row["total_active_ms"]),
+                "total_events": int(row["total_events"]),
+                "days_used": len(row["days_used"]),
+                "hours": round(int(row["total_active_ms"]) / (1000 * 60 * 60), 2),
+                "minutes": round(int(row["total_active_ms"]) / (1000 * 60), 1),
+                "source": source,
+            }
+            for row in domain_rows
+        ],
+        "source": source,
+        "state": "ready",
+        "sync_pending": False,
+    }
+
+
 def _fetch_local_activity_event_rows_impl(
     *,
     start_ms: int,
@@ -689,6 +835,245 @@ def _fetch_local_activity_event_rows_impl(
         return []
 
 
+async def _fetch_remote_project_time_rollup_snapshot_impl(
+    *,
+    user_id: str,
+    activity_user_ids: List[str],
+    start_date: str,
+    end_date: str,
+    limit: int,
+    device_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+    params: List[Any] = [*activity_user_ids, start_date, end_date]
+    device_clause = ""
+    if device_id:
+        device_clause = " AND device_id = ?"
+        params.append(device_id)
+
+    result = await fetch_remote_activity_rows(
+        user_id,
+        f"""
+        SELECT date, active_ms, session_count, top_apps_json, top_domains_json
+        FROM project_time_daily_rollups
+        WHERE user_id IN ({user_placeholders})
+          AND date >= ?
+          AND date <= ?
+          {device_clause}
+        ORDER BY date ASC
+        """,
+        params,
+    )
+    if result.error:
+        logger.info("Project-time rollup snapshot unavailable for computer activity: %s", result.error)
+        return None
+    if not result.rows:
+        return None
+    snapshot = _build_snapshot_from_project_time_rollup_rows_impl(
+        result.rows,
+        source="project_time_rollups",
+        limit=limit,
+    )
+    if int(snapshot["summary"].get("total_active_ms", 0) or 0) <= 0:
+        return None
+    return snapshot
+
+
+def _build_snapshot_from_sql_aggregate_rows_impl(
+    *,
+    daily_rows_raw: List[tuple[Any, ...]],
+    app_rows_raw: List[tuple[Any, ...]],
+    domain_rows_raw: List[tuple[Any, ...]],
+    source: str,
+) -> Optional[Dict[str, Any]]:
+    if not daily_rows_raw:
+        return None
+
+    daily_rows = [
+        {
+            "day": str(row[0] or ""),
+            "active_ms": int(row[1] or 0),
+            "afk_ms": int(row[2] or 0),
+            "events_count": int(row[3] or 0),
+            "apps_count": int(row[4] or 0),
+            "domains_count": int(row[5] or 0),
+            "active_hours": round(int(row[1] or 0) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for row in daily_rows_raw
+        if row[0]
+    ]
+    if not daily_rows:
+        return None
+
+    app_rows = [
+        {
+            "app_bundle_id": str(row[0] or "unknown"),
+            "app_name": str(row[1] or row[0] or "Unknown"),
+            "total_active_ms": int(row[2] or 0),
+            "total_events": int(row[3] or 0),
+            "days_used": int(row[4] or 0),
+            "hours": round(int(row[2] or 0) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for row in app_rows_raw
+        if int(row[2] or 0) > 0
+    ]
+    domain_rows = [
+        {
+            "domain": str(row[0] or ""),
+            "total_active_ms": int(row[1] or 0),
+            "total_events": int(row[2] or 0),
+            "days_used": int(row[3] or 0),
+            "hours": round(int(row[1] or 0) / (1000 * 60 * 60), 2),
+            "minutes": round(int(row[1] or 0) / (1000 * 60), 1),
+            "source": source,
+        }
+        for row in domain_rows_raw
+        if row[0] and int(row[1] or 0) > 0
+    ]
+
+    total_active_ms = sum(int(row["active_ms"]) for row in daily_rows)
+    total_afk_ms = sum(int(row["afk_ms"]) for row in daily_rows)
+    total_events = sum(int(row["events_count"]) for row in daily_rows)
+    days_tracked = sum(1 for row in daily_rows if int(row["active_ms"]) > 0)
+    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+
+    return {
+        "summary": {
+            "total_active_ms": total_active_ms,
+            "total_hours": total_hours,
+            "total_events": total_events,
+            "days_tracked": days_tracked,
+            "unique_apps": len({row["app_bundle_id"] for row in app_rows}),
+            "unique_domains": len({row["domain"] for row in domain_rows}),
+            "total_afk_ms": total_afk_ms,
+            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
+            "source": source,
+        },
+        "daily": daily_rows,
+        "apps": app_rows,
+        "domains": domain_rows,
+        "source": source,
+        "state": "ready",
+        "sync_pending": False,
+    }
+
+
+async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
+    *,
+    user_id: str,
+    activity_user_ids: List[str],
+    start_ms: int,
+    end_ms: int,
+    limit: int,
+    device_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+    device_clause = ""
+    base_filter_params: List[Any] = [end_ms, start_ms, *activity_user_ids]
+    if device_id:
+        device_clause = " AND device_id = ?"
+        base_filter_params.append(device_id)
+
+    cte = f"""
+        WITH base AS (
+            SELECT
+                ts_start,
+                CASE
+                    WHEN (ts_end - ts_start) > ? THEN ts_start + ?
+                    ELSE ts_end
+                END AS capped_end,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(app_name, '') AS app_name,
+                COALESCE(browser_domain, '') AS browser_domain
+            FROM activity_events
+            WHERE ts_start < ?
+              AND ts_end > ?
+              AND user_id IN ({user_placeholders})
+              AND ts_end > ts_start
+              {device_clause}
+        ),
+        clipped AS (
+            SELECT
+                strftime('%Y-%m-%d', ts_start / 1000, 'unixepoch') AS day,
+                app_bundle_id,
+                app_name,
+                browser_domain,
+                CASE
+                    WHEN is_afk = 0 THEN MAX(0, MIN(capped_end, ?) - MAX(ts_start, ?))
+                    ELSE 0
+                END AS active_ms,
+                CASE
+                    WHEN is_afk = 1 THEN MAX(0, MIN(capped_end, ?) - MAX(ts_start, ?))
+                    ELSE 0
+                END AS afk_ms
+            FROM base
+            WHERE capped_end > ts_start
+        )
+    """
+    params_prefix = [MAX_SINGLE_EVENT_MS, MAX_SINGLE_EVENT_MS, *base_filter_params, end_ms, start_ms, end_ms, start_ms]
+
+    daily_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        SELECT
+            day,
+            SUM(active_ms) AS active_ms,
+            SUM(afk_ms) AS afk_ms,
+            COUNT(*) AS events_count,
+            COUNT(DISTINCT CASE WHEN app_bundle_id != '' THEN app_bundle_id ELSE NULL END) AS apps_count,
+            COUNT(DISTINCT CASE WHEN browser_domain != '' THEN browser_domain ELSE NULL END) AS domains_count
+        FROM clipped
+        GROUP BY day
+        ORDER BY day ASC
+        """,
+        params_prefix,
+    )
+    if daily_result.error or not daily_result.rows:
+        if daily_result.error:
+            logger.info("Remote SQL aggregate daily read unavailable: %s", daily_result.error)
+        return None
+
+    app_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        SELECT app_bundle_id, MAX(app_name) AS app_name, SUM(active_ms) AS total_active_ms,
+               COUNT(*) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM clipped
+        WHERE active_ms > 0 AND app_bundle_id != ''
+        GROUP BY app_bundle_id
+        ORDER BY total_active_ms DESC
+        LIMIT ?
+        """,
+        [*params_prefix, max(1, min(int(limit or 10), 100))],
+    )
+    domain_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        SELECT browser_domain, SUM(active_ms) AS total_active_ms,
+               COUNT(*) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM clipped
+        WHERE active_ms > 0 AND browser_domain != ''
+        GROUP BY browser_domain
+        ORDER BY total_active_ms DESC
+        LIMIT ?
+        """,
+        [*params_prefix, max(1, min(int(limit or 10), 100))],
+    )
+
+    return _build_snapshot_from_sql_aggregate_rows_impl(
+        daily_rows_raw=daily_result.rows,
+        app_rows_raw=[] if app_result.error else app_result.rows,
+        domain_rows_raw=[] if domain_result.error else domain_result.rows,
+        source="turso_remote_sql_aggregate",
+    )
+
+
 async def _build_computer_activity_snapshot_impl(
     service,
     user_id: str,
@@ -702,6 +1087,7 @@ async def _build_computer_activity_snapshot_impl(
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
     end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+    range_days = max(1, (end_date_obj - start_date_obj).days + 1)
     activity_user_ids = _resolve_activity_user_ids(user_id)
     user_placeholders = ", ".join(["?"] * len(activity_user_ids))
     params: List[Any] = [end_ms, start_ms, *activity_user_ids]
@@ -710,32 +1096,61 @@ async def _build_computer_activity_snapshot_impl(
         device_clause = " AND device_id = ?"
         params.append(device_id)
 
-    remote_result = await fetch_remote_activity_rows(
-        user_id,
-        f"""
-        SELECT
-            ts_start,
-            ts_end,
-            COALESCE(is_afk, 0) AS is_afk,
-            COALESCE(app_bundle_id, '') AS app_bundle_id,
-            COALESCE(app_name, '') AS app_name,
-            COALESCE(browser_domain, '') AS browser_domain
-        FROM activity_events
-        WHERE ts_start < ? AND ts_end > ?
-          AND user_id IN ({user_placeholders})
-          AND ts_end > ts_start
-          {device_clause}
-        ORDER BY ts_start ASC
-        """,
-        params,
+    rollup_snapshot = await _fetch_remote_project_time_rollup_snapshot_impl(
+        user_id=user_id,
+        activity_user_ids=activity_user_ids,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        device_id=device_id,
     )
-    if remote_result.rows:
-        return _build_snapshot_from_event_rows_impl(
-            remote_result.rows,
-            start_ms=start_ms,
-            end_ms=end_ms,
-            source="turso_remote",
-            limit=limit,
+    if rollup_snapshot:
+        return rollup_snapshot
+
+    aggregate_snapshot = await _fetch_remote_activity_sql_aggregate_snapshot_impl(
+        user_id=user_id,
+        activity_user_ids=activity_user_ids,
+        start_ms=start_ms,
+        end_ms=end_ms,
+        limit=limit,
+        device_id=device_id,
+    )
+    if aggregate_snapshot:
+        return aggregate_snapshot
+
+    remote_result = None
+    if range_days <= RAW_EVENT_FALLBACK_MAX_DAYS:
+        remote_result = await fetch_remote_activity_rows(
+            user_id,
+            f"""
+            SELECT
+                ts_start,
+                ts_end,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(app_name, '') AS app_name,
+                COALESCE(browser_domain, '') AS browser_domain
+            FROM activity_events
+            WHERE ts_start < ? AND ts_end > ?
+              AND user_id IN ({user_placeholders})
+              AND ts_end > ts_start
+              {device_clause}
+            ORDER BY ts_start ASC
+            """,
+            params,
+        )
+        if remote_result.rows:
+            return _build_snapshot_from_event_rows_impl(
+                remote_result.rows,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source="turso_remote",
+                limit=limit,
+            )
+    else:
+        logger.info(
+            "Skipping raw activity row fallback for %s-day computer snapshot; compact aggregate unavailable",
+            range_days,
         )
 
     local_rows = _fetch_local_activity_event_rows_impl(
@@ -755,11 +1170,21 @@ async def _build_computer_activity_snapshot_impl(
         snapshot["state"] = "legacy_fallback"
         return snapshot
 
-    if remote_result.expected_remote:
+    if remote_result is not None and remote_result.expected_remote:
         return _empty_computer_activity_snapshot(
             source="sync_pending",
             empty_reason=remote_result.error or "remote_activity_unhydrated",
         )
+    if remote_result is None:
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="compact_activity_aggregate_unavailable",
+            )
 
     return _empty_computer_activity_snapshot(
         source="legacy_fallback",

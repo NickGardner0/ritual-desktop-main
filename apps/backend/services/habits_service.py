@@ -817,7 +817,15 @@ class HabitsService:
                     "logged_count": 0
                 }
     
-    async def get_habit_logs(self, habit_id: Optional[str], user_id: str) -> List[HabitLog]:
+    async def get_habit_logs(
+        self,
+        habit_id: Optional[str],
+        user_id: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[HabitLog]:
         """
         Get habit logs - mirrors habitsService.getHabitLogs()
         """
@@ -831,8 +839,14 @@ class HabitsService:
                 
                 if habit_id:
                     query = query.where(HabitLogDB.habit_id == habit_id)
+                if start_date:
+                    query = query.where(HabitLogDB.date >= start_date)
+                if end_date:
+                    query = query.where(HabitLogDB.date <= end_date)
                 
                 query = query.order_by(HabitLogDB.date.desc())
+                if limit is not None:
+                    query = query.limit(max(1, min(int(limit), 10000))).offset(max(0, int(offset or 0)))
                 
                 result = await session.execute(query)
                 rows = result.all()

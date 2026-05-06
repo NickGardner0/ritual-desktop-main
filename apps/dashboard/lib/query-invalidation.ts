@@ -98,7 +98,7 @@ export function applyOptimisticHabitLogUpdate(
   const nextLogs = [...(previousLogs || []), optimisticLog];
   queryClient.setQueryData(logsKey, nextLogs);
 
-  if (nextHabits) {
+  if (nextHabits && previousLogs) {
     rebuildDashboardSnapshotCaches(queryClient, userId, nextHabits, nextLogs);
   }
 

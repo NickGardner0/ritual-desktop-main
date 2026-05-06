@@ -183,7 +183,7 @@ export function useDashboardSnapshotQuery({
   const { user } = useUser();
   const queryClient = useQueryClient();
   const habitsQuery = useHabitsQuery();
-  const habitLogsQuery = useHabitLogsQuery();
+  const habitLogsQuery = useHabitLogsQuery({ enabled: false });
 
   const resolvedUserId = user?.id ?? initialUserId ?? null;
   const queryUserId = resolvedUserId ?? 'anonymous';

@@ -247,7 +247,7 @@ export function usesAverageDisplay(metricType?: string | null, unitType?: string
 
 export function getWearableDateRange(
   dateRange?: { from?: Date | undefined; to?: Date | undefined },
-  fallbackDays = 3650,
+  fallbackDays = 730,
 ): {
   startDate: string;
   endDate: string;

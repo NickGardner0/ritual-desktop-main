@@ -66,6 +66,30 @@ class WearableQueryServiceTests(unittest.TestCase):
 
         self.assertEqual([row.id for row in preferred], ["daily"])
 
+    def test_aggregate_preaggregated_rows_sums_compact_cumulative_rows(self):
+        rows = [
+            SimpleNamespace(unit="count", rollup_level="bucket_1h", aggregation_kind="bucket_1h", sum_value=1200, avg_value=1200, min_value=1200, value_count=1),
+            SimpleNamespace(unit="count", rollup_level="bucket_1h", aggregation_kind="bucket_1h", sum_value=800, avg_value=800, min_value=800, value_count=1),
+        ]
+
+        value, aggregation, unit = self.service._aggregate_preaggregated_rows("steps", rows)
+
+        self.assertEqual(value, 2000)
+        self.assertEqual(aggregation, "daily_total")
+        self.assertEqual(unit, "count")
+
+    def test_aggregate_preaggregated_rows_uses_weighted_average_for_compact_average_rows(self):
+        rows = [
+            SimpleNamespace(unit="bpm", rollup_level="daily", aggregation_kind="daily", sum_value=800, avg_value=80, min_value=70, value_count=10),
+            SimpleNamespace(unit="bpm", rollup_level="daily", aggregation_kind="daily", sum_value=1800, avg_value=90, min_value=75, value_count=20),
+        ]
+
+        value, aggregation, unit = self.service._aggregate_preaggregated_rows("heart_rate", rows)
+
+        self.assertAlmostEqual(value, 86.6666666667)
+        self.assertEqual(aggregation, "daily_average")
+        self.assertEqual(unit, "bpm")
+
     def test_select_provider_rows_prefers_matching_provider(self):
         grouped_rows = {
             "whoop": [SimpleNamespace(id="w1", provider="whoop", source_id="s1")],

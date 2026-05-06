@@ -15,6 +15,7 @@
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
+import { usePathname, useSearchParams } from 'next/navigation';
 
 // Import types
 import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habit-types';
@@ -104,6 +105,17 @@ export const HabitsContext = React.createContext<HabitsContextType>({
   fetchHabitsFromApi: async () => {},
 });
 
+function shouldAutoLoadHabitLogs(pathname: string | null, viewParam: string | null): boolean {
+  if (!pathname) return true;
+
+  const normalizedPath = pathname.replace(/\/+$/, '') || '/';
+  if (normalizedPath === '/dashboard') {
+    return viewParam === 'metrics';
+  }
+
+  return true;
+}
+
 // Create a provider component using React Query hooks
 export function HabitsProvider({ children }: { children: React.ReactNode }) {
   if (process.env.NODE_ENV !== 'production') {
@@ -112,10 +124,16 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const shouldLoadHabitLogs = React.useMemo(
+    () => shouldAutoLoadHabitLogs(pathname, searchParams.get('view') || 'overview'),
+    [pathname, searchParams],
+  );
   
   // Use React Query hooks
   const habitsQuery = useHabitsQuery();
-  const logsQuery = useHabitLogsQuery();
+  const logsQuery = useHabitLogsQuery({ enabled: shouldLoadHabitLogs });
   const logHabitMutation = useLogHabitMutation();
   const createHabitMutation = useCreateHabitMutation();
   const deleteHabitMutation = useDeleteHabitMutation();
@@ -264,7 +282,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     
     // Loading states
     isLoading,
-    isLoadingLogs,
+    isLoadingLogs: shouldLoadHabitLogs && isLoadingLogs,
     
     // Error
     error,

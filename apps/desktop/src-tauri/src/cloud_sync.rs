@@ -8,7 +8,7 @@ use tauri::{AppHandle, Runtime};
 use tracing::{debug, info, warn};
 
 const CLOUD_SYNC_INTERVAL_SECS: u64 = 60;
-const CLOUD_SYNC_BATCH_SIZE: i64 = 500;
+const CLOUD_SYNC_BATCH_SIZE: i64 = 2000;
 const CLOUD_SYNC_STARTUP_DELAY_SECS: u64 = 5;
 
 static CLOUD_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -99,15 +99,14 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
     let (_remote_db, remote_conn) = open_remote_connection(&config).await?;
 
     let mut uploaded = 0usize;
+    let mut uploaded_ids: Vec<i64> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut auth_failure = false;
 
     for item in pending {
         match upload_outbox_item(&remote_conn, &item).await {
             Ok(()) => {
-                db.mark_synced(item.id).await.map_err(|error| {
-                    format!("Failed to ack uploaded cloud sync row {}: {error}", item.id)
-                })?;
+                uploaded_ids.push(item.id);
                 uploaded += 1;
             }
             Err(error) => {
@@ -139,6 +138,12 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
                 }
             }
         }
+    }
+
+    if !uploaded_ids.is_empty() {
+        db.mark_synced_many(&uploaded_ids)
+            .await
+            .map_err(|error| format!("Failed to ack uploaded cloud sync rows: {error}"))?;
     }
 
     let refreshed_metrics = read_local_cloud_sync_metrics().await?;

@@ -13,7 +13,7 @@ use tracing::{debug, info};
 use crate::error::{DatabaseError, Result};
 
 /// Current schema version - increment when making breaking changes
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Initialize the complete database schema
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -21,18 +21,25 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
 
     // Create tables in dependency order
     create_metadata_tables(conn).await?;
+    let schema_needs_update = needs_schema_update(conn).await?;
     create_activity_tables(conn).await?;
     create_recorder_tables(conn).await?;
     create_sync_tables(conn).await?;
     create_memory_pipeline_tables(conn).await?;
 
-    // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
-    // before we create indexes that reference them.
-    apply_migrations(conn).await?;
+    if schema_needs_update {
+        // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
+        // before we create indexes that reference them.
+        apply_migrations(conn).await?;
+    } else {
+        debug!("Schema v{} already recorded; skipping migration backfills", SCHEMA_VERSION);
+    }
 
     // Create indexes
     create_indexes(conn).await?;
     create_cloud_sync_triggers(conn).await?;
+    // Keep this cheap safety pass on every startup so stale raw-memory rows cannot
+    // re-enter the upload path after a previous crash or partial migration.
     suppress_legacy_raw_memory_cloud_sync(conn).await?;
 
     // Create FTS tables and triggers
@@ -564,6 +571,9 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status
             ON cloud_sync_outbox(status, next_retry_at, updated_at);
+
+        CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status_created
+            ON cloud_sync_outbox(status, created_at, id);
 
         CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts
             ON context_snapshots(ts);

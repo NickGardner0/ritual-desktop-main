@@ -418,6 +418,10 @@ impl BlockingDatabase {
         self.rt.block_on(self.db.mark_synced(queue_id))
     }
 
+    pub fn mark_synced_many(&self, queue_ids: &[i64]) -> Result<()> {
+        self.rt.block_on(self.db.mark_synced_many(queue_ids))
+    }
+
     /// Mark sync item as failed
     pub fn mark_sync_failed(&self, queue_id: i64) -> Result<()> {
         self.rt.block_on(self.db.mark_sync_failed(queue_id))

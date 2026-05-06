@@ -346,11 +346,28 @@ def create_core_router(
     @router.get("/api/habit-logs", response_model=List[HabitLog])
     async def get_all_habit_logs(
         request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        limit: Optional[int] = Query(None, ge=1, le=10000),
+        offset: int = Query(0, ge=0),
         current_user=Depends(get_current_user),
     ):
         try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
             await _maybe_force_fresh_read(request)
-            return await habits_service.get_habit_logs(None, current_user["id"])
+            return await habits_service.get_habit_logs(
+                None,
+                current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 

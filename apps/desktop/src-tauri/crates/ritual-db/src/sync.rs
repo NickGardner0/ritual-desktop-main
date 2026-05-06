@@ -101,68 +101,72 @@ impl<'a> SyncOps<'a> {
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
 
-        let mut rows = self
-            .conn
-            .query(
-                r#"
-            SELECT
-                id,
-                user_id,
-                device_id,
-                entity_type,
-                entity_uid,
-                op_kind,
-                payload_json,
-                retry_count,
-                status,
-                created_at,
-                updated_at
-            FROM cloud_sync_outbox
-            WHERE status IN ('pending', 'failed')
-              AND COALESCE(next_retry_at, 0) <= ?
-              AND entity_type NOT IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
-            ORDER BY
-                CASE status WHEN 'pending' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,
-                created_at ASC,
-                id ASC
-            LIMIT ?
-            "#,
-                libsql::params![now, limit],
-            )
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?;
-
         let mut items = Vec::new();
 
-        while let Some(row) = rows
-            .next()
-            .await
-            .map_err(|e| DatabaseError::Query(e.to_string()))?
-        {
-            let id = row
-                .get::<i64>(0)
-                .map_err(|e| DatabaseError::Query(e.to_string()))?;
-            let status_str: String = row.get(8).unwrap_or_else(|_| "pending".to_string());
-            let claim_result = self
+        for desired_status in ["pending", "failed"] {
+            let remaining = limit.saturating_sub(items.len() as i64);
+            if remaining <= 0 {
+                break;
+            }
+
+            let mut rows = self
                 .conn
-                .execute(
+                .query(
                     r#"
-                    UPDATE cloud_sync_outbox
-                    SET status = 'uploading',
-                        updated_at = ?
-                    WHERE id = ?
-                      AND status IN ('pending', 'failed')
-                      AND COALESCE(next_retry_at, 0) <= ?
-                    "#,
-                    libsql::params![now, id, now],
+                SELECT
+                    id,
+                    user_id,
+                    device_id,
+                    entity_type,
+                    entity_uid,
+                    op_kind,
+                    payload_json,
+                    retry_count,
+                    status,
+                    created_at,
+                    updated_at
+                FROM cloud_sync_outbox
+                WHERE status = ?
+                  AND COALESCE(next_retry_at, 0) <= ?
+                  AND entity_type NOT IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
+                ORDER BY created_at ASC, id ASC
+                LIMIT ?
+                "#,
+                    libsql::params![desired_status, now, remaining],
                 )
                 .await
                 .map_err(|e| DatabaseError::Query(e.to_string()))?;
-            if claim_result <= 0 {
-                continue;
-            }
 
-            items.push(queued_item_from_cloud_sync_row(&row, &status_str));
+            while let Some(row) = rows
+                .next()
+                .await
+                .map_err(|e| DatabaseError::Query(e.to_string()))?
+            {
+                let id = row
+                    .get::<i64>(0)
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?;
+                let status_str: String = row.get(8).unwrap_or_else(|_| desired_status.to_string());
+                let claim_result = self
+                    .conn
+                    .execute(
+                        r#"
+                        UPDATE cloud_sync_outbox
+                        SET status = 'uploading',
+                            updated_at = ?
+                        WHERE id = ?
+                          AND status = ?
+                          AND COALESCE(next_retry_at, 0) <= ?
+                        "#,
+                        libsql::params![now, id, desired_status, now],
+                    )
+                    .await
+                    .map_err(|e| DatabaseError::Query(e.to_string()))?;
+                if claim_result <= 0 {
+                    continue;
+                }
+
+                items.push(queued_item_from_cloud_sync_row(&row, &status_str));
+            }
         }
 
         Ok(items)
@@ -215,6 +219,31 @@ impl<'a> SyncOps<'a> {
                 "UPDATE cloud_sync_outbox SET status = 'uploaded', last_error = NULL, next_retry_at = NULL, updated_at = ? WHERE id = ?",
                 libsql::params![now, queue_id],
             )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Mark multiple items as synced in one local update.
+    pub async fn mark_synced_many(&self, queue_ids: &[i64]) -> Result<()> {
+        let ids: Vec<String> = queue_ids
+            .iter()
+            .copied()
+            .filter(|id| *id > 0)
+            .map(|id| id.to_string())
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let now = Self::now_ms();
+        let sql = format!(
+            "UPDATE cloud_sync_outbox SET status = 'uploaded', last_error = NULL, next_retry_at = NULL, updated_at = ? WHERE id IN ({})",
+            ids.join(",")
+        );
+        self.conn
+            .execute(&sql, libsql::params![now])
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))?;
 

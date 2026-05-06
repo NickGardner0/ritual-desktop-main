@@ -39,6 +39,11 @@ from services.token_crypto import token_crypto
 
 logger = logging.getLogger(__name__)
 
+WEARABLE_DAILY_TOTALS_OBJECT_LOAD_MAX_DAYS = max(
+    1,
+    int(os.getenv("WEARABLE_DAILY_TOTALS_OBJECT_LOAD_MAX_DAYS", "120") or "120"),
+)
+
 
 @dataclass(frozen=True)
 class ProviderCapabilityDef:
@@ -1839,6 +1844,208 @@ class WearableQueryService:
                 for event in selected_rows
             ]
 
+    @staticmethod
+    def _choose_preferred_provider_rows(
+        rows_by_provider: Dict[str, List[Any]],
+        preferred_provider: Optional[str],
+    ) -> Tuple[List[Any], Optional[str]]:
+        if not rows_by_provider:
+            return [], None
+        if preferred_provider and preferred_provider in rows_by_provider:
+            return rows_by_provider[preferred_provider], preferred_provider
+        provider = sorted(rows_by_provider.keys())[0]
+        return rows_by_provider[provider], provider
+
+    @staticmethod
+    def _row_value(row: Any, key: str, default: Any = None) -> Any:
+        mapping = getattr(row, "_mapping", None)
+        if mapping is not None and key in mapping:
+            return mapping[key]
+        return getattr(row, key, default)
+
+    @classmethod
+    def _aggregate_preaggregated_rows(
+        cls,
+        metric_type: str,
+        rows: List[Any],
+    ) -> Tuple[Optional[float], Optional[str], Optional[str]]:
+        if not rows:
+            return None, None, None
+
+        daily_rows = [
+            row for row in rows
+            if str(cls._row_value(row, "rollup_level", "") or "").strip().lower() == "daily"
+            or str(cls._row_value(row, "aggregation_kind", "") or "").strip().lower() in {"daily", "daily_aggregate"}
+        ]
+        non_daily_rows = [row for row in rows if row not in daily_rows]
+        selected_rows = (non_daily_rows or daily_rows) if metric_type in cls.CUMULATIVE_METRICS else (daily_rows or non_daily_rows)
+        if not selected_rows:
+            return None, None, None
+
+        unit = next((cls._row_value(row, "unit", None) for row in selected_rows if cls._row_value(row, "unit", None)), None)
+        if metric_type in cls.MIN_METRICS:
+            values = [float(cls._row_value(row, "min_value", 0.0) or 0.0) for row in selected_rows]
+            return (min(values), "daily_min", unit) if values else (None, None, unit)
+        if metric_type in cls.CUMULATIVE_METRICS:
+            return (
+                sum(float(cls._row_value(row, "sum_value", 0.0) or 0.0) for row in selected_rows),
+                "daily_total",
+                unit,
+            )
+
+        weighted_sum = 0.0
+        weight = 0
+        for row in selected_rows:
+            count = int(cls._row_value(row, "value_count", 0) or 0)
+            if count <= 0:
+                continue
+            weighted_sum += float(cls._row_value(row, "avg_value", 0.0) or 0.0) * count
+            weight += count
+        if weight <= 0:
+            return None, None, unit
+        return weighted_sum / weight, "daily_average", unit
+
+    async def _get_daily_totals_aggregated(
+        self,
+        *,
+        user_id: str,
+        metric_types: Optional[List[str]] = None,
+        providers: Optional[List[str]] = None,
+        start_date: str,
+        end_date: str,
+    ) -> List[Dict[str, Any]]:
+        async with get_db_session() as session:
+            preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
+            provider_filter = [item for item in (providers or []) if item]
+            metric_filter = [item for item in (metric_types or []) if item]
+
+            sample_query = (
+                select(
+                    WearableSampleDB.attributed_date.label("date_value"),
+                    WearableSampleDB.metric_type.label("metric_type"),
+                    WearableSampleDB.provider.label("provider"),
+                    WearableSampleDB.unit.label("unit"),
+                    WearableSampleDB.rollup_level.label("rollup_level"),
+                    WearableSampleDB.aggregation_kind.label("aggregation_kind"),
+                    func.sum(WearableSampleDB.value).label("sum_value"),
+                    func.avg(WearableSampleDB.value).label("avg_value"),
+                    func.min(WearableSampleDB.value).label("min_value"),
+                    func.count(WearableSampleDB.id).label("value_count"),
+                )
+                .where(
+                    WearableSampleDB.user_id == user_id,
+                    WearableSampleDB.deleted_at.is_(None),
+                    WearableSampleDB.attributed_date.is_not(None),
+                    WearableSampleDB.attributed_date >= start_date,
+                    WearableSampleDB.attributed_date <= end_date,
+                )
+                .group_by(
+                    WearableSampleDB.attributed_date,
+                    WearableSampleDB.metric_type,
+                    WearableSampleDB.provider,
+                    WearableSampleDB.unit,
+                    WearableSampleDB.rollup_level,
+                    WearableSampleDB.aggregation_kind,
+                )
+            )
+            if provider_filter:
+                sample_query = sample_query.where(WearableSampleDB.provider.in_(provider_filter))
+            if metric_filter:
+                sample_query = sample_query.where(WearableSampleDB.metric_type.in_(metric_filter))
+            sample_rows = list((await session.execute(sample_query)).all())
+
+            event_query = (
+                select(
+                    WearableEventDB.attributed_date.label("date_value"),
+                    WearableEventDB.event_type.label("metric_type"),
+                    WearableEventDB.provider.label("provider"),
+                    WearableEventDB.summary_unit.label("unit"),
+                    func.sum(WearableEventDB.summary_value).label("sum_value"),
+                    func.avg(WearableEventDB.summary_value).label("avg_value"),
+                    func.min(WearableEventDB.summary_value).label("min_value"),
+                    func.count(WearableEventDB.id).label("value_count"),
+                )
+                .where(
+                    WearableEventDB.user_id == user_id,
+                    WearableEventDB.deleted_at.is_(None),
+                    WearableEventDB.attributed_date.is_not(None),
+                    WearableEventDB.summary_value.is_not(None),
+                    WearableEventDB.attributed_date >= start_date,
+                    WearableEventDB.attributed_date <= end_date,
+                )
+                .group_by(
+                    WearableEventDB.attributed_date,
+                    WearableEventDB.event_type,
+                    WearableEventDB.provider,
+                    WearableEventDB.summary_unit,
+                )
+            )
+            if provider_filter:
+                event_query = event_query.where(WearableEventDB.provider.in_(provider_filter))
+            if metric_filter:
+                event_query = event_query.where(WearableEventDB.event_type.in_(metric_filter))
+            event_rows = list((await session.execute(event_query)).all())
+
+        grouped_samples: Dict[Tuple[str, str, str], List[Any]] = {}
+        for row in sample_rows:
+            grouped_samples.setdefault((row.date_value or "", row.metric_type, row.provider), []).append(row)
+
+        grouped_events: Dict[Tuple[str, str, str], List[Any]] = {}
+        for row in event_rows:
+            grouped_events.setdefault((row.date_value or "", row.metric_type, row.provider), []).append(row)
+
+        metric_keys = set((date_value, metric_type) for date_value, metric_type, _provider in grouped_samples.keys())
+        metric_keys.update((date_value, metric_type) for date_value, metric_type, _provider in grouped_events.keys())
+
+        per_day: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for date_value, metric_type in sorted(metric_keys):
+            if not date_value:
+                continue
+            providers_for_samples = {
+                provider_name: rows
+                for (sample_date, sample_metric, provider_name), rows in grouped_samples.items()
+                if sample_date == date_value and sample_metric == metric_type
+            }
+            providers_for_events = {
+                provider_name: rows
+                for (event_date, event_metric, provider_name), rows in grouped_events.items()
+                if event_date == date_value and event_metric == metric_type
+            }
+
+            preferred_provider = preferred_provider_by_metric.get(metric_type)
+            if provider_filter and len(provider_filter) == 1:
+                preferred_provider = provider_filter[0]
+
+            selected_sample_rows, selected_sample_provider = self._choose_preferred_provider_rows(
+                providers_for_samples,
+                preferred_provider,
+            )
+            selected_event_rows, selected_event_provider = self._choose_preferred_provider_rows(
+                providers_for_events,
+                preferred_provider,
+            )
+
+            value, aggregation_label, unit = self._aggregate_preaggregated_rows(metric_type, selected_sample_rows)
+            provider_name = selected_sample_provider
+            if value is None:
+                value, aggregation_label, unit = self._aggregate_preaggregated_rows(metric_type, selected_event_rows)
+                provider_name = selected_event_provider
+            if value is None:
+                continue
+
+            per_day.setdefault(date_value, {})[metric_type] = {
+                "value": value,
+                "unit": unit,
+                "aggregation": aggregation_label,
+                "provider": provider_name,
+                "selected_source": None,
+            }
+
+        return [
+            {"date": date_value, "metrics": metrics}
+            for date_value, metrics in sorted(per_day.items(), key=lambda item: item[0])
+        ]
+
     async def get_daily_totals(
         self,
         *,
@@ -1848,6 +2055,16 @@ class WearableQueryService:
         start_date: str,
         end_date: str,
     ) -> List[Dict[str, Any]]:
+        range_days = (datetime.strptime(end_date, "%Y-%m-%d") - datetime.strptime(start_date, "%Y-%m-%d")).days + 1
+        if range_days > WEARABLE_DAILY_TOTALS_OBJECT_LOAD_MAX_DAYS:
+            return await self._get_daily_totals_aggregated(
+                user_id=user_id,
+                metric_types=metric_types,
+                providers=providers,
+                start_date=start_date,
+                end_date=end_date,
+            )
+
         async with get_db_session() as session:
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
             provider_filter = [item for item in (providers or []) if item]
