@@ -81,6 +81,8 @@ impl<'a> SyncOps<'a> {
         let stale_uploading_cutoff = now.saturating_sub(5 * 60 * 1000);
         let reclaim_next_retry_at = now.saturating_add(15_000);
 
+        self.suppress_legacy_raw_memory_items(now).await?;
+
         let _ = self
             .conn
             .execute(
@@ -118,6 +120,7 @@ impl<'a> SyncOps<'a> {
             FROM cloud_sync_outbox
             WHERE status IN ('pending', 'failed')
               AND COALESCE(next_retry_at, 0) <= ?
+              AND entity_type NOT IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
             ORDER BY
                 CASE status WHEN 'pending' THEN 0 WHEN 'failed' THEN 1 ELSE 2 END,
                 created_at ASC,
@@ -494,6 +497,26 @@ fn json_i64(value: &Value) -> Option<i64> {
 }
 
 impl<'a> SyncOps<'a> {
+    async fn suppress_legacy_raw_memory_items(&self, now: i64) -> Result<()> {
+        self.conn
+            .execute(
+                r#"
+                UPDATE cloud_sync_outbox
+                SET status = 'dead_letter',
+                    next_retry_at = NULL,
+                    last_error = 'raw_memory_cloud_sync_disabled',
+                    updated_at = ?
+                WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
+                  AND status IN ('pending', 'failed', 'uploading')
+                "#,
+                libsql::params![now],
+            )
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(())
+    }
+
     async fn force_activity_event_pending(&self, event_id: i64) -> Result<u64> {
         let now = Self::now_ms();
         self.conn
