@@ -51,7 +51,7 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
                 end_date="2026-05-01",
             )
 
-        self.assertEqual(snapshot["source"], "turso_remote_sql_aggregate")
+        self.assertEqual(snapshot["source"], "turso_remote_sql_deoverlap")
         self.assertEqual(snapshot["summary"]["total_active_ms"], 3_600_000)
         self.assertEqual(snapshot["summary"]["total_hours"], 1.0)
         self.assertFalse(any("project_time_daily_rollups" in sql for sql in calls))

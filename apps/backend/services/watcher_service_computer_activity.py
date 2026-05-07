@@ -790,11 +790,15 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
     cte = f"""
         WITH base AS (
             SELECT
-                ts_start,
-                CASE
-                    WHEN (ts_end - ts_start) > ? THEN ts_start + ?
-                    ELSE ts_end
-                END AS capped_end,
+                strftime('%Y-%m-%d', ts_start / 1000, 'unixepoch') AS day,
+                MAX(ts_start, ?) AS start_ms,
+                MIN(
+                    CASE
+                        WHEN (ts_end - ts_start) > ? THEN ts_start + ?
+                        ELSE ts_end
+                    END,
+                    ?
+                ) AS end_ms,
                 COALESCE(is_afk, 0) AS is_afk,
                 COALESCE(app_bundle_id, '') AS app_bundle_id,
                 COALESCE(app_name, '') AS app_name,
@@ -807,39 +811,109 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
               {device_clause}
         ),
         clipped AS (
-            SELECT
-                strftime('%Y-%m-%d', ts_start / 1000, 'unixepoch') AS day,
-                app_bundle_id,
-                app_name,
-                browser_domain,
-                CASE
-                    WHEN is_afk = 0 THEN MAX(0, MIN(capped_end, ?) - MAX(ts_start, ?))
-                    ELSE 0
-                END AS active_ms,
-                CASE
-                    WHEN is_afk = 1 THEN MAX(0, MIN(capped_end, ?) - MAX(ts_start, ?))
-                    ELSE 0
-                END AS afk_ms
+            SELECT *
             FROM base
-            WHERE capped_end > ts_start
+            WHERE end_ms > start_ms
+        ),
+        active_intervals AS (
+            SELECT day, start_ms, end_ms, app_bundle_id, app_name, browser_domain
+            FROM clipped
+            WHERE is_afk = 0
+        ),
+        afk_intervals AS (
+            SELECT day, start_ms, end_ms
+            FROM clipped
+            WHERE is_afk = 1
         )
     """
-    params_prefix = [MAX_SINGLE_EVENT_MS, MAX_SINGLE_EVENT_MS, *base_filter_params, end_ms, start_ms, end_ms, start_ms]
+    params_prefix = [start_ms, MAX_SINGLE_EVENT_MS, MAX_SINGLE_EVENT_MS, end_ms, *base_filter_params]
 
     daily_result = await fetch_remote_activity_rows(
         user_id,
         cte
         + """
+        , active_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+        ),
+        active_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM active_ordered
+        ),
+        active_islands AS (
+            SELECT day, island_id, MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
+            FROM active_grouped
+            GROUP BY day, island_id
+        ),
+        active_by_day AS (
+            SELECT day, SUM(island_end - island_start) AS active_ms
+            FROM active_islands
+            GROUP BY day
+        ),
+        afk_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM afk_intervals
+        ),
+        afk_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM afk_ordered
+        ),
+        afk_islands AS (
+            SELECT day, island_id, MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
+            FROM afk_grouped
+            GROUP BY day, island_id
+        ),
+        afk_by_day AS (
+            SELECT day, SUM(island_end - island_start) AS afk_ms
+            FROM afk_islands
+            GROUP BY day
+        ),
+        day_keys AS (
+            SELECT day FROM active_by_day
+            UNION
+            SELECT day FROM afk_by_day
+        ),
+        event_counts AS (
+            SELECT
+                day,
+                COUNT(*) AS events_count,
+                COUNT(DISTINCT CASE WHEN app_bundle_id != '' THEN app_bundle_id ELSE NULL END) AS apps_count,
+                COUNT(DISTINCT CASE WHEN browser_domain != '' THEN browser_domain ELSE NULL END) AS domains_count
+            FROM active_intervals
+            GROUP BY day
+        )
         SELECT
-            day,
-            SUM(active_ms) AS active_ms,
-            SUM(afk_ms) AS afk_ms,
-            COUNT(*) AS events_count,
-            COUNT(DISTINCT CASE WHEN app_bundle_id != '' THEN app_bundle_id ELSE NULL END) AS apps_count,
-            COUNT(DISTINCT CASE WHEN browser_domain != '' THEN browser_domain ELSE NULL END) AS domains_count
-        FROM clipped
-        GROUP BY day
-        ORDER BY day ASC
+            day_keys.day,
+            COALESCE(active_by_day.active_ms, 0) AS active_ms,
+            COALESCE(afk_by_day.afk_ms, 0) AS afk_ms,
+            COALESCE(event_counts.events_count, 0) AS events_count,
+            COALESCE(event_counts.apps_count, 0) AS apps_count,
+            COALESCE(event_counts.domains_count, 0) AS domains_count
+        FROM day_keys
+        LEFT JOIN active_by_day ON active_by_day.day = day_keys.day
+        LEFT JOIN afk_by_day ON afk_by_day.day = day_keys.day
+        LEFT JOIN event_counts ON event_counts.day = day_keys.day
+        ORDER BY day_keys.day ASC
         """,
         params_prefix,
     )
@@ -852,10 +926,40 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
         user_id,
         cte
         + """
-        SELECT app_bundle_id, MAX(app_name) AS app_name, SUM(active_ms) AS total_active_ms,
-               COUNT(*) AS total_events, COUNT(DISTINCT day) AS days_used
-        FROM clipped
-        WHERE active_ms > 0 AND app_bundle_id != ''
+        , app_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day, app_bundle_id
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+            WHERE app_bundle_id != ''
+        ),
+        app_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day, app_bundle_id
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM app_ordered
+        ),
+        app_islands AS (
+            SELECT
+                day,
+                app_bundle_id,
+                MAX(app_name) AS app_name,
+                island_id,
+                MIN(start_ms) AS island_start,
+                MAX(end_ms) AS island_end,
+                COUNT(*) AS event_count
+            FROM app_grouped
+            GROUP BY day, app_bundle_id, island_id
+        )
+        SELECT app_bundle_id, MAX(app_name) AS app_name, SUM(island_end - island_start) AS total_active_ms,
+               SUM(event_count) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM app_islands
         GROUP BY app_bundle_id
         ORDER BY total_active_ms DESC
         LIMIT ?
@@ -866,10 +970,39 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
         user_id,
         cte
         + """
-        SELECT browser_domain, SUM(active_ms) AS total_active_ms,
-               COUNT(*) AS total_events, COUNT(DISTINCT day) AS days_used
-        FROM clipped
-        WHERE active_ms > 0 AND browser_domain != ''
+        , domain_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day, browser_domain
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+            WHERE browser_domain != ''
+        ),
+        domain_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day, browser_domain
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM domain_ordered
+        ),
+        domain_islands AS (
+            SELECT
+                day,
+                browser_domain,
+                island_id,
+                MIN(start_ms) AS island_start,
+                MAX(end_ms) AS island_end,
+                COUNT(*) AS event_count
+            FROM domain_grouped
+            GROUP BY day, browser_domain, island_id
+        )
+        SELECT browser_domain, SUM(island_end - island_start) AS total_active_ms,
+               SUM(event_count) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM domain_islands
         GROUP BY browser_domain
         ORDER BY total_active_ms DESC
         LIMIT ?
@@ -881,7 +1014,7 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
         daily_rows_raw=daily_result.rows,
         app_rows_raw=[] if app_result.error else app_result.rows,
         domain_rows_raw=[] if domain_result.error else domain_result.rows,
-        source="turso_remote_sql_aggregate",
+        source="turso_remote_sql_deoverlap",
     )
 
 
