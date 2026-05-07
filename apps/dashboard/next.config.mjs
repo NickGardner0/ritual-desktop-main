@@ -55,9 +55,21 @@ const nextConfig = {
   webpack: (config) => {
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
-      '@ritual/chat-runtime': path.resolve(
+      '@ritual/chat-runtime$': path.resolve(
         repoRoot,
         'packages/chat-runtime/dist/index.js',
+      ),
+      '@ritual/chat-runtime/executors': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/executors/index.js',
+      ),
+      '@ritual/chat-runtime/narrative': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/narrative/index.js',
+      ),
+      '@ritual/chat-runtime/weekly-overview-utils': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/weekly-overview-utils.js',
       ),
     };
 

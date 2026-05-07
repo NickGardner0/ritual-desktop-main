@@ -5,7 +5,7 @@ import {
   getOverviewActivityBundle,
   overviewActivityKeys,
   type OverviewActivityRangeKey,
-} from '@/lib/ai/chat-stream/overview-activity-query';
+} from '@/lib/ai/overview-activity/overview-activity-query';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
 export function useOverviewActivityQuery({

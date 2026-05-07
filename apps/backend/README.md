@@ -19,3 +19,13 @@ From repo root:
 Or directly:
 
 - `cd apps/backend && python start.py`
+
+## Test
+
+From repo root, install the backend test dependencies into your backend environment:
+
+- `cd apps/backend && python -m pip install -r requirements-dev.txt`
+
+Then run focused tests from the repo root, for example:
+
+- `cd apps/backend && python -m pytest tests/test_unified_wearables.py tests/test_wearables_query_service.py`

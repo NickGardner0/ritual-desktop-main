@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Timer,
+  FlaskConical,
   Settings,
   Plug2,
   ChevronDown,
@@ -51,7 +51,7 @@ const icons = {
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/reports": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
-  "/timer": (props: React.SVGProps<SVGSVGElement>) => <Timer {...props} />,
+  "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
   "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
 } as const;
@@ -78,8 +78,8 @@ const items = [
     name: "Reports",
   },
   {
-    path: "/timer",
-    name: "Timer",
+    path: "/experiments",
+    name: "Experiments",
   },
   {
     path: "/integrations",
@@ -210,6 +210,9 @@ const Item = ({
     if (item.path === "/settings") {
       e.preventDefault();
       onSettingsClick?.();
+    } else if (item.path === "/experiments") {
+      e.preventDefault();
+      onSelect?.();
     } else {
       // Let the Link handle navigation naturally
       // Just call onSelect for any sidebar collapse behavior
@@ -220,7 +223,7 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" || item.path === "/timer" ? "#" : item.path}
+        href={item.path === "/settings" || item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
         className="group"
         prefetch={true}

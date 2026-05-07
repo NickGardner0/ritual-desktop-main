@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./executors": {
+      "types": "./dist/executors/index.d.ts",
+      "import": "./dist/executors/index.js"
+    },
+    "./narrative": {
+      "types": "./dist/narrative/index.d.ts",
+      "import": "./dist/narrative/index.js"
+    },
+    "./weekly-overview-utils": {
+      "types": "./dist/weekly-overview-utils.d.ts",
+      "import": "./dist/weekly-overview-utils.js"
     }
   },
   "scripts": {

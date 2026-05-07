@@ -8,7 +8,7 @@ import os
 import pathlib
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
@@ -197,16 +197,18 @@ class WearableCapabilityPlanningTests(unittest.TestCase):
 
 class WearableOutboxPlanningTests(unittest.TestCase):
     def test_steps_bucket_sample_builds_steps_bucket_closed_event(self):
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(minutes=15)
         sample = SimpleNamespace(
             id="sample-1",
             provider="apple_health",
             metric_type="steps",
             value=182,
             unit="count",
-            start_time=datetime.fromisoformat("2026-04-24T13:00:00+00:00"),
-            end_time=datetime.fromisoformat("2026-04-24T13:15:00+00:00"),
-            recorded_at=datetime.fromisoformat("2026-04-24T13:15:00+00:00"),
-            attributed_date="2026-04-24",
+            start_time=start_time,
+            end_time=end_time,
+            recorded_at=end_time,
+            attributed_date=end_time.date().isoformat(),
             rollup_level="bucket_15m",
             attributes_json=json.dumps({"source_device_name": "Apple Watch"}),
             deleted_at=None,
@@ -218,6 +220,7 @@ class WearableOutboxPlanningTests(unittest.TestCase):
         self.assertEqual(outbox_event["payload"]["value"], 182)
 
     def test_recovery_score_sample_builds_recovery_metric_changed_event(self):
+        recorded_at = datetime.now(timezone.utc)
         sample = SimpleNamespace(
             id="sample-2",
             provider="whoop",
@@ -226,8 +229,8 @@ class WearableOutboxPlanningTests(unittest.TestCase):
             unit="count",
             start_time=None,
             end_time=None,
-            recorded_at=datetime.fromisoformat("2026-04-24T12:00:00+00:00"),
-            attributed_date="2026-04-24",
+            recorded_at=recorded_at,
+            attributed_date=recorded_at.date().isoformat(),
             rollup_level="raw",
             attributes_json=None,
             deleted_at=None,
@@ -239,13 +242,15 @@ class WearableOutboxPlanningTests(unittest.TestCase):
         self.assertEqual(outbox_event["payload"]["metric_type"], "recovery_score")
 
     def test_sleep_event_builds_sleep_session_ingested_outbox_event(self):
+        end_time = datetime.now(timezone.utc)
+        start_time = end_time - timedelta(hours=7)
         event = SimpleNamespace(
             id="event-1",
             provider="whoop",
             event_type="sleep_total",
-            start_time=datetime.fromisoformat("2026-04-24T02:00:00+00:00"),
-            end_time=datetime.fromisoformat("2026-04-24T09:00:00+00:00"),
-            attributed_date="2026-04-24",
+            start_time=start_time,
+            end_time=end_time,
+            attributed_date=end_time.date().isoformat(),
             summary_value=420,
             summary_unit="minutes",
             details_json=json.dumps({"source_device_name": "Whoop Strap"}),

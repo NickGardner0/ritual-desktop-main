@@ -1,21 +1,19 @@
 import OpenAI from 'openai';
 
-import { executeGetCalendarEvents } from '@/lib/ai/chat-stream/executors/calendar';
-import { executeGetDailyBiometrics } from '@/lib/ai/chat-stream/executors/biometrics';
-import { executeGetComputerTimeSpentBreakdown } from '@/lib/ai/chat-stream/executors/computer-time';
-import { executeGetActivitySummary } from '@/lib/ai/chat-stream/executors/project-time';
 import {
+  executeGetActivitySummary,
+  executeGetCalendarEvents,
+  executeGetComputerTimeSpentBreakdown,
+  executeGetDailyBiometrics,
   executeGetDailyOverview,
   executeGetMonthlyOverview,
+  executeGetScreenTimeSummary,
+  executeGetStreaks,
   executeGetWeeklyOverview,
-} from '@/lib/ai/chat-stream/executors/overviews';
-import { executeGetScreenTimeSummary } from '@/lib/ai/chat-stream/executors/screen-time';
-import { executeGetStreaks } from '@/lib/ai/chat-stream/executors/habits';
-import { shiftYmd } from '@/lib/ai/chat-stream/executors/shared-api';
-import {
+  shiftYmd,
   buildCalendarStyleActivitySummary,
   inferRecapAnchorDate,
-} from '@/lib/ai/chat-stream/narrative/activity-summary';
+} from '@ritual/chat-runtime';
 
 export type WorkflowKind = 'morning_brief' | 'shutdown_review' | 'daily_narrative' | 'distraction_spiral';
 export type WorkflowArtifactKind =
