@@ -26,7 +26,7 @@ import { perfInfo } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
-import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
+import { useComputerSnapshotQuery, type ComputerSnapshot } from '@/hooks/use-computer-snapshot-query';
 import {
   buildWearableDailyRows,
   getWearableDateRange,
@@ -121,6 +121,23 @@ function buildComputerSummaryFromRows(rows: ComputerDailyRow[]): ComputerSummary
     days_tracked: daysTracked,
     avg_daily_hours: daysTracked > 0 ? totalHours / daysTracked : 0,
   };
+}
+
+function getComputerSummaryHours(summary: ComputerSummaryState): number {
+  const totalHours = Number(summary.total_hours || 0);
+  if (Number.isFinite(totalHours) && totalHours > 0) {
+    return totalHours;
+  }
+
+  const totalActiveMs = Number(summary.total_active_ms || 0);
+  return Number.isFinite(totalActiveMs) && totalActiveMs > 0
+    ? totalActiveMs / (1000 * 60 * 60)
+    : 0;
+}
+
+function isProjectTimeRollupSnapshot(snapshot?: ComputerSnapshot | null): boolean {
+  const source = String(snapshot?.source || snapshot?.summary?.source || '').trim().toLowerCase();
+  return source === 'project_time_rollups';
 }
 
 function calculateTrackedSpanDays(dateKeys: string[]): number {
@@ -230,17 +247,19 @@ export function OverviewView({
     dateRange,
     enabled: Boolean(user?.id),
   });
+  const computerSnapshotUsesProjectTimeRollups = isProjectTimeRollupSnapshot(computerSnapshotQuery.data);
   const effectiveComputerActivityDaily = useMemo<ComputerDailyRow[]>(
-    () => computerSnapshotQuery.data?.daily ?? [],
-    [computerSnapshotQuery.data?.daily],
+    () => computerSnapshotUsesProjectTimeRollups ? [] : computerSnapshotQuery.data?.daily ?? [],
+    [computerSnapshotQuery.data?.daily, computerSnapshotUsesProjectTimeRollups],
   );
   const effectiveComputerActivitySummary = useMemo<ComputerSummaryState | null>(
-    () => computerSnapshotQuery.data?.summary ?? null,
-    [computerSnapshotQuery.data?.summary],
+    () => computerSnapshotUsesProjectTimeRollups ? null : computerSnapshotQuery.data?.summary ?? null,
+    [computerSnapshotQuery.data?.summary, computerSnapshotUsesProjectTimeRollups],
   );
   const computerSnapshotLooksEmpty = useMemo(() => {
     const snapshot = computerSnapshotQuery.data;
     if (!snapshot) return true;
+    if (isProjectTimeRollupSnapshot(snapshot)) return true;
 
     const summary = snapshot.summary;
     const hasSummaryData =
@@ -825,11 +844,11 @@ export function OverviewView({
 
             const rows = effectiveComputerActivityDaily;
             const rowsSummary = rows.length > 0 ? buildComputerSummaryFromRows(rows) : null;
-            const summaryForDisplay = !dateRange?.from && rowsSummary
-              ? rowsSummary
-              : effectiveComputerActivitySummary;
+            const summaryForDisplay = !dateRange?.from
+              ? effectiveComputerActivitySummary ?? rowsSummary
+              : rowsSummary ?? effectiveComputerActivitySummary;
             const totalHours = summaryForDisplay
-              ? Number(summaryForDisplay.total_hours || 0)
+              ? getComputerSummaryHours(summaryForDisplay)
               : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
 
             if (rows.length === 0 && effectiveComputerActivitySummary) {
@@ -837,7 +856,7 @@ export function OverviewView({
                 display: `${formatHabitStatNumber(totalHours)} Hours`,
                 stats: {
                   unitLabel: 'Hours',
-                  sumFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.total_hours || 0))} Hours`,
+                  sumFormatted: `${formatHabitStatNumber(getComputerSummaryHours(effectiveComputerActivitySummary))} Hours`,
                   avgFormatted: `${formatHabitStatNumber(Number(effectiveComputerActivitySummary.avg_daily_hours || 0))} Hours`,
                   minFormatted: '—',
                   maxFormatted: '—',

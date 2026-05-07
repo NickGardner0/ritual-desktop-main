@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import time
 import logging
@@ -639,150 +638,6 @@ def _build_snapshot_from_event_rows_impl(
     }
 
 
-def _parse_rollup_counts_blob(blob: Any) -> List[Dict[str, Any]]:
-    if not blob:
-        return []
-    if isinstance(blob, list):
-        parsed = blob
-    else:
-        try:
-            parsed = json.loads(str(blob))
-        except Exception:
-            return []
-    if not isinstance(parsed, list):
-        return []
-    return [item for item in parsed if isinstance(item, dict)]
-
-
-def _build_snapshot_from_project_time_rollup_rows_impl(
-    rows: List[tuple[Any, Any, Any, Any, Any]],
-    *,
-    source: str,
-    limit: int,
-) -> Dict[str, Any]:
-    daily: Dict[str, Dict[str, Any]] = {}
-    apps: Dict[str, Dict[str, Any]] = {}
-    domains: Dict[str, Dict[str, Any]] = {}
-
-    for date_value, active_ms, session_count, top_apps_json, top_domains_json in rows:
-        day = str(date_value or "")
-        if not day:
-            continue
-
-        active_i = max(0, int(active_ms or 0))
-        sessions_i = max(0, int(session_count or 0))
-        day_bucket = daily.setdefault(
-            day,
-            {
-                "day": day,
-                "active_ms": 0,
-                "afk_ms": 0,
-                "events_count": 0,
-                "apps_count": 0,
-                "domains_count": 0,
-                "source": source,
-            },
-        )
-        day_bucket["active_ms"] += active_i
-        day_bucket["events_count"] += sessions_i
-
-        for item in _parse_rollup_counts_blob(top_apps_json):
-            name = str(item.get("name") or item.get("app_name") or item.get("app_bundle_id") or "").strip()
-            item_ms = max(0, int(item.get("active_ms") or item.get("duration_ms") or 0))
-            if not name or item_ms <= 0:
-                continue
-            bucket = apps.setdefault(
-                name,
-                {
-                    "app_bundle_id": name,
-                    "app_name": name,
-                    "total_active_ms": 0,
-                    "total_events": 0,
-                    "days_used": set(),
-                },
-            )
-            bucket["total_active_ms"] += item_ms
-            bucket["total_events"] += sessions_i
-            bucket["days_used"].add(day)
-
-        for item in _parse_rollup_counts_blob(top_domains_json):
-            name = str(item.get("name") or item.get("domain") or "").strip()
-            item_ms = max(0, int(item.get("active_ms") or item.get("duration_ms") or 0))
-            if not name or item_ms <= 0:
-                continue
-            bucket = domains.setdefault(
-                name,
-                {
-                    "domain": name,
-                    "total_active_ms": 0,
-                    "total_events": 0,
-                    "days_used": set(),
-                },
-            )
-            bucket["total_active_ms"] += item_ms
-            bucket["total_events"] += sessions_i
-            bucket["days_used"].add(day)
-
-    daily_rows = sorted(daily.values(), key=lambda row: row["day"])
-    app_rows = sorted(apps.values(), key=lambda row: row["total_active_ms"], reverse=True)[: max(1, int(limit or 10))]
-    domain_rows = sorted(domains.values(), key=lambda row: row["total_active_ms"], reverse=True)[: max(1, int(limit or 10))]
-
-    for day_bucket in daily_rows:
-        day_bucket["active_hours"] = round(int(day_bucket["active_ms"]) / (1000 * 60 * 60), 2)
-    for day_bucket in daily_rows:
-        day_apps = {name for name, bucket in apps.items() if day_bucket["day"] in bucket["days_used"]}
-        day_domains = {name for name, bucket in domains.items() if day_bucket["day"] in bucket["days_used"]}
-        day_bucket["apps_count"] = len(day_apps)
-        day_bucket["domains_count"] = len(day_domains)
-
-    total_active_ms = sum(int(row["active_ms"]) for row in daily_rows)
-    total_events = sum(int(row["events_count"]) for row in daily_rows)
-    days_tracked = sum(1 for row in daily_rows if int(row["active_ms"]) > 0)
-    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
-
-    return {
-        "summary": {
-            "total_active_ms": total_active_ms,
-            "total_hours": total_hours,
-            "total_events": total_events,
-            "days_tracked": days_tracked,
-            "unique_apps": len(apps),
-            "unique_domains": len(domains),
-            "total_afk_ms": 0,
-            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
-            "source": source,
-        },
-        "daily": daily_rows,
-        "apps": [
-            {
-                "app_bundle_id": row["app_bundle_id"],
-                "app_name": row["app_name"],
-                "total_active_ms": int(row["total_active_ms"]),
-                "total_events": int(row["total_events"]),
-                "days_used": len(row["days_used"]),
-                "hours": round(int(row["total_active_ms"]) / (1000 * 60 * 60), 2),
-                "source": source,
-            }
-            for row in app_rows
-        ],
-        "domains": [
-            {
-                "domain": row["domain"],
-                "total_active_ms": int(row["total_active_ms"]),
-                "total_events": int(row["total_events"]),
-                "days_used": len(row["days_used"]),
-                "hours": round(int(row["total_active_ms"]) / (1000 * 60 * 60), 2),
-                "minutes": round(int(row["total_active_ms"]) / (1000 * 60), 1),
-                "source": source,
-            }
-            for row in domain_rows
-        ],
-        "source": source,
-        "state": "ready",
-        "sync_pending": False,
-    }
-
-
 def _fetch_local_activity_event_rows_impl(
     *,
     start_ms: int,
@@ -833,50 +688,6 @@ def _fetch_local_activity_event_rows_impl(
     except Exception as exc:
         logger.warning("Failed local watcher activity query: %s", exc)
         return []
-
-
-async def _fetch_remote_project_time_rollup_snapshot_impl(
-    *,
-    user_id: str,
-    activity_user_ids: List[str],
-    start_date: str,
-    end_date: str,
-    limit: int,
-    device_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
-    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
-    params: List[Any] = [*activity_user_ids, start_date, end_date]
-    device_clause = ""
-    if device_id:
-        device_clause = " AND device_id = ?"
-        params.append(device_id)
-
-    result = await fetch_remote_activity_rows(
-        user_id,
-        f"""
-        SELECT date, active_ms, session_count, top_apps_json, top_domains_json
-        FROM project_time_daily_rollups
-        WHERE user_id IN ({user_placeholders})
-          AND date >= ?
-          AND date <= ?
-          {device_clause}
-        ORDER BY date ASC
-        """,
-        params,
-    )
-    if result.error:
-        logger.info("Project-time rollup snapshot unavailable for computer activity: %s", result.error)
-        return None
-    if not result.rows:
-        return None
-    snapshot = _build_snapshot_from_project_time_rollup_rows_impl(
-        result.rows,
-        source="project_time_rollups",
-        limit=limit,
-    )
-    if int(snapshot["summary"].get("total_active_ms", 0) or 0) <= 0:
-        return None
-    return snapshot
 
 
 def _build_snapshot_from_sql_aggregate_rows_impl(
@@ -1095,17 +906,6 @@ async def _build_computer_activity_snapshot_impl(
     if device_id:
         device_clause = " AND device_id = ?"
         params.append(device_id)
-
-    rollup_snapshot = await _fetch_remote_project_time_rollup_snapshot_impl(
-        user_id=user_id,
-        activity_user_ids=activity_user_ids,
-        start_date=start_date,
-        end_date=end_date,
-        limit=limit,
-        device_id=device_id,
-    )
-    if rollup_snapshot:
-        return rollup_snapshot
 
     aggregate_snapshot = await _fetch_remote_activity_sql_aggregate_snapshot_impl(
         user_id=user_id,
