@@ -573,6 +573,25 @@
     clip-path: inset(0 0 0 0);
   }
 
+  /* Landing-page capture mode.
+     Enable with ?ritual_capture_sidebar=1 (or localStorage) to make CleanShotX
+     window screenshots render the sidebar as the same solid app background. */
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy,
+  html.desktop[data-sidebar-capture="1"][data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
+  html.desktop[data-sidebar-capture="1"]:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
+    background: #fefefe !important;
+    background-color: #fefefe !important;
+    border-right: 1px solid rgba(15, 23, 42, 0.035) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy::before,
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy::after {
+    display: none !important;
+  }
+
   /* ===== End macOS Liquid Glass Sidebar ===== */
 
   /* Key fix: Set default cursor for all desktop elements */
