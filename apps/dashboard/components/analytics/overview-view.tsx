@@ -1350,43 +1350,38 @@ export function OverviewView({
 
   return (
     <div
-      className="relative space-y-0 h-[calc(100vh-160px)] overflow-hidden"
+      className="relative flex h-[calc(100vh-160px)] overflow-hidden"
       onClick={selectedContextHabitId ? handleCloseContext : undefined}
     >
-      <OverviewInitialSection
-        hideControls={hideControls}
-        isDesktopShell={isDesktopShell}
-        habits={habits}
-        orderedHabits={orderedHabits}
-        displayLogs={scrubberDisplayLogs}
-        dateRange={dateRange}
-        onDateRangeChange={setDateRange}
-        scrubberSelectedDate={scrubberSelectedDate}
-        onScrubberHover={handleScrubberHover}
-        onScrubberSelect={handleScrubberSelect}
-        onShowSelectionModal={handleOpenSelectionModal}
-        onShowImportModal={handleOpenImportModal}
-        onReorder={handleReorder}
-        getHabitMetricDisplay={getHabitMetricDisplay}
-        getHabitMetricClassName={getHabitMetricClassName}
-        scrubberHoveredDate={scrubberHoveredDate}
-        scrubberHoveredValues={scrubberHoveredValues}
-        activeTooltip={activeTooltip}
-        setActiveTooltip={setActiveTooltip}
-        getHabitMetricStats={getHabitMetricStats}
-        onUpdateHabitDetails={handleUpdateHabitDetails}
-        updatingHabitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
-        confirmDelete={confirmDelete}
-        deletingHabit={deletingHabit}
-        selectedContextHabitId={selectedContextHabitId}
-        onOpenContext={handleOpenContext}
-      />
-
-      <MetricContextPanel
-        model={metricContextModel}
-        isLoading={isMetricContextLoading}
-        onClose={handleCloseContext}
-      />
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <OverviewInitialSection
+          hideControls={hideControls}
+          isDesktopShell={isDesktopShell}
+          habits={habits}
+          orderedHabits={orderedHabits}
+          displayLogs={scrubberDisplayLogs}
+          dateRange={dateRange}
+          onDateRangeChange={setDateRange}
+          scrubberSelectedDate={scrubberSelectedDate}
+          onScrubberHover={handleScrubberHover}
+          onScrubberSelect={handleScrubberSelect}
+          onShowSelectionModal={handleOpenSelectionModal}
+          onShowImportModal={handleOpenImportModal}
+          onReorder={handleReorder}
+          getHabitMetricDisplay={getHabitMetricDisplay}
+          getHabitMetricClassName={getHabitMetricClassName}
+          scrubberHoveredDate={scrubberHoveredDate}
+          scrubberHoveredValues={scrubberHoveredValues}
+          activeTooltip={activeTooltip}
+          setActiveTooltip={setActiveTooltip}
+          getHabitMetricStats={getHabitMetricStats}
+          onUpdateHabitDetails={handleUpdateHabitDetails}
+          updatingHabitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
+          confirmDelete={confirmDelete}
+          deletingHabit={deletingHabit}
+          selectedContextHabitId={selectedContextHabitId}
+          onOpenContext={handleOpenContext}
+        />
 
       {/* Empty state */}
       {isBackendUnavailable && (
@@ -1431,6 +1426,13 @@ export function OverviewView({
           </button>
         </div>
       )}
+      </div>
+
+      <MetricContextPanel
+        model={metricContextModel}
+        isLoading={isMetricContextLoading}
+        onClose={handleCloseContext}
+      />
 
       {/* Modals */}
       {showSelectionModal && (

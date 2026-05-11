@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { MessageCircle, X } from 'lucide-react';
+import { Activity, MessageCircle, PanelRightClose } from 'lucide-react';
 import type { MetricContextInsight, MetricContextModel, MetricContextRelatedSignal } from './metric-context-builder';
 
 interface MetricContextPanelProps {
@@ -135,43 +135,54 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
   const hasComputerUsage = model.topApps.length > 0 || model.topDomains.length > 0;
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-40 flex justify-end sm:absolute sm:inset-y-0 sm:left-auto sm:right-0 sm:z-30">
+    <div className="fixed inset-0 z-[70] flex justify-end bg-[#fefefe] sm:relative sm:inset-auto sm:h-full sm:min-w-[430px] sm:max-w-[680px] sm:basis-[44%] sm:shrink-0 sm:bg-transparent">
       <aside
         aria-label={`${model.title} Context`}
         onClick={(event) => event.stopPropagation()}
-        className="pointer-events-auto flex h-full w-full flex-col border-l border-[#e5e5e5] bg-[#fefefe] shadow-[-12px_0_30px_rgba(0,0,0,0.06)] sm:w-[420px]"
+        className="relative z-[70] flex h-full w-full flex-col border-l border-[#dedede] bg-[#fbfbfa]"
       >
-        <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#e9e9e9] px-4">
-          <div>
-            <div className="text-[12px] font-medium leading-none text-neutral-950">Context</div>
-            <div className="mt-1 text-[11px] leading-none text-neutral-500">{model.periodLabel}</div>
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#e5e5e3] bg-[#f7f7f6] px-3">
+          <div className="flex items-center gap-1.5 text-neutral-500">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#e9e9e7] text-neutral-700">
+              <Activity className="h-3.5 w-3.5" />
+            </div>
+            <span className="text-[13px] font-medium leading-none text-neutral-700">Context</span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-7 w-7 items-center justify-center rounded-sm text-neutral-500 hover:bg-[#f5f5f5] hover:text-neutral-950"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 hover:bg-[#ededeb] hover:text-neutral-950"
             aria-label="Close Context"
           >
-            <X className="h-4 w-4" />
+            <PanelRightClose className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <div className="pb-4">
-            <h2 className="text-[21px] font-normal leading-tight tracking-normal text-neutral-950">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[#e5e5e3] bg-[#fbfbfa] px-3">
+          <span className="rounded-md bg-[#e9e9e7] px-2 py-1 text-[12px] leading-none text-neutral-700">
+            {model.periodLabel}
+          </span>
+          <span className="truncate text-[12px] leading-none text-neutral-500">
+            {model.analysisPeriodLabel}
+          </span>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div className="pb-5">
+            <h2 className="text-[22px] font-normal leading-tight tracking-normal text-neutral-950">
               {model.title}
             </h2>
-            <div className="mt-1 text-[13px] leading-none text-neutral-500">{model.valueLabel}</div>
+            <div className="mt-1.5 text-[13px] leading-none text-neutral-500">{model.valueLabel}</div>
           </div>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               Signals
             </div>
             <InsightGrid items={model.insightCards} />
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               Snapshot
             </div>
@@ -184,7 +195,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
             </div>
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               What Changed
             </div>
@@ -193,7 +204,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
             </p>
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 flex items-center justify-between gap-3">
               <div className="text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
                 Trend
@@ -203,14 +214,14 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
             <TrendBars model={model} />
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               Recent Days
             </div>
             <RecentRowsTable model={model} />
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               Nearby Signals
             </div>
@@ -220,7 +231,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
             />
           </section>
 
-          <section className="border-t border-[#e9e9e9] py-4">
+          <section className="border-t border-[#e5e5e3] py-4">
             <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
               Source
             </div>
@@ -231,7 +242,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
           </section>
 
           {hasComputerUsage && (
-            <section className="border-t border-[#e9e9e9] py-4">
+            <section className="border-t border-[#e5e5e3] py-4">
               <div className="mb-2 text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-neutral-500">
                 Computer Activity
               </div>
@@ -243,10 +254,10 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
           )}
         </div>
 
-        <div className="shrink-0 border-t border-[#e9e9e9] p-4">
+        <div className="shrink-0 border-t border-[#e5e5e3] bg-[#fbfbfa] p-3">
           <a
             href={model.askHref}
-            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-sm border border-neutral-950 bg-neutral-950 px-3 text-[13px] font-medium text-white hover:bg-neutral-800"
+            className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#d9d9d7] bg-[#fefefe] px-3 text-[13px] font-medium text-neutral-800 hover:bg-[#f3f3f1]"
           >
             <MessageCircle className="h-4 w-4" />
             Ask Ritual about this
