@@ -102,6 +102,8 @@ function OverviewInitialSectionInner({
   updatingHabitId,
   confirmDelete,
   deletingHabit,
+  selectedContextHabitId,
+  onOpenContext,
   onReorder,
   onShowSelectionModal,
   onShowImportModal,
@@ -203,6 +205,8 @@ function OverviewInitialSectionInner({
               updatingHabitId={updatingHabitId}
               confirmDelete={confirmDelete}
               deletingHabit={deletingHabit}
+              selectedContextHabitId={selectedContextHabitId}
+              onOpenContext={onOpenContext}
             />
           </div>
         )}

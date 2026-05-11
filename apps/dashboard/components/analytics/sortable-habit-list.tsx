@@ -50,6 +50,8 @@ interface SortableHabitItemProps {
   isUpdatingHabit: boolean;
   confirmDelete: (habitId: string | undefined) => void;
   isDeleting: boolean;
+  isContextSelected?: boolean;
+  onOpenContext?: (habitId: string) => void;
 }
 
 const SortableHabitItem = React.memo(function SortableHabitItem({
@@ -64,6 +66,8 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   isUpdatingHabit,
   confirmDelete,
   isDeleting,
+  isContextSelected = false,
+  onOpenContext,
 }: SortableHabitItemProps) {
   const displayName = getHabitDisplayName(habit.name);
   const { habitTextColor } = useUIPreferences();
@@ -150,18 +154,45 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     setIsEditingDetails(true);
   };
 
+  const handleOpenContext = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.stopPropagation();
+    if (habitId && onOpenContext) {
+      onOpenContext(habitId);
+    }
+  };
+
+  const handleOpenContextKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (habitId && onOpenContext) {
+      onOpenContext(habitId);
+    }
+  };
+
+  const rowBackgroundClass = isContextSelected
+    ? 'bg-[#f6f6f5]'
+    : 'bg-[var(--content-bg)] hover:bg-[#f6f6f5]';
+
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] rounded-[6px] px-1 py-0 bg-[var(--content-bg)] hover:bg-[#f6f6f5] cursor-grab active:cursor-grabbing ${
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] rounded-[6px] px-1 py-0 ${rowBackgroundClass} cursor-grab active:cursor-grabbing ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
-        <div className="min-w-0 flex items-center">
+        <div
+          className="min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
+          role="button"
+          tabIndex={0}
+          aria-label={`Open Context for ${displayName}`}
+          onClick={handleOpenContext}
+          onKeyDown={handleOpenContextKeyDown}
+        >
           <span className="text-[17.5px] font-normal truncate leading-[1.04] text-gray-900">
             {displayName}
           </span>
@@ -286,6 +317,8 @@ export interface SortableHabitListProps {
   updatingHabitId: string | null | undefined;
   confirmDelete: (habitId: string | undefined) => void;
   deletingHabit: string | null;
+  selectedContextHabitId?: string | null;
+  onOpenContext?: (habitId: string) => void;
 }
 
 function SortableHabitListInner({
@@ -302,6 +335,8 @@ function SortableHabitListInner({
   updatingHabitId,
   confirmDelete,
   deletingHabit,
+  selectedContextHabitId,
+  onOpenContext,
 }: SortableHabitListProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -352,6 +387,8 @@ function SortableHabitListInner({
                 isUpdatingHabit={updatingHabitId === habitId}
                 confirmDelete={confirmDelete}
                 isDeleting={deletingHabit === habitId}
+                isContextSelected={selectedContextHabitId === habitId}
+                onOpenContext={onOpenContext}
               />
             );
           })}

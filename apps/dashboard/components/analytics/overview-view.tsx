@@ -25,6 +25,12 @@ import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-lo
 import { perfInfo } from '@/lib/perf-debug';
 import { isTauri } from '@/lib/tauri-utils';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
+import { MetricContextPanel } from '@/components/analytics/metric-context-panel';
+import {
+  buildMetricContextModel,
+  getMetricContextFetchWindow,
+  type MetricContextDailySourceRow,
+} from '@/components/analytics/metric-context-builder';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery, type ComputerSnapshot } from '@/hooks/use-computer-snapshot-query';
 import {
@@ -225,6 +231,7 @@ export function OverviewView({
   const [habitToDelete, setHabitToDelete] = useState<string | null>(null);
   const [deletingHabit, setDeletingHabit] = useState<string | null>(null);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+  const [selectedContextHabitId, setSelectedContextHabitId] = useState<string | null>(null);
   const [optimisticLogs, setOptimisticLogs] = useState<any[]>([]);
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
   const [allowWearableDailyTotalsRefresh, setAllowWearableDailyTotalsRefresh] = useState(false);
@@ -274,6 +281,17 @@ export function OverviewView({
       && snapshot.domains.length === 0;
   }, [computerSnapshotQuery.data]);
   const computerActivityResolved = !user?.id || computerSnapshotQuery.isFetched || computerSnapshotQuery.isSuccess;
+  const contextFetchWindow = useMemo(
+    () => getMetricContextFetchWindow(dateRange),
+    [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()],
+  );
+  const contextComputerDateRange = useMemo<DateRange>(
+    () => ({
+      from: parseISO(contextFetchWindow.startDate),
+      to: parseISO(contextFetchWindow.endDate),
+    }),
+    [contextFetchWindow.startDate, contextFetchWindow.endDate],
+  );
   const wearableHabits = useMemo(
     () => habits.filter((habit) => isWearableBackedHabit(habit)),
     [habits],
@@ -438,6 +456,111 @@ export function OverviewView({
     }
     return next;
   }, [habits]);
+
+  const selectedContextHabit = useMemo(() => {
+    if (!selectedContextHabitId) return null;
+    return habitsById.get(selectedContextHabitId)
+      || orderedHabits.find((habit) => habit.id === selectedContextHabitId)
+      || null;
+  }, [habitsById, orderedHabits, selectedContextHabitId]);
+
+  const selectedContextIsComputer = Boolean(
+    selectedContextHabit && isComputerHabitName(selectedContextHabit.name),
+  );
+
+  const selectedContextIsWearable = Boolean(
+    selectedContextHabit && isWearableBackedHabit(selectedContextHabit),
+  );
+  const selectedContextWearableMetricType = selectedContextHabit
+    ? getWearableMetricType(selectedContextHabit)
+    : null;
+  const selectedContextWearableProvider = selectedContextHabit
+    ? getWearableProviderForHabit(selectedContextHabit)
+    : null;
+  const contextHabitIds = useMemo(() => {
+    const sourceHabits = orderedHabits.length > 0 ? orderedHabits : habits;
+    return sourceHabits
+      .map((habit) => ({ id: habit.id || '', name: habit.name || '' }))
+      .filter((habit) => habit.id && !isComputerHabitName(habit.name))
+      .map((habit) => habit.id)
+      .slice(0, 40);
+  }, [habits, orderedHabits]);
+
+  const contextDailyRowsQuery = useQuery<MetricContextDailySourceRow[]>({
+    queryKey: [
+      'overview-metric-context-daily',
+      user?.id,
+      contextHabitIds.join('|'),
+      contextFetchWindow.startDate,
+      contextFetchWindow.endDate,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        output: 'daily',
+        habit_ids: contextHabitIds.join(','),
+        start_date: contextFetchWindow.startDate,
+        end_date: contextFetchWindow.endDate,
+      });
+      const response = await fetch(`/api/analytics/habits/daily-values?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch context rows (${response.status})`);
+      }
+      const payload = await response.json();
+      return Array.isArray(payload?.data) ? payload.data as MetricContextDailySourceRow[] : [];
+    },
+    enabled: Boolean(user?.id && selectedContextHabitId && selectedContextHabit && contextHabitIds.length > 0),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const contextWearableDailyTotalsQuery = useQuery<WearableDailyTotal[]>({
+    queryKey: [
+      'overview-context-wearable-daily-totals',
+      user?.id,
+      selectedContextWearableProvider || 'preferred',
+      selectedContextWearableMetricType || 'none',
+      contextFetchWindow.startDate,
+      contextFetchWindow.endDate,
+    ],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        start_date: contextFetchWindow.startDate,
+        end_date: contextFetchWindow.endDate,
+        metric_types: selectedContextWearableMetricType || '',
+      });
+      if (selectedContextWearableProvider) {
+        params.set('providers', selectedContextWearableProvider);
+      }
+
+      const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`, {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch wearable context rows (${response.status})`);
+      }
+      const payload = await response.json();
+      return Array.isArray(payload?.days) ? payload.days as WearableDailyTotal[] : [];
+    },
+    enabled: Boolean(user?.id && selectedContextIsWearable && selectedContextWearableMetricType),
+    staleTime: 30 * 1000,
+    refetchOnWindowFocus: false,
+  });
+
+  const contextComputerSnapshotQuery = useComputerSnapshotQuery({
+    userId: user?.id,
+    dateRange: contextComputerDateRange,
+    enabled: Boolean(user?.id && selectedContextIsComputer),
+  });
+
+  useEffect(() => {
+    if (selectedContextHabitId && !selectedContextHabit) {
+      setSelectedContextHabitId(null);
+    }
+  }, [selectedContextHabit, selectedContextHabitId]);
 
   const scrubberDisplayLogs = useMemo(
     () => (isDesktopShell ? EMPTY_OVERVIEW_LOGS : displayLogs),
@@ -1015,6 +1138,134 @@ export function OverviewView({
     };
   }, [habitMetricDataById]);
 
+  const selectedContextDailyRows = useMemo<MetricContextDailySourceRow[]>(() => {
+    if (!selectedContextHabitId || selectedContextIsComputer) return [];
+
+    const canonicalRows = (contextDailyRowsQuery.data || []).filter((row) => {
+      const rowHabitId = String(row.habit_id || '').trim();
+      return rowHabitId === selectedContextHabitId;
+    });
+
+    if (selectedContextIsWearable && selectedContextWearableMetricType) {
+      const wearableRows = buildWearableDailyRows(
+        contextWearableDailyTotalsQuery.data || [],
+        selectedContextWearableMetricType,
+      ).map<MetricContextDailySourceRow>((row) => ({
+        date: row.date,
+        value: row.value,
+        entries_count: 1,
+      }));
+
+      if (wearableRows.length > 0) {
+        return wearableRows;
+      }
+    }
+
+    return canonicalRows;
+  }, [
+    contextDailyRowsQuery.data,
+    contextWearableDailyTotalsQuery.data,
+    selectedContextHabitId,
+    selectedContextIsComputer,
+    selectedContextIsWearable,
+    selectedContextWearableMetricType,
+  ]);
+
+  const contextPeerDailyRows = useMemo(() => {
+    const rows = contextDailyRowsQuery.data || [];
+    if (rows.length === 0) return [];
+
+    const rowsByHabitId = new Map<string, MetricContextDailySourceRow[]>();
+    for (const row of rows) {
+      const habitId = String(row.habit_id || '').trim();
+      if (!habitId || habitId === selectedContextHabitId) continue;
+      const existing = rowsByHabitId.get(habitId) || [];
+      existing.push(row);
+      rowsByHabitId.set(habitId, existing);
+    }
+
+    const sourceHabits = orderedHabits.length > 0 ? orderedHabits : habits;
+    return sourceHabits
+      .filter((habit) => {
+        const habitId = habit.id || '';
+        return habitId
+          && habitId !== selectedContextHabitId
+          && !isComputerHabitName(habit.name)
+          && rowsByHabitId.has(habitId);
+      })
+      .slice(0, 12)
+      .map((habit) => {
+        const habitId = habit.id || '';
+        return {
+          habitId,
+          habitName: habit.name || 'Metric',
+          unitLabel: habitMetricDataById.get(habitId)?.stats.unitLabel || habit.unit_type || 'sessions',
+          rows: rowsByHabitId.get(habitId) || [],
+        };
+      });
+  }, [
+    contextDailyRowsQuery.data,
+    habitMetricDataById,
+    habits,
+    orderedHabits,
+    selectedContextHabitId,
+  ]);
+
+  const metricContextModel = useMemo(() => {
+    if (!selectedContextHabit || !selectedContextHabitId) return null;
+
+    const metricData = habitMetricDataById.get(selectedContextHabitId);
+    const contextComputerSnapshot = contextComputerSnapshotQuery.data || computerSnapshotQuery.data;
+    const computerRows = selectedContextIsComputer
+      ? (
+        contextComputerSnapshot?.daily?.length
+          ? contextComputerSnapshot.daily
+          : effectiveComputerActivityDaily
+      )
+      : undefined;
+
+    return buildMetricContextModel({
+      habit: selectedContextHabit,
+      displayValue: metricData?.display || formatMetricDisplay(0, selectedContextHabit.unit_type || 'sessions'),
+      displayStats: metricData?.stats,
+      dateRange,
+      dailyRows: selectedContextDailyRows,
+      peerDailyRows: contextPeerDailyRows,
+      computerDailyRows: computerRows,
+      computerTopApps: selectedContextIsComputer ? contextComputerSnapshot?.apps || [] : [],
+      computerTopDomains: selectedContextIsComputer ? contextComputerSnapshot?.domains || [] : [],
+      isComputerTime: selectedContextIsComputer,
+    });
+  }, [
+    selectedContextHabit,
+    selectedContextHabitId,
+    habitMetricDataById,
+    dateRange?.from?.toISOString(),
+    dateRange?.to?.toISOString(),
+    selectedContextDailyRows,
+    contextPeerDailyRows,
+    contextComputerSnapshotQuery.data,
+    contextComputerSnapshotQuery.data?.daily,
+    effectiveComputerActivityDaily,
+    computerSnapshotQuery.data,
+    computerSnapshotQuery.data?.apps,
+    computerSnapshotQuery.data?.domains,
+    selectedContextIsComputer,
+  ]);
+
+  const isMetricContextLoading = selectedContextIsComputer
+    ? contextComputerSnapshotQuery.isFetching || contextDailyRowsQuery.isFetching
+    : contextDailyRowsQuery.isFetching || (selectedContextIsWearable && contextWearableDailyTotalsQuery.isFetching);
+
+  const handleOpenContext = useCallback((habitId: string) => {
+    setSelectedContextHabitId(habitId);
+    setActiveTooltip(null);
+  }, []);
+
+  const handleCloseContext = useCallback(() => {
+    setSelectedContextHabitId(null);
+  }, []);
+
   const handleUpdateHabitDetails = useCallback(
     async (
       habitId: string | undefined,
@@ -1098,7 +1349,10 @@ export function OverviewView({
   }
 
   return (
-    <div className="space-y-0 h-[calc(100vh-160px)] overflow-hidden">
+    <div
+      className="relative space-y-0 h-[calc(100vh-160px)] overflow-hidden"
+      onClick={selectedContextHabitId ? handleCloseContext : undefined}
+    >
       <OverviewInitialSection
         hideControls={hideControls}
         isDesktopShell={isDesktopShell}
@@ -1124,6 +1378,14 @@ export function OverviewView({
         updatingHabitId={updateHabitMutation.isPending ? updateHabitMutation.variables?.habitId : null}
         confirmDelete={confirmDelete}
         deletingHabit={deletingHabit}
+        selectedContextHabitId={selectedContextHabitId}
+        onOpenContext={handleOpenContext}
+      />
+
+      <MetricContextPanel
+        model={metricContextModel}
+        isLoading={isMetricContextLoading}
+        onClose={handleCloseContext}
       />
 
       {/* Empty state */}
