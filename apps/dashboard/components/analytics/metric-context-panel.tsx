@@ -135,13 +135,13 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
   const hasComputerUsage = model.topApps.length > 0 || model.topDomains.length > 0;
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-[#fefefe] sm:relative sm:inset-auto sm:h-full sm:min-w-[430px] sm:max-w-[680px] sm:basis-[44%] sm:shrink-0 sm:bg-transparent">
+    <div className="fixed inset-y-0 right-0 z-[80] flex w-full bg-[#f7f7f6] sm:w-[var(--overview-context-pane-width,clamp(520px,42vw,680px))]">
       <aside
         aria-label={`${model.title} Context`}
         onClick={(event) => event.stopPropagation()}
-        className="relative z-[70] flex h-full w-full flex-col border-l border-[#dedede] bg-[#fbfbfa]"
+        className="flex h-screen w-full flex-col border-l border-[#d8d8d6] bg-[#f7f7f6]"
       >
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-[#e5e5e3] bg-[#f7f7f6] px-3">
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-[#dededc] bg-[#f7f7f6] px-3">
           <div className="flex items-center gap-1.5 text-neutral-500">
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#e9e9e7] text-neutral-700">
               <Activity className="h-3.5 w-3.5" />
@@ -158,7 +158,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
           </button>
         </div>
 
-        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[#e5e5e3] bg-[#fbfbfa] px-3">
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[#e2e2e0] bg-[#f7f7f6] px-3">
           <span className="rounded-md bg-[#e9e9e7] px-2 py-1 text-[12px] leading-none text-neutral-700">
             {model.periodLabel}
           </span>
@@ -254,7 +254,7 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
           )}
         </div>
 
-        <div className="shrink-0 border-t border-[#e5e5e3] bg-[#fbfbfa] p-3">
+        <div className="shrink-0 border-t border-[#dededc] bg-[#f7f7f6] p-3">
           <a
             href={model.askHref}
             className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[#d9d9d7] bg-[#fefefe] px-3 text-[13px] font-medium text-neutral-800 hover:bg-[#f3f3f1]"

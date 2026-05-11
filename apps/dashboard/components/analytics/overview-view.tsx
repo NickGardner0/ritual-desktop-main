@@ -1256,6 +1256,15 @@ export function OverviewView({
   const isMetricContextLoading = selectedContextIsComputer
     ? contextComputerSnapshotQuery.isFetching || contextDailyRowsQuery.isFetching
     : contextDailyRowsQuery.isFetching || (selectedContextIsWearable && contextWearableDailyTotalsQuery.isFetching);
+  const isMetricContextOpen = Boolean(metricContextModel);
+  const overviewContextStyle = useMemo(
+    () => ({
+      '--overview-context-pane-width': isMetricContextOpen
+        ? 'clamp(520px, 42vw, 680px)'
+        : '0px',
+    }) as React.CSSProperties,
+    [isMetricContextOpen],
+  );
 
   const handleOpenContext = useCallback((habitId: string) => {
     setSelectedContextHabitId(habitId);
@@ -1350,10 +1359,11 @@ export function OverviewView({
 
   return (
     <div
-      className="relative flex h-[calc(100vh-160px)] overflow-hidden"
+      className="relative h-[calc(100vh-160px)] overflow-hidden transition-[padding-right] duration-150 ease-out sm:pr-[var(--overview-context-pane-width)]"
+      style={overviewContextStyle}
       onClick={selectedContextHabitId ? handleCloseContext : undefined}
     >
-      <div className="min-w-0 flex-1 overflow-hidden">
+      <div className="h-full min-w-0 overflow-hidden">
         <OverviewInitialSection
           hideControls={hideControls}
           isDesktopShell={isDesktopShell}
