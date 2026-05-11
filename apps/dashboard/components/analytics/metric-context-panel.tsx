@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { Activity, MessageCircle, PanelRightClose } from 'lucide-react';
 import type { MetricContextInsight, MetricContextModel, MetricContextRelatedSignal } from './metric-context-builder';
 
@@ -117,6 +118,12 @@ function RecentRowsTable({ model }: { model: MetricContextModel }) {
 }
 
 export function MetricContextPanel({ model, isLoading = false, onClose }: MetricContextPanelProps) {
+  const [portalHost, setPortalHost] = React.useState<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    setPortalHost(document.body);
+  }, []);
+
   React.useEffect(() => {
     if (!model) return;
 
@@ -131,11 +138,12 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
   }, [model, onClose]);
 
   if (!model) return null;
+  if (!portalHost) return null;
 
   const hasComputerUsage = model.topApps.length > 0 || model.topDomains.length > 0;
 
-  return (
-    <div className="fixed inset-y-0 right-0 z-[80] flex w-full bg-[#f7f7f6] sm:w-[var(--overview-context-pane-width,clamp(520px,42vw,680px))]">
+  return createPortal(
+    <div className="fixed inset-y-0 right-0 z-[80] flex w-full bg-[#f7f7f6] sm:w-[clamp(520px,42vw,680px)]">
       <aside
         aria-label={`${model.title} Context`}
         onClick={(event) => event.stopPropagation()}
@@ -264,7 +272,8 @@ export function MetricContextPanel({ model, isLoading = false, onClose }: Metric
           </a>
         </div>
       </aside>
-    </div>
+    </div>,
+    portalHost,
   );
 }
 
