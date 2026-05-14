@@ -4,6 +4,12 @@ from .common import *
 from .capabilities import PROVIDER_PRIORITY_RANKS, SOURCE_KIND_PRIORITY_RANKS
 
 class WearableQueryService:
+    METRIC_TYPE_ALIASES = {
+        "sleep": "sleep_total",
+        "sleep_session": "sleep_total",
+        "sleep_duration": "sleep_total",
+        "in_bed": "sleep_total",
+    }
     CUMULATIVE_METRICS = {
         "steps",
         "active_energy",
@@ -32,6 +38,22 @@ class WearableQueryService:
 
     def __init__(self, projection_service: Optional[Any] = None):
         self.projection_service = projection_service
+
+    @classmethod
+    def _canonical_metric_type(cls, metric_type: Optional[str]) -> Optional[str]:
+        normalized = str(metric_type or "").strip().lower()
+        if not normalized:
+            return None
+        return cls.METRIC_TYPE_ALIASES.get(normalized, normalized)
+
+    @classmethod
+    def _normalize_metric_filter(cls, metric_types: Optional[List[str]]) -> List[str]:
+        normalized: List[str] = []
+        for metric_type in metric_types or []:
+            canonical = cls._canonical_metric_type(metric_type)
+            if canonical and canonical not in normalized:
+                normalized.append(canonical)
+        return normalized
 
     @staticmethod
     def _isoformat(value: Optional[datetime]) -> Optional[str]:
@@ -282,6 +304,7 @@ class WearableQueryService:
         limit: int = 100,
     ) -> List[WearableEventDB]:
         async with get_db_session() as session:
+            event_type = self._canonical_metric_type(event_type) or event_type
             query = select(WearableEventDB).where(WearableEventDB.user_id == user_id)
             if provider:
                 query = query.where(WearableEventDB.provider == provider)
@@ -312,7 +335,7 @@ class WearableQueryService:
         async with get_db_session() as session:
             query_limit = max(limit * 2, 200)
             provider_filter = [item for item in (providers or []) if item]
-            metric_filter = [item for item in (metric_types or []) if item]
+            metric_filter = self._normalize_metric_filter(metric_types)
 
             sample_query = select(WearableSampleDB).where(WearableSampleDB.user_id == user_id)
             if provider_filter:
@@ -458,6 +481,7 @@ class WearableQueryService:
         limit: int = 2000,
     ) -> List[Dict[str, Any]]:
         async with get_db_session() as session:
+            metric_type = self._canonical_metric_type(metric_type) or metric_type
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
             selected_provider = provider or preferred_provider_by_metric.get(metric_type)
 
@@ -684,7 +708,7 @@ class WearableQueryService:
         async with get_db_session() as session:
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
             provider_filter = [item for item in (providers or []) if item]
-            metric_filter = [item for item in (metric_types or []) if item]
+            metric_filter = self._normalize_metric_filter(metric_types)
 
             sample_query = (
                 select(
@@ -835,7 +859,7 @@ class WearableQueryService:
         async with get_db_session() as session:
             preferred_provider_by_metric = await self._preferred_provider_by_metric(session, user_id=user_id)
             provider_filter = [item for item in (providers or []) if item]
-            metric_filter = [item for item in (metric_types or []) if item]
+            metric_filter = self._normalize_metric_filter(metric_types)
 
             sample_query = select(WearableSampleDB).where(
                 WearableSampleDB.user_id == user_id,

@@ -24,6 +24,17 @@ class WearableQueryServiceTests(unittest.TestCase):
         self.assertEqual(value, 2000)
         self.assertEqual(aggregation, "daily_total")
 
+    def test_sleep_metric_aliases_canonicalize_to_sleep_total(self):
+        self.assertEqual(self.service._canonical_metric_type("sleep_session"), "sleep_total")
+        self.assertEqual(self.service._canonical_metric_type("sleep_duration"), "sleep_total")
+        self.assertEqual(self.service._canonical_metric_type("sleep"), "sleep_total")
+
+    def test_metric_filter_dedupes_sleep_aliases(self):
+        self.assertEqual(
+            self.service._normalize_metric_filter(["sleep_session", "sleep_total", "steps"]),
+            ["sleep_total", "steps"],
+        )
+
     def test_aggregate_metric_values_averages_non_cumulative_metrics(self):
         value, aggregation = self.service._aggregate_metric_values("heart_rate", [80, 90, 100])
         self.assertEqual(value, 90)

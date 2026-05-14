@@ -192,6 +192,33 @@ const METRIC_CATEGORIES: Record<string, string> = {
   mindful_minutes: 'Health',
 };
 
+const METRIC_TYPE_ALIASES: Record<string, string> = {
+  sleep: 'sleep_total',
+  sleep_session: 'sleep_total',
+  sleep_duration: 'sleep_total',
+  in_bed: 'sleep_total',
+};
+
+const SLEEP_TOTAL_ALIASES = ['sleep_total', 'sleep_session', 'sleep_duration', 'sleep', 'in_bed'];
+
+export function normalizeWearableMetricType(metricType?: string | null): string | null {
+  const normalized = String(metricType || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return METRIC_TYPE_ALIASES[normalized] || normalized;
+}
+
+function inferWearableMetricType(habit?: WearableBackedHabitLike | null): string | null {
+  if (!habit || !isWearableIntegrationSource(habit.integration_source)) return null;
+  const name = getWearableHabitName(habit).toLowerCase();
+  const category = String(habit.category || '').trim().toLowerCase();
+
+  if (name.includes('sleep') || category.includes('sleep')) {
+    return 'sleep_total';
+  }
+
+  return null;
+}
+
 export function isWearableIntegrationSource(source?: string | null): boolean {
   return WEARABLE_SOURCES.has(String(source || '').trim().toLowerCase());
 }
@@ -204,8 +231,8 @@ export function isWearableBackedHabit(habit?: WearableBackedHabitLike | null): b
 }
 
 export function getWearableMetricType(habit?: WearableBackedHabitLike | null): string | null {
-  const metricType = String(habit?.metric_type || '').trim().toLowerCase();
-  return metricType || null;
+  const metricType = normalizeWearableMetricType(habit?.metric_type);
+  return metricType || inferWearableMetricType(habit);
 }
 
 export function getWearableProviderForHabit(habit?: WearableBackedHabitLike | null): string | null {
@@ -222,18 +249,19 @@ export function getWearableHabitName(habit?: WearableBackedHabitLike | null): st
 }
 
 export function humanizeWearableMetric(metricType?: string | null): string {
-  const normalized = String(metricType || '').trim().toLowerCase();
+  const normalized = normalizeWearableMetricType(metricType);
   if (!normalized) return 'Metric';
   return METRIC_LABELS[normalized] || normalized.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function getWearableMetricCategory(metricType?: string | null): string {
-  const normalized = String(metricType || '').trim().toLowerCase();
+  const normalized = normalizeWearableMetricType(metricType);
+  if (!normalized) return 'Health';
   return METRIC_CATEGORIES[normalized] || 'Health';
 }
 
 export function usesAverageDisplay(metricType?: string | null, unitType?: string | null, habitName?: string | null): boolean {
-  const normalizedMetric = String(metricType || '').trim().toLowerCase();
+  const normalizedMetric = normalizeWearableMetricType(metricType) || '';
   const normalizedUnit = String(unitType || '').trim().toLowerCase();
   const normalizedName = String(habitName || '').trim().toLowerCase();
 
@@ -268,14 +296,26 @@ export function buildWearableDailyRows(
   days: WearableDailyTotal[],
   metricType: string,
 ): WearableDailyRow[] {
+  const normalizedMetricType = normalizeWearableMetricType(metricType) || metricType;
+  const metricKeys = normalizedMetricType === 'sleep_total' ? SLEEP_TOTAL_ALIASES : [normalizedMetricType];
   const rows = days
     .map<WearableDailyRow | null>((day) => {
-      const metric = day.metrics?.[metricType];
+      const metric = metricKeys
+        .map((key) => day.metrics?.[key])
+        .find(Boolean);
       if (!metric || !Number.isFinite(Number(metric.value))) return null;
+      const rawValue = Number(metric.value);
+      const rawUnit = String(metric.unit || '').trim().toLowerCase();
+      const isSleepTotal = normalizedMetricType === 'sleep_total';
+      const value = isSleepTotal && rawUnit === 'minutes'
+        ? rawValue / 60
+        : isSleepTotal && rawUnit === 'seconds'
+          ? rawValue / 3600
+          : rawValue;
       return {
         date: day.date,
-        value: Number(metric.value),
-        unit: metric.unit || null,
+        value,
+        unit: isSleepTotal ? 'Hours' : metric.unit || null,
         aggregation: metric.aggregation || null,
         provider: metric.provider || null,
       };
@@ -335,6 +375,6 @@ export function isDailyWearableTimelineItem(item: Pick<WearableTimelineItem, 'ro
 }
 
 export function shouldSumWearableMetric(metricType?: string | null): boolean {
-  const normalizedMetric = String(metricType || '').trim().toLowerCase();
+  const normalizedMetric = normalizeWearableMetricType(metricType) || '';
   return CUMULATIVE_METRIC_TYPES.has(normalizedMetric);
 }
