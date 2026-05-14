@@ -40,8 +40,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_capture_sidebar');
     if (queryValue === '1') return true;
-    if (queryValue === '0') return false;
-    return window.localStorage.getItem('ritual_capture_sidebar') === '1';
+    return false;
   });
 
   // Show the Tauri window once React has mounted and content is ready
@@ -115,7 +114,6 @@ export function RootProviders({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return;
 
     if (isSidebarCaptureMode) {
-      window.localStorage.setItem('ritual_capture_sidebar', '1');
       document.documentElement.dataset.sidebarCapture = '1';
     } else {
       window.localStorage.removeItem('ritual_capture_sidebar');
@@ -126,12 +124,6 @@ export function RootProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key === 'ritual_capture_sidebar') {
-        setIsSidebarCaptureMode(event.newValue === '1');
-      }
-    };
-
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey && event.altKey && event.shiftKey && event.code === 'KeyB') {
         event.preventDefault();
@@ -139,10 +131,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       }
     };
 
-    window.addEventListener('storage', handleStorage);
     window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('storage', handleStorage);
       window.removeEventListener('keydown', handleKeyDown);
     };
   }, []);
