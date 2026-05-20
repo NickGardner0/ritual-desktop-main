@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'system-ui' | 'geist-sans';
+export type FontOption = 'fk-grotesk' | 'gt-standard' | 'system-ui' | 'geist-sans';
 
 interface FontContextType {
   font: FontOption;
@@ -16,6 +16,7 @@ const FONT_STORAGE_KEY = 'ritual-font-preference';
 
 const fontClasses: Record<FontOption, string> = {
   'fk-grotesk': 'font-sans',
+  'gt-standard': 'font-gt-standard',
   'system-ui': 'font-system-ui',
   'geist-sans': 'font-geist-sans',
 };
@@ -32,7 +33,12 @@ export function FontProvider({ children }: { children: ReactNode }) {
       return 'system-ui';
     }
 
-    if (stored === 'fk-grotesk' || stored === 'system-ui' || stored === 'geist-sans') {
+    if (
+      stored === 'fk-grotesk'
+      || stored === 'gt-standard'
+      || stored === 'system-ui'
+      || stored === 'geist-sans'
+    ) {
       return stored;
     }
 

@@ -179,6 +179,23 @@
     font-display: swap;
   }
 
+  /* GT Standard (M optical size, regular width) */
+  @font-face {
+    font-family: 'GT Standard';
+    src: url('/fonts/gt-standard/GT-Standard-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'GT Standard';
+    src: url('/fonts/gt-standard/GT-Standard-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
   @font-face {
     font-family: 'FK Grotesk Neue';
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
@@ -820,6 +837,7 @@
 /* App font selection - global overrides with high specificity */
 :root {
   --ritual-font-fk: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-gt-standard: 'GT Standard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-geist: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-selected-font-family: var(--ritual-font-fk);
@@ -829,6 +847,13 @@
 .font-sans,
 .font-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
   --ritual-selected-font-family: var(--ritual-font-fk);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* GT Standard */
+.font-gt-standard,
+.font-gt-standard *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+  --ritual-selected-font-family: var(--ritual-font-gt-standard);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
@@ -848,6 +873,7 @@
 
 /* Keep Material Symbols from being clobbered by global font overrides. */
 .font-sans .material-symbols-rounded,
+.font-gt-standard .material-symbols-rounded,
 .font-geist-sans .material-symbols-rounded,
 .font-system-ui .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;
