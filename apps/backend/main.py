@@ -73,6 +73,7 @@ from api.facts import create_facts_router
 from api.financial import create_financial_router
 from api.integrations import create_whoop_router, create_tesla_router
 from api.imports import create_imports_router
+from api.metric_facts import create_metric_facts_router
 from api.reports import create_reports_router
 from api.search import create_search_router
 from api.screen_time import create_screen_time_router
@@ -267,6 +268,11 @@ app.include_router(
 )
 app.include_router(
     create_facts_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_metric_facts_router(
         get_current_user=get_current_user,
     )
 )

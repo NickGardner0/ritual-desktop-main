@@ -374,7 +374,7 @@ export function OverviewView({
     enabled:
       Boolean(user?.id)
       && wearableHabits.length > 0
-      && (shouldFetchWearableDailyTotals || allowWearableDailyTotalsRefresh)
+      && (shouldFetchWearableDailyTotals || (Boolean(dateRange?.from) && allowWearableDailyTotalsRefresh))
       && !isOverviewSnapshotFetching,
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
@@ -387,6 +387,10 @@ export function OverviewView({
       const habitId = habit.id || '';
       const metricType = getWearableMetricType(habit);
       if (!habitId || !metricType) continue;
+      const cachedStats = effectiveCachedStats[habitId];
+      if (!dateRange?.from && cachedStats && Number(cachedStats.days_with_data || 0) > 0) {
+        continue;
+      }
 
       const providerKey = getWearableProviderForHabit(habit) || '__preferred__';
       const dailyRows = buildWearableDailyRows(totalsByProvider[providerKey] || [], metricType);
@@ -414,7 +418,7 @@ export function OverviewView({
     }
 
     return next;
-  }, [wearableDailyTotalsQuery.data, wearableHabits]);
+  }, [dateRange?.from, effectiveCachedStats, wearableDailyTotalsQuery.data, wearableHabits]);
 
   const traceSyncComputation = useCallback(<T,>(
     name: string,

@@ -1,6 +1,7 @@
 """Core API router extracted from main.py (user, habits, calendar, batch logging)."""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
@@ -17,6 +18,10 @@ from models.user_models import OnboardingData, UserProfile
 from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes", "on"}
 
 
 class ScheduledBlockBase(BaseModel):
@@ -238,11 +243,45 @@ def create_core_router(
             if end_date:
                 datetime.strptime(end_date, "%Y-%m-%d")
             await _maybe_force_fresh_read(request)
-            return await habits_service.get_overview_snapshot(
+            if _env_flag("METRIC_FACTS_READS"):
+                from services.metric_facts_service import metric_fact_service
+
+                return await metric_fact_service.get_overview_snapshot(
+                    user_id=current_user["id"],
+                    start_date=start_date,
+                    end_date=end_date,
+                    days_back=3650,
+                )
+            snapshot = await habits_service.get_overview_snapshot(
                 current_user["id"],
                 start_date=start_date,
                 end_date=end_date,
             )
+            if _env_flag("METRIC_FACTS_SHADOW"):
+                try:
+                    from services.metric_facts_service import metric_fact_service
+
+                    fact_snapshot = await metric_fact_service.get_overview_snapshot(
+                        user_id=current_user["id"],
+                        start_date=start_date,
+                        end_date=end_date,
+                        days_back=3650,
+                    )
+                    legacy_stats = snapshot.get("overviewStats") or {}
+                    fact_stats = fact_snapshot.get("overviewStats") or {}
+                    drift_count = 0
+                    for habit_id, legacy in legacy_stats.items():
+                        fact = fact_stats.get(habit_id) or {}
+                        if abs(float((legacy or {}).get("total") or 0) - float(fact.get("total") or 0)) > 0.05:
+                            drift_count += 1
+                    logger.info(
+                        "Metric facts shadow overview computed for user %s; drift_count=%s",
+                        current_user["id"],
+                        drift_count,
+                    )
+                except Exception as exc:
+                    logger.warning("Metric facts shadow overview failed for user %s: %s", current_user["id"], exc)
+            return snapshot
         except ValueError:
             raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
         except HTTPException:

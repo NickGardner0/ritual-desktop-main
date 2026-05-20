@@ -1,6 +1,10 @@
+import pathlib
+import sys
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from services.turso_activity_remote import RemoteActivityRowsResult
 from services.watcher_service_computer_activity import _build_computer_activity_snapshot_impl

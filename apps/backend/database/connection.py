@@ -843,6 +843,57 @@ async def _run_migrations(session):
             """,
         ),
         (
+            "metric_fact_rebuild_runs",
+            """
+            CREATE TABLE IF NOT EXISTS metric_fact_rebuild_runs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                mode TEXT NOT NULL DEFAULT 'dry_run',
+                status TEXT NOT NULL DEFAULT 'running',
+                start_date TEXT,
+                end_date TEXT,
+                source_families_json TEXT,
+                habit_ids_json TEXT,
+                facts_seen INTEGER NOT NULL DEFAULT 0,
+                facts_written INTEGER NOT NULL DEFAULT 0,
+                facts_unchanged INTEGER NOT NULL DEFAULT 0,
+                legacy_fallback_count INTEGER NOT NULL DEFAULT 0,
+                summary_json TEXT,
+                error_json TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                completed_at DATETIME,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """,
+        ),
+        (
+            "metric_daily_facts",
+            """
+            CREATE TABLE IF NOT EXISTS metric_daily_facts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                habit_id TEXT NOT NULL,
+                habit_name TEXT,
+                metric_key TEXT NOT NULL,
+                date TEXT NOT NULL,
+                value REAL NOT NULL DEFAULT 0,
+                unit TEXT NOT NULL DEFAULT 'count',
+                source_family TEXT NOT NULL,
+                provider TEXT,
+                record_count INTEGER NOT NULL DEFAULT 0,
+                provenance_json TEXT,
+                rebuild_run_id TEXT,
+                status TEXT NOT NULL DEFAULT 'complete',
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(habit_id) REFERENCES habits(id) ON DELETE CASCADE,
+                FOREIGN KEY(rebuild_run_id) REFERENCES metric_fact_rebuild_runs(id)
+            )
+            """,
+        ),
+        (
             "wearable_events",
             """
             CREATE TABLE IF NOT EXISTS wearable_events (
@@ -1254,6 +1305,12 @@ async def _run_migrations(session):
         ("idx_wearable_events_user_provider_external", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_provider_external ON wearable_events (user_id, provider, external_id)"),
         ("idx_wearable_events_user_type_date_start", "CREATE INDEX IF NOT EXISTS idx_wearable_events_user_type_date_start ON wearable_events (user_id, event_type, attributed_date, start_time)"),
         ("idx_habit_projection_policies_habit", "CREATE UNIQUE INDEX IF NOT EXISTS idx_habit_projection_policies_habit ON habit_projection_policies (habit_id)"),
+        ("idx_metric_fact_runs_user_created", "CREATE INDEX IF NOT EXISTS idx_metric_fact_runs_user_created ON metric_fact_rebuild_runs (user_id, created_at)"),
+        ("idx_metric_fact_runs_user_status", "CREATE INDEX IF NOT EXISTS idx_metric_fact_runs_user_status ON metric_fact_rebuild_runs (user_id, status)"),
+        ("idx_metric_daily_facts_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_metric_daily_facts_unique ON metric_daily_facts (user_id, habit_id, metric_key, date)"),
+        ("idx_metric_daily_facts_user_date", "CREATE INDEX IF NOT EXISTS idx_metric_daily_facts_user_date ON metric_daily_facts (user_id, date)"),
+        ("idx_metric_daily_facts_user_habit_date", "CREATE INDEX IF NOT EXISTS idx_metric_daily_facts_user_habit_date ON metric_daily_facts (user_id, habit_id, date)"),
+        ("idx_metric_daily_facts_user_metric_date", "CREATE INDEX IF NOT EXISTS idx_metric_daily_facts_user_metric_date ON metric_daily_facts (user_id, metric_key, date)"),
         ("idx_wearable_sync_cursors_unique", "CREATE UNIQUE INDEX IF NOT EXISTS idx_wearable_sync_cursors_unique ON wearable_sync_cursors (connection_id, COALESCE(source_id, ''), cursor_key)"),
         ("idx_wearable_raw_payloads_provider_received", "CREATE INDEX IF NOT EXISTS idx_wearable_raw_payloads_provider_received ON wearable_raw_payloads (provider, received_at)"),
         ("idx_wearable_ingest_jobs_status_created", "CREATE INDEX IF NOT EXISTS idx_wearable_ingest_jobs_status_created ON wearable_ingest_jobs (status, created_at)"),
