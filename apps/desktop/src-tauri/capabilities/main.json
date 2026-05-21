@@ -12,6 +12,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-size",
     "core:window:allow-show",
+    "desktop-shell-bootstrap",
     "desktop-observability",
     "dialog:allow-save",
     "shell:allow-open",

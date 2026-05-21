@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "desktop-shell-bootstrap"
+description = "Allows the local desktop shell to bootstrap the hosted dashboard and report launch diagnostics."
+commands.allow = [
+  "get_desktop_shell_bootstrap_config",
+  "check_desktop_hosted_app_reachable",
+  "desktop_record_shell_event",
+]
