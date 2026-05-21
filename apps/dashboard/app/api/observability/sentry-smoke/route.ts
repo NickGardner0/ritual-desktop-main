@@ -6,13 +6,27 @@ export const dynamic = 'force-dynamic';
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
+function normalizeSmokePayload(rawBody: unknown): Record<string, unknown> {
+  if (typeof rawBody === 'string') {
+    try {
+      const parsed = JSON.parse(rawBody || '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  return rawBody && typeof rawBody === 'object' && !Array.isArray(rawBody) ? (rawBody as Record<string, unknown>) : {};
+}
+
 export async function POST(request: NextRequest) {
   const { userId, getToken } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const rawBody = await request.json().catch(() => ({}));
+  const body = normalizeSmokePayload(rawBody);
   const token = await getToken();
   const response = await fetch(`${BACKEND_URL}/api/observability/sentry-smoke`, {
     method: 'POST',

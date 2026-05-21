@@ -25,6 +25,7 @@ if (SENTRY_DSN) {
     dsn: SENTRY_DSN,
     environment,
     release,
+    enableLogs: true,
 
     // Adjust this value in production, or use tracesSampler for greater control
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
@@ -37,6 +38,13 @@ if (SENTRY_DSN) {
         runtime: 'web',
         surface: 'next-edge',
       },
+    },
+
+    beforeSendLog(log) {
+      if (process.env.NODE_ENV === 'production' && log.level === 'debug') {
+        return null;
+      }
+      return log;
     },
   });
 }

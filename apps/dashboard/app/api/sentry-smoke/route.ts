@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import * as Sentry from '@sentry/nextjs';
+import { sentryStructuredLog } from '@/lib/sentry-structured-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,16 @@ export async function POST(request: NextRequest) {
   if (body.sync_run_id) Sentry.setTag('sync_run_id', String(body.sync_run_id));
   if (body.habit_id) Sentry.setTag('habit_id', String(body.habit_id));
 
+  sentryStructuredLog('info', 'Sentry smoke structured log: next-route', {
+    smoke_test: true,
+    runtime: body.runtime || 'web',
+    surface: body.surface || 'next-route',
+    route: '/api/sentry-smoke',
+    desktop_version: body.desktop_version ? String(body.desktop_version) : undefined,
+    provider: body.provider ? String(body.provider) : undefined,
+    sync_run_id: body.sync_run_id ? String(body.sync_run_id) : undefined,
+    habit_id: body.habit_id ? String(body.habit_id) : undefined,
+  });
   Sentry.captureMessage('Sentry smoke test: next-route', {
     level: 'info',
     tags: {

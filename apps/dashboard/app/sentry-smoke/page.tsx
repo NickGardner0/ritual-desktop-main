@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/nextjs';
 import { useState } from 'react';
 import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import { sentryStructuredLog } from '@/lib/sentry-structured-logger';
 
 type SmokeResult = {
   label: string;
@@ -31,6 +32,13 @@ export default function SentrySmokePage() {
     Sentry.setTag('route', '/sentry-smoke');
     const version = desktopVersion();
     if (version) Sentry.setTag('desktop_version', version);
+    sentryStructuredLog('info', 'Sentry smoke structured log: client', {
+      smoke_test: true,
+      runtime,
+      surface: runtime === 'desktop' ? 'desktop-webview' : 'web-client',
+      route: '/sentry-smoke',
+      desktop_version: version,
+    });
     Sentry.captureMessage(`Sentry smoke test: ${runtime}-client`, {
       level: 'info',
       tags: { smoke_test: 'true' },
@@ -70,8 +78,16 @@ export default function SentrySmokePage() {
       append({ label: 'Native desktop', ok: false, detail: 'Not running inside Tauri desktop runtime' });
       return;
     }
-    await invokeDesktopCommand('desktop_capture_sentry_smoke', {});
-    append({ label: 'Native desktop', ok: true, detail: 'Native Tauri event queued' });
+    try {
+      await invokeDesktopCommand('desktop_capture_sentry_smoke', {});
+      append({ label: 'Native desktop', ok: true, detail: 'Native Tauri event queued' });
+    } catch (error) {
+      append({
+        label: 'Native desktop',
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
 
   const runAll = async () => {

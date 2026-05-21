@@ -10,8 +10,10 @@ from typing import Any, Mapping, Optional
 
 try:
     import sentry_sdk
+    from sentry_sdk import logger as sentry_logger
 except Exception:  # pragma: no cover - local dev may not install sentry
     sentry_sdk = None  # type: ignore[assignment]
+    sentry_logger = None  # type: ignore[assignment]
 
 
 SENSITIVE_QUERY_KEYS = {
@@ -92,3 +94,35 @@ def capture_smoke_message(message: str, **tags: Any) -> None:
         return
     set_domain_tags(smoke_test="true", **tags)
     sentry_sdk.capture_message(message, level="info")
+
+
+def _clean_log_attributes(attributes: Mapping[str, Any]) -> dict[str, str | int | float | bool | None]:
+    clean: dict[str, str | int | float | bool | None] = {}
+    for key, value in attributes.items():
+        normalized_key = str(key).strip()
+        if not normalized_key:
+            continue
+        if value is None or isinstance(value, (bool, int, float)):
+            clean[normalized_key] = value
+        else:
+            clean[normalized_key] = str(value)[:512]
+    return clean
+
+
+def capture_structured_log(level: str, message: str, **attributes: Any) -> None:
+    if sentry_logger is None:
+        return
+    clean_attributes = _clean_log_attributes(attributes)
+    normalized_level = level.strip().lower()
+    log_fn = {
+        "trace": getattr(sentry_logger, "trace", None),
+        "debug": getattr(sentry_logger, "debug", None),
+        "info": getattr(sentry_logger, "info", None),
+        "warning": getattr(sentry_logger, "warning", None),
+        "warn": getattr(sentry_logger, "warning", None),
+        "error": getattr(sentry_logger, "error", None),
+        "fatal": getattr(sentry_logger, "fatal", None),
+    }.get(normalized_level) or getattr(sentry_logger, "info", None)
+    if log_fn is None:
+        return
+    log_fn(message, attributes=clean_attributes)

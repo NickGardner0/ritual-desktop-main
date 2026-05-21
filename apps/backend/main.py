@@ -18,6 +18,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import sentry_sdk
 from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.logging import LoggingIntegration
 
 # Load environment variables FIRST before importing services
 # .env.development overrides .env for local dev (Clerk dev keys, etc.)
@@ -46,8 +47,16 @@ if SENTRY_DSN:
         dsn=SENTRY_DSN,
         environment=SENTRY_ENVIRONMENT,
         release=SENTRY_RELEASE,
+        enable_logs=True,
         traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
-        integrations=[FastApiIntegration(transaction_style="endpoint")],
+        integrations=[
+            FastApiIntegration(transaction_style="endpoint"),
+            LoggingIntegration(
+                sentry_logs_level=logging.INFO,
+                level=logging.INFO,
+                event_level=logging.ERROR,
+            ),
+        ],
     )
     logger.info("Sentry backend monitoring enabled")
     if os.getenv("SENTRY_BACKEND_SMOKE_TEST", "0").lower() in {"1", "true", "yes", "on"}:

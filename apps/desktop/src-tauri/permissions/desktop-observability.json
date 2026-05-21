@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-observability",
+  "description": "Allows the dashboard webview to trigger native desktop observability diagnostics.",
+  "commands": {
+    "allow": [
+      "desktop_capture_sentry_smoke"
+    ]
+  }
+}
