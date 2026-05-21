@@ -121,8 +121,11 @@ const sentryWebpackPluginOptions = {
   org: process.env.SENTRY_ORG || "nick-gardner",
   project: primarySentryProject,
 
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
+  // Sentry CLI is very noisy with Next.js debug-ID uploads because it prints a
+  // warning for every generated JS artifact that does not have an adjacent map.
+  // Keep the upload active and still fail the build on real upload errors, but
+  // suppress successful CLI output in CI/Vercel logs.
+  silent: true,
 
   // For all available options, see:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
@@ -170,18 +173,9 @@ const sentryWebpackPluginOptions = {
 
   // The underlying Sentry bundler plugin supports uploading one build's debug
   // files to multiple projects. Use that instead of a second broad CLI scan of
-  // `.next`, which emits noisy "could not determine a source map reference"
-  // warnings for generated Next.js files without explicit sourceMappingURL
-  // comments.
+  // `.next`.
   unstable_sentryWebpackPluginOptions: {
     project: sentrySourcemapProjects,
-    sourcemaps: {
-      // Next/Sentry already injects debug IDs into uploaded artifacts. The
-      // legacy source-map-reference pass tries to pair every generated JS file
-      // with a map and emits noisy warnings for Next.js chunks that intentionally
-      // have no adjacent source map.
-      sourceMapReference: false,
-    },
   },
 };
 
