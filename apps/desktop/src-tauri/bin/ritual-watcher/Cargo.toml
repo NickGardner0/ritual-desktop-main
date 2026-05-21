@@ -46,6 +46,7 @@ hex = "0.4"
 
 # CLI and logging
 clap = { version = "4.4", features = ["derive"] }
+sentry = "0.36"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

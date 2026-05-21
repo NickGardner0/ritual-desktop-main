@@ -105,8 +105,8 @@ const sentryWebpackPluginOptions = {
   // For all available options, see:
   // https://github.com/getsentry/sentry-webpack-plugin#options
 
-  org: "nick-gardner",
-  project: "javascript-nextjs",
+  org: process.env.SENTRY_ORG || "nick-gardner",
+  project: process.env.SENTRY_SOURCEMAP_PROJECT || process.env.SENTRY_PROJECT || "javascript-nextjs",
 
   // Only print logs for uploading source maps in CI
   silent: !process.env.CI,

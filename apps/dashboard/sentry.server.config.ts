@@ -31,11 +31,10 @@ if (SENTRY_DSN) {
     // Setting this option to true will print useful information to the console while you're setting up Sentry.
     debug: false,
 
-    // Filter out some common errors
+    // Filter out extension/noisy promise errors only. Network/fetch failures are
+    // operational signals for Ritual and should be visible in Sentry.
     ignoreErrors: [
       'Non-Error promise rejection captured',
-      'NetworkError',
-      'Failed to fetch',
     ],
 
     initialScope: {

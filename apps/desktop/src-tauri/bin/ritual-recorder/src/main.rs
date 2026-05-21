@@ -20,6 +20,7 @@ mod metrics;
 mod ocr;
 mod spool;
 mod storage;
+mod sentry_observability;
 mod thumbnail;
 #[cfg(target_os = "macos")]
 mod vision_ffi;
@@ -129,6 +130,7 @@ fn main() {
         )
         .with_target(false)
         .init();
+    let _sentry_guard = sentry_observability::init_sentry("ritual-recorder", "recorder");
 
     // Handle special commands
     if args.list_monitors {
@@ -138,6 +140,7 @@ fn main() {
 
     // Create config from args
     let config = RecorderConfig::from_args(&args);
+    sentry_observability::set_recorder_context(&config.frames_db_path, &config.watcher_db_path);
 
     if args.status {
         show_status(&config);

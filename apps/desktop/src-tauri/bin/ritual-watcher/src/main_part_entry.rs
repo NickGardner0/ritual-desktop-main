@@ -6,11 +6,13 @@ fn main() {
                 .add_directive("ritual_watcher=info".parse().unwrap()),
         )
         .init();
+    let _sentry_guard = sentry_observability::init_sentry("ritual-watcher", "watcher");
 
     #[cfg(target_os = "macos")]
     configure_process_as_background_agent();
 
     let args = Args::parse();
+    sentry_observability::set_watcher_context(&args.user_id, &args.device_id);
 
     info!("🚀 Ritual Watcher v2 starting...");
     info!("   Device ID: {}", args.device_id);

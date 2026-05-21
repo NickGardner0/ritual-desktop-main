@@ -111,6 +111,28 @@ function installDesktopPerformanceDebugging(currentRuntime: 'desktop' | 'web', e
   }
 }
 
+function getEventText(event: Sentry.Event): string {
+  const exceptionText = event.exception?.values
+    ?.map((value) => `${value.type || ''} ${value.value || ''}`)
+    .join(' ');
+  return [
+    event.message,
+    exceptionText,
+    event.request?.url,
+  ].filter(Boolean).join(' ');
+}
+
+function isKnownNetworkNoise(event: Sentry.Event): boolean {
+  const text = getEventText(event);
+  return (
+    /AbortError/i.test(text)
+    || /The operation was aborted/i.test(text)
+    || /cancelled/i.test(text)
+    || /chrome-extension:\/\//i.test(text)
+    || /moz-extension:\/\//i.test(text)
+  );
+}
+
 const runtime = isDesktopRuntime() ? 'desktop' : 'web';
 const forceDesktopPerfSampling =
   runtime === 'desktop' &&
@@ -173,17 +195,19 @@ if (SENTRY_DSN) {
       },
     },
 
-    // Filter out some common errors
+    // Filter out some common errors. Do not globally suppress fetch/network
+    // failures; those often indicate real Railway/Vercel/backend availability
+    // regressions for Ritual.
     ignoreErrors: [
       // Browser extensions
       'Non-Error promise rejection captured',
       'ChunkLoadError',
-      // Network errors
-      'NetworkError',
-      'Failed to fetch',
     ],
 
     beforeSend(event) {
+      if (isKnownNetworkNoise(event)) {
+        return null;
+      }
       // Avoid console.error here — Next.js dev overlay treats it as a runtime error.
       // Opt-in: NEXT_PUBLIC_SENTRY_DEBUG=1
       if (

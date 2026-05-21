@@ -74,6 +74,7 @@ from api.financial import create_financial_router
 from api.integrations import create_whoop_router, create_tesla_router
 from api.imports import create_imports_router
 from api.metric_facts import create_metric_facts_router
+from api.observability import create_observability_router
 from api.reports import create_reports_router
 from api.search import create_search_router
 from api.screen_time import create_screen_time_router
@@ -85,9 +86,27 @@ from database.connection import (
     get_db_session,
     get_database_runtime_health,
 )
+from services.sentry_observability import set_domain_tags, set_request_context, set_user_context
 from sqlalchemy import text
 
 app = FastAPI(title="Ritual Backend API", version="1.0.0")
+
+
+@app.middleware("http")
+async def sentry_request_context_middleware(request: Request, call_next):
+    route_name = None
+    try:
+        route = request.scope.get("route")
+        route_name = getattr(route, "path", None)
+    except Exception:
+        route_name = None
+    set_request_context(
+        path=request.url.path,
+        method=request.method,
+        route_name=route_name,
+        query=dict(request.query_params),
+    )
+    return await call_next(request)
 STARTUP_MAINTENANCE_DELAY_SECONDS = float(
     os.getenv("STARTUP_MAINTENANCE_DELAY_SECONDS", "15")
 )
@@ -176,19 +195,22 @@ async def get_current_user(
         user_profile = await user_service.get_user_profile(internal_user_id)
         if not user_profile:
             raise HTTPException(status_code=401, detail="User not found")
-        return {
+        user = {
             "id": internal_user_id,
             "email": getattr(user_profile, "email", None),
             "phone": getattr(user_profile, "phone_number", None),
             "name": getattr(user_profile, "full_name", None),
             "metadata": {},
         }
+        set_user_context(user, auth_surface="internal-service")
+        return user
 
     # ── Standard Clerk JWT auth ──────────────────────────────────────
     try:
         user = await auth_service.get_user_from_token(token)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid authentication token")
+        set_user_context(user, auth_surface="clerk")
         return user
     except HTTPException:
         raise
@@ -273,6 +295,11 @@ app.include_router(
 )
 app.include_router(
     create_metric_facts_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_observability_router(
         get_current_user=get_current_user,
     )
 )
@@ -397,6 +424,13 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
     if not user or user.get("id") != user_id:
         await websocket.close(code=1008, reason="Invalid authentication token")
         return
+    set_user_context(user, auth_surface="clerk-websocket")
+    set_domain_tags(
+        runtime="backend",
+        surface="fastapi-websocket",
+        route="/ws/{user_id}",
+        user_id=user_id,
+    )
 
     await websocket_manager.connect(websocket, user_id)
     try:

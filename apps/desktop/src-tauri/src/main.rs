@@ -1337,6 +1337,7 @@ fn main() {
       get_desktop_shell_bootstrap_config,
       check_desktop_hosted_app_reachable,
       desktop_observability::desktop_record_shell_event,
+      desktop_observability::desktop_capture_sentry_smoke,
       // Desktop runtime / updater commands
       desktop_runtime::get_desktop_runtime_info,
       desktop_runtime::get_desktop_runtime_state,
