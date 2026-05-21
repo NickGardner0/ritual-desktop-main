@@ -230,7 +230,7 @@ export default function CommandPalette({
   // FALLBACK RESULTS
   // ================================
   
-  const getFallbackResults = (q: string): SearchResults => {
+  const getLocalQuickActions = (q: string): QuickAction[] => {
     const actions: QuickAction[] = [
       { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
       { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
@@ -252,6 +252,12 @@ export default function CommandPalette({
         a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
       );
     }
+
+    return filteredActions;
+  };
+
+  const getFallbackResults = (q: string): SearchResults => {
+    const filteredActions = getLocalQuickActions(q);
     
     return {
       query: q,
@@ -269,7 +275,10 @@ export default function CommandPalette({
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();
-    const actions: QuickAction[] = [...(results?.quick_actions || [])];
+    const actions: QuickAction[] = [
+      ...getLocalQuickActions(trimmedQuery),
+      ...(results?.quick_actions || []),
+    ];
     const topHabit = results?.habits?.hits?.[0];
 
     if (trimmedQuery) {
