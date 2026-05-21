@@ -175,6 +175,13 @@ const sentryWebpackPluginOptions = {
   // comments.
   unstable_sentryWebpackPluginOptions: {
     project: sentrySourcemapProjects,
+    sourcemaps: {
+      // Next/Sentry already injects debug IDs into uploaded artifacts. The
+      // legacy source-map-reference pass tries to pair every generated JS file
+      // with a map and emits noisy warnings for Next.js chunks that intentionally
+      // have no adjacent source map.
+      sourceMapReference: false,
+    },
   },
 };
 
