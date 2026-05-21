@@ -14,6 +14,19 @@ const corsAllowOrigin =
   process.env.NEXT_PUBLIC_APP_ORIGIN ||
   'tauri://localhost';
 
+const primarySentryProject =
+  process.env.SENTRY_SOURCEMAP_PROJECT ||
+  process.env.SENTRY_PROJECT ||
+  'javascript-nextjs';
+
+const sentrySourcemapProjects = [
+  primarySentryProject,
+  ...(process.env.SENTRY_ADDITIONAL_SOURCEMAP_PROJECTS || '')
+    .split(',')
+    .map((project) => project.trim())
+    .filter(Boolean),
+].filter((project, index, projects) => projects.indexOf(project) === index);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable strict mode for better development experience and catching potential issues
@@ -106,7 +119,7 @@ const sentryWebpackPluginOptions = {
   // https://github.com/getsentry/sentry-webpack-plugin#options
 
   org: process.env.SENTRY_ORG || "nick-gardner",
-  project: process.env.SENTRY_SOURCEMAP_PROJECT || process.env.SENTRY_PROJECT || "javascript-nextjs",
+  project: primarySentryProject,
 
   // Only print logs for uploading source maps in CI
   silent: !process.env.CI,
@@ -138,6 +151,15 @@ const sentryWebpackPluginOptions = {
   // https://docs.sentry.io/product/crons/
   // https://vercel.com/docs/cron-jobs
   automaticVercelMonitors: true,
+
+  // The underlying Sentry bundler plugin supports uploading one build's debug
+  // files to multiple projects. Use that instead of a second broad CLI scan of
+  // `.next`, which emits noisy "could not determine a source map reference"
+  // warnings for generated Next.js files without explicit sourceMappingURL
+  // comments.
+  unstable_sentryWebpackPluginOptions: {
+    project: sentrySourcemapProjects,
+  },
 };
 
 // Skip Sentry build plugin in development — it adds compilation overhead

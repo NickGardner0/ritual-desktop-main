@@ -23,7 +23,7 @@
     "contracts:typecheck": "npm run --workspace @ritual/shared-contracts typecheck",
     "dev:webpack": "npm run build:chat-runtime && cd apps/dashboard && next dev -p 3000",
     "dev:chat-api": "npm run --workspace @ritual/chat-api dev",
-    "build": "npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack && cd ../.. && node scripts/upload-dashboard-sourcemaps-extra-projects.mjs && node scripts/normalize-next-proxy-output.mjs",
+    "build": "npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack && cd ../.. && node scripts/normalize-next-proxy-output.mjs",
     "build:chat-api": "npm run --workspace @ritual/chat-api build",
     "start": "cd apps/dashboard && next start -p 3000",
     "start:chat-api": "npm run --workspace @ritual/chat-api start",
