@@ -241,6 +241,7 @@ export default function CommandPalette({
       { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
       { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
       { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+      { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
     ];
     
     let filteredActions = actions;
