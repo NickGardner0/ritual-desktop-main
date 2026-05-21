@@ -130,6 +130,22 @@ const sentryWebpackPluginOptions = {
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
 
+  sourcemaps: {
+    ignore: [
+      // Preserve the Sentry/Next defaults when overriding the ignore list.
+      '**/static/chunks/main-*',
+      '**/static/chunks/framework-*',
+      '**/static/chunks/framework.*',
+      '**/static/chunks/polyfills-*',
+      '**/static/chunks/webpack-*',
+      // Next.js emits generated UUID-named chunks and client reference
+      // manifests without adjacent source maps. They do not improve stack
+      // trace quality and make Vercel logs noisy during Sentry uploads.
+      '**/????????-????-????-????-????????????-*.js',
+      '**/*_client-reference-manifest.js',
+    ],
+  },
+
   reactComponentAnnotation: {
     enabled: process.env.NODE_ENV === 'production',
   },
