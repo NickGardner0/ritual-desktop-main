@@ -266,13 +266,14 @@ fn handle_desktop_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, r
     if trimmed.is_empty() {
         return;
     }
+    let redacted_payload = desktop_observability::redact_sensitive_url_for_log(&trimmed);
 
     if !is_supported_desktop_deep_link(&trimmed) {
-        warn!(payload = %trimmed, "Ignoring unsupported deep link payload");
+        warn!(payload = %redacted_payload, "Ignoring unsupported deep link payload");
         return;
     }
 
-    info!(payload = %trimmed, "Desktop deep link received");
+    info!(payload = %redacted_payload, "Desktop deep link received");
     focus_main_window(app);
     desktop_runtime::emit_auth_deep_link(app, trimmed);
 }

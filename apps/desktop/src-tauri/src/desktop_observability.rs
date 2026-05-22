@@ -1,5 +1,5 @@
 use once_cell::sync::OnceCell;
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -68,7 +68,11 @@ fn env_or_build_time(name: &str, build_time: Option<&'static str>) -> Option<Str
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .or_else(|| build_time.map(str::to_string).filter(|value| !value.is_empty()))
+        .or_else(|| {
+            build_time
+                .map(str::to_string)
+                .filter(|value| !value.is_empty())
+        })
 }
 
 fn desktop_environment() -> String {
@@ -94,7 +98,12 @@ fn native_sentry_dsn() -> Option<String> {
         "SENTRY_DESKTOP_NATIVE_DSN",
         option_env!("SENTRY_DESKTOP_NATIVE_DSN"),
     )
-    .or_else(|| env_or_build_time("NEXT_PUBLIC_SENTRY_DESKTOP_DSN", option_env!("NEXT_PUBLIC_SENTRY_DESKTOP_DSN")))
+    .or_else(|| {
+        env_or_build_time(
+            "NEXT_PUBLIC_SENTRY_DESKTOP_DSN",
+            option_env!("NEXT_PUBLIC_SENTRY_DESKTOP_DSN"),
+        )
+    })
     .or_else(|| env_or_build_time("SENTRY_DSN", option_env!("SENTRY_DSN")))
 }
 
@@ -137,6 +146,7 @@ fn init_native_sentry() -> bool {
 
 fn payload_to_log_string(payload: Option<Value>) -> String {
     let serialized = payload
+        .map(redact_sensitive_json)
         .and_then(|value| serde_json::to_string(&value).ok())
         .unwrap_or_else(|| "null".to_string());
 
@@ -146,6 +156,133 @@ fn payload_to_log_string(payload: Option<Value>) -> String {
     } else {
         serialized
     }
+}
+
+fn normalized_key(key: &str) -> String {
+    key.chars()
+        .filter(|character| *character != '_' && *character != '-')
+        .flat_map(|character| character.to_lowercase())
+        .collect()
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = normalized_key(key);
+    key.contains("token")
+        || key.contains("secret")
+        || key.contains("password")
+        || key.contains("cookie")
+        || key == "auth"
+        || key == "authorization"
+        || key == "ticket"
+        || key == "code"
+        || key == "state"
+        || key == "session"
+        || key == "rawurl"
+}
+
+fn is_sensitive_query_key(key: &str) -> bool {
+    let key = normalized_key(key);
+    key.contains("token")
+        || key.contains("secret")
+        || key.contains("password")
+        || key.contains("cookie")
+        || key == "auth"
+        || key == "authorization"
+        || key == "ticket"
+        || key == "code"
+        || key == "state"
+        || key == "session"
+        || key == "jwt"
+}
+
+fn looks_like_secret_value(value: &str) -> bool {
+    let trimmed = value.trim();
+    let token_like = trimmed
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || "-_=.:/+".contains(character));
+    let jwt_like = trimmed.len() > 80 && trimmed.matches('.').count() == 2;
+    let long_opaque_value = trimmed.len() > 120 && token_like;
+    jwt_like || long_opaque_value
+}
+
+pub(crate) fn redact_sensitive_url_for_log(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return value.to_string();
+    }
+
+    let Some(query_start) = trimmed.find('?') else {
+        return if looks_like_secret_value(trimmed) {
+            "[redacted]".to_string()
+        } else {
+            value.to_string()
+        };
+    };
+
+    let (prefix, query_and_fragment) = trimmed.split_at(query_start + 1);
+    let (query, fragment) = match query_and_fragment.find('#') {
+        Some(fragment_start) => query_and_fragment.split_at(fragment_start),
+        None => (query_and_fragment, ""),
+    };
+    let redacted_query = query
+        .split('&')
+        .map(|part| {
+            let Some((key, value)) = part.split_once('=') else {
+                return if is_sensitive_query_key(part) {
+                    format!("{part}=[redacted]")
+                } else {
+                    part.to_string()
+                };
+            };
+            if is_sensitive_query_key(key) || looks_like_secret_value(value) {
+                format!("{key}=[redacted]")
+            } else {
+                part.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+
+    format!("{prefix}{redacted_query}{fragment}")
+}
+
+fn redact_sensitive_string_for_key(key: Option<&str>, value: &str) -> String {
+    if let Some(key) = key {
+        if is_sensitive_key(key) {
+            if value.contains('?') {
+                return redact_sensitive_url_for_log(value);
+            }
+            return "[redacted]".to_string();
+        }
+    }
+    redact_sensitive_url_for_log(value)
+}
+
+fn redact_sensitive_json_value(key: Option<&str>, value: Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut redacted = Map::new();
+            for (child_key, child_value) in map {
+                redacted.insert(
+                    child_key.clone(),
+                    redact_sensitive_json_value(Some(&child_key), child_value),
+                );
+            }
+            Value::Object(redacted)
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(|item| redact_sensitive_json_value(None, item))
+                .collect(),
+        ),
+        Value::String(text) => Value::String(redact_sensitive_string_for_key(key, &text)),
+        other => other,
+    }
+}
+
+fn redact_sensitive_json(value: Value) -> Value {
+    redact_sensitive_json_value(None, value)
 }
 
 #[tauri::command]
@@ -168,11 +305,17 @@ pub fn desktop_record_shell_event(
     {
         "error" => {
             error!(event = event_name, payload = %payload, "desktop.shell");
-            sentry::capture_message(&format!("Desktop shell event: {event_name}"), sentry::Level::Error);
+            sentry::capture_message(
+                &format!("Desktop shell event: {event_name}"),
+                sentry::Level::Error,
+            );
         }
         "warn" | "warning" => {
             warn!(event = event_name, payload = %payload, "desktop.shell");
-            sentry::capture_message(&format!("Desktop shell event: {event_name}"), sentry::Level::Warning);
+            sentry::capture_message(
+                &format!("Desktop shell event: {event_name}"),
+                sentry::Level::Warning,
+            );
         }
         _ => info!(event = event_name, payload = %payload, "desktop.shell"),
     }
@@ -183,7 +326,10 @@ pub fn desktop_record_shell_event(
 #[tauri::command]
 pub fn desktop_capture_sentry_smoke() -> Result<(), String> {
     if !init_native_sentry() {
-        return Err("Native desktop Sentry is disabled; no SENTRY_DESKTOP_NATIVE_DSN configured".to_string());
+        return Err(
+            "Native desktop Sentry is disabled; no SENTRY_DESKTOP_NATIVE_DSN configured"
+                .to_string(),
+        );
     }
     sentry::configure_scope(|scope| {
         scope.set_tag("runtime", "desktop_native");
@@ -196,4 +342,56 @@ pub fn desktop_capture_sentry_smoke() -> Result<(), String> {
         client.flush(Some(Duration::from_secs(2)));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn redacts_sensitive_auth_query_params_in_payloads() {
+        let payload = json!({
+            "nextPath": "/auth/callback?ticket=secret-ticket&mode=sign-in",
+            "rawUrl": "ritual://auth/callback?ticket=secret-ticket&code=abc&state=xyz",
+            "backendBase": "https://api.ritual.local",
+        });
+
+        let logged = payload_to_log_string(Some(payload));
+
+        assert!(logged.contains("/auth/callback?ticket=[redacted]&mode=sign-in"));
+        assert!(logged
+            .contains("ritual://auth/callback?ticket=[redacted]&code=[redacted]&state=[redacted]"));
+        assert!(logged.contains("https://api.ritual.local"));
+        assert!(!logged.contains("secret-ticket"));
+        assert!(!logged.contains("\"code\":\"abc\""));
+        assert!(!logged.contains("\"state\":\"xyz\""));
+    }
+
+    #[test]
+    fn redacts_sensitive_nested_values_and_preserves_operational_fields() {
+        let payload = json!({
+            "desktop_version": "0.1.60",
+            "authToken": "token-value",
+            "nested": {
+                "headers": {
+                    "authorization": "Bearer hidden"
+                },
+                "items": [
+                    {
+                        "refresh_token": "refresh-hidden",
+                        "route": "/dashboard?tab=overview"
+                    }
+                ]
+            }
+        });
+
+        let logged = payload_to_log_string(Some(payload));
+
+        assert!(logged.contains("\"desktop_version\":\"0.1.60\""));
+        assert!(logged.contains("\"route\":\"/dashboard?tab=overview\""));
+        assert!(!logged.contains("token-value"));
+        assert!(!logged.contains("Bearer hidden"));
+        assert!(!logged.contains("refresh-hidden"));
+    }
 }

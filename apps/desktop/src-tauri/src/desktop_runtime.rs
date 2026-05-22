@@ -10,6 +10,8 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 use tracing::{info, instrument, warn};
 
+use crate::desktop_observability::redact_sensitive_url_for_log;
+
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
     "native-updater-v1",
@@ -247,7 +249,8 @@ fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: Strin
 
 pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
     if frontend_is_ready(app) {
-        info!(deep_link = %deep_link, "Emitting desktop auth deep link to frontend");
+        let redacted_deep_link = redact_sensitive_url_for_log(&deep_link);
+        info!(deep_link = %redacted_deep_link, "Emitting desktop auth deep link to frontend");
         let _ = app.emit(AUTH_DEEP_LINK_EVENT, deep_link);
         return;
     }
@@ -262,7 +265,8 @@ pub fn flush_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
     }
 
     if let Some(pending) = take_pending_auth_deep_link(app) {
-        info!(deep_link = %pending, "Flushing queued desktop auth deep link");
+        let redacted_deep_link = redact_sensitive_url_for_log(&pending);
+        info!(deep_link = %redacted_deep_link, "Flushing queued desktop auth deep link");
         let _ = app.emit(AUTH_DEEP_LINK_EVENT, pending);
     }
 }
