@@ -196,6 +196,15 @@ fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
     *in_progress = false;
 }
 
+fn is_frontend_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
+    let state = app.state::<DesktopShellState>();
+    let frontend_ready = state
+        .frontend_ready
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *frontend_ready
+}
+
 fn set_pending_update<R: Runtime + 'static>(
     app: &AppHandle<R>,
     update: Option<PendingUpdateManifest>,
@@ -532,10 +541,26 @@ async fn run_update_check<R: Runtime + 'static>(
 
         match origin {
             UpdateCheckOrigin::Startup => {
-                log::info!(
-                    "[DESKTOP_RUNTIME] update {} pending; branded frontend prompt will handle install",
-                    manifest.version
-                );
+                if is_frontend_ready(&app) {
+                    log::info!(
+                        "[DESKTOP_RUNTIME] update {} pending; branded frontend prompt will handle install",
+                        manifest.version
+                    );
+                } else {
+                    log::info!(
+                        "[DESKTOP_RUNTIME] update {} pending before frontend readiness; showing native install prompt",
+                        manifest.version
+                    );
+                    if prompt_for_native_install(
+                        app.clone(),
+                        manifest.version.clone(),
+                        manifest.body.clone(),
+                    )
+                    .await?
+                    {
+                        install_latest_update(app.clone()).await?;
+                    }
+                }
             }
             UpdateCheckOrigin::Tray => {
                 if prompt_for_native_install(

@@ -37,6 +37,7 @@
     "core:window:allow-unminimize",
     "desktop-shell-bootstrap",
     "desktop-observability",
+    "desktop-runtime",
     "deep-link:default",
     "dialog:default",
     "shell:allow-open",
