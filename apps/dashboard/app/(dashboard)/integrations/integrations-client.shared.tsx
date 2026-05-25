@@ -133,14 +133,19 @@ export function formatRecordCount(count: number, singular: string, plural = `${s
 export function buildWhoopSyncFeedbackMessage(
   counts: { recovery?: number; sleep?: number; workouts?: number },
   syncLabel: string,
+  freshness?: { latest_upstream_sleep_date?: string | null; latest_sleep_date?: string | null },
 ): string {
   const recovery = Number(counts.recovery || 0);
   const sleep = Number(counts.sleep || 0);
   const workouts = Number(counts.workouts || 0);
   const total = recovery + sleep + workouts;
+  const latestSleepDate = freshness?.latest_sleep_date || freshness?.latest_upstream_sleep_date || null;
+  const freshnessSuffix = latestSleepDate
+    ? ` Latest Whoop sleep imported: ${latestSleepDate}.`
+    : '';
 
   if (total <= 0) {
-    return `Sync completed for ${syncLabel}. No new Whoop records were found.`;
+    return `Sync completed for ${syncLabel}. No new Whoop records were found.${freshnessSuffix}`;
   }
 
   const parts = [
@@ -149,7 +154,7 @@ export function buildWhoopSyncFeedbackMessage(
     formatRecordCount(workouts, 'workout record'),
   ].filter(Boolean);
 
-  return `Synced ${parts.join(', ')} from ${syncLabel}. Dashboard data refreshed.`;
+  return `Synced ${parts.join(', ')} from ${syncLabel}. Dashboard data refreshed.${freshnessSuffix}`;
 }
 
 export function isLikelyReactEvent(value: unknown): boolean {

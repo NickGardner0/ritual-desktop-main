@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 # Keep this configurable, but default to 15 minutes for analytics rollups.
 MAX_SINGLE_EVENT_MS = max(60_000, int(os.getenv("WATCHER_MAX_SINGLE_EVENT_MS", "900000")))
 RAW_EVENT_FALLBACK_MAX_DAYS = max(1, int(os.getenv("WATCHER_RAW_EVENT_FALLBACK_MAX_DAYS", "45")))
+REMOTE_AGGREGATE_TIMEOUT_SECONDS = max(
+    0.5,
+    float(os.getenv("WATCHER_REMOTE_AGGREGATE_TIMEOUT_SECONDS", "8")),
+)
+REMOTE_RAW_READ_TIMEOUT_SECONDS = max(
+    0.5,
+    float(os.getenv("WATCHER_REMOTE_RAW_READ_TIMEOUT_SECONDS", "6")),
+)
 
 
 def _resolve_activity_user_ids(target_user_id: str) -> List[str]:
@@ -1040,39 +1048,96 @@ async def _build_computer_activity_snapshot_impl(
         device_clause = " AND device_id = ?"
         params.append(device_id)
 
-    aggregate_snapshot = await _fetch_remote_activity_sql_aggregate_snapshot_impl(
-        user_id=user_id,
-        activity_user_ids=activity_user_ids,
-        start_ms=start_ms,
-        end_ms=end_ms,
-        limit=limit,
-        device_id=device_id,
-    )
+    aggregate_timed_out = False
+    try:
+        aggregate_snapshot = await asyncio.wait_for(
+            _fetch_remote_activity_sql_aggregate_snapshot_impl(
+                user_id=user_id,
+                activity_user_ids=activity_user_ids,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                limit=limit,
+                device_id=device_id,
+            ),
+            timeout=REMOTE_AGGREGATE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        aggregate_timed_out = True
+        aggregate_snapshot = None
+        logger.warning(
+            "Remote computer activity aggregate timed out after %.1fs for user=%s range=%s..%s",
+            REMOTE_AGGREGATE_TIMEOUT_SECONDS,
+            user_id,
+            start_date,
+            end_date,
+        )
     if aggregate_snapshot:
         return aggregate_snapshot
 
-    remote_result = None
-    if range_days <= RAW_EVENT_FALLBACK_MAX_DAYS:
-        remote_result = await fetch_remote_activity_rows(
-            user_id,
-            f"""
-            SELECT
-                ts_start,
-                ts_end,
-                COALESCE(is_afk, 0) AS is_afk,
-                COALESCE(app_bundle_id, '') AS app_bundle_id,
-                COALESCE(app_name, '') AS app_name,
-                COALESCE(browser_domain, '') AS browser_domain
-            FROM activity_events
-            WHERE ts_start < ? AND ts_end > ?
-              AND user_id IN ({user_placeholders})
-              AND ts_end > ts_start
-              {device_clause}
-            ORDER BY ts_start ASC
-            """,
-            params,
+    if aggregate_timed_out:
+        local_rows = _fetch_local_activity_event_rows_impl(
+            start_ms=start_ms,
+            end_ms=end_ms,
+            user_ids=activity_user_ids,
+            device_id=device_id,
         )
-        if remote_result.rows:
+        if local_rows:
+            snapshot = _build_snapshot_from_event_rows_impl(
+                local_rows,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source="legacy_fallback",
+                limit=limit,
+            )
+            snapshot["state"] = "legacy_fallback"
+            return snapshot
+
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="remote_activity_aggregate_timeout",
+            )
+
+    remote_result = None
+    raw_timed_out = False
+    if range_days <= RAW_EVENT_FALLBACK_MAX_DAYS:
+        try:
+            remote_result = await asyncio.wait_for(
+                fetch_remote_activity_rows(
+                    user_id,
+                    f"""
+                    SELECT
+                        ts_start,
+                        ts_end,
+                        COALESCE(is_afk, 0) AS is_afk,
+                        COALESCE(app_bundle_id, '') AS app_bundle_id,
+                        COALESCE(app_name, '') AS app_name,
+                        COALESCE(browser_domain, '') AS browser_domain
+                    FROM activity_events
+                    WHERE ts_start < ? AND ts_end > ?
+                      AND user_id IN ({user_placeholders})
+                      AND ts_end > ts_start
+                      {device_clause}
+                    ORDER BY ts_start ASC
+                    """,
+                    params,
+                ),
+                timeout=REMOTE_RAW_READ_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            raw_timed_out = True
+            logger.warning(
+                "Remote computer activity raw fallback timed out after %.1fs for user=%s range=%s..%s",
+                REMOTE_RAW_READ_TIMEOUT_SECONDS,
+                user_id,
+                start_date,
+                end_date,
+            )
+        if remote_result is not None and remote_result.rows:
             return _build_snapshot_from_event_rows_impl(
                 remote_result.rows,
                 start_ms=start_ms,
@@ -1108,6 +1173,16 @@ async def _build_computer_activity_snapshot_impl(
             source="sync_pending",
             empty_reason=remote_result.error or "remote_activity_unhydrated",
         )
+    if raw_timed_out:
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="remote_activity_raw_timeout",
+            )
     if remote_result is None:
         try:
             access = await turso_user_service.get_user_activity_access(user_id)

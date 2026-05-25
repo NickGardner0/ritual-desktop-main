@@ -33,6 +33,36 @@ class WhoopApiClient:
     def __init__(self, *, api_base: str) -> None:
         self.api_base = api_base
 
+    @staticmethod
+    def _cycle_debug_fields(cycle: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": cycle.get("id") or cycle.get("cycle_id"),
+            "start": cycle.get("start"),
+            "end": cycle.get("end"),
+            "timezone_offset": cycle.get("timezone_offset"),
+            "score_state": cycle.get("score_state"),
+        }
+
+    @staticmethod
+    def _sleep_debug_fields(record: Dict[str, Any]) -> Dict[str, Any]:
+        score = record.get("score") or {}
+        stage_summary = score.get("stage_summary") or {}
+        total_ms = (
+            stage_summary.get("total_rem_sleep_time_milli", 0)
+            + stage_summary.get("total_slow_wave_sleep_time_milli", 0)
+            + stage_summary.get("total_light_sleep_time_milli", 0)
+        )
+        return {
+            "id": record.get("id"),
+            "cycle_id": record.get("cycle_id"),
+            "start": record.get("start"),
+            "end": record.get("end"),
+            "date": str(record.get("end") or record.get("start") or "")[:10] or None,
+            "score_state": record.get("score_state"),
+            "nap": record.get("nap"),
+            "duration_hours": round(total_ms / 3600000, 2),
+        }
+
     async def request_with_retry(
         self,
         client: httpx.AsyncClient,
@@ -172,21 +202,17 @@ class WhoopApiClient:
 
         logger.info("Fetched %s Whoop sleep records from v2 API", len(sleep_data["records"]))
         for record in sleep_data.get("records", []):
-            sleep_start = record.get("start", "N/A")
-            sleep_end = record.get("end", "N/A")
-            sleep_date = sleep_start[:10] if sleep_start != "N/A" else "N/A"
-            stage_summary = record.get("score", {}).get("stage_summary", {})
-            total_ms = (
-                stage_summary.get("total_rem_sleep_time_milli", 0)
-                + stage_summary.get("total_slow_wave_sleep_time_milli", 0)
-                + stage_summary.get("total_light_sleep_time_milli", 0)
-            )
+            fields = self._sleep_debug_fields(record)
             logger.info(
-                "Whoop sleep: date=%s, start=%s, end=%s, duration=%sh",
-                sleep_date,
-                sleep_start,
-                sleep_end,
-                round(total_ms / 3600000, 2),
+                "Whoop sleep record fetched: id=%s cycle_id=%s date=%s start=%s end=%s score_state=%s nap=%s duration=%sh",
+                fields["id"],
+                fields["cycle_id"],
+                fields["date"],
+                fields["start"],
+                fields["end"],
+                fields["score_state"],
+                fields["nap"],
+                fields["duration_hours"],
             )
 
         return sleep_data
@@ -238,6 +264,16 @@ class WhoopApiClient:
             if cycle_data:
                 synced_data["cycles"] = len(cycle_data.get("records", []))
                 logger.info("Synced %s Whoop cycle records", synced_data["cycles"])
+                for cycle in cycle_data.get("records", []):
+                    fields = self._cycle_debug_fields(cycle)
+                    logger.info(
+                        "Whoop cycle fetched: id=%s start=%s end=%s timezone_offset=%s score_state=%s",
+                        fields["id"],
+                        fields["start"],
+                        fields["end"],
+                        fields["timezone_offset"],
+                        fields["score_state"],
+                    )
 
             sleep_data = await self._fetch_sleep_for_cycles(
                 client=client,

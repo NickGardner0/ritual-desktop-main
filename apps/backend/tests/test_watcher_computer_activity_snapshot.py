@@ -1,3 +1,4 @@
+import asyncio
 import pathlib
 import sys
 import unittest
@@ -59,6 +60,38 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["summary"]["total_active_ms"], 3_600_000)
         self.assertEqual(snapshot["summary"]["total_hours"], 1.0)
         self.assertFalse(any("project_time_daily_rollups" in sql for sql in calls))
+
+    async def test_remote_activity_timeout_returns_fast_sync_pending_snapshot(self):
+        async def slow_fetch_remote_activity_rows(user_id, sql, args=None):
+            await asyncio.sleep(0.05)
+            return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
+
+        with patch(
+            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            new=slow_fetch_remote_activity_rows,
+        ), patch(
+            "services.watcher_service_computer_activity.REMOTE_AGGREGATE_TIMEOUT_SECONDS",
+            0.01,
+        ), patch(
+            "services.watcher_service_computer_activity._fetch_local_activity_event_rows_impl",
+            return_value=[],
+        ), patch(
+            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            return_value="user-1",
+        ), patch(
+            "services.watcher_service_computer_activity.turso_user_service.get_user_activity_access",
+            new=AsyncMock(return_value=SimpleNamespace(use_per_user_db=True)),
+        ):
+            snapshot = await _build_computer_activity_snapshot_impl(
+                SimpleNamespace(),
+                user_id="user-1",
+                start_date="2026-05-01",
+                end_date="2026-05-01",
+            )
+
+        self.assertEqual(snapshot["source"], "sync_pending")
+        self.assertEqual(snapshot["empty_reason"], "remote_activity_aggregate_timeout")
+        self.assertTrue(snapshot["sync_pending"])
 
 
 if __name__ == "__main__":

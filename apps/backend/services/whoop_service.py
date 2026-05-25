@@ -35,7 +35,7 @@ class WhoopService:
     WHOOP_RECOVERY_HABIT_NAMES = {"recovery score", "recovery", "whoop recovery"}
     WHOOP_WORKOUT_HABIT_NAMES = {"daily strain", "strain", "whoop strain"}
     DEFAULT_INITIAL_SYNC_DAYS = int(os.getenv("WHOOP_INITIAL_SYNC_DAYS", "30"))
-    DEFAULT_RECONNECT_OVERLAP_DAYS = int(os.getenv("WHOOP_RECONNECT_OVERLAP_DAYS", "2"))
+    DEFAULT_RECONNECT_OVERLAP_DAYS = int(os.getenv("WHOOP_RECONNECT_OVERLAP_DAYS", "7"))
     DEFAULT_FULL_HISTORY_SYNC_DAYS = int(os.getenv("WHOOP_FULL_HISTORY_SYNC_DAYS", "3650"))
     MAX_MANUAL_SYNC_DAYS = int(os.getenv("WHOOP_MAX_MANUAL_SYNC_DAYS", "3650"))
     
@@ -61,6 +61,40 @@ class WhoopService:
 
     def _decrypt_token(self, token: Optional[str]) -> Optional[str]:
         return token_crypto.decrypt(token)
+
+    @staticmethod
+    def _latest_sleep_record_metadata(sleep_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        records = list((sleep_data or {}).get("records") or [])
+        candidates: List[tuple[str, Dict[str, Any]]] = []
+        for record in records:
+            if not isinstance(record, dict):
+                continue
+            sort_key = str(record.get("end") or record.get("start") or "")
+            if sort_key:
+                candidates.append((sort_key, record))
+
+        if not candidates:
+            return {
+                "latest_upstream_sleep_date": None,
+                "latest_upstream_sleep_start": None,
+                "latest_upstream_sleep_end": None,
+                "latest_upstream_sleep_score_state": None,
+                "latest_upstream_sleep_id": None,
+                "latest_upstream_sleep_cycle_id": None,
+            }
+
+        _, latest = max(candidates, key=lambda item: item[0])
+        sleep_end = str(latest.get("end") or "")
+        sleep_start = str(latest.get("start") or "")
+        date_value = (sleep_end or sleep_start)[:10] or None
+        return {
+            "latest_upstream_sleep_date": date_value,
+            "latest_upstream_sleep_start": sleep_start or None,
+            "latest_upstream_sleep_end": sleep_end or None,
+            "latest_upstream_sleep_score_state": latest.get("score_state"),
+            "latest_upstream_sleep_id": latest.get("id"),
+            "latest_upstream_sleep_cycle_id": latest.get("cycle_id"),
+        }
 
     async def _request_with_retry(
         self,
@@ -573,6 +607,11 @@ class WhoopService:
                     f"📅 First sync: fetching last {default_initial_sync_days} days of historical data"
                 )
         
+        recovery_data = None
+        sleep_data: Dict[str, Any] = {"records": []}
+        workout_data = None
+        cycle_data = None
+        synced_data = {"recovery": 0, "sleep": 0, "workouts": 0, "cycles": 0}
         any_api_success = False
 
         try:
@@ -632,16 +671,7 @@ class WhoopService:
                         ),
                         default=None,
                     )
-                latest_sleep_date = None
-                if sleep_data and sleep_data.get("records"):
-                    latest_sleep_date = max(
-                        (
-                            str(record.get("start", ""))[:10]
-                            for record in sleep_data["records"]
-                            if record.get("start")
-                        ),
-                        default=None,
-                    )
+                latest_sleep_metadata = self._latest_sleep_record_metadata(sleep_data)
 
                 if integration:
                     await wearable_connection_service.get_or_create_connection(
@@ -657,7 +687,7 @@ class WhoopService:
                             "sync_hour": integration.whoop_sync_hour or 9,
                             "auto_sync_enabled": True,
                             "latest_upstream_cycle_date": latest_cycle_date,
-                            "latest_upstream_sleep_date": latest_sleep_date,
+                            **latest_sleep_metadata,
                         },
                         status="active",
                     )
@@ -708,7 +738,8 @@ class WhoopService:
                 "end_date": end_date.strftime('%Y-%m-%d'),
                 "days": days_synced
             },
-            "data": synced_data
+            "data": synced_data,
+            "data_freshness": self._latest_sleep_record_metadata(sleep_data),
         }
 
 whoop_service = WhoopService()

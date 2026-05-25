@@ -125,7 +125,8 @@ export function renderWhoopSyncDetailsPanel(ctx: Record<string, any>) {
   const syncHour = whoopConnection?.sync_hour ?? whoopSyncHour ?? 9;
   const lastSyncValue = whoopStatusData?.last_sync_at || whoopConnection?.last_sync_at || whoopConnection?.last_successful_sync_at || null;
   const note = whoopConnection?.auto_sync_note;
-  const staleMessage = whoopConnection?.stale_message || null;
+  const staleMessage = whoopStatusData?.stale_message || whoopConnection?.stale_message || null;
+  const sleepStatusMessage = whoopStatusData?.sleep_status_message || null;
   const selectedPreset = WHOOP_SYNC_PRESETS.find((preset) => preset.id === whoopSyncMode);
   const customDays = Number.parseInt(whoopCustomDaysBack, 10);
   const customDaysValid = Number.isFinite(customDays) && customDays > 0 && customDays <= MAX_CUSTOM_WHOOP_DAYS;
@@ -189,6 +190,7 @@ export function renderWhoopSyncDetailsPanel(ctx: Record<string, any>) {
           <span className="text-[#1f1e1a]">{formatRelativeTime(lastSyncValue)}</span>
         </div>
         {note ? <p className="mt-2 text-xs leading-5 text-[#69665c]">{note}</p> : null}
+        {sleepStatusMessage ? <p className="mt-2 text-xs leading-5 text-[#69665c]">{sleepStatusMessage}</p> : null}
         {staleMessage ? <p className="mt-2 text-xs leading-5 text-[#69665c]">{staleMessage}</p> : null}
       </div>
 

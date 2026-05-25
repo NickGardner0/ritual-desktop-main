@@ -548,7 +548,11 @@ export function IntegrationsClient() {
           : syncRequest.forceFullSync
             ? 'the default backfill'
             : 'latest changes';
-      const successMessage = buildWhoopSyncFeedbackMessage(syncCounts, syncLabel);
+      const successMessage = buildWhoopSyncFeedbackMessage(
+        syncCounts,
+        syncLabel,
+        result.data_freshness,
+      );
 
       setWhoopConnected(true);
       markReadConsistencyRequired(user?.id, 45_000);

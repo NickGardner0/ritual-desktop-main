@@ -5,6 +5,7 @@ from datetime import datetime
 
 import services.whoop_api_client as whoop_api_client_module
 from services.whoop_api_client import WhoopApiClient
+from services.whoop_service import WhoopService
 
 
 class FakeResponse:
@@ -106,3 +107,50 @@ def test_fetch_enabled_data_respects_metric_switches():
         assert result.synced_data == {"recovery": 0, "sleep": 2, "workouts": 0, "cycles": 1}
 
     asyncio.run(run_case())
+
+
+def test_sleep_debug_fields_include_score_state_and_end_date():
+    fields = WhoopApiClient._sleep_debug_fields({
+        "id": "sleep-1",
+        "cycle_id": "cycle-1",
+        "start": "2026-05-24T03:00:00.000Z",
+        "end": "2026-05-25T12:00:00.000Z",
+        "score_state": "SCORED",
+        "nap": False,
+        "score": {
+            "stage_summary": {
+                "total_rem_sleep_time_milli": 60 * 60 * 1000,
+                "total_slow_wave_sleep_time_milli": 90 * 60 * 1000,
+                "total_light_sleep_time_milli": 270 * 60 * 1000,
+            },
+        },
+    })
+
+    assert fields["date"] == "2026-05-25"
+    assert fields["score_state"] == "SCORED"
+    assert fields["duration_hours"] == 7.0
+
+
+def test_latest_sleep_metadata_uses_sleep_end_date_for_overview_attribution():
+    metadata = WhoopService._latest_sleep_record_metadata({
+        "records": [
+            {
+                "id": "sleep-old",
+                "cycle_id": "cycle-old",
+                "start": "2026-05-23T04:00:00.000Z",
+                "end": "2026-05-23T12:00:00.000Z",
+                "score_state": "SCORED",
+            },
+            {
+                "id": "sleep-new",
+                "cycle_id": "cycle-new",
+                "start": "2026-05-24T03:00:00.000Z",
+                "end": "2026-05-25T12:00:00.000Z",
+                "score_state": "SCORED",
+            },
+        ],
+    })
+
+    assert metadata["latest_upstream_sleep_date"] == "2026-05-25"
+    assert metadata["latest_upstream_sleep_id"] == "sleep-new"
+    assert metadata["latest_upstream_sleep_cycle_id"] == "cycle-new"

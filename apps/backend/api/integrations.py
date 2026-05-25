@@ -2,14 +2,16 @@
 
 import logging
 import os
+import json
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from database.connection import get_db_session
-from database.models import WhoopIntegrationDB
+from database.models import WearableEventDB, WhoopIntegrationDB
 from services.unified_wearables_service import wearable_connection_service
 
 logger = logging.getLogger(__name__)
@@ -38,6 +40,56 @@ def create_whoop_router(
 ) -> APIRouter:
     """Build Whoop integration router with injected dependencies."""
     router = APIRouter(prefix="/api/integrations/whoop", tags=["integrations"])
+
+    async def _whoop_sleep_status(user_id: str, canonical: Any = None) -> dict[str, Any]:
+        settings = {}
+        if canonical and canonical.settings_json:
+            try:
+                settings = json.loads(canonical.settings_json)
+            except Exception:
+                settings = {}
+
+        async with get_db_session() as session:
+            latest_sleep_result = await session.execute(
+                select(func.max(WearableEventDB.attributed_date)).where(
+                    WearableEventDB.user_id == user_id,
+                    WearableEventDB.provider == "whoop",
+                    WearableEventDB.event_type == "sleep_total",
+                    WearableEventDB.deleted_at.is_(None),
+                    WearableEventDB.attributed_date.is_not(None),
+                )
+            )
+        latest_sleep_date = latest_sleep_result.scalar_one_or_none()
+        latest_upstream_sleep_date = settings.get("latest_upstream_sleep_date")
+        today = datetime.now(timezone.utc).date().isoformat()
+        stale_threshold = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+        is_upstream_stale = bool(latest_upstream_sleep_date and latest_upstream_sleep_date < stale_threshold)
+        stale_message = (
+            f"Whoop has not returned sleep after {latest_upstream_sleep_date} yet."
+            if is_upstream_stale
+            else None
+        )
+        latest_display_date = latest_sleep_date or latest_upstream_sleep_date
+        sleep_status_message = (
+            f"Latest Whoop sleep imported: {latest_display_date}."
+            if latest_display_date
+            else "No Whoop sleep has been imported yet."
+        )
+        if latest_upstream_sleep_date and latest_upstream_sleep_date < today:
+            sleep_status_message += " If you expected a newer sleep, Whoop has not returned it to Ritual yet."
+
+        return {
+            "latest_sleep_date": latest_sleep_date,
+            "latest_upstream_sleep_date": latest_upstream_sleep_date,
+            "latest_upstream_sleep_start": settings.get("latest_upstream_sleep_start"),
+            "latest_upstream_sleep_end": settings.get("latest_upstream_sleep_end"),
+            "latest_upstream_sleep_score_state": settings.get("latest_upstream_sleep_score_state"),
+            "latest_upstream_sleep_id": settings.get("latest_upstream_sleep_id"),
+            "latest_upstream_sleep_cycle_id": settings.get("latest_upstream_sleep_cycle_id"),
+            "is_upstream_stale": is_upstream_stale,
+            "stale_message": stale_message,
+            "sleep_status_message": sleep_status_message,
+        }
 
     @router.post("/callback")
     async def whoop_callback(
@@ -84,9 +136,10 @@ def create_whoop_router(
         try:
             integration = await whoop_service.get_integration(current_user["id"])
             canonical = await wearable_connection_service.get_connection(current_user["id"], "whoop")
+            sleep_status = await _whoop_sleep_status(current_user["id"], canonical)
             if not integration:
                 if not canonical:
-                    return {"connected": False}
+                    return {"connected": False, **sleep_status}
                 return {
                     "connected": canonical.status == "active",
                     "whoop_user_id": canonical.provider_user_id,
@@ -94,6 +147,7 @@ def create_whoop_router(
                     "last_sync_at": canonical.last_sync_at.isoformat() if canonical.last_sync_at else None,
                     "is_active": canonical.status == "active",
                     "sync_hour": 9,
+                    **sleep_status,
                 }
 
             return {
@@ -107,6 +161,7 @@ def create_whoop_router(
                 ),
                 "is_active": canonical.status == "active" if canonical else integration.is_active,
                 "sync_hour": integration.whoop_sync_hour or 9,
+                **sleep_status,
             }
         except Exception:
             logger.exception("Whoop status check failed")
