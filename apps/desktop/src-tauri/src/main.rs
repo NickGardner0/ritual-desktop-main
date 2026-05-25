@@ -6,15 +6,8 @@ mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
 mod native_widget;
-#[cfg(feature = "native-recorder")]
-mod recorder;
-#[cfg(not(feature = "native-recorder"))]
-mod recorder_disabled;
 mod ritual_database;
 mod watcher;
-
-#[cfg(not(feature = "native-recorder"))]
-use crate::recorder_disabled as recorder;
 
 use std::collections::HashMap;
 use std::env;
@@ -374,13 +367,6 @@ fn shutdown_background_helpers() {
     if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
         eprintln!(
             "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
-            err
-        );
-    }
-
-    if let Err(err) = tauri::async_runtime::block_on(recorder::stop_recorder()) {
-        eprintln!(
-            "⚠️ Failed to stop Ritual Recorder during app shutdown: {}",
             err
         );
     }
@@ -1221,32 +1207,6 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     Ok(true)
 }
 
-#[tauri::command]
-#[instrument(fields(user_id = %user_id))]
-fn reconcile_recorder_config_user_cmd(user_id: String) -> Result<bool, String> {
-    let trimmed_user_id = user_id.trim();
-    if trimmed_user_id.is_empty() {
-        return Err("User ID is required".to_string());
-    }
-
-    let Some(mut config) = recorder::read_recorder_config() else {
-        return Ok(false);
-    };
-
-    if config.user_id == trimmed_user_id {
-        return Ok(false);
-    }
-
-    info!(
-        previous_user_id = %config.user_id,
-        new_user_id = %trimmed_user_id,
-        "Reconciling recorder config user"
-    );
-    config.user_id = trimmed_user_id.to_string();
-    recorder::save_recorder_config_cmd(config)?;
-    Ok(true)
-}
-
 fn main() {
     if let Err(error) = desktop_observability::init_desktop_observability() {
         eprintln!("Failed to initialize desktop observability: {error}");
@@ -1314,26 +1274,6 @@ fn main() {
       save_watcher_config_cmd,
       clear_watcher_config_cmd,
       reconcile_watcher_config_user_cmd,
-      reconcile_recorder_config_user_cmd,
-      // Ritual Recorder commands for legacy OCR surfaces (disabled by default)
-      recorder::check_screen_recording_permission,
-      recorder::request_screen_recording_permission,
-      recorder::check_ffmpeg_status,
-      recorder::ensure_ffmpeg_installed,
-      recorder::start_recorder,
-      recorder::stop_recorder,
-      recorder::get_recorder_status,
-      recorder::get_available_monitors,
-      recorder::get_recorder_storage_status,
-      recorder::get_ocr_frames,
-      recorder::search_ocr_text,
-      recorder::get_video_chunks,
-      recorder::run_recorder_maintenance,
-      recorder::save_recorder_config_cmd,
-      recorder::clear_recorder_config_cmd,
-      recorder::extract_frame_image,
-      recorder::clear_frame_cache,
-      recorder::get_frame_cache_stats,
       // Desktop shell bootstrap commands
       get_desktop_shell_bootstrap_config,
       check_desktop_hosted_app_reachable,
@@ -1541,44 +1481,7 @@ fn main() {
         let _ = window.show();
         let _ = window.set_focus();
       }
-      // Recorder remains available, but context capture is now the default active path.
-      let recorder_autostart_enabled = matches!(
-        std::env::var("RITUAL_ENABLE_RECORDER_AUTOSTART")
-          .ok()
-          .as_deref()
-          .map(|value| value.trim().to_ascii_lowercase()),
-        Some(ref value) if matches!(value.as_str(), "1" | "true" | "yes" | "on")
-      );
-      if recorder_autostart_enabled {
-        if let Some(config) = recorder::read_recorder_config() {
-          let recorder_start_started_at = Instant::now();
-          info!(device_id = %config.device_id, user_id = %config.user_id, "Auto-starting Ritual Recorder");
-
-          // Check screen recording permission first
-          if recorder::check_screen_recording_permission() {
-            match recorder::start_recorder_sync(config) {
-              Ok(status) => {
-                info!(
-                  pid = status.pid,
-                  duration_ms = recorder_start_started_at.elapsed().as_millis() as u64,
-                  "Recorder auto-started successfully"
-                );
-              }
-              Err(e) => {
-                warn!(
-                  error = %e,
-                  duration_ms = recorder_start_started_at.elapsed().as_millis() as u64,
-                  "Failed to auto-start recorder"
-                );
-              }
-            }
-          } else {
-            warn!("Recorder auto-start skipped: screen recording permission not granted");
-          }
-        }
-      } else {
-        info!("Recorder auto-start disabled; using watcher-owned context capture as the default path");
-      }
+      info!("Using watcher-owned context capture; legacy recorder sidecar is not shipped");
 
       desktop_runtime::emit_runtime_state_changed(app.handle().clone());
       spawn_background_startup_tasks(app.handle().clone());

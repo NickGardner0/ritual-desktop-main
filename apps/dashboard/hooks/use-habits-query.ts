@@ -16,7 +16,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
-import type { Habit, HabitLog } from '@/contexts/HabitsContext';
+import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { useAnalytics } from '@/lib/analytics';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import {

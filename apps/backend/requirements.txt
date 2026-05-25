@@ -9,6 +9,7 @@ slowapi>=0.1.9
 # Pinned to a known-good combo. SQLAlchemy 2.0.48 breaks the libsql async
 # cursor path with "'builtins.Cursor' object has no attribute '_async_soft_close'".
 sqlalchemy[asyncio]==2.0.39
+alembic>=1.13.0
 libsql-client==0.3.1  # For Turso Cloud support
 libsql-experimental==0.0.55  # For direct Turso embedded replica access (activity data)
 sqlalchemy-libsql==0.2.0  # SQLAlchemy dialect for libSQL/Turso

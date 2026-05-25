@@ -17,5 +17,7 @@ export {
 
 export * from './executors/index.js';
 export * from './narrative/index.js';
+export * from './chat-turn-engine.js';
 export { tools } from './tools.js';
+export * from './tool-registry.js';
 export * from './weekly-overview-utils.js';

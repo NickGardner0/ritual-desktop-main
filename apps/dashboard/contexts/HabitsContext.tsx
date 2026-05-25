@@ -17,7 +17,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 
 // Import types
-import type { Habit as ServiceHabit, HabitLog as ServiceHabitLog } from '@/lib/habit-types';
+import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 
 // Import React Query hooks
@@ -31,19 +31,7 @@ import {
   habitLogKeys,
 } from '@/hooks/use-habits-query';
 
-// Extended habit type with additional UI properties
-export interface Habit extends ServiceHabit {
-  emoji?: string;
-  streak?: number;
-  color?: string;
-}
-
-// Extended habit log type with user_id for UI
-export interface HabitLog extends Omit<ServiceHabitLog, 'duration'> {
-  user_id?: string;
-  duration: number;
-  status: 'completed' | 'missed' | 'skipped';
-}
+export type { Habit, HabitLog } from '@/contexts/habits-context.types';
 
 // Props for the context provider
 export interface HabitsContextType {

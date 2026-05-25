@@ -1,7 +1,7 @@
 /**
  * Proxy Helper Tests
  *
- * Tests the real createProxyHandler via tsx loader so that changes to
+ * Tests the proxy/auth helpers via tsx loader so that changes to
  * production auth/header logic cause test failures.
  *
  * Run: npx tsx --test apps/dashboard/tests/proxy-helper.test.mjs
@@ -18,7 +18,6 @@ import assert from "node:assert/strict";
 // Clerk must be stubbed before import since it runs at module load.
 // ---------------------------------------------------------------------------
 
-let createProxyHandler;
 let realImport = false;
 
 // We can't easily mock @clerk/nextjs/server in node:test's ESM loader,
@@ -27,10 +26,18 @@ let realImport = false;
 
 // Import the real buildBackendAuthHeaders to verify header construction
 let buildBackendAuthHeaders;
+let matchBackendOpenApiPath;
+let resolveBackendProxyPath;
+let getBackendProxyCompatibilityFallback;
 try {
   // tsx can resolve TS files with relative paths
-  const mod = await import("../lib/server/backend-auth.ts");
-  buildBackendAuthHeaders = mod.buildBackendAuthHeaders;
+  const authMod = await import("../lib/server/backend-auth.ts");
+  const generatedClientMod = await import("../lib/api/generated/backend-client.ts");
+  const proxyRoutingMod = await import("../lib/server/backend-proxy-routing.ts");
+  buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
+  matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
+  resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
+  getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
   realImport = true;
 } catch {
   // Fallback: replicate the logic
@@ -39,6 +46,28 @@ try {
     if (contentType) headers["Content-Type"] = contentType;
     if (token) headers["Authorization"] = `Bearer ${token}`;
     return headers;
+  };
+  matchBackendOpenApiPath = (path) => {
+    if (path === "/api/artifacts") return "/api/artifacts";
+    if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
+    if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
+    if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
+    return null;
+  };
+  resolveBackendProxyPath = (path) => {
+    if (path === "/api/wearables/apple/metric-preferences") return "/api/wearables/apple/metric_preferences";
+    return path;
+  };
+  getBackendProxyCompatibilityFallback = (method, path, searchParams) => {
+    if (method === "GET" && path === "/api/suggestions") {
+      return {
+        suggestions: [],
+        mode: searchParams?.get("mode") || "chat",
+        query: searchParams?.get("q") || "",
+      };
+    }
+    if (method === "GET" && path === "/api/wearables/connections") return { connections: [] };
+    return undefined;
   };
 }
 
@@ -81,12 +110,12 @@ describe(`buildBackendAuthHeaders (real=${realImport})`, () => {
 // ---------------------------------------------------------------------------
 // 2. Auth routing logic — Bearer fast-path vs Clerk fallback
 //
-// This mirrors the exact branching in createProxyHandler. If the production
+// This mirrors the exact branching in forwardProxyRequest. If the production
 // code changes how it detects Bearer tokens, these tests must be updated.
 // ---------------------------------------------------------------------------
 
 function resolveAuthFromHandler(authorizationHeader) {
-  // Exact logic from proxy-helper.ts createProxyHandler
+  // Exact logic from proxy-helper.ts forwardProxyRequest
   const authHeader = authorizationHeader ?? "";
   if (authHeader.toLowerCase().startsWith("bearer ")) {
     return { token: authHeader.slice(7), userId: null, skippedClerk: true };
@@ -144,5 +173,58 @@ describe("Fast-path forwarded headers", () => {
       if (origKey === undefined) delete process.env.INTERNAL_API_KEY;
       else process.env.INTERNAL_API_KEY = origKey;
     }
+  });
+});
+
+describe("Generated backend route allowlist", () => {
+  test("matches exact OpenAPI paths for the generic catch-all proxy", () => {
+    assert.equal(matchBackendOpenApiPath("/api/artifacts"), "/api/artifacts");
+  });
+
+  test("matches templated OpenAPI paths for deleted dynamic proxy files", () => {
+    assert.equal(matchBackendOpenApiPath("/api/artifacts/artifact_123"), "/api/artifacts/{artifact_id}");
+  });
+
+  test("rejects unknown dashboard API paths instead of forwarding everything", () => {
+    assert.equal(matchBackendOpenApiPath("/api/not-a-real-backend-route"), null);
+  });
+
+  test("routes deleted watcher proxies through the OpenAPI catch-all", () => {
+    assert.equal(matchBackendOpenApiPath("/api/watcher/stats/summary"), "/api/watcher/stats/summary");
+  });
+});
+
+describe("Backend proxy routing compatibility", () => {
+  test("maps legacy dashed dashboard wearable paths to backend snake_case paths", () => {
+    assert.equal(
+      resolveBackendProxyPath("/api/wearables/apple/metric-preferences"),
+      "/api/wearables/apple/metric_preferences",
+    );
+    assert.equal(
+      matchBackendOpenApiPath(resolveBackendProxyPath("/api/wearables/apple/metric-preferences")),
+      "/api/wearables/apple/metric_preferences",
+    );
+  });
+
+  test("keeps GET fallbacks scoped away from mutating requests", () => {
+    assert.deepEqual(
+      getBackendProxyCompatibilityFallback("GET", "/api/wearables/connections"),
+      { connections: [] },
+    );
+    assert.equal(
+      getBackendProxyCompatibilityFallback("POST", "/api/wearables/connections"),
+      undefined,
+    );
+  });
+
+  test("preserves query-shaped fallback payloads after deleting suggestion proxy route", () => {
+    assert.deepEqual(
+      getBackendProxyCompatibilityFallback(
+        "GET",
+        "/api/suggestions",
+        new URLSearchParams("mode=log&q=sleep"),
+      ),
+      { suggestions: [], mode: "log", query: "sleep" },
+    );
   });
 });

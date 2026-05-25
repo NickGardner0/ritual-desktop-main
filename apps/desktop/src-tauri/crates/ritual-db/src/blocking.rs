@@ -1,7 +1,7 @@
 //! Blocking (synchronous) API for ritual-db
 //!
 //! This module provides synchronous wrappers around the async database operations.
-//! It's designed for use by the standalone binaries (ritual-watcher, ritual-recorder)
+//! It's designed for use by standalone local-capture binaries such as ritual-watcher.
 //! that don't run in an async context.
 //!
 //! # Usage

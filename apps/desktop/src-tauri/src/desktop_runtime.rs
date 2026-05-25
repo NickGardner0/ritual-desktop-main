@@ -611,13 +611,6 @@ fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
         }
     }
 
-    if let Some(mut recorder_config) = crate::recorder::read_recorder_config() {
-        if recorder_config.user_id != trimmed_user_id {
-            recorder_config.user_id = trimmed_user_id.to_string();
-            crate::recorder::save_recorder_config_cmd(recorder_config)?;
-        }
-    }
-
     Ok(())
 }
 

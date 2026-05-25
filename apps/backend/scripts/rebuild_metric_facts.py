@@ -16,7 +16,8 @@ from typing import Optional
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from database.connection import _run_migrations, async_session_factory, init_database  # noqa: E402
+from database.connection import init_database  # noqa: E402
+from scripts.run_database_migrations import run_migrations  # noqa: E402
 from services.metric_facts_service import metric_fact_service  # noqa: E402
 
 
@@ -42,10 +43,8 @@ async def main() -> None:
     args = parser.parse_args()
 
     if not args.skip_migrations:
+        run_migrations()
         await init_database(fast_startup=True)
-        async with async_session_factory() as session:
-            await _run_migrations(session)
-            await session.commit()
 
     rebuild = await metric_fact_service.rebuild_facts(
         user_id=args.user_id,

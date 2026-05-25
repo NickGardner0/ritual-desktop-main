@@ -1,0 +1,32 @@
+{
+  "collected_at": "2026-05-25T05:16:45.872Z",
+  "node_version": "v20.17.0",
+  "next_version": "16.2.1",
+  "commands": [
+    {
+      "name": "production-build",
+      "command": "npm run build",
+      "status": "success",
+      "exit_code": 0,
+      "duration_ms": 118449,
+      "output_tail": "\n> ritual@1.0.0 build\n> npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack && cd ../.. && node scripts/normalize-next-proxy-output.mjs\n\n\n> ritual@1.0.0 typecheck\n> npm run build:chat-runtime && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' tsc --noEmit --pretty false\n\n\n> ritual@1.0.0 build:chat-runtime\n> npm run --workspace @ritual/chat-runtime build\n\n\n> @ritual/chat-runtime@0.0.1 build\n> tsc -p tsconfig.json\n\n⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache\nAttention: Next.js now collects completely anonymous telemetry regarding usage.\nThis information is used to shape Next.js' roadmap and prioritize features.\nYou can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:\nhttps://nextjs.org/telemetry\n\n⚠ Attempted to load /Users/nickgardner/Desktop/ritual-desktop-main/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed\n⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed\n  Skipping creating a lockfile at /Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/.next/lock because we're using WASM bindings\n▲ Next.js 16.2.1 (webpack)\n- Environments: .env.local\n- Experiments (use with caution):\n  · clientTraceMetadata\n  · optimizePackageImports\n\n  Creating an optimized production build ...\nBrowserslist: browsers data (caniuse-lite) is 6 months old. Please run:\n  npx update-browserslist-db@latest\n  Why you should do it regularly: https://github.com/browserslist/update-db#readme\n✓ Compiled successfully in 81s\n  Running TypeScript ...\n⚠ Attempted to load /Users/nickgardner/Desktop/ritual-desktop-main/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed\n⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed\n  Finished TypeScript in 20.4s ...\n  Collecting page data using 11 workers ...\n  Generating static pages using 11 workers (0/56) ...\n⚠ Attempted to load /Users/nickgardner/Desktop/ritual-desktop-main/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed\n⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed\n⚠ Attempted to load /Users/nickgardner/Desktop/ritual-desktop-main/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed\n⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed\n  Generating static pages using 11 workers (14/56) \r\n⚠ Attempted to load /Users/nickgardner/Desktop/ritual-desktop-main/node_modules/next/next-swc-fallback/@next/swc-darwin-arm64/next-swc.darwin-arm64.node, but it was not installed\n⚠ Attempted to load @next/swc-darwin-arm64, but it was not installed\n  Generating static pages using 11 workers (28/56) \r\n  Generating static pages using 11 workers (42/56) \r\n✓ Generating static pages using 11 workers (56/56) in 1230ms\n  Finalizing page optimization ...\n  Collecting build traces ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n├ ○ /activity\n├ ○ /analytics\n├ ƒ /api/[...backendPath]\n├ ƒ /api/analytics/correlation\n├ ƒ /api/analytics/habits/daily-values\n├ ƒ /api/analytics/habits/logs\n├ ƒ /api/analytics/habits/logs/all\n├ ƒ /api/analytics/habits/summary\n├ ƒ /api/analytics/habits/trends\n├ ƒ /api/analytics/heart-rate/series\n├ ƒ /api/analytics/heart-rate/summary\n├ ƒ /api/auth/desktop-sign-in-token\n├ ƒ /api/calendar/summary\n├ ƒ /api/chat/habits\n├ ƒ /api/chat/sms\n├ ƒ /api/chat/sms/proactive\n├ ƒ /api/chat/stream\n├ ƒ /api/computer-activity/breakdown\n├ ƒ /api/deepgram/token\n├ ƒ /api/import/apple-health/import\n├ ƒ /api/import/apple-health/parse\n├ ƒ /api/import/extract-from-image\n├ ƒ /api/import/import\n├ ƒ /api/import/parse\n├ ƒ /api/import/preview\n├ ƒ /api/import/runs\n├ ƒ /api/import/runs/[runId]\n├ ƒ /api/import/runs/[runId]/cancel\n├ ƒ /api/import/runs/[runId]/start\n├ ƒ /api/import/runs/[runId]/undo\n├ ƒ /api/integrations/tesla/callback\n├ ƒ /api/integrations/tesla/store-code\n├ ƒ /api/integrations/whoop/callback\n├ ƒ /api/integrations/whoop/store-code\n├ ƒ /api/integrations/whoop/sync\n├ ƒ /api/internal/workflows/execute\n├ ƒ /api/reports/send\n├ ƒ /api/search\n├ ƒ /api/sendblue/webhook\n├ ƒ /api/sentry-smoke\n├ ƒ /api/whisper\n├ ○ /approvals\n├ ƒ /auth/[[...rest]]\n├ ○ /auth/callback\n├ ○ /auth/desktop-oauth-bridge\n├ ○ /auth/desktop-start-oauth\n├ ○ /auth/sso-callback\n├ ○ /calendar\n├ ○ /chat\n├ ƒ /dashboard\n├ ○ /data-retention\n├ ○ /desktop-only\n├ ƒ /desktop/bootstrap\n├ ƒ /download\n├ ƒ /download/mac\n├ ƒ /download/macos\n├ ○ /integrations\n├ ○ /integrations/success\n├ ○ /onboarding\n├ ○ /onboarding/permissions\n├ ○ /privacy\n├ ○ /reports\n├ ○ /sentry-smoke\n├ ○ /sidebar\n├ ƒ /sign-in/[[...sign-in]]\n├ ƒ /sign-up/[[...sign-up]]\n├ ○ /tasks\n├ ○ /welcome\n├ ○ /widget\n└ ○ /workflows\n\n\nƒ Proxy (Middleware)\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n[normalize-next-proxy-output] Created proxy.js from middleware.js\n[normalize-next-proxy-output] Created proxy.js.nft.json from middleware.js.nft.json\n"
+    },
+    {
+      "name": "next-start-readiness",
+      "command": "npx next start -p 3100 -H 127.0.0.1",
+      "status": "success",
+      "duration_ms": 1297,
+      "readiness": {
+        "status": "ready",
+        "status_code": 307,
+        "ready_ms": 1248
+      },
+      "output_tail": "npm warn config ignoring workspace config at /Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/.npmrc\n▲ Next.js 16.2.1\n- Local:         http://127.0.0.1:3100\n- Network:       http://127.0.0.1:3100\n✓ Ready in 85ms\n"
+    }
+  ],
+  "artifacts": {
+    "next_build_bytes": 2667102422,
+    "next_static_bytes": 19014398,
+    "server_app_bytes": 19977839
+  }
+}

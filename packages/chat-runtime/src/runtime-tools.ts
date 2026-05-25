@@ -165,8 +165,8 @@ export async function dispatchToolCall(
     case 'getActivitySummary':
       {
         const result = await executeGetActivitySummary(token, {
-        ...a,
-        query: String(a?.query || ctx.latestUserContent || 'activity summary'),
+          ...a,
+          query: String(a?.query || ctx.latestUserContent || 'activity summary'),
         }, ctx.timezone);
         try {
           const parsed = JSON.parse(result);
@@ -208,4 +208,3 @@ export async function dispatchToolCall(
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }
 }
-

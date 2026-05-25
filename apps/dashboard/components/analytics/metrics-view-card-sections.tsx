@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { format, subDays } from 'date-fns';
 import { DndContext, closestCenter } from '@dnd-kit/core';
 import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable';
@@ -158,12 +158,13 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
       barPercent: Math.round((streak.streak / maxStreak) * 100),
     }));
   }, [barListDerivedData]);
-  const metricCardsContent = useMemo(() => {
+  const metricCardIds = useMemo(() => {
     const validSelectedHabits = selectedHabits.filter((id: string): id is string => !!id);
     const selectedFilteredHabitIds = validSelectedHabits.filter((id: string) => filteredHabitIds.includes(id));
-    const computerCardData = computerActivityCard;
-    const isComputerSelected = detectedComputerHabitId ? validSelectedHabits.includes(detectedComputerHabitId) : true;
-    const showComputerCard = Boolean(computerCardData) && isComputerSelected;
+    const isComputerSelected = detectedComputerHabitId
+      ? validSelectedHabits.includes(detectedComputerHabitId)
+      : true;
+    const showComputerCard = Boolean(computerActivityCard) && isComputerSelected;
 
     const habitsToShow = validSelectedHabits.length > 0
       ? selectedFilteredHabitIds
@@ -181,8 +182,21 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
         ]
       : unorderedIds;
 
-    visibleCardIdsRef.current = metricCardIds;
+    return metricCardIds;
+  }, [
+    appliedCardOrder,
+    computerActivityCard,
+    detectedComputerHabitId,
+    filteredHabitIds,
+    selectedHabits,
+  ]);
 
+  useEffect(() => {
+    visibleCardIdsRef.current = metricCardIds;
+  }, [metricCardIds, visibleCardIdsRef]);
+
+  const metricCardsContent = useMemo(() => {
+    const computerCardData = computerActivityCard;
     const visibleIds = activeCategoryTab
       ? metricCardIds.filter((id) => {
           if (id === COMPUTER_ACTIVITY_CARD_ID) {
@@ -295,7 +309,6 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
     );
   }, [
     activeCategoryTab,
-    appliedCardOrder,
     clampedCardPage,
     computerActivityCard,
     detectedComputerHabitId,
@@ -306,8 +319,10 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
     filteredHabits,
     getHabitCardData,
     handleDragEnd,
+    metricCardIds,
     pinnedHabitIds,
-    selectedHabits,
+    setExpandedHabit,
+    setLocalSelectedHabits,
     togglePinnedHabit,
   ]);
 

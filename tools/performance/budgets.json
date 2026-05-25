@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Source-level performance and complexity budgets. These are cheap CI guards; runtime timing baselines should be collected with a real build before release.",
+  "budgets": {
+    "dashboardApiRoutesMax": 39,
+    "dashboardTsxFileMaxLines": 1600,
+    "backendProviderServiceMaxLines": 850,
+    "trackedFileMaxLines": {
+      "apps/dashboard/components/ai-habit-chat.tsx": 1535,
+      "apps/dashboard/app/(dashboard)/calendar/calendar-client.tsx": 1361,
+      "apps/dashboard/components/analytics/overview-view.tsx": 1403,
+      "apps/dashboard/components/apple-watch-settings.tsx": 1226,
+      "apps/dashboard/app/(dashboard)/reports/reports-client.tsx": 1432,
+      "apps/dashboard/components/data-import-modal.tsx": 1223,
+      "apps/backend/services/whoop_service.py": 715,
+      "apps/backend/services/whoop_api_client.py": 275,
+      "apps/backend/services/whoop_tinybird_sink.py": 113,
+      "apps/backend/services/oura_service.py": 295,
+      "apps/backend/services/garmin_service.py": 228
+    }
+  }
+}

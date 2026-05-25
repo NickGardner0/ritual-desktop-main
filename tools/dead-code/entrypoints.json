@@ -1,0 +1,28 @@
+{
+  "entrypoints": [
+    "apps/backend/main.py",
+    "apps/dashboard/app/layout.tsx",
+    "apps/dashboard/app/(dashboard)/layout.tsx",
+    "apps/dashboard/app/api/chat/stream/route.ts",
+    "apps/dashboard/app/api/chat/sms/route.ts",
+    "apps/dashboard/app/api/chat/sms/proactive/route.ts",
+    "apps/desktop/src-tauri/src/main.rs",
+    "apps/desktop/src-tauri/bin/ritual-watcher/src/main.rs",
+    "packages/chat-runtime/src/index.ts"
+  ],
+  "removedPaths": [
+    "apps/dashboard/components/screen-recorder",
+    "apps/dashboard/hooks/use-recorder.ts",
+    "apps/desktop/src-tauri/bin/ritual-recorder",
+    "apps/desktop/src-tauri/src/recorder.rs",
+    "apps/desktop/src-tauri/src/recorder_disabled.rs"
+  ],
+  "forbiddenImportPatterns": [
+    "screen-recorder",
+    "use-recorder",
+    "ritual-recorder",
+    "native-recorder",
+    "reconcile_recorder_config_user_cmd"
+  ],
+  "allowlist": []
+}

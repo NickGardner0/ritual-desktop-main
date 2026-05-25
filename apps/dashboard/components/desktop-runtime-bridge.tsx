@@ -139,10 +139,7 @@ function RuntimeSyncBridge() {
 
         if (user?.id && lastLegacyReconciledUserRef.current !== user.id) {
           lastLegacyReconciledUserRef.current = user.id;
-          await Promise.all([
-            invoke<boolean>('reconcile_watcher_config_user_cmd', { userId: user.id }).catch(() => false),
-            invoke<boolean>('reconcile_recorder_config_user_cmd', { userId: user.id }).catch(() => false),
-          ]);
+          await invoke<boolean>('reconcile_watcher_config_user_cmd', { userId: user.id }).catch(() => false);
         }
       } catch {
         // Ignore until the native client/backend are ready.

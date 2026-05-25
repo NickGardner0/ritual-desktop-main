@@ -12,24 +12,10 @@ interface ProxyOptions {
   timeout?: number;
   /** Log tag for console messages (e.g. "habits") */
   tag?: string;
-}
-
-/**
- * Shared proxy handler for Next.js API routes that forward to the Python backend.
- *
- * Optimisation: when the incoming request already carries a Bearer token
- * (e.g. Tauri desktop app), we skip the Clerk `auth()` round-trip entirely
- * and forward the token directly. Browser/cookie requests fall back to Clerk.
- */
-export function createProxyHandler(
-  backendPath: string,
-  opts: ProxyOptions = {},
-) {
-  const tag = opts.tag ?? backendPath.replace(/^\/api\//, "");
-
-  return async function handler(request: NextRequest) {
-    return forwardProxyRequest(request, backendPath, opts);
-  };
+  /** Compatibility payload for legacy dashboard callers when a backend resource is missing. */
+  notFoundFallback?: unknown;
+  /** Compatibility payload for legacy dashboard callers when the backend is unavailable. */
+  errorFallback?: unknown;
 }
 
 export async function forwardProxyRequest(
@@ -85,6 +71,16 @@ export async function forwardProxyRequest(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
+      if (response.status === 404 && opts.notFoundFallback !== undefined) {
+        console.warn(`[Ritual][${tag}-proxy] backend-not-found-fallback`, {
+          duration_ms: Date.now() - startedAt,
+          status: response.status,
+        });
+        return NextResponse.json(opts.notFoundFallback, {
+          headers: { "Cache-Control": "no-store, max-age=0" },
+        });
+      }
+
       console.warn(`[Ritual][${tag}-proxy] backend-error`, {
         duration_ms: Date.now() - startedAt,
         status: response.status,
@@ -105,6 +101,16 @@ export async function forwardProxyRequest(
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
   } catch (error) {
+    if (opts.errorFallback !== undefined) {
+      console.warn(`[Ritual][${tag}-proxy] exception-fallback`, {
+        duration_ms: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return NextResponse.json(opts.errorFallback, {
+        headers: { "Cache-Control": "no-store, max-age=0" },
+      });
+    }
+
     console.error(`[Ritual][${tag}-proxy] exception`, {
       duration_ms: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),

@@ -390,7 +390,11 @@ async fn upsert_project_time_session(conn: &Connection, payload: &Value) -> Resu
             string_or_empty(payload, "apps_json"),
             string_or_empty(payload, "domains_json"),
             string_or_empty(payload, "artifacts_json"),
-            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
+            optional_string(payload, "summary_text")
+                .unwrap_or_default()
+                .chars()
+                .take(500)
+                .collect::<String>(),
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
         ],
@@ -400,7 +404,10 @@ async fn upsert_project_time_session(conn: &Connection, payload: &Value) -> Resu
     Ok(())
 }
 
-async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_time_daily_rollup(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<(), String> {
     ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
@@ -448,7 +455,11 @@ async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) ->
             required_f64(payload, "confidence_avg")?,
             string_or_empty(payload, "top_apps_json"),
             string_or_empty(payload, "top_domains_json"),
-            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
+            optional_string(payload, "summary_text")
+                .unwrap_or_default()
+                .chars()
+                .take(500)
+                .collect::<String>(),
             required_string(payload, "source_version")?,
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
@@ -459,7 +470,10 @@ async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) ->
     Ok(())
 }
 
-async fn upsert_project_classification_rule(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_classification_rule(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<(), String> {
     ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
@@ -565,7 +579,9 @@ fn ensure_no_raw_memory_fields(payload: &Value) -> Result<(), String> {
     }
 
     if let Some(key) = visit(payload, FORBIDDEN_KEYS) {
-        Err(format!("Project-time cloud payload contains forbidden raw memory field '{key}'"))
+        Err(format!(
+            "Project-time cloud payload contains forbidden raw memory field '{key}'"
+        ))
     } else {
         Ok(())
     }

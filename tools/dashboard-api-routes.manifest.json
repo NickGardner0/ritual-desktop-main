@@ -1,0 +1,175 @@
+{
+  "description": "Allowlist for Next.js API route files. Normal dashboard data access should use the generated backend client or the OpenAPI catch-all proxy instead of adding route files here.",
+  "categories": [
+    "backend-catchall",
+    "ai-parser",
+    "ai-streaming",
+    "analytics-boundary",
+    "auth-boundary",
+    "compatibility",
+    "email-boundary",
+    "import-boundary",
+    "internal-trigger",
+    "oauth-callback",
+    "voice-boundary",
+    "webhook"
+  ],
+  "routes": {
+    "apps/dashboard/app/api/[...backendPath]/route.ts": {
+      "category": "backend-catchall",
+      "reason": "OpenAPI-allowlisted backend proxy for generated-client compatible dashboard calls."
+    },
+    "apps/dashboard/app/api/analytics/correlation/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed analytics composition stays server-side until analytics is fully moved behind FastAPI."
+    },
+    "apps/dashboard/app/api/analytics/habits/daily-values/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed habit analytics composition with server-only query details."
+    },
+    "apps/dashboard/app/api/analytics/habits/logs/all/route.ts": {
+      "category": "compatibility",
+      "reason": "Legacy dashboard compatibility aggregation that needs a route-specific migration before deletion."
+    },
+    "apps/dashboard/app/api/analytics/habits/logs/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed habit log query with server-side analytics semantics."
+    },
+    "apps/dashboard/app/api/analytics/habits/summary/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed habit summary query with server-side analytics semantics."
+    },
+    "apps/dashboard/app/api/analytics/habits/trends/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed habit trend query with server-side analytics semantics."
+    },
+    "apps/dashboard/app/api/analytics/heart-rate/series/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed biometric series query with server-side analytics semantics."
+    },
+    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Tinybird-backed biometric summary query with server-side analytics semantics."
+    },
+    "apps/dashboard/app/api/auth/desktop-sign-in-token/route.ts": {
+      "category": "auth-boundary",
+      "reason": "Desktop auth handoff endpoint that depends on Next/Clerk session context."
+    },
+    "apps/dashboard/app/api/calendar/summary/route.ts": {
+      "category": "analytics-boundary",
+      "reason": "Server-side calendar summary aggregation with analytics backend dependencies."
+    },
+    "apps/dashboard/app/api/chat/habits/route.ts": {
+      "category": "ai-parser",
+      "reason": "Server-side AI habit parsing endpoint that uses provider credentials and compatibility behavior."
+    },
+    "apps/dashboard/app/api/chat/sms/proactive/route.ts": {
+      "category": "ai-streaming",
+      "reason": "SMS proactive chat boundary that adapts Sendblue/backend behavior to dashboard callers."
+    },
+    "apps/dashboard/app/api/chat/sms/route.ts": {
+      "category": "ai-streaming",
+      "reason": "SMS chat adapter boundary for the shared chat runtime."
+    },
+    "apps/dashboard/app/api/chat/stream/route.ts": {
+      "category": "ai-streaming",
+      "reason": "Streaming chat response boundary that must stay in Next for browser stream semantics."
+    },
+    "apps/dashboard/app/api/computer-activity/breakdown/route.ts": {
+      "category": "compatibility",
+      "reason": "Legacy computer activity response-shaping route pending direct generated-client migration."
+    },
+    "apps/dashboard/app/api/deepgram/token/route.ts": {
+      "category": "voice-boundary",
+      "reason": "Server-only Deepgram token minting endpoint."
+    },
+    "apps/dashboard/app/api/import/apple-health/import/route.ts": {
+      "category": "import-boundary",
+      "reason": "Upload/import workflow boundary with file parsing and progress behavior."
+    },
+    "apps/dashboard/app/api/import/apple-health/parse/route.ts": {
+      "category": "import-boundary",
+      "reason": "Apple Health file parsing boundary."
+    },
+    "apps/dashboard/app/api/import/extract-from-image/route.ts": {
+      "category": "import-boundary",
+      "reason": "Server-side OCR/image extraction endpoint with provider credentials."
+    },
+    "apps/dashboard/app/api/import/import/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import execution boundary for uploaded data."
+    },
+    "apps/dashboard/app/api/import/parse/route.ts": {
+      "category": "import-boundary",
+      "reason": "Generic file parsing boundary for import previews."
+    },
+    "apps/dashboard/app/api/import/preview/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import preview boundary that handles uploaded payloads."
+    },
+    "apps/dashboard/app/api/import/runs/[runId]/cancel/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import run action boundary retained for upload workflow compatibility."
+    },
+    "apps/dashboard/app/api/import/runs/[runId]/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import run status boundary retained for upload workflow compatibility."
+    },
+    "apps/dashboard/app/api/import/runs/[runId]/start/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import run action boundary retained for upload workflow compatibility."
+    },
+    "apps/dashboard/app/api/import/runs/[runId]/undo/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import run undo boundary retained for upload workflow compatibility."
+    },
+    "apps/dashboard/app/api/import/runs/route.ts": {
+      "category": "import-boundary",
+      "reason": "Import run listing/creation boundary retained for upload workflow compatibility."
+    },
+    "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
+      "category": "oauth-callback",
+      "reason": "Third-party OAuth callback boundary."
+    },
+    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts": {
+      "category": "oauth-callback",
+      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
+    },
+    "apps/dashboard/app/api/integrations/whoop/callback/route.ts": {
+      "category": "oauth-callback",
+      "reason": "Third-party OAuth callback boundary."
+    },
+    "apps/dashboard/app/api/integrations/whoop/store-code/route.ts": {
+      "category": "oauth-callback",
+      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
+    },
+    "apps/dashboard/app/api/integrations/whoop/sync/route.ts": {
+      "category": "compatibility",
+      "reason": "Legacy Whoop sync shape and fallback behavior pending direct backend client migration."
+    },
+    "apps/dashboard/app/api/internal/workflows/execute/route.ts": {
+      "category": "internal-trigger",
+      "reason": "Internal workflow execution trigger boundary."
+    },
+    "apps/dashboard/app/api/reports/send/route.ts": {
+      "category": "email-boundary",
+      "reason": "Server-side report email dispatch boundary."
+    },
+    "apps/dashboard/app/api/search/route.ts": {
+      "category": "compatibility",
+      "reason": "Search compatibility route with local quick-action fallback behavior."
+    },
+    "apps/dashboard/app/api/sendblue/webhook/route.ts": {
+      "category": "webhook",
+      "reason": "External Sendblue webhook receiver."
+    },
+    "apps/dashboard/app/api/sentry-smoke/route.ts": {
+      "category": "compatibility",
+      "reason": "Local smoke-test endpoint for frontend observability validation."
+    },
+    "apps/dashboard/app/api/whisper/route.ts": {
+      "category": "voice-boundary",
+      "reason": "Server-side Whisper transcription boundary for uploaded audio."
+    }
+  }
+}

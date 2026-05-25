@@ -1,8 +1,7 @@
 "use client"
 
 import React, { startTransition, useDeferredValue, useRef, useEffect, useState, useMemo, useCallback } from 'react';
-import { ArrowUp, ArrowUpRight, AudioLines, Paperclip, X, Check, AlertTriangle, ChevronDown, ChevronUp, ImageIcon, Sparkles } from 'lucide-react';
-import spinners, { type BrailleSpinnerName } from 'unicode-animations';
+import { ArrowUp, ArrowUpRight, AudioLines, Paperclip } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -13,6 +12,25 @@ import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '
 import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useAiHabitLogMutation } from '@/hooks/use-ai-habit-log-mutation';
+import { BrailleSpinner } from './ai-habit-chat/braille-spinner';
+import { ScreenshotConfirmationModal } from './ai-habit-chat/screenshot-confirmation-modal';
+import {
+  buildDeterministicLogSuggestion,
+  getHabitByParsedName,
+  getParsedDisplayValue,
+  normalizeLoggerVoiceTranscript,
+  parseLocalHabitInput,
+} from './ai-habit-chat/local-log-parser';
+import type {
+  AIHabitChatProps,
+  Clarification,
+  HabitOption,
+  InlineSuggestionOption,
+  InputMode,
+  LoggingResult,
+  ParsedHabitInput,
+  ScreenshotPreview,
+} from './ai-habit-chat/ai-habit-chat.types';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -22,125 +40,7 @@ import {
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
 
-type InputMode = 'log' | 'chat';
-
-interface AIHabitChatProps {
-  onHabitUpdate?: (habitData: any) => void;
-}
-
-// Screenshot preview data from the preview endpoint
-interface ScreenshotPreview {
-  habit_id: string | null;
-  habit_name: string;
-  value: number;
-  unit: string;
-  description: string;
-  detected_type: string;
-  confidence: number;
-  low_confidence: boolean;
-  validation: {
-    is_valid: boolean;
-    reason?: string;
-    suggested_value?: number;
-  };
-  is_new_habit: boolean;
-  available_habits: Array<{ id: string; name: string; unit_type: string }>;
-}
-
-// Phase 5A: Multi-intent logging types
-interface LogResult {
-  index: number;
-  success: boolean;
-  habit_id?: string;
-  habit_name?: string;
-  value?: number;
-  unit?: string;
-  date?: string;
-  error?: string;
-}
-
-interface Clarification {
-  index: number;
-  habit_hint: string;
-  value: number | null;
-  unit: string | null;
-  date: string;
-  alternatives: Array<{ id: string; name: string; confidence: number }>;
-  reason: string;
-}
-
-interface LoggingResult {
-  success: boolean;
-  message: string;
-  logged: LogResult[];
-  clarifications: Clarification[];
-  refreshNeeded?: boolean;
-  affectedHabitIds?: string[];
-}
-
-interface ParsedHabitInput {
-  habitName: string;
-  amount: number | null;
-  duration: number | null; // minutes for duration-based logs
-  unit: string;
-  activity: string;
-  success: true;
-}
-
-interface HabitOption {
-  id: string;
-  name: string;
-  unit_type: string;
-}
-
-type InlineSuggestionOption =
-  | {
-      kind: 'suggestion';
-      key: string;
-      label: string;
-      sublabel?: string;
-      suggestion: ChatSuggestion;
-    }
-  | {
-      kind: 'clarification';
-      key: string;
-      label: string;
-      sublabel?: string;
-      clarificationIndex: number;
-      habitId: string;
-      habitName: string;
-    };
-
-interface BrailleSpinnerProps {
-  name?: BrailleSpinnerName;
-  className?: string;
-}
-
 const MAX_VISIBLE_INLINE_SUGGESTIONS = 2;
-
-function BrailleSpinner({ name = 'braille', className }: BrailleSpinnerProps) {
-  const spinner = useMemo(() => spinners[name] ?? spinners.braille, [name]);
-  const [frame, setFrame] = useState(0);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      setFrame((current) => (current + 1) % spinner.frames.length);
-    }, spinner.interval);
-    return () => window.clearInterval(timer);
-  }, [spinner]);
-
-  return (
-    <span
-      className={cn(
-        "font-mono leading-none tracking-[-0.02em] text-base scale-110 origin-center text-[#1f2937]",
-        className
-      )}
-      aria-hidden="true"
-    >
-      {spinner.frames[frame]}
-    </span>
-  );
-}
 
 /**
  * Simplified AI Habit Logger
@@ -211,11 +111,6 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     trackHabitLogged,
   });
   const submitButtonLoading = isAiSubmitting;
-
-  const GENERIC_MATCH_WORDS = useMemo(
-    () => new Set(['consumption', 'intake', 'time', 'duration', 'daily']),
-    []
-  );
 
   useEffect(() => {
     router.prefetch('/chat');
@@ -321,7 +216,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Instant local suggestions
   useEffect(() => {
-    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput);
+    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput, mode, habits);
     const localSuggestions = deterministicSuggestion
       ? [deterministicSuggestion]
       : buildInstantSuggestions({
@@ -341,7 +236,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
   // Async server enrichment
   useEffect(() => {
-    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput);
+    const deterministicSuggestion = buildDeterministicLogSuggestion(deferredInput, mode, habits);
     if (deterministicSuggestion) {
       suggestionsAbortRef.current?.abort();
       suggestionsAbortRef.current = null;
@@ -470,317 +365,15 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     }
   }, [selectedSuggestionIndex, visibleInlineOptions]);
 
-  // Convert spoken word-numbers to digits so the regex patterns below can
-  // handle transcripts like "I walked one mile" or "twenty two pages".
-  // Handles 0-99 plus common fractional words ("half", "a quarter").
-  const wordsToDigits = (text: string): string => {
-    const ones: Record<string, number> = {
-      zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
-      seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
-      thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
-      seventeen: 17, eighteen: 18, nineteen: 19,
-    };
-    const tens: Record<string, number> = {
-      twenty: 20, thirty: 30, forty: 40, fourty: 40, fifty: 50,
-      sixty: 60, seventy: 70, eighty: 80, ninety: 90,
-    };
-    let out = text;
-    // "twenty two" → 22
-    out = out.replace(
-      /\b(twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety)[\s-](one|two|three|four|five|six|seven|eight|nine)\b/gi,
-      (_, a: string, b: string) => String(tens[a.toLowerCase()] + ones[b.toLowerCase()]),
-    );
-    // standalone tens
-    out = out.replace(
-      /\b(twenty|thirty|forty|fourty|fifty|sixty|seventy|eighty|ninety)\b/gi,
-      (m) => String(tens[m.toLowerCase()]),
-    );
-    // standalone ones / teens
-    out = out.replace(
-      /\b(zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\b/gi,
-      (m) => String(ones[m.toLowerCase()]),
-    );
-    // "a hundred" / "one hundred"
-    out = out.replace(/\b(a|one)\s+hundred\b/gi, '100');
-    // fractional helpers
-    out = out.replace(/\bhalf\b/gi, '0.5');
-    out = out.replace(/\b(a\s+)?quarter\b/gi, '0.25');
-    // "a" / "an" before a unit, e.g. "walked a mile" → "walked 1 mile"
-    // or "worked out for an hour" → "worked out for 1 hour"
-    out = out.replace(
-      /\b(a|an)\s+(mile|miles|page|pages|hour|hours|minute|minutes|step|steps|kilometer|kilometers|km|rep|reps)\b/gi,
-      '1 $2',
-    );
-    return out;
-  };
+  const parseHabitInput = useCallback(
+    (rawText: string): ParsedHabitInput | null => parseLocalHabitInput(rawText, habits),
+    [habits],
+  );
 
-  const normalizeLoggerVoiceTranscript = (text: string): string => {
-    return text
-      .trim()
-      // Whisper often adds sentence punctuation even when the user is logging a
-      // terse habit entry. Strip only the final sentence mark for this logger UI.
-      .replace(/[.?!]\s*$/, '');
-  };
-
-  // Smart habit parsing that uses your actual habits
-  const parseHabitInput = (rawText: string): ParsedHabitInput | null => {
-    const text = wordsToDigits(rawText);
-    const lowerText = text.toLowerCase();
-
-    // Extract numbers and units from the text
-    const timePatterns = [
-      { regex: /(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr)/i, unit: 'Hours', isDuration: true, multiplier: 60 },
-      { regex: /(\d+)\s*(minutes?|mins?|min)/i, unit: 'Minutes', isDuration: true, multiplier: 1 },
-      { regex: /(\d+(?:\.\d+)?)\s*(miles?|mile)/i, unit: 'Miles', isDuration: false },
-      { regex: /(\d+)\s*(pages?|page)/i, unit: 'Pages', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(kilometers?|kms?|km)/i, unit: 'Kilometers', isDuration: false },
-      { regex: /(\d+)\s*(steps?|step)/i, unit: 'Steps', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(milligrams?|mgs?|mg)/i, unit: 'Milligrams', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(grams?|gms?|g)\b/i, unit: 'Grams', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(kilograms?|kgs?|kg)/i, unit: 'Kilograms', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(pounds?|lbs?|lb)/i, unit: 'Pounds', isDuration: false },
-      { regex: /(\d+)\s*(calories?|cals?|cal)/i, unit: 'Calories', isDuration: false },
-      { regex: /(\d+(?:\.\d+)?)\s*(liters?|litres?|l)\b/i, unit: 'Liters', isDuration: false },
-      { regex: /(\d+)\s*(cups?|cup)/i, unit: 'Cups', isDuration: false },
-      { regex: /(\d+)\s*(glasses?|glass)/i, unit: 'Glasses', isDuration: false },
-      // Count-based exercises (reps)
-      { regex: /(\d+)\s*(pull-?ups?|pullups?)/i, unit: 'Count', isDuration: false },
-      { regex: /(\d+)\s*(push-?ups?|pushups?)/i, unit: 'Count', isDuration: false },
-      { regex: /(\d+)\s*(sit-?ups?|situps?)/i, unit: 'Count', isDuration: false },
-      { regex: /(\d+)\s*(squats?)/i, unit: 'Count', isDuration: false },
-      { regex: /(\d+)\s*(reps?|repetitions?)/i, unit: 'Count', isDuration: false },
-      { regex: /(\d+)\s*(sets?)/i, unit: 'Sets', isDuration: false },
-    ];
-
-    // Find the best matching habit from your actual habits
-    const findMatchingHabit = (text: string, detectedUnit?: string) => {
-      const searchTerms = text.toLowerCase();
-      const detectedUnitLower = detectedUnit?.toLowerCase();
-      const hasWalkIntent = /\b(walk|walked|walking|hiked|hike)\b/i.test(searchTerms);
-      const hasRunIntent = /\b(run|ran|running|jog|jogged|jogging)\b/i.test(searchTerms);
-      const hasDriveIntent = /\b(car|drive|drove|driving|tesla|odometer)\b/i.test(searchTerms);
-      const candidateHabits = [...habits].sort((a, b) => {
-        const aUnitMatch = (a.unit_type || '').toLowerCase() === detectedUnitLower;
-        const bUnitMatch = (b.unit_type || '').toLowerCase() === detectedUnitLower;
-        return Number(bUnitMatch) - Number(aUnitMatch);
-      });
-
-      const explicitMovementMatch = (() => {
-        if (!['miles', 'mile', 'kilometers', 'kilometer'].includes(detectedUnitLower || '')) {
-          return null;
-        }
-
-        if (hasWalkIntent) {
-          return candidateHabits.find((habit) => {
-            const habitName = habit.name.toLowerCase();
-            return habitName.includes('walk') || habitName.includes('hike');
-          }) ?? null;
-        }
-
-        if (hasRunIntent) {
-          return candidateHabits.find((habit) => {
-            const habitName = habit.name.toLowerCase();
-            return habitName.includes('run') || habitName.includes('jog');
-          }) ?? null;
-        }
-
-        if (hasDriveIntent) {
-          return candidateHabits.find((habit) => {
-            const habitName = habit.name.toLowerCase();
-            return habitName.includes('car') || habitName.includes('drive') || habitName.includes('tesla');
-          }) ?? null;
-        }
-
-        return null;
-      })();
-
-      if (explicitMovementMatch) {
-        return explicitMovementMatch;
-      }
-
-      const explicitConsumptionMatch = (() => {
-        if (detectedUnitLower !== 'milligrams') return null;
-
-        if (/(nicotine|vape|vaped|vaping|smoke|smoked|smoking|cigarette|cigarettes|zyn|pouch|pouches|dip|tobacco)/i.test(searchTerms)) {
-          return candidateHabits.find((habit) => habit.name.toLowerCase().includes('nicotine')) ?? null;
-        }
-
-        if (/(caffeine|coffee|espresso|latte|americano|matcha|energy drink|pre-workout|pre workout|tea)/i.test(searchTerms)) {
-          return candidateHabits.find((habit) => habit.name.toLowerCase().includes('caffeine')) ?? null;
-        }
-
-        return null;
-      })();
-
-      if (explicitConsumptionMatch) {
-        return explicitConsumptionMatch;
-      }
-
-      for (const habit of candidateHabits) {
-        const habitName = habit.name.toLowerCase();
-        const habitWords = habitName.split(' ');
-        const significantWords = habitWords.filter(
-          (word) =>
-            word.length > 2 &&
-            !GENERIC_MATCH_WORDS.has(word) &&
-            !['mile', 'miles', 'kilometer', 'kilometers', 'km', 'steps', 'step', 'hours', 'hour', 'minutes', 'minute', 'pages', 'page'].includes(word)
-        );
-
-        // Activity-based matching
-        const matches = [
-          { terms: ['read', 'reading'], habitWord: 'reading' },
-          { terms: ['walk', 'walked', 'walking'], habitWord: 'walk' },
-          { terms: ['meditat', 'meditation'], habitWord: 'meditat' },
-          { terms: ['workout', 'exercise', 'gym', 'worked out'], habitWord: 'workout' },
-          { terms: ['deep work', 'work session', 'focus'], habitWord: 'work' },
-          { terms: ['skill', 'learning', 'study', 'technical'], habitWord: 'skill' },
-          { terms: ['caffeine', 'coffee'], habitWord: 'caffeine' },
-          { terms: ['nicotine', 'vape', 'vaped', 'smoke', 'smoked', 'zyn', 'tobacco'], habitWord: 'nicotine' },
-          { terms: ['water', 'hydrat', 'drank'], habitWord: 'water' },
-          { terms: ['sleep', 'slept'], habitWord: 'sleep' },
-          { terms: ['code', 'coding', 'programm'], habitWord: 'cod' },
-          { terms: ['pull-up', 'pullup', 'pull up'], habitWord: 'pull' },
-          { terms: ['push-up', 'pushup', 'push up'], habitWord: 'push' },
-          { terms: ['squat'], habitWord: 'squat' },
-          { terms: ['run', 'running', 'ran'], habitWord: 'run' },
-        ];
-
-        for (const match of matches) {
-          if (match.terms.some(term => searchTerms.includes(term)) && habitName.includes(match.habitWord)) {
-            return habit;
-          }
-        }
-
-        // Fallback: significant word matching
-        if (significantWords.some(word => searchTerms.includes(word))) {
-          return habit;
-        }
-
-        // Fallback: full habit name matching
-        if (searchTerms.includes(habitName)) {
-          return habit;
-        }
-      }
-      return null;
-    };
-
-    // Try to extract value and unit
-    for (const pattern of timePatterns) {
-      const match = text.match(pattern.regex);
-      if (match) {
-        const value = parseFloat(match[1]);
-        const matchingHabit = findMatchingHabit(text, pattern.unit);
-
-        if (matchingHabit) {
-          const durationInMinutes = pattern.isDuration 
-            ? (pattern.unit === 'Hours' ? value * 60 : value) 
-            : null;
-
-          return {
-            habitName: matchingHabit.name,
-            amount: pattern.isDuration ? null : value,
-            duration: durationInMinutes,
-            unit: pattern.unit,
-            activity: text,
-            success: true
-          };
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const getHabitByParsedName = (habitName?: string | null) => {
-    if (!habitName) return null;
-    const matched = habits.find((habit) => habit.name.toLowerCase() === habitName.toLowerCase());
-    if (!matched?.id) return null;
-    return {
-      id: matched.id,
-      name: matched.name,
-      unit_type: matched.unit_type || '',
-    };
-  };
-
-  const getParsedDisplayValue = (
-    parsed: ParsedHabitInput,
-    habitUnit?: string | null,
-  ): { value: number; unitLabel: string } => {
-    if (parsed.amount != null) {
-      return {
-        value: parsed.amount,
-        unitLabel: parsed.unit || habitUnit || 'Count',
-      };
-    }
-
-    const normalizedHabitUnit = (habitUnit || parsed.unit || '').toLowerCase();
-    if (parsed.duration != null) {
-      if (normalizedHabitUnit === 'hours') {
-        return {
-          value: Math.round((parsed.duration / 60) * 10) / 10,
-          unitLabel: 'Hours',
-        };
-      }
-
-      return {
-        value: Math.round(parsed.duration * 10) / 10,
-        unitLabel: parsed.unit || habitUnit || 'Minutes',
-      };
-    }
-
-    return {
-      value: 1,
-      unitLabel: parsed.unit || habitUnit || 'Count',
-    };
-  };
-
-  const formatParsedValueLabel = (value: number, unitLabel: string) => {
-    if (unitLabel === 'Hours') {
-      return `${value} ${value === 1 ? 'hour' : 'hours'}`;
-    }
-    if (unitLabel === 'Minutes') {
-      return `${value} min`;
-    }
-    if (unitLabel === 'Pages') {
-      return `${value} ${value === 1 ? 'page' : 'pages'}`;
-    }
-    if (unitLabel === 'Steps') {
-      return `${value} ${value === 1 ? 'step' : 'steps'}`;
-    }
-    if (unitLabel === 'Miles') {
-      return `${value} ${value === 1 ? 'mile' : 'miles'}`;
-    }
-    if (unitLabel === 'Milligrams') {
-      return `${value}mg`;
-    }
-    if (unitLabel === 'Count') {
-      return `${value}`;
-    }
-    return `${value} ${unitLabel.toLowerCase()}`;
-  };
-
-  const buildDeterministicLogSuggestion = (query: string): ChatSuggestion | null => {
-    if (mode !== 'log' || !query.trim()) return null;
-    const parsed = parseHabitInput(query);
-    if (!parsed?.success) return null;
-
-    const matchedHabit = getHabitByParsedName(parsed.habitName);
-    if (!matchedHabit) return null;
-
-    const { value, unitLabel } = getParsedDisplayValue(parsed, matchedHabit.unit_type);
-
-    return {
-      text: `${matchedHabit.name} — ${formatParsedValueLabel(value, unitLabel)}`,
-      type: 'log_phrase',
-      habit_id: matchedHabit.id,
-      habit_name: matchedHabit.name,
-      unit_type: matchedHabit.unit_type || undefined,
-      value,
-      hint: `Log ${matchedHabit.name}`,
-      score: 1000,
-      source: 'local',
-    };
-  };
+  const findHabitByParsedName = useCallback(
+    (habitName?: string | null) => getHabitByParsedName(habits, habitName),
+    [habits],
+  );
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -811,7 +404,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
 
     // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
     const localParsed = parseHabitInput(inputText);
-    const matchedHabit = getHabitByParsedName(localParsed?.habitName);
+    const matchedHabit = findHabitByParsedName(localParsed?.habitName);
 
     if (localParsed?.success && matchedHabit) {
       if (onHabitUpdate) {
@@ -1699,257 +1292,23 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
   return (
     <div className="w-full">
       {/* Screenshot Modal - Compact macOS-inspired */}
-      {(isUploadingScreenshot || screenshotPreview) && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0"
-            onClick={handleCancelScreenshot}
-          />
-
-          {/* Modal */}
-          <div
-            className="relative z-10 w-[92vw] max-w-[470px] rounded-none border border-gray-300 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.16)]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* HEADER */}
-            <div className="flex items-start justify-between gap-3 border-b border-gray-200/80 px-4 py-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  {!isUploadingScreenshot && screenshotPreview?.low_confidence && (
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                  )}
-                  {!isUploadingScreenshot && !screenshotPreview?.low_confidence && (
-                    <Check className="h-4 w-4 text-gray-900" />
-                  )}
-
-                  <h3 className="text-sm font-medium tracking-tight text-[#111827]">
-                    {isUploadingScreenshot ? "Analyzing screenshot" : "Detected"}
-                  </h3>
-
-                  {/* Status pill */}
-                  {!isUploadingScreenshot && screenshotPreview?.low_confidence && (
-                    <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
-                      Review
-                    </span>
-                  )}
-                </div>
-
-                {/* filename */}
-                <p className="mt-1 truncate text-xs text-[#6B7280]">
-                  {uploadedFileName ?? "Screenshot"}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleCancelScreenshot}
-                className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-full text-gray-400 hover:text-gray-700"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-
-            {/* BODY */}
-            <div className="px-4 py-4">
-              {/* Loading state */}
-              {isUploadingScreenshot && (
-                <div className="flex min-h-[168px] items-center justify-center">
-                  <div className="w-full px-3 py-6 text-center">
-                    <p className="text-lg font-medium tracking-tight text-[#111827]">
-                      Matching to your habits
-                    </p>
-                    <div className="mt-3 flex justify-center">
-                      <BrailleSpinner name="braille" className="text-[30px]" />
-                    </div>
-                    <p className="mt-3 text-xs text-[#6B7280]">
-                      Extracting values from your image.
-                    </p>
-                    <p className="mt-1 text-xs text-[#9CA3AF]">
-                      Usually done in a few seconds.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Confirmation state */}
-              {screenshotPreview && !isUploadingScreenshot && (
-                <div className="space-y-3">
-                  {/* HERO VALUE */}
-                  <div className="px-2 py-2">
-                    <div className="flex items-center justify-center gap-2">
-                      <input
-                        type="number"
-                        value={editedValue}
-                        onChange={(e) => setEditedValue(e.target.value)}
-                        className="w-24 bg-transparent text-center text-[32px] font-medium tracking-tight text-[#111827] outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                        step="0.1"
-                        min="0"
-                      />
-                      <div className="flex flex-col gap-1">
-                        <button
-                          type="button"
-                          onClick={() => adjustEditedValue(0.1)}
-                          className="inline-flex h-5 w-5 items-center justify-center border border-[#D1D5DB] text-[#4B5563] hover:bg-[#F3F4F6]"
-                          aria-label="Increase value"
-                        >
-                          <ChevronUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => adjustEditedValue(-0.1)}
-                          className="inline-flex h-5 w-5 items-center justify-center border border-[#D1D5DB] text-[#4B5563] hover:bg-[#F3F4F6]"
-                          aria-label="Decrease value"
-                        >
-                          <ChevronDown className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      <span className="text-sm text-[#4B5563]">
-                        {selectedScreenshotHabit?.unit_type || screenshotPreview.unit}
-                      </span>
-                    </div>
-
-                    {screenshotPreview.description && (
-                      <p className="mt-2 text-center text-xs text-[#6B7280]">
-                        {screenshotPreview.description}
-                      </p>
-                    )}
-
-                    {/* Validation warning */}
-                    {!screenshotPreview.validation.is_valid && (
-                      <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <div className="font-medium">Check this value</div>
-                          <div className="text-amber-800/90">
-                            {screenshotPreview.validation.reason}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* HABIT SELECTOR */}
-                  <div className="space-y-1.5">
-                    <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#6B7280]">Log to</div>
-
-                    <div className="border border-[#C8CDD5] bg-white">
-                      <button
-                        type="button"
-                        onClick={() => setShowHabitPicker((current) => !current)}
-                        className="flex w-full items-center justify-between px-2.5 py-1.5 text-left hover:bg-[#F9FAFB]"
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-medium text-[#111827]">
-                            {selectedHabitId
-                              ? selectedScreenshotHabit?.name
-                              : screenshotPreview.habit_name}
-                          </div>
-                          <div className="text-xs text-[#6B7280]">
-                            {selectedHabitId
-                              ? "Existing habit"
-                              : screenshotPreview.is_new_habit
-                                ? "Will create new habit"
-                                : "Detected habit"}
-                          </div>
-                        </div>
-                        <div className="ml-3 flex items-center gap-2">
-                          <span className="text-xs text-[#9CA3AF]">
-                            {selectedScreenshotHabit?.unit_type || screenshotPreview.unit}
-                          </span>
-                          <ChevronDown
-                            className={cn(
-                              "h-4 w-4 text-[#9CA3AF] transition-transform",
-                              showHabitPicker && "rotate-180"
-                            )}
-                          />
-                        </div>
-                      </button>
-
-                      {showHabitPicker && (
-                        <div className="border-t border-[#E5E7EB]">
-                          {screenshotPreview.is_new_habit && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedHabitId(null);
-                                setShowHabitPicker(false);
-                              }}
-                              className={cn(
-                                "flex w-full items-center gap-2 border-b border-gray-200 px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
-                                !selectedHabitId && "bg-[#F3F3F3]"
-                              )}
-                            >
-                              <span className="text-xs font-semibold text-gray-900">+</span>
-                              <span className="truncate">Create &quot;{screenshotPreview.habit_name}&quot;</span>
-                            </button>
-                          )}
-
-                          <div className="max-h-28 overflow-y-auto">
-                            {screenshotHabitOptions.map((habit) => (
-                              <button
-                                key={habit.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedHabitId(habit.id);
-                                  setShowHabitPicker(false);
-                                }}
-                                className={cn(
-                                  "flex w-full items-center justify-between px-2.5 py-1.5 text-left text-sm hover:bg-[#F3F3F3]",
-                                  selectedHabitId === habit.id && "bg-[#F3F3F3]"
-                                )}
-                              >
-                                <span className="truncate">{habit.name}</span>
-                                <span className="ml-3 text-xs text-[#9CA3AF]">
-                                  {habit.unit_type}
-                                </span>
-                              </button>
-                            ))}
-                            {screenshotHabitOptions.length === 0 && (
-                              <div className="px-2.5 py-1.5 text-xs text-[#6B7280]">
-                                No habits available
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* FOOTER */}
-            <div className="flex items-center justify-end gap-2 border-t border-gray-200/80 bg-[#F7F7F8] px-4 py-3">
-              <button
-                type="button"
-                onClick={handleCancelScreenshot}
-                className="border border-[#C8CDD5] px-3 py-1.5 text-sm text-[#4B5563] hover:bg-[#EBEDF0] hover:text-[#111827]"
-                disabled={isConfirming}
-              >
-                Cancel
-              </button>
-
-              {!isUploadingScreenshot && (
-                <button
-                  type="button"
-                  onClick={handleConfirmScreenshot}
-                  disabled={isConfirming || !editedValue}
-                  className="inline-flex items-center gap-2 border border-[#111827] bg-[#111827] px-3 py-1.5 text-sm font-medium text-white rounded-sm disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isConfirming ? (
-                    <BrailleSpinner className="text-sm text-white" />
-                  ) : (
-                    <Check className="h-4 w-4" />
-                  )}
-                  Log
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <ScreenshotConfirmationModal
+        isUploadingScreenshot={isUploadingScreenshot}
+        screenshotPreview={screenshotPreview}
+        uploadedFileName={uploadedFileName}
+        editedValue={editedValue}
+        setEditedValue={setEditedValue}
+        selectedHabitId={selectedHabitId}
+        setSelectedHabitId={setSelectedHabitId}
+        selectedScreenshotHabit={selectedScreenshotHabit}
+        screenshotHabitOptions={screenshotHabitOptions}
+        showHabitPicker={showHabitPicker}
+        setShowHabitPicker={setShowHabitPicker}
+        isConfirming={isConfirming}
+        adjustEditedValue={adjustEditedValue}
+        handleCancelScreenshot={handleCancelScreenshot}
+        handleConfirmScreenshot={handleConfirmScreenshot}
+      />
 
       <div className="relative border border-gray-200/80 bg-[#F9F9F9] shadow-sm rounded-sm transition-all duration-300 hover:shadow-md hover:border-gray-300 focus-within:shadow-md focus-within:border-gray-300">
         <form onSubmit={handleFormSubmit}>

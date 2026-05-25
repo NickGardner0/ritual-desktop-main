@@ -39,6 +39,7 @@ const nativeVoiceHadSpeechRef = useRef(false);
 const nativeVoicePartialLastChangeRef = useRef<number>(0);
 const nativeVoicePartialLastValueRef = useRef<string>('');
 const voiceInputModeRef = useRef<'native' | 'whisper' | 'deepgram' | null>(null);
+const stopVoiceRecordingRef = useRef<() => void>(() => undefined);
 
 const clearNativeVoiceTimers = useCallback(() => {
   if (nativeVoicePollRef.current) {
@@ -141,7 +142,7 @@ const startNativeVoiceRecognition = useCallback(async () => {
           nativeVoicePartialLastChangeRef.current &&
           performance.now() - nativeVoicePartialLastChangeRef.current > PARTIAL_STABLE_MS
         ) {
-          stopVoiceRecording();
+          stopVoiceRecordingRef.current();
           return;
         }
 
@@ -203,9 +204,9 @@ const startNativeVoiceRecognition = useCallback(async () => {
   }, 75);
 
   nativeVoiceAutoStopRef.current = window.setTimeout(() => {
-    stopVoiceRecording();
+    stopVoiceRecordingRef.current();
   }, 10000);
-}, [resetNativeVoiceSession]);
+}, [resetNativeVoiceSession, setInput, textareaRef]);
 
 const whisperVoiceEnabled =
   (process.env.NEXT_PUBLIC_VOICE_USE_WHISPER ?? '1') !== '0';
@@ -398,7 +399,7 @@ const startWhisperRecording = async () => {
 // Voice recording
 const startVoiceRecognition = async () => {
   if (isListening) {
-    stopVoiceRecording();
+    stopVoiceRecordingRef.current();
     return;
   }
   if (isProcessingVoice) {
@@ -455,7 +456,7 @@ const startVoiceRecognition = async () => {
   }
 };
 
-const stopVoiceRecording = () => {
+const stopVoiceRecording = useCallback(() => {
   if (voiceInputModeRef.current === 'deepgram') {
     stopDeepgramDictation();
     voiceInputModeRef.current = null;
@@ -527,7 +528,11 @@ const stopVoiceRecording = () => {
     setAudioStream(null);
   }
   setIsListening(false);
-};
+}, [audioStream, resetNativeVoiceSession, setInput, stopDeepgramDictation, textareaRef]);
+
+useEffect(() => {
+  stopVoiceRecordingRef.current = stopVoiceRecording;
+}, [stopVoiceRecording]);
 
 
   return {

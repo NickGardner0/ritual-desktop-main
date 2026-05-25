@@ -135,29 +135,42 @@ class GarminService:
             payload = response.json()
             return payload if isinstance(payload, dict) else {}
 
-    async def sync_garmin_account(self, user_id: str) -> Dict[str, Any]:
+    async def fetch_garmin_account_payload(self, user_id: str) -> Dict[str, Any]:
         access_token = await self.get_valid_access_token(user_id)
         provider_user_id = await self.get_user_id(access_token)
         permissions = await self.get_permissions(access_token)
         connection = await wearable_connection_service.get_connection(user_id, "garmin")
+        return {
+            "access_token": access_token,
+            "provider_user_id": provider_user_id,
+            "permissions": permissions,
+            "connection_provider_user_id": connection.provider_user_id if connection else None,
+            "refresh_token": token_crypto.decrypt(connection.refresh_token) if connection and connection.refresh_token else None,
+            "token_expires_at": connection.token_expires_at if connection else None,
+        }
 
+    async def write_garmin_account_payload(self, user_id: str, payload: Dict[str, Any]) -> None:
         await wearable_connection_service.get_or_create_connection(
             user_id=user_id,
             provider="garmin",
             auth_method="oauth",
-            provider_user_id=provider_user_id or (connection.provider_user_id if connection else None),
-            access_token=access_token,
-            refresh_token=token_crypto.decrypt(connection.refresh_token) if connection and connection.refresh_token else None,
-            token_expires_at=connection.token_expires_at if connection else None,
-            settings={"permissions": permissions},
+            provider_user_id=payload["provider_user_id"] or payload["connection_provider_user_id"],
+            access_token=payload["access_token"],
+            refresh_token=payload["refresh_token"],
+            token_expires_at=payload["token_expires_at"],
+            settings={"permissions": payload["permissions"]},
             status="active",
         )
+
+    async def sync_garmin_account(self, user_id: str) -> Dict[str, Any]:
+        payload = await self.fetch_garmin_account_payload(user_id)
+        await self.write_garmin_account_payload(user_id, payload)
 
         return {
             "status": "success",
             "synced_at": datetime.utcnow().isoformat(),
             "data": {
-                "permissions_loaded": bool(permissions),
+                "permissions_loaded": bool(payload["permissions"]),
                 "webhook_driven": True,
             },
         }

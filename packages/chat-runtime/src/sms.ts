@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 
-import { tools } from './tools.js';
+import { getToolsForChannel } from './tool-registry.js';
 import { buildSystemPrompt, isSmsV2PromptActive } from './system-prompt.js';
 import {
   dispatchToolCall,
@@ -40,6 +40,8 @@ type SmsToolExecution = {
   name: string;
   result: string;
 };
+
+const smsToolSchemas = getToolsForChannel('sms');
 
 function formatSmsShortDate(value: string): string | null {
   if (!value || typeof value !== 'string') return null;
@@ -91,21 +93,6 @@ function formatSmsValue(value: number, unit?: string | null): string {
   if (normalized.includes('mile')) return `${compact} mi`;
   if (normalized.includes('step')) return `${compact} steps`;
   return unit ? `${compact} ${unit}` : compact;
-}
-
-function uniqueSmsStrings(values: Array<unknown>): string[] {
-  const seen = new Set<string>();
-  const results: string[] = [];
-  for (const value of values) {
-    if (typeof value !== 'string') continue;
-    const cleaned = value.trim().replace(/\s+/g, ' ');
-    if (!cleaned) continue;
-    const dedupeKey = cleaned.toLowerCase();
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
-    results.push(cleaned);
-  }
-  return results;
 }
 
 function cleanSmsSentence(value: string): string {
@@ -452,7 +439,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     let response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
       messages: apiMessages,
-      tools,
+      tools: smsToolSchemas,
       tool_choice: 'auto',
       temperature: 0.3,
     });
@@ -498,7 +485,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
       response = await getOpenAIClient().chat.completions.create({
         model: 'gpt-4o',
         messages: apiMessages,
-        tools,
+        tools: smsToolSchemas,
         tool_choice: 'auto',
         temperature: iterations < 3 ? 0.3 : 0.7,
       });
@@ -673,7 +660,7 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
     let response = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
       messages: apiMessages,
-      tools,
+      tools: smsToolSchemas,
       tool_choice: 'auto',
       temperature: 0.5,
     });
@@ -714,7 +701,7 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
       response = await getOpenAIClient().chat.completions.create({
         model: 'gpt-4o',
         messages: apiMessages,
-        tools,
+        tools: smsToolSchemas,
         tool_choice: 'auto',
         temperature: 0.5,
       });

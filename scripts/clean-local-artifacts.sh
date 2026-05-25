@@ -46,7 +46,6 @@ paths=(
   "apps/desktop/src-tauri/.fastembed_cache"
   "apps/desktop/src-tauri/target"
   "apps/desktop/src-tauri/bin/ritual-watcher/target"
-  "apps/desktop/src-tauri/bin/ritual-recorder/target"
   "apps/desktop/src-tauri/crates/ritual-db/target"
   "apps/backend/.memory_cloud.db"
   "apps/backend/.memory_cloud.db-shm"

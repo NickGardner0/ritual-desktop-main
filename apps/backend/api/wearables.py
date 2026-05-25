@@ -261,6 +261,10 @@ def create_wearables_router(
     from services.wearable_event_outbox_service import wearable_event_outbox_service
     from services.wearable_ingest_job_service import wearable_ingest_job_service
     from services.wearable_provider_adapters import get_provider_adapter, list_provider_defs
+    from services.wearable_provider_sync_registry import (
+        WearableProviderSyncServices,
+        sync_wearable_provider_account,
+    )
     from services.wearable_maintenance_service import wearable_maintenance_service
     from schemas.wearables_apple import (
         DeviceRegisterRequest,
@@ -280,6 +284,12 @@ def create_wearables_router(
         WearableSeriesResponse,
         WearableSyncResponse,
         WearableTimelineResponse,
+    )
+
+    provider_sync_services = WearableProviderSyncServices(
+        whoop_service=whoop_service,
+        oura_service=oura_service,
+        garmin_service=garmin_service,
     )
 
     def _serialize_connection(item: dict[str, Any]) -> dict[str, Any]:
@@ -490,69 +500,25 @@ def create_wearables_router(
             metadata={"requested_by": current_user["id"]},
         )
         try:
-            message = None
-            items_written = 0
-            items_seen = 0
-            if provider == "whoop":
-                result = await whoop_service.sync_whoop_data(current_user["id"])
-                sync_data = result.get("data", {})
-                items_seen = sum(int(v or 0) for v in sync_data.values())
-                items_written = items_seen
-                message = "Whoop sync completed."
-                await wearable_sync_service.finish_sync_run(
-                    run.id,
-                    status="success",
-                    items_seen=items_seen,
-                    items_written=items_written,
-                )
-            elif provider == "apple_health":
-                await wearable_sync_service.finish_sync_run(
-                    run.id,
-                    status="success",
-                    items_seen=0,
-                    items_written=0,
-                )
-                message = "Apple Health sync uses the iOS companion background ingest pipeline."
-            elif provider == "oura":
-                result = await oura_service.sync_oura_data(current_user["id"])
-                sync_data = result.get("data", {})
-                items_seen = int(sync_data.get("samples", 0)) + int(sync_data.get("events", 0))
-                items_written = items_seen
-                message = "Oura sync completed."
-                await wearable_sync_service.finish_sync_run(
-                    run.id,
-                    status="success",
-                    items_seen=items_seen,
-                    items_written=items_written,
-                )
-            elif provider == "garmin":
-                result = await garmin_service.sync_garmin_account(current_user["id"])
-                sync_data = result.get("data", {})
-                items_seen = 1 if sync_data.get("permissions_loaded") else 0
-                items_written = items_seen
-                message = "Garmin account refreshed. Data ingestion is webhook-driven."
-                await wearable_sync_service.finish_sync_run(
-                    run.id,
-                    status="success",
-                    items_seen=items_seen,
-                    items_written=items_written,
-                )
-            else:
-                await wearable_sync_service.finish_sync_run(
-                    run.id,
-                    status="partial",
-                    items_seen=0,
-                    items_written=0,
-                    error={"message": f"{provider} cloud sync is scaffolded but not configured in this environment."},
-                )
-                message = f"{provider.title()} connection exists, but cloud sync is not configured in this environment yet."
+            sync_result = await sync_wearable_provider_account(
+                provider=provider,
+                user_id=current_user["id"],
+                services=provider_sync_services,
+            )
+            await wearable_sync_service.finish_sync_run(
+                run.id,
+                status=sync_result.status,
+                items_seen=sync_result.items_seen,
+                items_written=sync_result.items_written,
+                error=sync_result.error,
+            )
             runs = await wearable_query_service.get_sync_runs(user_id=current_user["id"], provider=provider, limit=1)
             latest_run = runs[0] if runs else run
             return WearableSyncResponse(
                 success=latest_run.status in {"success", "partial"},
                 provider=provider,
                 sync_run=_serialize_sync_run(latest_run),
-                message=message,
+                message=sync_result.message,
             )
         except HTTPException:
             await wearable_sync_service.finish_sync_run(
@@ -676,28 +642,20 @@ def create_wearables_router(
 
         for connection in eligible_connections:
             try:
-                if provider == "whoop":
-                    result = await whoop_service.sync_whoop_data(
-                        connection.user_id,
-                        days_back=payload.days_back,
-                        force_full_sync=payload.force_full_sync,
-                    )
-                elif provider == "oura":
-                    result = await oura_service.sync_oura_data(
-                        connection.user_id,
-                        days_back=payload.days_back,
-                        force_full_sync=payload.force_full_sync,
-                    )
-                elif provider == "garmin":
-                    result = await garmin_service.sync_garmin_account(connection.user_id)
-                else:
-                    raise ValueError(f"Unsupported scheduled sync provider: {provider}")
+                sync_result = await sync_wearable_provider_account(
+                    provider=provider,
+                    user_id=connection.user_id,
+                    services=provider_sync_services,
+                    days_back=payload.days_back,
+                    force_full_sync=payload.force_full_sync,
+                    unsupported_as_partial=False,
+                )
 
                 sync_results.append(
                     {
                         "user_id": connection.user_id,
                         "success": True,
-                        "data": result,
+                        "data": sync_result.data,
                     }
                 )
             except Exception as exc:

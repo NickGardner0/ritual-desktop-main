@@ -27,7 +27,7 @@ import {
   formatHabitLogDisplayDate,
   formatHabitLogDisplayTime,
 } from '@/lib/habit-log-time';
-import type { HabitLog } from '@/app/(dashboard)/activity/logs-client';
+import type { HabitLog } from '@/components/habit-logs/types';
 
 const STATUS_CONFIG = {
   completed: {

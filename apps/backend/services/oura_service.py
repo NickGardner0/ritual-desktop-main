@@ -116,7 +116,7 @@ class OuraService:
             response.raise_for_status()
             return response.json().get("data", {})
 
-    async def sync_oura_data(
+    async def fetch_oura_sync_payload(
         self,
         user_id: str,
         *,
@@ -185,20 +185,57 @@ class OuraService:
                 swallow_404=True,
             )
 
-        counts = await wearable_sync_service.ingest_oura_data(
+        return {
+            "access_token": access_token,
+            "refresh_token": token_crypto.decrypt(connection.refresh_token) if connection.refresh_token else None,
+            "token_expires_at": token_expires_at,
+            "personal_info": personal_info,
+            "start_date": start_date,
+            "end_date": end_date,
+            "daily_sleep_records": daily_sleep,
+            "sleep_records": sleep,
+            "daily_readiness_records": daily_readiness,
+            "daily_activity_records": daily_activity,
+            "workout_records": workout,
+            "heartrate_records": heartrate,
+        }
+
+    async def write_oura_sync_payload(
+        self,
+        user_id: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        personal_info = payload["personal_info"]
+        return await wearable_sync_service.ingest_oura_data(
             user_id=user_id,
             provider_user_id=str(personal_info.get("email") or personal_info.get("id") or user_id),
             personal_info=personal_info,
-            access_token=access_token,
-            refresh_token=token_crypto.decrypt(connection.refresh_token) if connection.refresh_token else None,
-            token_expires_at=token_expires_at,
-            daily_sleep_records=daily_sleep,
-            sleep_records=sleep,
-            daily_readiness_records=daily_readiness,
-            daily_activity_records=daily_activity,
-            workout_records=workout,
-            heartrate_records=heartrate,
+            access_token=payload["access_token"],
+            refresh_token=payload["refresh_token"],
+            token_expires_at=payload["token_expires_at"],
+            daily_sleep_records=payload["daily_sleep_records"],
+            sleep_records=payload["sleep_records"],
+            daily_readiness_records=payload["daily_readiness_records"],
+            daily_activity_records=payload["daily_activity_records"],
+            workout_records=payload["workout_records"],
+            heartrate_records=payload["heartrate_records"],
         )
+
+    async def sync_oura_data(
+        self,
+        user_id: str,
+        *,
+        days_back: Optional[int] = None,
+        force_full_sync: bool = False,
+    ) -> Dict[str, Any]:
+        payload = await self.fetch_oura_sync_payload(
+            user_id,
+            days_back=days_back,
+            force_full_sync=force_full_sync,
+        )
+        counts = await self.write_oura_sync_payload(user_id, payload)
+        start_date = payload["start_date"]
+        end_date = payload["end_date"]
 
         return {
             "status": "success",

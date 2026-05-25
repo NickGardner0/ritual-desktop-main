@@ -20,10 +20,10 @@ function loadBuilder() {
       target: ts.ScriptTarget.ES2020,
     },
   }).outputText;
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   const sandbox = {
-    module,
-    exports: module.exports,
+    module: loadedModule,
+    exports: loadedModule.exports,
     console,
     Date,
     Intl,
@@ -37,7 +37,7 @@ function loadBuilder() {
   };
 
   vm.runInNewContext(output, sandbox, { filename: sourcePath });
-  return module.exports;
+  return loadedModule.exports;
 }
 
 const {

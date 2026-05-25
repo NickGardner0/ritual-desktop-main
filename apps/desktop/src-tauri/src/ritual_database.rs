@@ -98,17 +98,6 @@ fn resolve_active_identity() -> Option<ActiveIdentity> {
         }
     }
 
-    if let Some(config) = crate::recorder::read_recorder_config() {
-        let user_id = config.user_id.trim();
-        let device_id = config.device_id.trim();
-        if !user_id.is_empty() && !device_id.is_empty() {
-            return Some(ActiveIdentity {
-                user_id: user_id.to_string(),
-                device_id: device_id.to_string(),
-            });
-        }
-    }
-
     None
 }
 /// Get the ritual database directory
@@ -385,11 +374,7 @@ fn ensure_split_local_databases() -> Result<(), String> {
 
         conn.execute_batch("BEGIN IMMEDIATE;")
             .map_err(|e| format!("Failed starting memory migration transaction: {}", e))?;
-        for table in [
-            "video_chunks",
-            "recorder_stats",
-            "schema_migrations",
-        ] {
+        for table in ["video_chunks", "recorder_stats", "schema_migrations"] {
             copy_table_if_exists(&conn, table)?;
         }
 
@@ -683,10 +668,7 @@ async fn project_time_incremental_range_start(conn: &libsql::Connection) -> Resu
     let now = Utc::now().timestamp_millis();
     let fallback = now.saturating_sub(3 * 24 * 60 * 60 * 1000);
     let mut rows = conn
-        .query(
-            "SELECT MAX(end_ts) FROM project_time_sessions",
-            (),
-        )
+        .query("SELECT MAX(end_ts) FROM project_time_sessions", ())
         .await
         .map_err(|e| format!("Failed to read project-time watermark: {}", e))?;
     let latest = rows

@@ -17,14 +17,14 @@ function loadWearablesDashboardModule() {
     },
   }).outputText;
 
-  const module = { exports: {} };
+  const loadedModule = { exports: {} };
   const sandbox = {
-    exports: module.exports,
-    module,
+    exports: loadedModule.exports,
+    module: loadedModule,
     require: createRequire(import.meta.url),
   };
   vm.runInNewContext(transpiled, sandbox, { filename });
-  return module.exports;
+  return loadedModule.exports;
 }
 
 const wearablesDashboard = loadWearablesDashboardModule();

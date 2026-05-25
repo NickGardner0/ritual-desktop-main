@@ -21,6 +21,14 @@
     "./weekly-overview-utils": {
       "types": "./dist/weekly-overview-utils.d.ts",
       "import": "./dist/weekly-overview-utils.js"
+    },
+    "./tool-registry": {
+      "types": "./dist/tool-registry.d.ts",
+      "import": "./dist/tool-registry.js"
+    },
+    "./chat-turn-engine": {
+      "types": "./dist/chat-turn-engine.d.ts",
+      "import": "./dist/chat-turn-engine.js"
     }
   },
   "scripts": {
