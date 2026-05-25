@@ -104,16 +104,13 @@ export function usePrefetchHabitLogs() {
  */
 export function usePrefetchDashboard() {
   const prefetchHabits = usePrefetchHabits();
-  const prefetchLogs = usePrefetchHabitLogs();
 
   return {
     onMouseEnter: () => {
       prefetchHabits.onMouseEnter();
-      prefetchLogs.onMouseEnter();
     },
     onFocus: () => {
       prefetchHabits.onFocus();
-      prefetchLogs.onFocus();
     },
   };
 }
@@ -122,68 +119,15 @@ export function usePrefetchDashboard() {
  * Prefetch analytics page data
  */
 export function usePrefetchAnalytics() {
-  const queryClient = useQueryClient();
-  const { user } = useUser();
-  const { getToken } = useAuth();
   const prefetchHabits = usePrefetchHabits();
-  const prefetchLogs = usePrefetchHabitLogs();
-
-  const prefetchAnalyticsSummary = async () => {
-    if (!user) return;
-    
-    await queryClient.prefetchQuery({
-      queryKey: ['analytics-summary', user.id],
-      queryFn: async () => {
-        const token = await getToken();
-        const backendUrl = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-        
-        console.log('⚡ [Prefetch] Loading analytics summary...');
-        
-        // Fetch habits and logs in parallel
-        const [habitsRes, logsRes] = await Promise.all([
-          fetch(`${backendUrl}/api/habits`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          }),
-          fetch(`${backendUrl}/api/habit-logs`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          })
-        ]);
-        
-        const habits = await habitsRes.json();
-        const logs = await logsRes.json();
-        
-        // Calculate summary metrics
-        const totalLogs = logs.length;
-        const completedLogs = logs.filter((log: any) => log.status === 'completed').length;
-        const completionRate = totalLogs > 0 ? Math.round((completedLogs / totalLogs) * 100) : 0;
-        
-        console.log('✅ [Prefetch] Analytics summary loaded!');
-        
-        return {
-          habits,
-          summaryMetrics: {
-            totalHabits: habits.length,
-            totalLogs,
-            completionRate,
-            bestHabit: habits[0] ? { name: habits[0].name, rate: 100 } : null
-          }
-        };
-      },
-      staleTime: QUERY_POLICY.staticResource.staleTime,
-    });
-  };
 
   return {
     onMouseEnter: () => {
       console.log('⚡ [Prefetch] Preloading analytics data...');
-      prefetchAnalyticsSummary();
       prefetchHabits.onMouseEnter();
-      prefetchLogs.onMouseEnter();
     },
     onFocus: () => {
-      prefetchAnalyticsSummary();
       prefetchHabits.onFocus();
-      prefetchLogs.onFocus();
     },
   };
 }
