@@ -305,7 +305,6 @@ export function MetricsView({
     userId: user?.id,
     dateRange,
     enabled: isUserLoaded && Boolean(user?.id),
-    allTimeDays: 90,
   });
   const computerActivityDaily = useMemo<MetricDailyRow[]>(
     () =>

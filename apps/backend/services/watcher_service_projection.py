@@ -19,6 +19,11 @@ from services.watcher_service_local_db import (
 
 logger = logging.getLogger(__name__)
 
+COMPUTER_USE_RANGE_RESULT_DETAIL_LIMIT = max(
+    1,
+    int(os.getenv("COMPUTER_USE_RANGE_RESULT_DETAIL_LIMIT", "400")),
+)
+
 
 async def _find_computer_use_habit_impl(
     service,
@@ -853,22 +858,139 @@ async def sync_to_computer_use_habit_range_impl(
         total_days = (end_dt - start_dt).days + 1
         results: List[Dict[str, Any]] = []
         synced_days = 0
+        skipped_days = 0
+        truncated_result_days = 0
 
-        for offset in range(total_days):
-            day_dt = start_dt + timedelta(days=offset)
-            day = day_dt.strftime("%Y-%m-%d")
-            day_result = await service.sync_to_computer_use_habit(user_id=user_id, day=day)
-            results.append(day_result)
-            if day_result.get("success") and day_result.get("synced"):
+        def append_day_result(day_result: Dict[str, Any]) -> None:
+            nonlocal truncated_result_days
+            if len(results) < COMPUTER_USE_RANGE_RESULT_DETAIL_LIMIT:
+                results.append(day_result)
+            else:
+                truncated_result_days += 1
+
+        range_start = start_dt.strftime("%Y-%m-%d")
+        range_end = end_dt.strftime("%Y-%m-%d")
+        daily_rows = await service.get_daily_computer_time(
+            user_id=user_id,
+            start_date=range_start,
+            end_date=range_end,
+        )
+        daily_by_day = {
+            str(row.get("day") or ""): row
+            for row in daily_rows
+            if str(row.get("day") or "")
+        }
+
+        async with service._get_db_session() as session:
+            resolved_habit = await service._find_computer_use_habit(session, user_id)
+            if not resolved_habit:
+                return {
+                    "success": False,
+                    "error": "No 'Computer Time' habit found. Please create a habit named 'Computer Time' first.",
+                    "synced": False,
+                    "requested_days": total_days,
+                    "synced_days": 0,
+                    "results": [],
+                }
+
+            habit_id, habit_name, unit_type = resolved_habit
+
+            for offset in range(total_days):
+                day_dt = start_dt + timedelta(days=offset)
+                day = day_dt.strftime("%Y-%m-%d")
+                row = daily_by_day.get(day)
+                total_ms = int((row or {}).get("active_ms", 0) or 0)
+                events_count = int((row or {}).get("events_count", 0) or 0)
+
+                if total_ms <= 0 and events_count <= 0:
+                    skipped_days += 1
+                    append_day_result(
+                        {
+                            "success": True,
+                            "synced": False,
+                            "skipped": True,
+                            "reason": "no_activity_evidence",
+                            "habit_id": habit_id,
+                            "habit_name": habit_name,
+                            "day": day,
+                            "amount": 0,
+                            "unit": unit_type,
+                            "total_ms": 0,
+                            "projection": {
+                                "enabled": False,
+                                "source": service.COMPUTER_USE_PROJECTION_SOURCE,
+                                "pipeline_version": service.COMPUTER_USE_PIPELINE_VERSION,
+                            },
+                        }
+                    )
+                    continue
+
+                local_data = {
+                    "ok": True,
+                    "total_ms": total_ms,
+                    "total_hours": float((row or {}).get("active_hours", 0) or 0),
+                    "events_count": events_count,
+                    "active_ms": total_ms,
+                    "afk_ms": int((row or {}).get("afk_ms", 0) or 0),
+                    "top_domains": [],
+                }
+                projection_result = await service._upsert_computer_use_projection_log(
+                    session=session,
+                    habit_id=habit_id,
+                    habit_name=habit_name,
+                    unit_type=unit_type,
+                    day=day,
+                    local_data=local_data,
+                )
                 synced_days += 1
+                day_response: Dict[str, Any] = {
+                    "success": True,
+                    "synced": True,
+                    "action": projection_result["action"],
+                    "habit_id": habit_id,
+                    "habit_name": habit_name,
+                    "day": day,
+                    "amount": projection_result["amount"],
+                    "unit": unit_type,
+                    "log_id": projection_result["log_id"],
+                    "total_ms": projection_result["total_ms"],
+                    "projection": {
+                        "enabled": True,
+                        "source": service.COMPUTER_USE_PROJECTION_SOURCE,
+                        "pipeline_version": service.COMPUTER_USE_PIPELINE_VERSION,
+                        "dedupe_key": service._computer_use_projection_dedupe_key(habit_id, day),
+                    },
+                }
+                if projection_result.get("previous_amount") is not None:
+                    day_response["previous_amount"] = projection_result["previous_amount"]
+                append_day_result(day_response)
+
+                await service._sync_habit_log_to_tinybird(
+                    log_id=projection_result["log_id"],
+                    habit_id=habit_id,
+                    habit_name=habit_name,
+                    user_id=user_id,
+                    date=day,
+                    amount=projection_result["amount"],
+                    duration_seconds=projection_result["duration_seconds"],
+                    unit_type=unit_type,
+                    source=projection_result["source"],
+                    notes=projection_result["notes"],
+                )
+
+            await session.commit()
 
         response: Dict[str, Any] = {
             "success": True,
             "synced": synced_days > 0,
             "requested_days": total_days,
             "synced_days": synced_days,
-            "start_date": start_dt.strftime("%Y-%m-%d"),
-            "end_date": end_dt.strftime("%Y-%m-%d"),
+            "skipped_days": skipped_days,
+            "source_daily_rows": len(daily_rows),
+            "result_detail_limit": COMPUTER_USE_RANGE_RESULT_DETAIL_LIMIT,
+            "truncated_result_days": truncated_result_days,
+            "start_date": range_start,
+            "end_date": range_end,
             "results": results,
             "projection_source": service.COMPUTER_USE_PROJECTION_SOURCE,
             "pipeline_version": service.COMPUTER_USE_PIPELINE_VERSION,

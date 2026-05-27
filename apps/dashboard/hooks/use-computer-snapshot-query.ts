@@ -3,7 +3,6 @@
 import { useEffect, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { useQuery } from '@tanstack/react-query';
-import { subDays } from 'date-fns';
 import {
   getAggregatedComputerStats,
   type AggregatedComputerStatsResponse,
@@ -15,8 +14,9 @@ import {
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
-const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v1';
+const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v2';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+const COMPUTER_ACTIVITY_ALL_TIME_START_DATE = '2020-01-01';
 
 export type ComputerSnapshot = {
   summary: ComputerSummaryResponse;
@@ -127,12 +127,12 @@ export function useComputerSnapshotQuery({
   userId,
   dateRange,
   enabled = true,
-  allTimeDays = 1095,
+  allTimeStartDate = COMPUTER_ACTIVITY_ALL_TIME_START_DATE,
 }: {
   userId?: string | null;
   dateRange?: DateRange;
   enabled?: boolean;
-  allTimeDays?: number;
+  allTimeStartDate?: string;
 }) {
   const rangeWindow = useMemo(() => getAnalyticsRangeWindow(dateRange), [dateRange]);
   const rangeKey = rangeWindow.rangeKey;
@@ -146,10 +146,9 @@ export function useComputerSnapshotQuery({
     queryKey: computerSnapshotKeys.detail(queryUserId, rangeKey),
     queryFn: async (): Promise<ComputerSnapshot> => {
       const today = new Date().toISOString().slice(0, 10);
-      const defaultStartDate = subDays(new Date(), allTimeDays).toISOString().slice(0, 10);
       const payload = await getAggregatedComputerStats(
         {
-          startDate: rangeWindow.startDate ?? defaultStartDate,
+          startDate: rangeWindow.startDate ?? allTimeStartDate,
           endDate: rangeWindow.endDate ?? today,
         },
         10,

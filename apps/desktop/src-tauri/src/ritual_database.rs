@@ -11,7 +11,7 @@ use chrono::Utc;
 use once_cell::sync::Lazy;
 use rusqlite::{Connection as SqliteConnection, OpenFlags, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
@@ -286,6 +286,35 @@ fn table_exists_in_schema(
     Ok(row.is_some())
 }
 
+fn column_exists_in_schema(
+    conn: &SqliteConnection,
+    schema: &str,
+    table: &str,
+    column: &str,
+) -> Result<bool, String> {
+    let sql = format!("PRAGMA {schema}.table_info({table})");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("Failed preparing column check for {schema}.{table}: {e}"))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|e| format!("Failed column check for {schema}.{table}: {e}"))?;
+
+    while let Some(row) = rows
+        .next()
+        .map_err(|e| format!("Failed reading column check row for {schema}.{table}: {e}"))?
+    {
+        let name: String = row
+            .get(1)
+            .map_err(|e| format!("Failed reading column name for {schema}.{table}: {e}"))?;
+        if name == column {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 fn copy_table_if_exists(conn: &SqliteConnection, table: &str) -> Result<(), String> {
     if !table_exists_in_schema(conn, "legacy", table)? {
         return Ok(());
@@ -293,6 +322,247 @@ fn copy_table_if_exists(conn: &SqliteConnection, table: &str) -> Result<(), Stri
     let sql = format!("INSERT OR IGNORE INTO {table} SELECT * FROM legacy.{table}");
     conn.execute_batch(&sql)
         .map_err(|e| format!("Failed copying table {}: {}", table, e))
+}
+
+fn source_column_expr(
+    conn: &SqliteConnection,
+    column: &str,
+    fallback: &str,
+) -> Result<String, String> {
+    if column_exists_in_schema(conn, "historical", "activity_events", column)? {
+        Ok(format!("COALESCE({column}, {fallback})"))
+    } else {
+        Ok(fallback.to_string())
+    }
+}
+
+fn source_event_uid_expr(conn: &SqliteConnection) -> Result<String, String> {
+    let fallback = r#"
+        printf(
+            'legacy-import:%s:%s:%lld:%lld:%s:%s:%lld',
+            COALESCE(device_id, ''),
+            COALESCE(user_id, ''),
+            COALESCE(ts_start, 0),
+            COALESCE(ts_end, 0),
+            COALESCE(app_bundle_id, ''),
+            COALESCE(window_title_hash, ''),
+            COALESCE(is_afk, 0)
+        )
+    "#;
+
+    if column_exists_in_schema(conn, "historical", "activity_events", "event_uid")? {
+        Ok(format!(
+            "CASE WHEN TRIM(COALESCE(event_uid, '')) != '' THEN event_uid ELSE {fallback} END"
+        ))
+    } else {
+        Ok(fallback.to_string())
+    }
+}
+
+fn import_historical_activity_events_from_source(
+    conn: &SqliteConnection,
+    source_path: &Path,
+) -> Result<usize, String> {
+    if !source_path.exists() {
+        return Ok(0);
+    }
+
+    conn.execute(
+        "ATTACH DATABASE ?1 AS historical",
+        [source_path.to_string_lossy().to_string()],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed attaching historical activity database {}: {}",
+            source_path.display(),
+            e
+        )
+    })?;
+
+    let import_result = (|| -> Result<usize, String> {
+        if !table_exists_in_schema(conn, "historical", "activity_events")? {
+            return Ok(0);
+        }
+
+        let event_uid_expr = source_event_uid_expr(conn)?;
+        let device_id_expr = source_column_expr(conn, "device_id", "''")?;
+        let user_id_expr = source_column_expr(conn, "user_id", "''")?;
+        let app_bundle_id_expr = source_column_expr(conn, "app_bundle_id", "''")?;
+        let app_name_expr = source_column_expr(conn, "app_name", "''")?;
+        let window_title_expr = source_column_expr(conn, "window_title", "NULL")?;
+        let window_title_hash_expr = source_column_expr(conn, "window_title_hash", "NULL")?;
+        let window_owner_pid_expr = source_column_expr(conn, "window_owner_pid", "NULL")?;
+        let is_afk_expr = source_column_expr(conn, "is_afk", "0")?;
+        let browser_url_expr = source_column_expr(conn, "browser_url", "NULL")?;
+        let browser_domain_expr = source_column_expr(conn, "browser_domain", "NULL")?;
+        let is_incognito_expr = source_column_expr(conn, "is_incognito", "0")?;
+        let source_expr = source_column_expr(conn, "source", "'historical_activity_import'")?;
+        let created_at_expr = source_column_expr(conn, "created_at", "COALESCE(ts_start, 0)")?;
+
+        let sql = format!(
+            r#"
+            INSERT OR IGNORE INTO main.activity_events (
+                event_uid,
+                device_id,
+                user_id,
+                ts_start,
+                ts_end,
+                app_bundle_id,
+                app_name,
+                window_title,
+                window_title_hash,
+                window_owner_pid,
+                is_afk,
+                browser_url,
+                browser_domain,
+                is_incognito,
+                source,
+                created_at
+            )
+            SELECT
+                src.event_uid,
+                src.device_id,
+                src.user_id,
+                src.ts_start,
+                src.ts_end,
+                src.app_bundle_id,
+                src.app_name,
+                src.window_title,
+                src.window_title_hash,
+                src.window_owner_pid,
+                src.is_afk,
+                src.browser_url,
+                src.browser_domain,
+                src.is_incognito,
+                src.source,
+                src.created_at
+            FROM (
+                SELECT
+                    {event_uid_expr} AS event_uid,
+                    {device_id_expr} AS device_id,
+                    {user_id_expr} AS user_id,
+                    COALESCE(ts_start, 0) AS ts_start,
+                    COALESCE(ts_end, 0) AS ts_end,
+                    {app_bundle_id_expr} AS app_bundle_id,
+                    {app_name_expr} AS app_name,
+                    {window_title_expr} AS window_title,
+                    {window_title_hash_expr} AS window_title_hash,
+                    {window_owner_pid_expr} AS window_owner_pid,
+                    {is_afk_expr} AS is_afk,
+                    {browser_url_expr} AS browser_url,
+                    {browser_domain_expr} AS browser_domain,
+                    {is_incognito_expr} AS is_incognito,
+                    {source_expr} AS source,
+                    {created_at_expr} AS created_at
+                FROM historical.activity_events
+                WHERE COALESCE(ts_end, 0) > COALESCE(ts_start, 0)
+            ) AS src
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM main.activity_events AS existing
+                WHERE (
+                    TRIM(COALESCE(src.event_uid, '')) != ''
+                    AND existing.event_uid = src.event_uid
+                )
+                OR (
+                    existing.device_id = src.device_id
+                    AND existing.user_id = src.user_id
+                    AND existing.ts_start = src.ts_start
+                    AND existing.ts_end = src.ts_end
+                    AND existing.app_bundle_id = src.app_bundle_id
+                    AND COALESCE(existing.window_title_hash, '') = COALESCE(src.window_title_hash, '')
+                    AND COALESCE(existing.browser_domain, '') = COALESCE(src.browser_domain, '')
+                    AND COALESCE(existing.is_afk, 0) = COALESCE(src.is_afk, 0)
+                )
+            )
+            "#
+        );
+
+        conn.execute(&sql, [])
+            .map_err(|e| format!("Failed importing historical activity events: {e}"))
+    })();
+
+    let detach_result = conn.execute_batch("DETACH DATABASE historical;");
+    if let Err(error) = detach_result {
+        db_error!(
+            "⚠️ Failed detaching historical activity database {}: {}",
+            source_path.display(),
+            error
+        );
+    }
+
+    import_result
+}
+
+fn ensure_historical_activity_import() -> Result<(), String> {
+    if std::env::var("RITUAL_DISABLE_HISTORICAL_ACTIVITY_IMPORT")
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+    {
+        return Ok(());
+    }
+
+    let ritual_dir = get_ritual_dir();
+    let marker_path = ritual_dir.join(".activity_history_import_v1.done");
+    if marker_path.exists() {
+        return Ok(());
+    }
+
+    let recovered_db = ritual_dir.join("activity.recovered.db");
+    let replica_db = ritual_dir.join("activity.replica-renamed.db");
+    let source_path = if recovered_db.exists() {
+        recovered_db
+    } else if replica_db.exists() {
+        replica_db
+    } else {
+        return Ok(());
+    };
+
+    let activity_db = get_activity_db_path();
+    initialize_schema_in_blocking_thread(activity_db.clone(), "activity-history-import")?;
+
+    let conn = SqliteConnection::open_with_flags(
+        &activity_db,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| format!("Failed opening activity.db for historical import: {}", e))?;
+    conn.execute_batch("PRAGMA busy_timeout=5000; PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;")
+        .map_err(|e| format!("Failed starting historical activity import: {}", e))?;
+
+    let import_result = import_historical_activity_events_from_source(&conn, &source_path);
+    match import_result {
+        Ok(imported_rows) => {
+            conn.execute_batch("COMMIT; PRAGMA foreign_keys=ON;")
+                .map_err(|e| format!("Failed finalizing historical activity import: {}", e))?;
+            std::fs::write(
+                &marker_path,
+                format!(
+                    "imported_at={}\nsource={}\ninserted_rows={}\n",
+                    Utc::now().timestamp_millis(),
+                    source_path.display(),
+                    imported_rows
+                ),
+            )
+            .map_err(|e| format!("Failed writing historical activity import marker: {}", e))?;
+
+            db_info!(
+                "✅ Historical activity import complete source={} inserted_rows={}",
+                source_path.display(),
+                imported_rows
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK; PRAGMA foreign_keys=ON;");
+            Err(error)
+        }
+    }
 }
 
 fn ensure_split_local_databases() -> Result<(), String> {
@@ -416,6 +686,13 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
     let origin = normalize_db_command_origin(Some(origin), "native:initialize_database");
     if let Err(err) = ensure_split_local_databases() {
         db_error!("⚠️ Split DB preparation failed origin={}: {}", origin, err);
+    }
+    if let Err(err) = ensure_historical_activity_import() {
+        db_error!(
+            "⚠️ Historical activity import failed origin={}: {}",
+            origin,
+            err
+        );
     }
 
     RUNTIME.block_on(async {
