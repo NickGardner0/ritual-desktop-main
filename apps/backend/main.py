@@ -86,6 +86,7 @@ from api.metric_facts import create_metric_facts_router
 from api.observability import create_observability_router
 from api.reports import create_reports_router
 from api.search import create_search_router
+from api.location import create_location_router
 from api.screen_time import create_screen_time_router
 from api.screenshot import create_screenshot_router
 from api.wearables import create_wearables_router
@@ -340,6 +341,11 @@ app.include_router(
 )
 app.include_router(
     create_financial_router(
+        get_current_user=get_current_user,
+    )
+)
+app.include_router(
+    create_location_router(
         get_current_user=get_current_user,
     )
 )
@@ -678,6 +684,18 @@ async def _internal_scheduler_loop() -> None:
             raise
         except Exception as exc:
             logger.exception("⚠️ Financial scheduler sync failed: %s", exc)
+
+        # --- 6. Location ping retention ---
+        try:
+            from services.location.retention import cleanup_old_pings
+
+            deleted = await cleanup_old_pings()
+            if deleted:
+                logger.info("📍 Location retention removed %d raw pings", deleted)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.exception("⚠️ Location retention cleanup failed: %s", exc)
 
         logger.info("⏰ Scheduler tick complete — sleeping 1 hour")
         await asyncio.sleep(3600)

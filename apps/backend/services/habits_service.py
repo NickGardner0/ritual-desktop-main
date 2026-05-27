@@ -571,7 +571,17 @@ class HabitsService:
                     status=log_data.status,
                     notes=log_data.notes
                 )
-                
+
+                # Location enrichment (Phase: Location Tracking)
+                # Server-side: looks up freshest user_location signal for the
+                # log's completed_at timestamp and attaches lat/lon/place_label.
+                # Best-effort — failures don't block the log creation.
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped for habit log: %s", _loc_exc)
+
                 session.add(log_db)
                 await session.commit()
                 await session.refresh(log_db)
@@ -641,6 +651,14 @@ class HabitsService:
                 log_db.log_metadata = (
                     json.dumps(log_metadata) if isinstance(log_metadata, dict) else log_metadata
                 )
+
+                # Location enrichment (Phase: Location Tracking) — best-effort
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    if log_db.location_lat is None:
+                        await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (rollup): %s", _loc_exc)
 
                 await session.commit()
                 await session.refresh(log_db)
@@ -738,6 +756,16 @@ class HabitsService:
                         "results": validation_errors,
                         "logged_count": 0
                     }
+
+                # Location enrichment (Phase: Location Tracking) — best-effort,
+                # runs once per prepared log before the atomic batch commit.
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    for _, log_db, _ in prepared_logs:
+                        if log_db.location_lat is None:
+                            await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (batch): %s", _loc_exc)
 
                 for _, log_db, _ in prepared_logs:
                     session.add(log_db)

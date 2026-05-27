@@ -96,6 +96,8 @@ def _normalize_metric_key(value: Optional[str], *, habit_name: Optional[str] = N
         return "daily_spending"
     if raw in {"computer_use", "computer_time"}:
         return "computer_time"
+    if raw in {"iphone_time", "iphone_screen_time", "screen_time"} or ("iphone" in name and "time" in name):
+        return "iphone_time"
     if not raw:
         return name.replace(" ", "_") or "manual"
     return raw
@@ -180,7 +182,7 @@ def _classify_habit(habit: HabitDB) -> str:
     name = (habit.name or "").strip().lower()
     if integration == "plaid" or metric == "daily_spending":
         return "plaid"
-    if metric == "computer_time" or name == "computer time":
+    if metric in {"computer_time", "iphone_time"} or name in {"computer time", "iphone time"}:
         return "watcher"
     if integration in WEARABLE_PROVIDERS:
         return "wearable"
@@ -782,13 +784,17 @@ class MetricFactService:
         ]
 
     async def _build_watcher_facts(self, habit: HabitDB, start_date: str, end_date: str) -> List[FactDraft]:
+        metric_key = _normalize_metric_key(habit.metric_type, habit_name=habit.name)
+        source_filter = "biome_iphone" if metric_key == "iphone_time" else "desktop"
+        provider = "biome_iphone" if metric_key == "iphone_time" else "ritual_watcher"
         daily_rows = await self._build_watcher_remote_daily_rows(
             user_id=habit.user_id,
             start_date=start_date,
             end_date=end_date,
+            source_filter=source_filter,
         )
 
-        if not daily_rows:
+        if not daily_rows and source_filter != "biome_iphone":
             async with get_db_session() as session:
                 result = await session.execute(
                     select(
@@ -829,23 +835,54 @@ class MetricFactService:
             active_ms = int(row.get("active_ms") or row.get("total_active_ms") or 0)
             if not date_value or active_ms <= 0:
                 continue
-            value = _convert_value(active_ms, "milliseconds", _target_unit(habit, "Hours"), "computer_time")
+            value = _convert_value(active_ms, "milliseconds", _target_unit(habit, "Hours"), metric_key)
             drafts.append(
                 FactDraft(
                     user_id=habit.user_id,
                     habit_id=habit.id,
                     habit_name=habit.name,
-                    metric_key="computer_time",
+                    metric_key=metric_key,
                     date=date_value,
                     value=value,
                     unit=_target_unit(habit, "Hours"),
                     source_family="watcher",
-                    provider="ritual_watcher",
+                    provider=provider,
                     record_count=int(row.get("events_count") or row.get("total_events") or 0),
                     provenance={"aggregation": row.get("source") or "computer_activity_daily_totals"},
                 )
             )
+        if metric_key == "computer_time":
+            preserved = await self._existing_watcher_fact_drafts(habit, start_date, end_date)
+            drafts = self._preserve_higher_local_recovery_facts(drafts, preserved)
         return drafts
+
+    def _preserve_higher_local_recovery_facts(
+        self,
+        drafts: Sequence[FactDraft],
+        existing: Sequence[FactDraft],
+    ) -> List[FactDraft]:
+        """Keep repaired local-recovery Computer Time facts from being lowered by stale remote rows."""
+        by_date: Dict[str, FactDraft] = {draft.date: draft for draft in drafts}
+
+        for preserved in existing:
+            provenance = preserved.provenance if isinstance(preserved.provenance, dict) else {}
+            is_local_recovery = (
+                preserved.provider == "ritual_watcher_local_recovery"
+                or provenance.get("repair") == "computer_time_fact_backfill"
+                or provenance.get("aggregation") == "local_watcher_recovery_deoverlap"
+            )
+            if not is_local_recovery:
+                continue
+
+            current = by_date.get(preserved.date)
+            if current is None or float(preserved.value or 0) > float(current.value or 0):
+                preserved.provenance = {
+                    **provenance,
+                    "preserved_over_lower_remote": True,
+                }
+                by_date[preserved.date] = preserved
+
+        return [by_date[date] for date in sorted(by_date.keys())]
 
     async def _existing_watcher_fact_drafts(
         self,
@@ -861,7 +898,7 @@ class MetricFactService:
                         .where(
                             MetricDailyFactDB.user_id == habit.user_id,
                             MetricDailyFactDB.habit_id == habit.id,
-                            MetricDailyFactDB.metric_key == "computer_time",
+                            MetricDailyFactDB.metric_key == _normalize_metric_key(habit.metric_type, habit_name=habit.name),
                             MetricDailyFactDB.source_family == "watcher",
                             MetricDailyFactDB.status == "complete",
                             MetricDailyFactDB.date >= start_date,
@@ -897,12 +934,14 @@ class MetricFactService:
         user_id: str,
         start_date: str,
         end_date: str,
+        source_filter: str = "desktop",
     ) -> List[Dict[str, Any]]:
         try:
             from services.turso_activity_remote import fetch_remote_activity_rows
             from services.watcher_service_computer_activity import (
                 MAX_SINGLE_EVENT_MS,
                 _aggregate_computer_activity_daily_totals_from_events_impl,
+                _activity_source_sql_clause,
                 _resolve_activity_user_ids,
             )
         except Exception as exc:
@@ -916,6 +955,7 @@ class MetricFactService:
             end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
             activity_user_ids = _resolve_activity_user_ids(user_id)
             user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+            source_clause, source_params = _activity_source_sql_clause(source_filter)
             minmax = await asyncio.wait_for(
                 fetch_remote_activity_rows(
                     user_id,
@@ -924,8 +964,9 @@ class MetricFactService:
                     FROM activity_events
                     WHERE user_id IN ({user_placeholders})
                       AND ts_end > ts_start
+                      {source_clause}
                     """,
-                    activity_user_ids,
+                    [*activity_user_ids, *source_params],
                 ),
                 timeout=15,
             )
@@ -952,6 +993,7 @@ class MetricFactService:
                             user_id=user_id,
                             start_date=chunk_start.isoformat(),
                             end_date=chunk_end.isoformat(),
+                            source_filter=source_filter,
                         )
                     )
                     chunk_start = chunk_end + timedelta(days=1)
@@ -974,9 +1016,10 @@ class MetricFactService:
                       AND ts_start < ?
                       AND ts_end > ?
                       AND ts_end > ts_start
+                      {source_clause}
                     ORDER BY ts_start ASC
                     """,
-                    [*activity_user_ids, query_start_ms, end_ms, start_ms],
+                    [*activity_user_ids, query_start_ms, end_ms, start_ms, *source_params],
                 ),
                 timeout=30,
             )

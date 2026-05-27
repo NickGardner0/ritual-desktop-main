@@ -1,6 +1,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -15,6 +18,7 @@ use crate::desktop_observability::redact_sensitive_url_for_log;
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
     "native-updater-v1",
+    "native-update-prompt-v1",
     "native-startup-update-fallback-v1",
     "desktop-runtime-state-v1",
     "desktop-auth-handoff-v1",
@@ -23,12 +27,15 @@ const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
 const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
 const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
 const TURSO_SYNC_FAILURE_RETRY_SECS: u64 = 30;
+const LOCATION_OUTBOX_DRAIN_INTERVAL_SECS: u64 = 60;
+const LOCATION_OUTBOX_BATCH_SIZE: usize = 500;
+const BIOME_OUTBOX_DRAIN_INTERVAL_SECS: u64 = 60;
+const BIOME_OUTBOX_BATCH_SIZE: usize = 500;
 
 pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
 pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
 pub const AUTH_DEEP_LINK_EVENT: &str = "desktop://auth-deep-link";
-pub const UPDATE_AVAILABLE_EVENT: &str = "tauri://update-available";
 pub const UPDATE_STATUS_EVENT: &str = "tauri://update-status";
 
 #[derive(Clone, Debug, Serialize)]
@@ -119,6 +126,66 @@ struct TursoSyncConfigResponse {
     database_name: String,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct DesktopLocationPing {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lat: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lon: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    horizontal_accuracy_m: Option<f64>,
+    source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    device_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    bssid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ssid: Option<String>,
+    client_ts: i64,
+    client_event_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct LocationIngestResponse {
+    accepted: i64,
+    rejected: i64,
+    duplicates: i64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct DesktopBiomeActivityEvent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    event_uid: Option<String>,
+    device_id: String,
+    app_bundle_id: String,
+    app_name: String,
+    ts_start: i64,
+    ts_end: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    window_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    browser_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    browser_domain: Option<String>,
+    #[serde(default)]
+    is_incognito: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_build: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transition_reason: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BiomeIngestResponse {
+    accepted: i64,
+    rejected: i64,
+    duplicates: i64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateStatusPayload {
@@ -196,15 +263,6 @@ fn end_update_check<R: Runtime>(app: &AppHandle<R>) {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *in_progress = false;
-}
-
-fn is_frontend_ready<R: Runtime>(app: &AppHandle<R>) -> bool {
-    let state = app.state::<DesktopShellState>();
-    let frontend_ready = state
-        .frontend_ready
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *frontend_ready
 }
 
 fn set_pending_update<R: Runtime + 'static>(
@@ -407,8 +465,330 @@ pub fn register_runtime_signal_monitor<R: Runtime + 'static>(app: AppHandle<R>) 
     });
 }
 
-fn emit_update_available<R: Runtime>(app: &AppHandle<R>, manifest: &PendingUpdateManifest) {
-    let _ = app.emit(UPDATE_AVAILABLE_EVENT, manifest.clone());
+fn location_outbox_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("Ritual")
+            .join("location_outbox.json")
+    })
+}
+
+fn write_location_outbox(path: &PathBuf, pings: &[DesktopLocationPing]) -> Result<(), String> {
+    let json = serde_json::to_string(pings)
+        .map_err(|error| format!("Failed to encode location outbox: {error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, json).map_err(|error| format!("Failed to write location outbox: {error}"))?;
+    fs::rename(&tmp, path).map_err(|error| format!("Failed to replace location outbox: {error}"))
+}
+
+fn drain_location_outbox_blocking(
+    auth_token: String,
+    backend_base: String,
+) -> Result<usize, String> {
+    let Some(path) = location_outbox_path() else {
+        return Ok(0);
+    };
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    let raw = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read location outbox: {error}"))?;
+    if raw.trim().is_empty() {
+        return Ok(0);
+    }
+
+    let pings: Vec<DesktopLocationPing> = serde_json::from_str(&raw)
+        .map_err(|error| format!("Failed to parse location outbox: {error}"))?;
+    if pings.is_empty() {
+        return Ok(0);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|error| format!("Failed to create location outbox client: {error}"))?;
+    let url = format!("{backend_base}/api/user/location-pings");
+    let mut submitted_ids: HashSet<String> = HashSet::new();
+
+    for chunk in pings.chunks(LOCATION_OUTBOX_BATCH_SIZE) {
+        let body = serde_json::to_string(&serde_json::json!({ "pings": chunk }))
+            .map_err(|error| format!("Failed to encode location ingest body: {error}"))?;
+        let response = client
+            .post(&url)
+            .bearer_auth(&auth_token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .map_err(|error| format!("Failed to submit location outbox: {error}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("Location outbox request failed with HTTP {status}"));
+        }
+
+        let body = response
+            .text()
+            .map_err(|error| format!("Failed to read location ingest response: {error}"))?;
+        let parsed: LocationIngestResponse = serde_json::from_str(&body)
+            .map_err(|error| format!("Failed to parse location ingest response: {error}"))?;
+        info!(
+            accepted = parsed.accepted,
+            rejected = parsed.rejected,
+            duplicates = parsed.duplicates,
+            count = chunk.len(),
+            "Submitted location outbox batch"
+        );
+
+        for ping in chunk {
+            submitted_ids.insert(ping.client_event_id.clone());
+        }
+    }
+
+    if submitted_ids.is_empty() {
+        return Ok(0);
+    }
+
+    let remaining: Vec<DesktopLocationPing> = pings
+        .into_iter()
+        .filter(|ping| !submitted_ids.contains(&ping.client_event_id))
+        .collect();
+    write_location_outbox(&path, &remaining)?;
+    Ok(submitted_ids.len())
+}
+
+async fn drain_location_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
+    let auth_state = read_auth_state(&app);
+    let auth_token = auth_state
+        .token
+        .filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| "Auth token is unavailable for location outbox drain".to_string())?;
+    let backend_base = auth_state
+        .backend_base
+        .filter(|base| !base.trim().is_empty())
+        .ok_or_else(|| "Backend base URL is unavailable for location outbox drain".to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        drain_location_outbox_blocking(auth_token, backend_base)
+    })
+    .await
+    .map_err(|error| format!("Location outbox drain task failed: {error}"))?
+}
+
+pub fn trigger_location_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        match drain_location_outbox_once(app.clone()).await {
+            Ok(count) if count > 0 => {
+                info!(count, "Location outbox drained");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                if error.contains("HTTP 401") || error.contains("HTTP 403") {
+                    request_token_refresh(&app);
+                }
+                warn!(error = %error, "Location outbox drain skipped");
+            }
+        }
+    });
+}
+
+pub fn register_location_outbox_drain_worker<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        let mut interval = tokio::time::interval(Duration::from_secs(LOCATION_OUTBOX_DRAIN_INTERVAL_SECS));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+            match drain_location_outbox_once(app.clone()).await {
+                Ok(count) if count > 0 => {
+                    info!(count, "Location outbox drained by background worker");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    if error.contains("HTTP 401") || error.contains("HTTP 403") {
+                        request_token_refresh(&app);
+                    }
+                    warn!(error = %error, "Location outbox background drain skipped");
+                }
+            }
+        }
+    });
+}
+
+fn biome_outbox_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("Ritual")
+            .join("biome_iphone_events.jsonl")
+    })
+}
+
+fn biome_event_key(event: &DesktopBiomeActivityEvent) -> String {
+    event.event_uid.clone().unwrap_or_else(|| {
+        format!(
+            "{}:{}:{}:{}",
+            event.device_id, event.app_bundle_id, event.ts_start, event.ts_end
+        )
+    })
+}
+
+fn read_biome_outbox(path: &PathBuf) -> Result<Vec<DesktopBiomeActivityEvent>, String> {
+    let raw = fs::read_to_string(path)
+        .map_err(|error| format!("Failed to read Biome outbox: {error}"))?;
+    let mut events = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let event: DesktopBiomeActivityEvent = serde_json::from_str(trimmed)
+            .map_err(|error| format!("Failed to parse Biome outbox line {}: {error}", index + 1))?;
+        events.push(event);
+    }
+    Ok(events)
+}
+
+fn write_biome_outbox(
+    path: &PathBuf,
+    events: &[DesktopBiomeActivityEvent],
+) -> Result<(), String> {
+    let mut body = String::new();
+    for event in events {
+        let line = serde_json::to_string(event)
+            .map_err(|error| format!("Failed to encode Biome outbox event: {error}"))?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    let tmp = path.with_extension("jsonl.tmp");
+    fs::write(&tmp, body).map_err(|error| format!("Failed to write Biome outbox: {error}"))?;
+    fs::rename(&tmp, path).map_err(|error| format!("Failed to replace Biome outbox: {error}"))
+}
+
+fn drain_biome_outbox_blocking(
+    auth_token: String,
+    backend_base: String,
+) -> Result<usize, String> {
+    let Some(path) = biome_outbox_path() else {
+        return Ok(0);
+    };
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    let events = read_biome_outbox(&path)?;
+    if events.is_empty() {
+        return Ok(0);
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| format!("Failed to create Biome outbox client: {error}"))?;
+    let url = format!("{backend_base}/api/watcher/biome-ingest");
+    let mut submitted_keys: HashSet<String> = HashSet::new();
+
+    for chunk in events.chunks(BIOME_OUTBOX_BATCH_SIZE) {
+        let body = serde_json::to_string(&serde_json::json!({ "events": chunk }))
+            .map_err(|error| format!("Failed to encode Biome ingest body: {error}"))?;
+        let response = client
+            .post(&url)
+            .bearer_auth(&auth_token)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+            .map_err(|error| format!("Failed to submit Biome outbox: {error}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!("Biome outbox request failed with HTTP {status}"));
+        }
+
+        let body = response
+            .text()
+            .map_err(|error| format!("Failed to read Biome ingest response: {error}"))?;
+        let parsed: BiomeIngestResponse = serde_json::from_str(&body)
+            .map_err(|error| format!("Failed to parse Biome ingest response: {error}"))?;
+        info!(
+            accepted = parsed.accepted,
+            rejected = parsed.rejected,
+            duplicates = parsed.duplicates,
+            count = chunk.len(),
+            "Submitted Biome iPhone activity outbox batch"
+        );
+
+        for event in chunk {
+            submitted_keys.insert(biome_event_key(event));
+        }
+    }
+
+    let remaining: Vec<DesktopBiomeActivityEvent> = events
+        .into_iter()
+        .filter(|event| !submitted_keys.contains(&biome_event_key(event)))
+        .collect();
+    write_biome_outbox(&path, &remaining)?;
+    Ok(submitted_keys.len())
+}
+
+async fn drain_biome_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
+    let auth_state = read_auth_state(&app);
+    let auth_token = auth_state
+        .token
+        .filter(|token| !token.trim().is_empty())
+        .ok_or_else(|| "Auth token is unavailable for Biome outbox drain".to_string())?;
+    let backend_base = auth_state
+        .backend_base
+        .filter(|base| !base.trim().is_empty())
+        .ok_or_else(|| "Backend base URL is unavailable for Biome outbox drain".to_string())?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        drain_biome_outbox_blocking(auth_token, backend_base)
+    })
+    .await
+    .map_err(|error| format!("Biome outbox drain task failed: {error}"))?
+}
+
+pub fn trigger_biome_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        match drain_biome_outbox_once(app.clone()).await {
+            Ok(count) if count > 0 => {
+                info!(count, "Biome iPhone activity outbox drained");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                if error.contains("HTTP 401") || error.contains("HTTP 403") {
+                    request_token_refresh(&app);
+                }
+                warn!(error = %error, "Biome iPhone activity outbox drain skipped");
+            }
+        }
+    });
+}
+
+pub fn register_biome_outbox_drain_worker<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_secs(15)).await;
+        let mut interval = tokio::time::interval(Duration::from_secs(BIOME_OUTBOX_DRAIN_INTERVAL_SECS));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+            match drain_biome_outbox_once(app.clone()).await {
+                Ok(count) if count > 0 => {
+                    info!(count, "Biome iPhone activity outbox drained by background worker");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    if error.contains("HTTP 401") || error.contains("HTTP 403") {
+                        request_token_refresh(&app);
+                    }
+                    warn!(error = %error, "Biome iPhone activity background drain skipped");
+                }
+            }
+        }
+    });
 }
 
 fn emit_update_status<R: Runtime>(app: &AppHandle<R>, status: &str, error: Option<String>) {
@@ -442,7 +822,7 @@ async fn prompt_for_native_install<R: Runtime>(
         "This update includes the latest Ritual desktop improvements.".to_string()
     });
     let prompt =
-        format!("Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nInstall now?");
+        format!("Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nRitual will relaunch after the update is installed.");
 
     tauri::async_runtime::spawn_blocking(move || {
         Ok::<bool, String>(
@@ -450,7 +830,7 @@ async fn prompt_for_native_install<R: Runtime>(
                 .message(prompt)
                 .title("Ritual Update Ready")
                 .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Install".to_string(),
+                    "Install and Relaunch".to_string(),
                     "Later".to_string(),
                 ))
                 .kind(MessageDialogKind::Info)
@@ -535,49 +915,25 @@ async fn run_update_check<R: Runtime + 'static>(
             return Ok(());
         };
 
-        let manifest = PendingUpdateManifest {
-            version: update.version.clone(),
-            date: update.date.map(|value| value.to_string()),
-            body: update.body.clone(),
-        };
-        set_pending_update(&app, Some(manifest.clone()));
-        emit_update_available(&app, &manifest);
+        let latest_version = update.version.clone();
+        let release_notes = update.body.clone();
 
-        match origin {
-            UpdateCheckOrigin::Startup => {
-                if is_frontend_ready(&app) {
-                    log::info!(
-                        "[DESKTOP_RUNTIME] update {} pending; branded frontend prompt will handle install",
-                        manifest.version
-                    );
-                } else {
-                    log::info!(
-                        "[DESKTOP_RUNTIME] update {} pending before frontend readiness; showing native install prompt",
-                        manifest.version
-                    );
-                    if prompt_for_native_install(
-                        app.clone(),
-                        manifest.version.clone(),
-                        manifest.body.clone(),
-                    )
-                    .await?
-                    {
-                        install_latest_update(app.clone()).await?;
-                    }
-                }
-            }
-            UpdateCheckOrigin::Tray => {
-                if prompt_for_native_install(
+        log::info!(
+            "[DESKTOP_RUNTIME] update {} pending from {:?}; showing native install prompt",
+            latest_version,
+            origin
+        );
+
+        if prompt_for_native_install(app.clone(), latest_version, release_notes).await? {
+            if let Err(error) = install_latest_update(app.clone()).await {
+                show_native_message::<R>(
                     app.clone(),
-                    manifest.version.clone(),
-                    manifest.body.clone(),
+                    "Ritual Update Failed".to_string(),
+                    error.clone(),
                 )
-                .await?
-                {
-                    install_latest_update(app.clone()).await?;
-                }
+                .await;
+                return Err(error);
             }
-            UpdateCheckOrigin::Frontend => {}
         }
 
         Ok(())
@@ -949,6 +1305,9 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
             warn!(error = %error, "Desktop Turso sync refresh failed after auth handoff");
         }
     }
+
+    trigger_location_outbox_drain(app.clone());
+    trigger_biome_outbox_drain(app.clone());
 
     let runtime_state = build_runtime_state(&app).await?;
     let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());

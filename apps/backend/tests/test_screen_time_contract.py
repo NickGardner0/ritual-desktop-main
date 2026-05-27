@@ -1,11 +1,12 @@
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from schemas.screen_time import ScreenTimeIngestRequest
-from services.screen_time_service import DOMAIN_DISCLOSURE
+from services.screen_time_service import DOMAIN_DISCLOSURE, ScreenTimeService
 
 
 class ScreenTimeContractTests(unittest.TestCase):
@@ -49,6 +50,57 @@ class ScreenTimeContractTests(unittest.TestCase):
 
     def test_domain_disclosure_copy_mentions_apple_exposed_domains(self):
         self.assertIn("Apple exposes", DOMAIN_DISCLOSURE)
+
+
+class ScreenTimeBiomeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_summary_prefers_biome_activity_snapshot(self):
+        service = ScreenTimeService()
+        with patch.object(service, "list_devices", AsyncMock(return_value=[])), patch.object(
+            service,
+            "_get_biome_snapshot",
+            AsyncMock(
+                return_value={
+                    "summary": {"total_active_ms": 3_600_000, "total_events": 4},
+                    "daily": [{"day": "2026-05-01", "active_ms": 3_600_000}],
+                    "domains": [],
+                }
+            ),
+        ):
+            summary = await service.get_summary("user-1", "2026-05-01", "2026-05-01")
+
+        self.assertEqual(summary["source"], "biome_iphone")
+        self.assertEqual(summary["total_active_ms"], 3_600_000)
+        self.assertTrue(summary["is_connected"])
+
+    async def test_top_apps_reads_biome_snapshot_rows_first(self):
+        service = ScreenTimeService()
+        with patch.object(
+            service,
+            "_get_biome_snapshot",
+            AsyncMock(
+                return_value={
+                    "apps": [
+                        {
+                            "app_bundle_id": "com.apple.MobileSMS",
+                            "app_name": "Messages",
+                            "total_active_ms": 120_000,
+                            "total_events": 2,
+                            "days_used": 1,
+                        }
+                    ]
+                }
+            ),
+        ):
+            rows = await service.get_top_items(
+                "user-1",
+                "2026-05-01",
+                "2026-05-01",
+                kind="app",
+                limit=10,
+            )
+
+        self.assertEqual(rows[0]["app_bundle_id"], "com.apple.MobileSMS")
+        self.assertEqual(rows[0]["source"], "biome_iphone")
 
 
 if __name__ == "__main__":

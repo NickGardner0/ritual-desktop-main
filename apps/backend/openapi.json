@@ -2366,6 +2366,185 @@
         "title": "BatchLogsApiRequest",
         "type": "object"
       },
+      "BiomeActivityEvent": {
+        "description": "A normalized iPhone foreground-app interval from Biome App.InFocus.",
+        "properties": {
+          "app_build": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Build"
+          },
+          "app_bundle_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "App Bundle Id",
+            "type": "string"
+          },
+          "app_name": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "App Name",
+            "type": "string"
+          },
+          "app_version": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "browser_domain": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser Domain"
+          },
+          "browser_url": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Browser Url"
+          },
+          "device_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Device Id",
+            "type": "string"
+          },
+          "event_uid": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Uid"
+          },
+          "is_incognito": {
+            "default": false,
+            "title": "Is Incognito",
+            "type": "boolean"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File"
+          },
+          "transition_reason": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transition Reason"
+          },
+          "ts_end": {
+            "minimum": 0.0,
+            "title": "Ts End",
+            "type": "integer"
+          },
+          "ts_start": {
+            "minimum": 0.0,
+            "title": "Ts Start",
+            "type": "integer"
+          },
+          "window_title": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Title"
+          }
+        },
+        "required": [
+          "device_id",
+          "app_bundle_id",
+          "app_name",
+          "ts_start",
+          "ts_end"
+        ],
+        "title": "BiomeActivityEvent",
+        "type": "object"
+      },
+      "BiomeIngestBatch": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/BiomeActivityEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "title": "BiomeIngestBatch",
+        "type": "object"
+      },
+      "BiomeIngestResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicates": {
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted",
+          "rejected",
+          "duplicates"
+        ],
+        "title": "BiomeIngestResponse",
+        "type": "object"
+      },
       "Body_analyze_and_log_screenshot_api_screenshot_analyze_post": {
         "properties": {
           "file": {
@@ -5555,6 +5734,30 @@
         "title": "ImportStartRequest",
         "type": "object"
       },
+      "IngestResponse": {
+        "description": "Response from POST /api/user/location-pings.",
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          },
+          "duplicates": {
+            "title": "Duplicates",
+            "type": "integer"
+          },
+          "rejected": {
+            "title": "Rejected",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted",
+          "rejected",
+          "duplicates"
+        ],
+        "title": "IngestResponse",
+        "type": "object"
+      },
       "LiveBiometricsOut": {
         "properties": {
           "connection_state": {
@@ -5603,6 +5806,126 @@
           }
         },
         "title": "LiveBiometricsOut",
+        "type": "object"
+      },
+      "LocationPing": {
+        "description": "A single position report from a client (iPhone, Mac, wearable).\n\n`client_ts` is ms since Unix epoch as captured on the client.\n`client_event_id` enables idempotent re-submission.",
+        "properties": {
+          "bssid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bssid"
+          },
+          "client_event_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Client Event Id",
+            "type": "string"
+          },
+          "client_ts": {
+            "description": "Milliseconds since Unix epoch when client captured",
+            "title": "Client Ts",
+            "type": "integer"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "horizontal_accuracy_m": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizontal Accuracy M"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "source": {
+            "enum": [
+              "ios_scls",
+              "ios_one_shot",
+              "mac_one_shot",
+              "mac_bssid_trigger",
+              "garmin_workout",
+              "manual"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "ssid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssid"
+          }
+        },
+        "required": [
+          "source",
+          "client_ts",
+          "client_event_id"
+        ],
+        "title": "LocationPing",
+        "type": "object"
+      },
+      "LocationPingBatch": {
+        "description": "Batch payload for POST /api/user/location-pings.",
+        "properties": {
+          "pings": {
+            "items": {
+              "$ref": "#/components/schemas/LocationPing"
+            },
+            "title": "Pings",
+            "type": "array"
+          }
+        },
+        "title": "LocationPingBatch",
         "type": "object"
       },
       "MappingPresetCreate": {
@@ -17389,6 +17712,53 @@
         "summary": "Update Ui Preferences"
       }
     },
+    "/api/user/location-pings": {
+      "post": {
+        "description": "Accept a batch of location pings from a client.",
+        "operationId": "post_location_pings_api_user_location_pings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LocationPingBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Location Pings",
+        "tags": [
+          "location"
+        ]
+      }
+    },
     "/api/user/onboarding": {
       "put": {
         "operationId": "update_onboarding_api_user_onboarding_put",
@@ -17955,6 +18325,82 @@
         ]
       }
     },
+    "/api/watcher/biome-ingest": {
+      "post": {
+        "description": "Accept normalized iPhone App.InFocus intervals from the desktop watcher.",
+        "operationId": "ingest_biome_activity_api_watcher_biome_ingest_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-User-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-User-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Internal-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Internal-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BiomeIngestBatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BiomeIngestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ingest Biome Activity",
+        "tags": [
+          "watcher"
+        ]
+      }
+    },
     "/api/watcher/breakdown": {
       "get": {
         "description": "Get daily usage breakdown for a specific app or website.\n\nQuery params:\n- kind: \"app\" or \"website\"\n- key: app bundle id or domain\n- start_date: YYYY-MM-DD\n- end_date: YYYY-MM-DD\n- device_id: optional device filter (unused for local DB)",
@@ -18010,6 +18456,22 @@
                 }
               ],
               "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
             }
           },
           {
@@ -20219,6 +20681,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
             "in": "header",
             "name": "X-User-ID",
             "required": false,
@@ -20477,6 +20955,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
             "in": "header",
             "name": "X-User-ID",
             "required": false,
@@ -20727,6 +21221,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
             "in": "header",
             "name": "X-User-ID",
             "required": false,
@@ -20866,6 +21376,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
             "in": "header",
             "name": "X-User-ID",
             "required": false,
@@ -21002,6 +21528,22 @@
                 }
               ],
               "title": "Device Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
             }
           },
           {

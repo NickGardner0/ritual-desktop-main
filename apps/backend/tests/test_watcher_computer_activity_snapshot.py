@@ -93,6 +93,69 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(snapshot["empty_reason"], "remote_activity_aggregate_timeout")
         self.assertTrue(snapshot["sync_pending"])
 
+    async def test_desktop_snapshot_excludes_biome_source_by_default(self):
+        calls = []
+
+        async def fake_fetch_remote_activity_rows(user_id, sql, args=None):
+            calls.append((sql, list(args or [])))
+            if "GROUP BY day" in sql:
+                return RemoteActivityRowsResult(
+                    expected_remote=True,
+                    source="turso_remote",
+                    rows=[("2026-05-01", 1_800_000, 0, 1, 1, 0)],
+                )
+            return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
+
+        with patch(
+            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            new=fake_fetch_remote_activity_rows,
+        ), patch(
+            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            return_value="user-1",
+        ):
+            snapshot = await _build_computer_activity_snapshot_impl(
+                SimpleNamespace(),
+                user_id="user-1",
+                start_date="2026-05-01",
+                end_date="2026-05-01",
+            )
+
+        self.assertEqual(snapshot["summary"]["total_active_ms"], 1_800_000)
+        self.assertTrue(any("COALESCE(source, '') != ?" in sql for sql, _ in calls))
+        self.assertTrue(any(args and args[-1] == "biome_iphone" for _, args in calls))
+
+    async def test_iphone_snapshot_filters_to_biome_source(self):
+        calls = []
+
+        async def fake_fetch_remote_activity_rows(user_id, sql, args=None):
+            calls.append((sql, list(args or [])))
+            if "GROUP BY day" in sql:
+                return RemoteActivityRowsResult(
+                    expected_remote=True,
+                    source="turso_remote",
+                    rows=[("2026-05-01", 600_000, 0, 1, 1, 0)],
+                )
+            return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
+
+        with patch(
+            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            new=fake_fetch_remote_activity_rows,
+        ), patch(
+            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            return_value="user-1",
+        ):
+            snapshot = await _build_computer_activity_snapshot_impl(
+                SimpleNamespace(),
+                user_id="user-1",
+                start_date="2026-05-01",
+                end_date="2026-05-01",
+                source_filter="biome_iphone",
+            )
+
+        self.assertEqual(snapshot["summary"]["total_active_ms"], 600_000)
+        self.assertTrue(any("COALESCE(source, '') = ?" in sql for sql, _ in calls))
+        self.assertTrue(any(args and args[-1] == "biome_iphone" for _, args in calls))
+
 
 if __name__ == "__main__":
     unittest.main()

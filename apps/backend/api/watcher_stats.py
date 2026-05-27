@@ -46,6 +46,7 @@ async def get_computer_time_summary(
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -70,7 +71,8 @@ async def get_computer_time_summary(
             user_id=current_user["id"],
             start_date=start,
             end_date=end,
-            device_id=device_id
+            device_id=device_id,
+            source_filter=source,
         )
         
         return {
@@ -90,6 +92,7 @@ async def get_daily_computer_time(
     end_date: Optional[str] = None,
     days_back: Optional[int] = 30,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -119,7 +122,8 @@ async def get_daily_computer_time(
             user_id=current_user["id"],
             start_date=start,
             end_date=end,
-            device_id=device_id
+            device_id=device_id,
+            source_filter=source,
         )
         
         return {
@@ -140,6 +144,7 @@ async def get_computer_activity_aggregate(
     days_back: Optional[int] = 30,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user=Depends(get_current_user),
 ):
     """Return summary, daily totals, top apps, and top domains for a single range."""
@@ -156,6 +161,7 @@ async def get_computer_activity_aggregate(
             end_date=end,
             limit=limit,
             device_id=device_id,
+            source_filter=source,
         )
         return {
             "success": True,
@@ -175,6 +181,7 @@ async def get_top_apps_stats(
     days_back: Optional[int] = 30,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -205,7 +212,8 @@ async def get_top_apps_stats(
             start_date=start,
             end_date=end,
             limit=limit,
-            device_id=device_id
+            device_id=device_id,
+            source_filter=source,
         )
         
         return {
@@ -224,6 +232,7 @@ async def get_top_domains(
     days_back: Optional[int] = 30,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -256,7 +265,8 @@ async def get_top_domains(
             start_date=start,
             end_date=end,
             limit=limit,
-            device_id=device_id
+            device_id=device_id,
+            source_filter=source,
         )
         
         return {
@@ -384,6 +394,7 @@ async def get_usage_breakdown(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source: Optional[str] = None,
     current_user = Depends(get_current_user)
 ):
     """
@@ -410,7 +421,8 @@ async def get_usage_breakdown(
             key=key,
             start_date=start_date,
             end_date=end_date,
-            device_id=device_id
+            device_id=device_id,
+            source_filter=source,
         )
         
         total_ms = sum(d.get("active_ms", 0) for d in breakdown)

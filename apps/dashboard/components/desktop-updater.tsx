@@ -18,6 +18,8 @@ type UpdateStatusPayload = {
 };
 
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
+const NATIVE_UPDATE_PROMPT_CAPABILITY = 'native-update-prompt-v1';
+const RITUAL_APP_ICON_SRC = '/brand/ritual-app-icon.png';
 const RUNTIME_STATE_CHANGED_EVENT = 'desktop://runtime-state-changed';
 const UPDATE_AVAILABLE_EVENT = 'tauri://update-available';
 const UPDATE_STATUS_EVENT = 'tauri://update-status';
@@ -223,6 +225,9 @@ export function DesktopUpdater() {
     pendingUpdate && pendingUpdate.version !== dismissedVersion ? pendingUpdate : null;
   const hasStatusMessage = Boolean(statusMessage);
   const statusLooksLikeError = Boolean(statusMessage && /(failed|error|signature)/i.test(statusMessage));
+  const supportsNativeUpdatePrompt = Boolean(
+    runtimeInfo?.capabilities.includes(NATIVE_UPDATE_PROMPT_CAPABILITY),
+  );
 
   const runManualUpdateCheck = async () => {
     setChecking(true);
@@ -280,24 +285,30 @@ export function DesktopUpdater() {
         : null;
 
     return (
-      <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-[rgba(9,9,11,0.58)] px-6">
-        <div className="w-full max-w-xl rounded-[32px] border border-black/10 bg-white p-8 shadow-[0_40px_100px_rgba(0,0,0,0.28)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8a6f47]">
-            Ritual Desktop Update Required
-          </p>
-          <h2 className="mt-4 text-[30px] font-medium leading-[1.08] tracking-[-0.03em] text-[#1d1a16]">
-            This Ritual web release needs a newer desktop shell.
-          </h2>
-          <p className="mt-4 text-[15px] leading-7 text-[#5a5147]">
-            {compatibilityIssue.kind === 'version'
-              ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
-              : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
-          </p>
-          <p className="mt-3 text-[14px] leading-6 text-[#6a6157]">
-            Use the button below to check for the latest Ritual desktop update and install it before continuing.
-          </p>
+      <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/20 px-6 backdrop-blur-md">
+        <div className="w-full max-w-[440px] rounded-[16px] border border-black/15 bg-[#f5f5f7] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
+          <div className="flex items-start gap-4">
+            <img
+              alt=""
+              className="h-16 w-16 shrink-0 rounded-[15px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+              src={RITUAL_APP_ICON_SRC}
+            />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-[20px] font-semibold leading-6 text-[#1d1d1f]">
+                Ritual needs a newer desktop app.
+              </h2>
+              <p className="mt-3 text-[14px] leading-6 text-[#4f5257]">
+                {compatibilityIssue.kind === 'version'
+                  ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
+                  : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
+              </p>
+              <p className="mt-2 text-[14px] leading-6 text-[#4f5257]">
+                Check for the latest Ritual desktop update before continuing.
+              </p>
+            </div>
+          </div>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-6 flex justify-end gap-2">
             {effectivePendingUpdate ? (
               <Button disabled={installing} onClick={installUpdateNow} size="sm">
                 {installing ? 'Installing…' : `Install ${effectivePendingUpdate.version ?? 'update'}`}
@@ -332,6 +343,10 @@ export function DesktopUpdater() {
   }
 
   if (effectivePendingUpdate || hasStatusMessage) {
+    if (supportsNativeUpdatePrompt && effectivePendingUpdate && !statusLooksLikeError) {
+      return null;
+    }
+
     const title = statusLooksLikeError
       ? 'Ritual Update Failed'
       : installing
@@ -343,30 +358,28 @@ export function DesktopUpdater() {
     return (
       <div
         aria-modal="true"
-        className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/20 px-6 backdrop-blur-[2px]"
+        className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/20 px-6 backdrop-blur-md"
         role="dialog"
       >
-        <div className="w-full max-w-[460px] rounded-[30px] border border-black/10 bg-white p-8 shadow-[0_36px_90px_rgba(0,0,0,0.24)]">
-          <div className="flex items-start gap-5">
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-[18px] border border-black/10 bg-[#f7f7f5]">
-              <img
-                alt=""
-                className="h-10 w-10 object-contain"
-                src="/images/logo_fix1.svg"
-              />
-            </div>
+        <div className="w-full max-w-[430px] rounded-[16px] border border-black/15 bg-[#f5f5f7] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
+          <div className="flex items-start gap-4">
+            <img
+              alt=""
+              className="h-16 w-16 shrink-0 rounded-[15px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+              src={RITUAL_APP_ICON_SRC}
+            />
 
             <div className="min-w-0 flex-1">
-              <h2 className="text-[22px] font-semibold leading-7 text-[#202124]">{title}</h2>
+              <h2 className="text-[20px] font-semibold leading-6 text-[#1d1d1f]">{title}</h2>
 
               {effectivePendingUpdate ? (
-                <p className="mt-4 text-[16px] leading-7 text-[#2f3134]">
+                <p className="mt-3 text-[14px] leading-6 text-[#303236]">
                   Ritual {effectivePendingUpdate.version} is ready to install.
                 </p>
               ) : null}
 
               {effectivePendingUpdate?.body ? (
-                <p className="mt-3 max-h-32 overflow-auto whitespace-pre-line text-[14px] leading-6 text-[#5d636b]">
+                <p className="mt-2 max-h-28 overflow-auto whitespace-pre-line text-[13px] leading-5 text-[#60636a]">
                   {effectivePendingUpdate.body}
                 </p>
               ) : null}
@@ -383,19 +396,24 @@ export function DesktopUpdater() {
             </div>
           </div>
 
-          <div className="mt-8 flex justify-end gap-3">
-            <Button
+          <div className="mt-6 flex justify-end gap-2">
+            <button
+              className="h-8 min-w-[82px] rounded-[7px] border border-black/15 bg-white px-4 text-[13px] font-medium text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:bg-[#fbfbfc] disabled:cursor-not-allowed disabled:opacity-50"
               disabled={installing}
               onClick={dismissUpdaterModal}
-              size="sm"
-              variant="outline"
+              type="button"
             >
               {effectivePendingUpdate ? 'Later' : 'OK'}
-            </Button>
+            </button>
             {effectivePendingUpdate ? (
-              <Button disabled={checking || installing} onClick={installUpdateNow} size="sm">
+              <button
+                className="h-8 min-w-[92px] rounded-[7px] bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#a2a7b0]"
+                disabled={checking || installing}
+                onClick={installUpdateNow}
+                type="button"
+              >
                 {installing ? 'Installing...' : 'Install'}
-              </Button>
+              </button>
             ) : null}
           </div>
         </div>

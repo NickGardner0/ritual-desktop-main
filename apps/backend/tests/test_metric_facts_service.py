@@ -135,6 +135,70 @@ class MetricFactServiceHelperTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertEqual(report["mismatches"][0]["tolerance"], 0.01)
 
+    def test_preserves_higher_local_recovery_watcher_fact(self):
+        remote = FactDraft(
+            user_id="user-1",
+            habit_id="habit-computer",
+            habit_name="Computer Time",
+            metric_key="computer_time",
+            date="2026-05-20",
+            value=4.0,
+            unit="Hours",
+            source_family="watcher",
+            provider="ritual_watcher",
+            provenance={"aggregation": "turso_remote_raw_deoverlap"},
+        )
+        recovered = FactDraft(
+            user_id="user-1",
+            habit_id="habit-computer",
+            habit_name="Computer Time",
+            metric_key="computer_time",
+            date="2026-05-20",
+            value=7.5,
+            unit="Hours",
+            source_family="watcher",
+            provider="ritual_watcher_local_recovery",
+            provenance={"aggregation": "local_watcher_recovery_deoverlap"},
+        )
+
+        merged = self.service._preserve_higher_local_recovery_facts([remote], [recovered])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].value, 7.5)
+        self.assertEqual(merged[0].provider, "ritual_watcher_local_recovery")
+        self.assertTrue(merged[0].provenance["preserved_over_lower_remote"])
+
+    def test_remote_watcher_fact_wins_when_not_lower_than_recovery(self):
+        remote = FactDraft(
+            user_id="user-1",
+            habit_id="habit-computer",
+            habit_name="Computer Time",
+            metric_key="computer_time",
+            date="2026-05-20",
+            value=8.0,
+            unit="Hours",
+            source_family="watcher",
+            provider="ritual_watcher",
+        )
+        recovered = FactDraft(
+            user_id="user-1",
+            habit_id="habit-computer",
+            habit_name="Computer Time",
+            metric_key="computer_time",
+            date="2026-05-20",
+            value=7.5,
+            unit="Hours",
+            source_family="watcher",
+            provider="ritual_watcher_local_recovery",
+            provenance={"repair": "computer_time_fact_backfill"},
+        )
+
+        merged = self.service._preserve_higher_local_recovery_facts([remote], [recovered])
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0].value, 8.0)
+        self.assertEqual(merged[0].provider, "ritual_watcher")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -122,6 +122,18 @@ fn main() {
 
     let browser_extension_last_seen = Arc::new(AtomicU64::new(0));
 
+    // Location tracking (Phase: Location Tracking) — best-effort background thread.
+    // Writes Wi-Fi-fingerprint pings to ~/Library/Application Support/Ritual/location_outbox.json
+    // for the main Tauri app to drain. Failures here are logged but never block the watcher.
+    let _location_service = location::LocationService::spawn(config.device_id.clone());
+    info!("📍 Location service spawned");
+
+    // iPhone Screen Time via Biome App.InFocus.
+    // Parsed intervals are written to ~/Library/Application Support/Ritual/biome_iphone_events.jsonl
+    // for the main Tauri app to drain. Missing Biome files or Full Disk Access are non-fatal.
+    let _biome_scanner = biome::BiomeScanner::spawn();
+    info!("📱 Biome iPhone scanner initialized");
+
     // Main polling loop
     run_watcher_loop(
         &config,

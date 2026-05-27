@@ -34,4 +34,5 @@ struct ContentView: View {
     ContentView()
         .environmentObject(AppState())
         .environmentObject(WhoopBroadcastService())
+        .environmentObject(LocationManager.shared)
 }

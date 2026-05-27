@@ -457,6 +457,19 @@ class WearableProjectionService:
                 existing.source = provider
                 existing.origin_record_kind = origin_kind
                 existing.origin_record_id = origin_id
+
+                # Location enrichment (Phase: Location Tracking) — best-effort
+                # Uses the wearable activity timestamp to find the freshest
+                # user_location signal at that moment.
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    # Clear any stale value so re-enrichment can run on
+                    # re-upsert (wearable syncs are idempotent re-runs).
+                    if existing.location_lat is None:
+                        await enrich_habit_log(existing, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped for wearable log: %s", _loc_exc)
+
                 tinybird_payloads.append(
                     {
                         "id": existing.id,

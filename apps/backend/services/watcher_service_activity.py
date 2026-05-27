@@ -551,6 +551,7 @@ async def get_top_apps_impl(
     end_date: str,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top apps by active time for a date range."""
     perf_start = time.perf_counter()
@@ -561,6 +562,7 @@ async def get_top_apps_impl(
         end_date=end_date,
         limit=limit,
         device_id=device_id,
+        source_filter=source_filter,
     )
     result = list(snapshot.get("apps") or [])
     _log_activity_perf(
@@ -584,6 +586,7 @@ async def get_top_domains_impl(
     end_date: str,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Get top domains by active time for a date range."""
     perf_start = time.perf_counter()
@@ -594,6 +597,7 @@ async def get_top_domains_impl(
         end_date=end_date,
         limit=limit,
         device_id=device_id,
+        source_filter=source_filter,
     )
     result = list(snapshot.get("domains") or [])
     _log_activity_perf(

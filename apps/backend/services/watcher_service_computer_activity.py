@@ -31,6 +31,32 @@ REMOTE_RAW_READ_TIMEOUT_SECONDS = max(
     0.5,
     float(os.getenv("WATCHER_REMOTE_RAW_READ_TIMEOUT_SECONDS", "6")),
 )
+IPHONE_ACTIVITY_SOURCE = "biome_iphone"
+
+
+def _normalize_activity_source_filter(source_filter: Optional[str]) -> str:
+    normalized = (source_filter or "desktop").strip().lower()
+    if normalized in {"all", "any", "*"}:
+        return "all"
+    if normalized in {"iphone", "ios", IPHONE_ACTIVITY_SOURCE}:
+        return IPHONE_ACTIVITY_SOURCE
+    return "desktop"
+
+
+def _activity_source_sql_clause(source_filter: Optional[str], *, alias: Optional[str] = None) -> tuple[str, List[Any]]:
+    """Return a safe SQL source filter for activity_events.
+
+    Desktop computer time must not accidentally absorb iPhone Biome foreground
+    events, while the iPhone Screen Time surface needs an explicit source-only
+    view over the same table.
+    """
+    source = _normalize_activity_source_filter(source_filter)
+    column = f"{alias}.source" if alias else "source"
+    if source == "all":
+        return "", []
+    if source == IPHONE_ACTIVITY_SOURCE:
+        return f" AND COALESCE({column}, '') = ?", [IPHONE_ACTIVITY_SOURCE]
+    return f" AND COALESCE({column}, '') != ?", [IPHONE_ACTIVITY_SOURCE]
 
 
 def _resolve_activity_user_ids(target_user_id: str) -> List[str]:
@@ -298,6 +324,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Aggregate local watcher events into computer_activity_daily rows with day clipping + de-overlap."""
     import sqlite3
@@ -318,6 +345,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
 
         cursor.execute(
             """
@@ -332,11 +360,12 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -351,6 +380,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Compute de-overlapped day totals across all apps/domains from local watcher DB."""
     import sqlite3
@@ -371,6 +401,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
         cursor.execute(
             """
             SELECT
@@ -383,11 +414,12 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -402,6 +434,7 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, int]:
     """Count unique apps/domains in range from local watcher DB (non-AFK, overlapping range)."""
     import sqlite3
@@ -422,6 +455,7 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
         cursor.execute(
             """
             SELECT
@@ -437,11 +471,12 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
               AND COALESCE(is_afk, 0) = 0
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         row = cursor.fetchone()
         conn.close()
@@ -652,6 +687,7 @@ def _fetch_local_activity_event_rows_impl(
     end_ms: int,
     user_ids: List[str],
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[tuple[Any, Any, Any, Any, Any, Any]]:
     import sqlite3
 
@@ -668,6 +704,8 @@ def _fetch_local_activity_event_rows_impl(
         if device_id:
             device_clause = " AND device_id = ?"
             params.append(device_id)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
+        params.extend(source_params)
         cursor.execute(
             """
             SELECT
@@ -685,6 +723,7 @@ def _fetch_local_activity_event_rows_impl(
               AND ts_end > ts_start
             """
             + device_clause
+            + source_clause
             + """
             ORDER BY ts_start ASC
             """,
@@ -787,6 +826,7 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
     end_ms: int,
     limit: int,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     user_placeholders = ", ".join(["?"] * len(activity_user_ids))
     device_clause = ""
@@ -794,6 +834,8 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
     if device_id:
         device_clause = " AND device_id = ?"
         base_filter_params.append(device_id)
+    source_clause, source_params = _activity_source_sql_clause(source_filter)
+    base_filter_params.extend(source_params)
 
     cte = f"""
         WITH base AS (
@@ -817,6 +859,7 @@ async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
               AND user_id IN ({user_placeholders})
               AND ts_end > ts_start
               {device_clause}
+              {source_clause}
         ),
         clipped AS (
             SELECT *
@@ -1034,6 +1077,7 @@ async def _build_computer_activity_snapshot_impl(
     *,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
@@ -1047,6 +1091,8 @@ async def _build_computer_activity_snapshot_impl(
     if device_id:
         device_clause = " AND device_id = ?"
         params.append(device_id)
+    source_clause, source_params = _activity_source_sql_clause(source_filter)
+    params.extend(source_params)
 
     aggregate_timed_out = False
     try:
@@ -1058,6 +1104,7 @@ async def _build_computer_activity_snapshot_impl(
                 end_ms=end_ms,
                 limit=limit,
                 device_id=device_id,
+                source_filter=source_filter,
             ),
             timeout=REMOTE_AGGREGATE_TIMEOUT_SECONDS,
         )
@@ -1080,6 +1127,7 @@ async def _build_computer_activity_snapshot_impl(
             end_ms=end_ms,
             user_ids=activity_user_ids,
             device_id=device_id,
+            source_filter=source_filter,
         )
         if local_rows:
             snapshot = _build_snapshot_from_event_rows_impl(
@@ -1122,6 +1170,7 @@ async def _build_computer_activity_snapshot_impl(
                       AND user_id IN ({user_placeholders})
                       AND ts_end > ts_start
                       {device_clause}
+                      {source_clause}
                     ORDER BY ts_start ASC
                     """,
                     params,
@@ -1156,6 +1205,7 @@ async def _build_computer_activity_snapshot_impl(
         end_ms=end_ms,
         user_ids=activity_user_ids,
         device_id=device_id,
+        source_filter=source_filter,
     )
     if local_rows:
         snapshot = _build_snapshot_from_event_rows_impl(
@@ -1208,6 +1258,7 @@ async def get_computer_activity_snapshot_impl(
     *,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     return await _build_computer_activity_snapshot_impl(
         service,
@@ -1216,6 +1267,7 @@ async def get_computer_activity_snapshot_impl(
         end_date=end_date,
         limit=limit,
         device_id=device_id,
+        source_filter=source_filter,
     )
 
 
@@ -1386,6 +1438,7 @@ async def get_computer_time_summary_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict:
     """Get total computer time summary for a date range."""
     perf_start = time.perf_counter()
@@ -1396,6 +1449,7 @@ async def get_computer_time_summary_impl(
         end_date=end_date,
         limit=10,
         device_id=device_id,
+        source_filter=source_filter,
     )
     summary = dict(snapshot["summary"])
     _log_activity_perf(
@@ -1423,6 +1477,7 @@ async def get_daily_computer_time_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict]:
     """Get daily computer time for charting."""
     perf_start = time.perf_counter()
@@ -1433,6 +1488,7 @@ async def get_daily_computer_time_impl(
         end_date=end_date,
         limit=10,
         device_id=device_id,
+        source_filter=source_filter,
     )
     daily_rows = list(snapshot.get("daily") or [])
     _log_activity_perf(
@@ -1460,12 +1516,14 @@ async def get_usage_daily_breakdown_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict]:
     """Get daily usage breakdown for a specific app or website."""
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
         user_id=user_id,
+        source_filter=source_filter,
     )
     if local_daily_rows:
         target_key = str(key or "").strip().lower()
@@ -1536,6 +1594,93 @@ async def get_usage_daily_breakdown_impl(
                 for day, bucket in sorted(buckets.items(), key=lambda item: item[0])
             ]
 
+    try:
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+        start_ms = int(start_date_obj.timestamp() * 1000)
+        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+        activity_user_ids = _resolve_activity_user_ids(user_id)
+        user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
+        target_key = str(key or "").strip()
+        kind_clause = (
+            "AND (app_bundle_id = ? OR app_name = ?)"
+            if kind == "app"
+            else "AND browser_domain = ?"
+        )
+        kind_params: List[Any] = [target_key, target_key] if kind == "app" else [target_key]
+        remote_result = await asyncio.wait_for(
+            fetch_remote_activity_rows(
+                user_id,
+                f"""
+                SELECT ts_start, ts_end
+                FROM activity_events
+                WHERE ts_start < ?
+                  AND ts_end > ?
+                  AND user_id IN ({user_placeholders})
+                  AND ts_end > ts_start
+                  AND COALESCE(is_afk, 0) = 0
+                  {source_clause}
+                  {kind_clause}
+                ORDER BY ts_start ASC
+                """,
+                [end_ms, start_ms, *activity_user_ids, *source_params, *kind_params],
+            ),
+            timeout=REMOTE_RAW_READ_TIMEOUT_SECONDS,
+        )
+        if remote_result.rows:
+            buckets: Dict[str, Dict[str, Any]] = defaultdict(
+                lambda: {
+                    "intervals": [],
+                    "events_count": 0,
+                    "first_start_ms": None,
+                    "last_end_ms": None,
+                }
+            )
+            for ts_start, ts_end in remote_result.rows:
+                bounded_start, bounded_end = _clamp_single_event_span_impl(int(ts_start or 0), int(ts_end or 0))
+                clipped_start = max(bounded_start, start_ms)
+                clipped_end = min(bounded_end, end_ms)
+                if clipped_end <= clipped_start:
+                    continue
+                for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
+                    bucket = buckets[day]
+                    bucket["intervals"].append((seg_start, seg_end))
+                    bucket["events_count"] += 1
+                    bucket["first_start_ms"] = (
+                        seg_start
+                        if bucket["first_start_ms"] is None
+                        else min(int(bucket["first_start_ms"]), seg_start)
+                    )
+                    bucket["last_end_ms"] = (
+                        seg_end
+                        if bucket["last_end_ms"] is None
+                        else max(int(bucket["last_end_ms"]), seg_end)
+                    )
+            if buckets:
+                output: List[Dict[str, Any]] = []
+                for day, bucket in sorted(buckets.items(), key=lambda item: item[0]):
+                    merged = merge_time_intervals_impl(bucket["intervals"])
+                    active_ms = int(sum(end - start for start, end in merged))
+                    if active_ms <= 0:
+                        continue
+                    output.append(
+                        {
+                            "day": day,
+                            "active_ms": active_ms,
+                            "events_count": int(bucket["events_count"]),
+                            "first_start_ms": int(bucket["first_start_ms"]) if bucket["first_start_ms"] is not None else None,
+                            "last_end_ms": int(bucket["last_end_ms"]) if bucket["last_end_ms"] is not None else None,
+                            "source": remote_result.source or "turso_remote",
+                        }
+                    )
+                if output:
+                    return output
+    except asyncio.TimeoutError:
+        logger.info("Remote watcher breakdown timed out for user=%s kind=%s key=%s", user_id, kind, key)
+    except Exception as exc:
+        logger.info("Remote watcher breakdown unavailable for user=%s kind=%s key=%s: %s", user_id, kind, key, exc)
+
     tinybird_rows = await service._get_computer_activity_pipe_rows(
         user_id=user_id,
         start_date=start_date,
@@ -1577,6 +1722,7 @@ async def get_usage_daily_breakdown_impl(
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
         start_ms = int(start_date_obj.timestamp() * 1000)
         end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
 
         if kind == "app":
             cursor.execute(
@@ -1584,9 +1730,10 @@ async def get_usage_daily_breakdown_impl(
                 SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
+                  {source_clause}
                   AND (app_bundle_id = ? OR app_name = ?)
-                """,
-                (start_ms, end_ms, key, key),
+                """.format(source_clause=source_clause),
+                (start_ms, end_ms, *source_params, key, key),
             )
         else:
             cursor.execute(
@@ -1594,9 +1741,10 @@ async def get_usage_daily_breakdown_impl(
                 SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
+                  {source_clause}
                   AND browser_domain = ?
-                """,
-                (start_ms, end_ms, key),
+                """.format(source_clause=source_clause),
+                (start_ms, end_ms, *source_params, key),
             )
 
         rows = cursor.fetchall()

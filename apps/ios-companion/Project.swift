@@ -14,6 +14,9 @@ var appInfoPlist: [String: Plist.Value] = [
     "NSBluetoothAlwaysUsageDescription": "Ritual uses Bluetooth to connect to your wearable heart-rate broadcast so it can power your personal metrics and biometrics features.",
     "NSHealthShareUsageDescription": "Ritual needs access to read your health data to sync steps, active energy, and other metrics with your desktop app.",
     "NSHealthUpdateUsageDescription": "Ritual needs access to write health data to record your tracked habits.",
+    "NSLocationWhenInUseUsageDescription": "Ritual tags your habit logs with where you were, so you can see patterns like \"I meditate more at home than the office.\"",
+    "NSLocationAlwaysAndWhenInUseUsageDescription": "Ritual tags every habit log — including logs you create from your Mac or via text message — with where you were when you logged it. This runs in the background using Apple's Significant-Change Location Service, which uses virtually no battery.",
+    "NSLocationAlwaysUsageDescription": "Ritual tags your habit logs with where you were, even when the app isn't open.",
     "ITSAppUsesNonExemptEncryption": false,
     "BGTaskSchedulerPermittedIdentifiers": [
         "com.ritual.companion.healthsync",
@@ -22,7 +25,8 @@ var appInfoPlist: [String: Plist.Value] = [
     "UIBackgroundModes": [
         "fetch",
         "processing",
-        "bluetooth-central"
+        "bluetooth-central",
+        "location"
     ],
     "RitualClerkPublishableKey": "$(CLERK_PUBLISHABLE_KEY)",
     "RitualClerkFrontendAPI": "$(CLERK_FRONTEND_API)",

@@ -1298,6 +1298,8 @@ fn main() {
     .setup(|app| {
       let setup_started_at = Instant::now();
       desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
+      desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
+      desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
 
       let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
       let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;

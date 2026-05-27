@@ -34,6 +34,7 @@ static WATCHER_LAST_STARTED_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mute
 static WATCHER_LAST_RESTART_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 static WATCHER_RESTART_COUNT: AtomicU64 = AtomicU64::new(0);
 static WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS: AtomicU64 = AtomicU64::new(0);
+const MAX_SINGLE_ACTIVITY_EVENT_MS: i64 = 15 * 60 * 1000;
 
 #[derive(Debug, Clone, Copy, Default)]
 struct LocalWatcherFreshness {
@@ -255,8 +256,16 @@ fn clip_interval(
     range_start: i64,
     range_end: i64,
 ) -> Option<(i64, i64)> {
+    let event_end = if event.ts_end.saturating_sub(event.ts_start) > MAX_SINGLE_ACTIVITY_EVENT_MS
+    {
+        event
+            .ts_start
+            .saturating_add(MAX_SINGLE_ACTIVITY_EVENT_MS)
+    } else {
+        event.ts_end
+    };
     let start = event.ts_start.max(range_start);
-    let end = event.ts_end.min(range_end);
+    let end = event_end.min(range_end);
     if end > start {
         Some((start, end))
     } else {
@@ -442,6 +451,66 @@ fn build_domain_summaries(
             .then_with(|| a.domain.cmp(&b.domain))
     });
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_event(ts_start: i64, ts_end: i64, is_afk: bool) -> ritual_db::ActivityEvent {
+        ritual_db::ActivityEvent {
+            id: None,
+            event_uid: format!("event-{ts_start}-{ts_end}-{is_afk}"),
+            device_id: "device".to_string(),
+            user_id: "user".to_string(),
+            ts_start,
+            ts_end,
+            app_bundle_id: "com.test.app".to_string(),
+            app_name: "Test App".to_string(),
+            window_title: None,
+            window_title_hash: None,
+            window_owner_pid: None,
+            is_afk,
+            browser_url: None,
+            browser_domain: Some("example.com".to_string()),
+            is_incognito: false,
+            source: "ritual_watcher_v2".to_string(),
+            created_at: 0,
+        }
+    }
+
+    #[test]
+    fn range_summary_clamps_abnormally_long_events() {
+        let events = vec![test_event(0, 8 * 60 * 60 * 1000, false)];
+
+        let summary = build_range_summary(&events, 0, 24 * 60 * 60 * 1000);
+
+        assert_eq!(summary.active_ms, MAX_SINGLE_ACTIVITY_EVENT_MS);
+        assert_eq!(summary.event_count, 1);
+    }
+
+    #[test]
+    fn range_summary_does_not_count_range_after_clamped_event_end() {
+        let events = vec![test_event(0, 8 * 60 * 60 * 1000, false)];
+
+        let summary = build_range_summary(&events, 60 * 60 * 1000, 2 * 60 * 60 * 1000);
+
+        assert_eq!(summary.active_ms, 0);
+        assert_eq!(summary.event_count, 0);
+    }
+
+    #[test]
+    fn range_summary_deoverlaps_active_intervals() {
+        let events = vec![
+            test_event(0, 10 * 60 * 1000, false),
+            test_event(5 * 60 * 1000, 20 * 60 * 1000, false),
+        ];
+
+        let summary = build_range_summary(&events, 0, 60 * 60 * 1000);
+
+        assert_eq!(summary.active_ms, 20 * 60 * 1000);
+        assert_eq!(summary.event_count, 2);
+    }
 }
 
 /// Summary of activity by app

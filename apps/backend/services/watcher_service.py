@@ -321,7 +321,8 @@ class WatcherService:
         start_date: str,
         end_date: str,
         limit: int = 10,
-        device_id: Optional[str] = None
+        device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         return await get_top_apps_impl(
             self,
@@ -330,6 +331,7 @@ class WatcherService:
             end_date=end_date,
             limit=limit,
             device_id=device_id,
+            source_filter=source_filter,
         )
     
     # ============================================================
@@ -342,7 +344,8 @@ class WatcherService:
         start_date: str,
         end_date: str,
         limit: int = 10,
-        device_id: Optional[str] = None
+        device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         return await get_top_domains_impl(
             self,
@@ -351,6 +354,7 @@ class WatcherService:
             end_date=end_date,
             limit=limit,
             device_id=device_id,
+            source_filter=source_filter,
         )
     
     async def get_domain_daily_breakdown(
@@ -462,12 +466,14 @@ class WatcherService:
         start_date: str,
         end_date: str,
         user_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return _get_computer_activity_daily_rows_from_local_db_impl(
             self,
             start_date=start_date,
             end_date=end_date,
             user_ids=_resolve_activity_user_ids(user_id) if user_id else None,
+            source_filter=source_filter,
         )
 
     async def _sync_computer_activity_range_to_tinybird(
@@ -537,7 +543,8 @@ class WatcherService:
         user_id: str,
         start_date: str,  # YYYY-MM-DD
         end_date: str,    # YYYY-MM-DD
-        device_id: Optional[str] = None
+        device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> Dict:
         return await get_computer_time_summary_impl(
             self,
@@ -545,6 +552,7 @@ class WatcherService:
             start_date=start_date,
             end_date=end_date,
             device_id=device_id,
+            source_filter=source_filter,
         )
     
     async def get_daily_computer_time(
@@ -552,7 +560,8 @@ class WatcherService:
         user_id: str,
         start_date: str,
         end_date: str,
-        device_id: Optional[str] = None
+        device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         return await get_daily_computer_time_impl(
             self,
@@ -560,6 +569,7 @@ class WatcherService:
             start_date=start_date,
             end_date=end_date,
             device_id=device_id,
+            source_filter=source_filter,
         )
 
     async def get_computer_activity_snapshot(
@@ -569,6 +579,7 @@ class WatcherService:
         end_date: str,
         limit: int = 10,
         device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> Dict[str, Any]:
         return await get_computer_activity_snapshot_impl(
             self,
@@ -577,6 +588,7 @@ class WatcherService:
             end_date=end_date,
             limit=limit,
             device_id=device_id,
+            source_filter=source_filter,
         )
 
     async def get_usage_daily_breakdown(
@@ -586,7 +598,8 @@ class WatcherService:
         key: str,
         start_date: str,
         end_date: str,
-        device_id: Optional[str] = None
+        device_id: Optional[str] = None,
+        source_filter: Optional[str] = None,
     ) -> List[Dict]:
         return await get_usage_daily_breakdown_impl(
             self,
@@ -596,6 +609,7 @@ class WatcherService:
             start_date=start_date,
             end_date=end_date,
             device_id=device_id,
+            source_filter=source_filter,
         )
 
     # ============================================================
@@ -631,6 +645,7 @@ class WatcherService:
     async def _upsert_computer_use_projection_log(
         self,
         session,
+        user_id: str,
         habit_id: str,
         habit_name: str,
         unit_type: str,
@@ -640,6 +655,7 @@ class WatcherService:
         return await _upsert_computer_use_projection_log_impl(
             self,
             session=session,
+            user_id=user_id,
             habit_id=habit_id,
             habit_name=habit_name,
             unit_type=unit_type,

@@ -580,7 +580,23 @@ actor RitualAPIClient {
         try await ensureValidToken()
         return try await get(path: "/api/v1/biometrics/live")
     }
-    
+
+    // MARK: - Location Tracking (Phase: Location Tracking)
+
+    /// Submit a batch of location pings to the backend.
+    ///
+    /// The endpoint is idempotent on `client_event_id` — re-submitting the
+    /// same batch after a network failure is safe (duplicates are counted
+    /// but not double-inserted). Returns counts for telemetry.
+    func postLocationPings(_ pings: [LocationPing]) async throws -> LocationPingIngestResponse {
+        try await ensureValidToken()
+        let body = LocationPingBatch(pings: pings)
+        return try await post(
+            path: "/api/user/location-pings",
+            body: body
+        )
+    }
+
     /// Clear all stored credentials
     func clearCredentials() {
         deviceId = nil

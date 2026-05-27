@@ -143,6 +143,7 @@ def _projection_source_rank_impl(
 async def _upsert_computer_use_projection_log_impl(
     service,
     session,
+    user_id: str,
     habit_id: str,
     habit_name: str,
     unit_type: str,
@@ -162,7 +163,7 @@ async def _upsert_computer_use_projection_log_impl(
     result = await session.execute(
         text(
             """
-            SELECT id, amount, duration, source, notes, completed_at
+            SELECT id, amount, duration, source, notes, completed_at, location_lat
             FROM habit_logs
             WHERE habit_id = :habit_id
               AND date = :date
@@ -185,9 +186,33 @@ async def _upsert_computer_use_projection_log_impl(
         log_id = existing_log[0]
         old_amount = existing_log[1] or 0
         previous_source = existing_log[3]
+        location_fields: Dict[str, Any] = {}
+        if existing_log[6] is None:
+            try:
+                from services.location.enrichment import resolve_habit_location_fields
+
+                location_fields = await resolve_habit_location_fields(
+                    user_id=user_id,
+                    completed_at=now_iso,
+                )
+            except Exception as _loc_exc:  # noqa: BLE001
+                logger.debug("Location enrichment skipped (computer projection update): %s", _loc_exc)
+
+        location_set_sql = ""
+        if location_fields:
+            location_set_sql = """
+                    , location_lat = :location_lat,
+                    location_lon = :location_lon,
+                    location_accuracy_m = :location_accuracy_m,
+                    location_source = :location_source,
+                    location_place_label = :location_place_label,
+                    location_confidence = :location_confidence,
+                    location_resolved_at = :location_resolved_at,
+                    location_signal_age_ms = :location_signal_age_ms
+            """
         await session.execute(
             text(
-                """
+                f"""
                 UPDATE habit_logs
                 SET amount = :amount,
                     duration = :duration,
@@ -199,6 +224,7 @@ async def _upsert_computer_use_projection_log_impl(
                     source_id = :source_id,
                     dedupe_key = :dedupe_key,
                     log_metadata = :log_metadata
+                    {location_set_sql}
                 WHERE id = :log_id
                 """
             ),
@@ -213,6 +239,7 @@ async def _upsert_computer_use_projection_log_impl(
                 "source_id": source_id,
                 "dedupe_key": dedupe_key,
                 "log_metadata": metadata_json,
+                **location_fields,
             },
         )
         return {
@@ -231,16 +258,41 @@ async def _upsert_computer_use_projection_log_impl(
         }
 
     new_log_id = str(uuid.uuid4())
+    location_fields: Dict[str, Any] = {}
+    try:
+        from services.location.enrichment import resolve_habit_location_fields
+
+        location_fields = await resolve_habit_location_fields(
+            user_id=user_id,
+            completed_at=now_iso,
+        )
+    except Exception as _loc_exc:  # noqa: BLE001
+        logger.debug("Location enrichment skipped (computer projection create): %s", _loc_exc)
+
+    location_columns_sql = ""
+    location_values_sql = ""
+    if location_fields:
+        location_columns_sql = """,
+                location_lat, location_lon, location_accuracy_m, location_source,
+                location_place_label, location_confidence, location_resolved_at,
+                location_signal_age_ms"""
+        location_values_sql = """,
+                :location_lat, :location_lon, :location_accuracy_m, :location_source,
+                :location_place_label, :location_confidence, :location_resolved_at,
+                :location_signal_age_ms"""
+
     await session.execute(
         text(
-            """
+            f"""
             INSERT INTO habit_logs (
                 id, habit_id, habit_name, date, amount, duration, status, notes,
                 completed_at, source, source_id, dedupe_key, log_metadata
+                {location_columns_sql}
             )
             VALUES (
                 :id, :habit_id, :habit_name, :date, :amount, :duration, :status, :notes,
                 :completed_at, :source, :source_id, :dedupe_key, :log_metadata
+                {location_values_sql}
             )
             """
         ),
@@ -258,6 +310,7 @@ async def _upsert_computer_use_projection_log_impl(
             "source_id": source_id,
             "dedupe_key": dedupe_key,
             "log_metadata": metadata_json,
+            **location_fields,
         },
     )
     return {
@@ -494,6 +547,7 @@ async def sync_to_computer_use_habit_impl(
 
             projection_result = await service._upsert_computer_use_projection_log(
                 session=session,
+                user_id=user_id,
                 habit_id=habit_id,
                 habit_name=habit_name,
                 unit_type=unit_type,
@@ -936,6 +990,7 @@ async def sync_to_computer_use_habit_range_impl(
                 }
                 projection_result = await service._upsert_computer_use_projection_log(
                     session=session,
+                    user_id=user_id,
                     habit_id=habit_id,
                     habit_name=habit_name,
                     unit_type=unit_type,

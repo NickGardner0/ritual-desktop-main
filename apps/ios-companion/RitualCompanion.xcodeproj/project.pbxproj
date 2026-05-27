@@ -29,6 +29,7 @@
 		4B58BF0ED7798AF180EF43B4 /* TuistBundle+RitualCompanion.swift in Sources */ = {isa = PBXBuildFile; fileRef = 900A21C0CC5F0F56A663D35C /* TuistBundle+RitualCompanion.swift */; };
 		534EF1F0E6C08A8D64021BE8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A4460558012097894E301FA6 /* Assets.xcassets */; };
 		5C0B8E15AA07AA73906DF09F /* ScreenTimeSelectionCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87A2B06D409DF895C7CE9033 /* ScreenTimeSelectionCard.swift */; };
+		5ED019ECCE1F88E04318A126 /* LocationPingOutbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 184AF847225632991CF82F23 /* LocationPingOutbox.swift */; };
 		76C6EAC74989CC46482026A5 /* ScreenTimeSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5959D5FAD3E035C065983982 /* ScreenTimeSyncManager.swift */; };
 		7D0E5934DBE01E15B0812322 /* ScreenTimeManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DF7B43980E3E47C32AD8CAE3 /* ScreenTimeManager.swift */; };
 		7E86B0E4D2B19B9D736801BC /* ConnectView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A57E238B67EA0BEA6D83131 /* ConnectView.swift */; };
@@ -63,9 +64,11 @@
 		CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */ = {isa = PBXBuildFile; fileRef = F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */; };
 		D2084AF2C75A38D2EA2DB475 /* BLEPermissionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A70CC74C0F075A70FF36FED1 /* BLEPermissionState.swift */; };
 		D73B96625C7DD704123583DA /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 92D8EBAAC3C5E98D045AEB04 /* PrivacyInfo.xcprivacy */; };
+		DA89D099F0EC683E42DC82AE /* LocationPing.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6CE3448438C30CCA1D1DCF70 /* LocationPing.swift */; };
 		DE1BF59397213D2A40DF6FC1 /* NormalizedMetric.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA24C4E982268B508DDCA3B /* NormalizedMetric.swift */; };
 		E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */; };
 		E0D70D8ADF2BF7BD24F3B51D /* FilenameTemplateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C56C74B7E232D6E54F735A7 /* FilenameTemplateTests.swift */; };
+		E145EA8DEB6EB7EE25FD3DDB /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0787A5A29C0A23D60E1B9D /* LocationManager.swift */; };
 		E3408D80686E7E98A8C46747 /* WhoopDeviceHeuristics.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5611640C1740032E8E0EEB /* WhoopDeviceHeuristics.swift */; };
 		E82B883F12AB4FB41EDA9A40 /* RitualCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331267A4741B767C6156924B /* RitualCompanionApp.swift */; };
 		E894985FCF0B11105DABC5D4 /* SourceStatusCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8F570F54536DD9BF51461F72 /* SourceStatusCard.swift */; };
@@ -165,6 +168,7 @@
 /* Begin PBXFileReference section */
 		171C169FA35F85FC7ADA04D9 /* BLEHeartRateParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLEHeartRateParser.swift; sourceTree = "<group>"; };
 		1741C77C405F908BA6C2BCC3 /* StatusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusView.swift; sourceTree = "<group>"; };
+		184AF847225632991CF82F23 /* LocationPingOutbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationPingOutbox.swift; sourceTree = "<group>"; };
 		1C0FCE4592D7860B73553F0B /* ScreenTimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeView.swift; sourceTree = "<group>"; };
 		288CA0FD677B9211B801ADE6 /* WhoopBroadcastService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhoopBroadcastService.swift; sourceTree = "<group>"; };
 		2A57E238B67EA0BEA6D83131 /* ConnectView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectView.swift; sourceTree = "<group>"; };
@@ -187,6 +191,7 @@
 		60D808B126730EA2507649D9 /* HabitMappingResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingResolver.swift; sourceTree = "<group>"; };
 		6260A7C6150515A1745EC60B /* BiometricsLocalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricsLocalStore.swift; sourceTree = "<group>"; };
 		65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportManager.swift; sourceTree = "<group>"; };
+		6CE3448438C30CCA1D1DCF70 /* LocationPing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationPing.swift; sourceTree = "<group>"; };
 		70003735978CA53E78A71BF3 /* MarkdownExporterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownExporterTests.swift; sourceTree = "<group>"; };
 		74E4D8229429850BF8B91FB4 /* StatusCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusCard.swift; sourceTree = "<group>"; };
 		7684EC5BD030E45458E6EC8B /* HeartRateBiometrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartRateBiometrics.swift; sourceTree = "<group>"; };
@@ -220,6 +225,7 @@
 		B57EA1C2EF0854ECCCC26858 /* BLERestorationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLERestorationCoordinator.swift; sourceTree = "<group>"; };
 		B8467AE6E06CEE4B56BF88D5 /* RitualScreenTimeReportExtension-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "RitualScreenTimeReportExtension-Info.plist"; sourceTree = "<group>"; };
 		BD3DC6E3DBC4DEA6505746B2 /* HabitMappingListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitMappingListView.swift; sourceTree = "<group>"; };
+		BF0787A5A29C0A23D60E1B9D /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		BF91F678261C8F0BB0C07F17 /* RitualCompanion.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = RitualCompanion.entitlements; sourceTree = "<group>"; };
 		C234661BB134853DCBE541B3 /* RitualScreenTimeShared.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RitualScreenTimeShared.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C52426DADBCAA588D41D9303 /* LocalExportManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalExportManagerTests.swift; sourceTree = "<group>"; };
@@ -478,6 +484,9 @@
 				F243BA15F799B3B6E8786BF4 /* HealthKitManagerV2.swift */,
 				7A9FDEFC8AB90A51E7A3B6EA /* LocalExportHistoryStore.swift */,
 				65584B0FB0BEA8C9B4F5D591 /* LocalExportManager.swift */,
+				BF0787A5A29C0A23D60E1B9D /* LocationManager.swift */,
+				6CE3448438C30CCA1D1DCF70 /* LocationPing.swift */,
+				184AF847225632991CF82F23 /* LocationPingOutbox.swift */,
 				34C9D27D3B41E8AE52B77267 /* NotificationManager.swift */,
 				5786C60FEFCA15EBA8EE4973 /* OfflineSyncQueue.swift */,
 				55A7812D68BCCD6D8AE808B4 /* RitualAPIClient.swift */,
@@ -809,6 +818,9 @@
 				CF2ED8AB67DB6395A2A7BE95 /* HealthKitManagerV2.swift in Sources */,
 				EC97CEDF62A8D48DE115A431 /* LocalExportHistoryStore.swift in Sources */,
 				210BD4D8B9211661A43D2AFA /* LocalExportManager.swift in Sources */,
+				E145EA8DEB6EB7EE25FD3DDB /* LocationManager.swift in Sources */,
+				DA89D099F0EC683E42DC82AE /* LocationPing.swift in Sources */,
+				5ED019ECCE1F88E04318A126 /* LocationPingOutbox.swift in Sources */,
 				ED3D427952E264FE892CE394 /* NotificationManager.swift in Sources */,
 				E05673DB0F31089F154208C9 /* OfflineSyncQueue.swift in Sources */,
 				B8BB567982B89441F20CC495 /* BiometricsLocalStore.swift in Sources */,

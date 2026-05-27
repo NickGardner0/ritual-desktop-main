@@ -2211,6 +2211,24 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows the dashboard webview to trigger native desktop observability diagnostics.",
+          "type": "string",
+          "const": "desktop-observability",
+          "markdownDescription": "Allows the dashboard webview to trigger native desktop observability diagnostics."
+        },
+        {
+          "description": "Allows the hosted dashboard to read desktop runtime state, complete auth handoff, and manage desktop updates.",
+          "type": "string",
+          "const": "desktop-runtime",
+          "markdownDescription": "Allows the hosted dashboard to read desktop runtime state, complete auth handoff, and manage desktop updates."
+        },
+        {
+          "description": "Allows the local desktop shell to bootstrap the hosted dashboard and report launch diagnostics.",
+          "type": "string",
+          "const": "desktop-shell-bootstrap",
+          "markdownDescription": "Allows the local desktop shell to bootstrap the hosted dashboard and report launch diagnostics."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

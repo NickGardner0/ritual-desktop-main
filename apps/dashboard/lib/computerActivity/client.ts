@@ -77,6 +77,7 @@ const DESKTOP_DAILY_TIMEOUT_MS = 65000
 const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
 const DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS = 7
 const DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS = 7
+const DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS = 5 * 60 * 1000
 const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
 const appsCache = new Map<string, TopAppResponseRow[]>()
@@ -377,6 +378,49 @@ async function getDesktopLocalAggregatedStats(
     domains,
     source: 'tauri_fallback',
     state: 'tauri_fallback',
+    sync_pending: false,
+  }
+}
+
+function aggregateHasAnyData(result: AggregatedComputerStatsResponse) {
+  return result.summary.total_active_ms > 0
+    || result.daily.length > 0
+    || result.apps.length > 0
+    || result.domains.length > 0
+}
+
+function preferDesktopLocalAggregate(
+  backendResult: AggregatedComputerStatsResponse,
+  localResult: AggregatedComputerStatsResponse,
+) {
+  const localMs = Math.max(0, Number(localResult.summary.total_active_ms || 0))
+  const backendMs = Math.max(0, Number(backendResult.summary.total_active_ms || 0))
+  if (localMs <= 0) return false
+
+  return localMs > backendMs + DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS
+}
+
+function asDesktopLocalTruth(result: AggregatedComputerStatsResponse): AggregatedComputerStatsResponse {
+  return {
+    ...result,
+    source: 'tauri_local_truth',
+    state: 'desktop_local_truth',
+    summary: {
+      ...result.summary,
+      source: 'tauri_local_truth',
+    },
+    daily: result.daily.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
+    apps: result.apps.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
+    domains: result.domains.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
     sync_pending: false,
   }
 }
@@ -1084,11 +1128,41 @@ export async function getAggregatedComputerStats(
     const result = normalizeAggregatedPayload(payload)
     cacheAggregatedResult(cacheKey, params, limit, result)
 
-    const hasAnyData =
-      result.summary.total_active_ms > 0
-      || result.daily.length > 0
-      || result.apps.length > 0
-      || result.domains.length > 0
+    const hasAnyData = aggregateHasAnyData(result)
+
+    if (isTauri() && shouldAllowDesktopAggregateLocalFallback(params)) {
+      try {
+        const localAggregate = await getDesktopLocalAggregatedStats(params, limit)
+        const localHasAnyData = aggregateHasAnyData(localAggregate)
+        if (localHasAnyData && (!hasAnyData || preferDesktopLocalAggregate(result, localAggregate))) {
+          const localTruth = asDesktopLocalTruth(localAggregate)
+          cacheAggregatedResult(cacheKey, params, limit, localTruth)
+          perfInfo('computer-activity-client', 'aggregate-desktop-local-truth', {
+            params,
+            backend_total_active_ms: result.summary.total_active_ms,
+            local_total_active_ms: localTruth.summary.total_active_ms,
+            backend_daily_rows: result.daily.length,
+            local_daily_rows: localTruth.daily.length,
+          })
+          stopTimer({
+            success: true,
+            source: localTruth.source,
+            state: localTruth.state,
+            summary_active_ms: localTruth.summary.total_active_ms,
+            daily_rows: localTruth.daily.length,
+            app_rows: localTruth.apps.length,
+            domain_rows: localTruth.domains.length,
+          })
+          return localTruth
+        }
+      } catch (localError) {
+        perfWarn('computer-activity-client', 'aggregate-local-truth-check-failed', {
+          params,
+          limit,
+          error: localError instanceof Error ? localError.message : String(localError),
+        })
+      }
+    }
 
     if (hasAnyData || !isTauri() || !shouldAllowDesktopAggregateLocalFallback(params)) {
       stopTimer({
