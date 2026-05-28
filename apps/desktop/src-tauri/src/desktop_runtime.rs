@@ -7,10 +7,10 @@ use std::ffi::CString;
 use std::fs;
 #[cfg(target_os = "macos")]
 use std::os::raw::c_char;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -105,6 +105,7 @@ pub struct DesktopShellState {
     pending_auth_deep_link: Mutex<Option<String>>,
     auth_state: Mutex<DesktopAuthState>,
     auth_generation: AtomicU64,
+    biome_drain: Mutex<BiomeDrainSnapshot>,
 }
 
 impl Default for DesktopShellState {
@@ -116,6 +117,7 @@ impl Default for DesktopShellState {
             pending_auth_deep_link: Mutex::new(None),
             auth_state: Mutex::new(DesktopAuthState::default()),
             auth_generation: AtomicU64::new(0),
+            biome_drain: Mutex::new(BiomeDrainSnapshot::default()),
         }
     }
 }
@@ -207,6 +209,56 @@ struct BiomeIngestResponse {
     duplicate_event_uids: Vec<String>,
     #[serde(default)]
     rejected_event_uids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeDrainSnapshot {
+    pub last_checked_at_ms: Option<i64>,
+    pub last_status: Option<String>,
+    pub last_processed_count: Option<usize>,
+    pub last_error: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeDeviceDiagnostics {
+    pub device_id: String,
+    pub path: String,
+    pub path_exists: bool,
+    pub source_file_count: usize,
+    pub newest_source_file_mtime_ms: Option<i64>,
+    pub oldest_source_file_mtime_ms: Option<i64>,
+    pub source_file_bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeOutboxDiagnostics {
+    pub path: Option<String>,
+    pub exists: bool,
+    pub event_count: usize,
+    pub malformed_line_count: usize,
+    pub bytes: u64,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeIphoneDiagnostics {
+    pub sync_db_path: Option<String>,
+    pub sync_db_exists: bool,
+    pub sync_db_error: Option<String>,
+    pub ios_device_peer_count: usize,
+    pub app_in_focus_remote_path: Option<String>,
+    pub app_in_focus_remote_exists: bool,
+    pub device_folder_count: usize,
+    pub source_file_count: usize,
+    pub devices: Vec<BiomeDeviceDiagnostics>,
+    pub outbox: BiomeOutboxDiagnostics,
+    pub committed_cursors_path: Option<String>,
+    pub committed_cursors: HashMap<String, i64>,
+    pub last_drain: BiomeDrainSnapshot,
+    pub notes: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -744,6 +796,26 @@ fn biome_outbox_path() -> Option<PathBuf> {
     })
 }
 
+fn biome_sync_db_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join("Library")
+            .join("Biome")
+            .join("sync")
+            .join("sync.db")
+    })
+}
+
+fn biome_app_in_focus_remote_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join("Library")
+            .join("Biome")
+            .join("streams")
+            .join("restricted")
+            .join("App.InFocus")
+            .join("remote")
+    })
+}
+
 fn biome_committed_cursors_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| {
         home.join("Library")
@@ -751,6 +823,242 @@ fn biome_committed_cursors_path() -> Option<PathBuf> {
             .join("Ritual")
             .join("biome_committed_cursors.json")
     })
+}
+
+fn path_string(path: &Path) -> String {
+    path.display().to_string()
+}
+
+fn system_time_to_ms(value: SystemTime) -> Option<i64> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+}
+
+fn is_biome_source_file(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|name| !name.starts_with('.') && name != "lock")
+            .unwrap_or(false)
+}
+
+fn read_biome_ios_device_peers(sync_db_path: &Path) -> Result<Vec<String>, String> {
+    if !sync_db_path.exists() {
+        return Ok(Vec::new());
+    }
+    let conn = rusqlite::Connection::open_with_flags(
+        sync_db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(|error| format!("open Biome sync.db: {error}"))?;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT device_identifier FROM DevicePeer WHERE platform = 2")
+        .map_err(|error| format!("prepare Biome DevicePeer query: {error}"))?;
+    let rows = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|error| format!("query Biome DevicePeer rows: {error}"))?;
+    let mut devices = Vec::new();
+    for row in rows {
+        match row {
+            Ok(value) if !value.trim().is_empty() => devices.push(value),
+            Ok(_) => {}
+            Err(error) => return Err(format!("read Biome DevicePeer row: {error}")),
+        }
+    }
+    devices.sort();
+    devices.dedup();
+    Ok(devices)
+}
+
+fn read_biome_device_folders(remote_path: &Path) -> Vec<String> {
+    let Ok(entries) = fs::read_dir(remote_path) else {
+        return Vec::new();
+    };
+    let mut devices: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if !path.is_dir() {
+                return None;
+            }
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .map(str::to_string)
+        })
+        .collect();
+    devices.sort();
+    devices.dedup();
+    devices
+}
+
+fn build_biome_device_diagnostics(remote_path: &Path, device_id: &str) -> BiomeDeviceDiagnostics {
+    let device_path = remote_path.join(device_id);
+    let mut file_count = 0usize;
+    let mut bytes = 0u64;
+    let mut newest_mtime: Option<i64> = None;
+    let mut oldest_mtime: Option<i64> = None;
+
+    if let Ok(entries) = fs::read_dir(&device_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_biome_source_file(&path) {
+                continue;
+            }
+            file_count += 1;
+            if let Ok(metadata) = entry.metadata() {
+                bytes = bytes.saturating_add(metadata.len());
+                if let Ok(modified) = metadata.modified() {
+                    if let Some(ms) = system_time_to_ms(modified) {
+                        newest_mtime = Some(newest_mtime.map(|value| value.max(ms)).unwrap_or(ms));
+                        oldest_mtime = Some(oldest_mtime.map(|value| value.min(ms)).unwrap_or(ms));
+                    }
+                }
+            }
+        }
+    }
+
+    BiomeDeviceDiagnostics {
+        device_id: device_id.to_string(),
+        path: path_string(&device_path),
+        path_exists: device_path.exists(),
+        source_file_count: file_count,
+        newest_source_file_mtime_ms: newest_mtime,
+        oldest_source_file_mtime_ms: oldest_mtime,
+        source_file_bytes: bytes,
+    }
+}
+
+fn build_biome_outbox_diagnostics() -> BiomeOutboxDiagnostics {
+    let Some(path) = biome_outbox_path() else {
+        return BiomeOutboxDiagnostics::default();
+    };
+    let exists = path.exists();
+    let bytes = path.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+    let read = if exists {
+        read_biome_outbox(&path).ok()
+    } else {
+        None
+    };
+
+    BiomeOutboxDiagnostics {
+        path: Some(path_string(&path)),
+        exists,
+        event_count: read.as_ref().map(|value| value.events.len()).unwrap_or(0),
+        malformed_line_count: read
+            .as_ref()
+            .map(|value| value.malformed_lines.len())
+            .unwrap_or(0),
+        bytes,
+    }
+}
+
+fn read_biome_drain_snapshot<R: Runtime>(app: &AppHandle<R>) -> BiomeDrainSnapshot {
+    app.state::<DesktopShellState>()
+        .biome_drain
+        .lock()
+        .expect("desktop biome drain state mutex poisoned")
+        .clone()
+}
+
+fn write_biome_drain_snapshot<R: Runtime>(
+    app: &AppHandle<R>,
+    status: &str,
+    processed_count: Option<usize>,
+    error: Option<String>,
+) {
+    let state = app.state::<DesktopShellState>();
+    let mut guard = state
+        .biome_drain
+        .lock()
+        .expect("desktop biome drain state mutex poisoned");
+    *guard = BiomeDrainSnapshot {
+        last_checked_at_ms: Some(Utc::now().timestamp_millis()),
+        last_status: Some(status.to_string()),
+        last_processed_count: processed_count,
+        last_error: error,
+    };
+}
+
+fn build_biome_iphone_diagnostics<R: Runtime>(app: &AppHandle<R>) -> BiomeIphoneDiagnostics {
+    let sync_db_path = biome_sync_db_path();
+    let sync_db_exists = sync_db_path
+        .as_ref()
+        .map(|path| path.exists())
+        .unwrap_or(false);
+    let (ios_devices, sync_db_error) = sync_db_path
+        .as_deref()
+        .map(read_biome_ios_device_peers)
+        .map(|result| match result {
+            Ok(devices) => (devices, None),
+            Err(error) => (Vec::new(), Some(error)),
+        })
+        .unwrap_or_default();
+
+    let remote_path = biome_app_in_focus_remote_path();
+    let app_in_focus_remote_exists = remote_path
+        .as_ref()
+        .map(|path| path.exists())
+        .unwrap_or(false);
+    let folder_devices = remote_path
+        .as_deref()
+        .map(read_biome_device_folders)
+        .unwrap_or_default();
+
+    let mut all_devices = ios_devices.clone();
+    all_devices.extend(folder_devices.iter().cloned());
+    all_devices.sort();
+    all_devices.dedup();
+
+    let devices: Vec<BiomeDeviceDiagnostics> = remote_path
+        .as_deref()
+        .map(|base| {
+            all_devices
+                .iter()
+                .map(|device_id| build_biome_device_diagnostics(base, device_id))
+                .collect()
+        })
+        .unwrap_or_default();
+    let source_file_count = devices.iter().map(|device| device.source_file_count).sum();
+
+    let mut notes = Vec::new();
+    if !sync_db_exists {
+        notes.push("Biome sync.db is missing; macOS has not exposed synced Screen Time device metadata to this user account.".to_string());
+    } else if ios_devices.is_empty() {
+        notes.push("Biome sync.db exists, but no iOS DevicePeer rows were found. Check Screen Time Share Across Devices and iCloud sync.".to_string());
+    }
+    if !app_in_focus_remote_exists {
+        notes.push("Biome App.InFocus remote directory is missing; no Mac-side iPhone foreground data is available to import.".to_string());
+    } else if source_file_count == 0 {
+        notes.push(
+            "Biome App.InFocus remote directory exists, but contains no readable source files yet."
+                .to_string(),
+        );
+    }
+    if build_biome_outbox_diagnostics().malformed_line_count > 0 {
+        notes.push("Biome outbox contains malformed rows; valid rows can still drain, malformed rows should be quarantined on drain/load.".to_string());
+    }
+
+    BiomeIphoneDiagnostics {
+        sync_db_path: sync_db_path.as_ref().map(|path| path_string(path)),
+        sync_db_exists,
+        sync_db_error,
+        ios_device_peer_count: ios_devices.len(),
+        app_in_focus_remote_path: remote_path.as_ref().map(|path| path_string(path)),
+        app_in_focus_remote_exists,
+        device_folder_count: folder_devices.len(),
+        source_file_count,
+        devices,
+        outbox: build_biome_outbox_diagnostics(),
+        committed_cursors_path: biome_committed_cursors_path()
+            .as_ref()
+            .map(|path| path_string(path)),
+        committed_cursors: read_biome_committed_cursors(),
+        last_drain: read_biome_drain_snapshot(app),
+        notes,
+    }
 }
 
 fn biome_event_key(event: &DesktopBiomeActivityEvent) -> String {
@@ -965,20 +1273,38 @@ fn drain_biome_outbox_blocking(auth_token: String, backend_base: String) -> Resu
 
 async fn drain_biome_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
     let auth_state = read_auth_state(&app);
-    let auth_token = auth_state
-        .token
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| "Auth token is unavailable for Biome outbox drain".to_string())?;
-    let backend_base = auth_state
+    let auth_token = match auth_state.token.filter(|token| !token.trim().is_empty()) {
+        Some(token) => token,
+        None => {
+            let error = "Auth token is unavailable for Biome outbox drain".to_string();
+            write_biome_drain_snapshot(&app, "skipped", Some(0), Some(error.clone()));
+            return Err(error);
+        }
+    };
+    let backend_base = match auth_state
         .backend_base
         .filter(|base| !base.trim().is_empty())
-        .ok_or_else(|| "Backend base URL is unavailable for Biome outbox drain".to_string())?;
+    {
+        Some(base) => base,
+        None => {
+            let error = "Backend base URL is unavailable for Biome outbox drain".to_string();
+            write_biome_drain_snapshot(&app, "skipped", Some(0), Some(error.clone()));
+            return Err(error);
+        }
+    };
 
-    tauri::async_runtime::spawn_blocking(move || {
+    let result = tauri::async_runtime::spawn_blocking(move || {
         drain_biome_outbox_blocking(auth_token, backend_base)
     })
     .await
-    .map_err(|error| format!("Biome outbox drain task failed: {error}"))?
+    .map_err(|error| format!("Biome outbox drain task failed: {error}"))
+    .and_then(|result| result);
+
+    match &result {
+        Ok(count) => write_biome_drain_snapshot(&app, "success", Some(*count), None),
+        Err(error) => write_biome_drain_snapshot(&app, "error", None, Some(error.clone())),
+    }
+    result
 }
 
 pub fn trigger_biome_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
@@ -1659,6 +1985,14 @@ pub async fn get_desktop_runtime_state<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<DesktopRuntimeState, String> {
     build_runtime_state(&app).await
+}
+
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn get_biome_iphone_diagnostics<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<BiomeIphoneDiagnostics, String> {
+    Ok(build_biome_iphone_diagnostics(&app))
 }
 
 #[tauri::command]

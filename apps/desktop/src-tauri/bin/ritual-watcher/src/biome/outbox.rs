@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_OUTBOX_EVENTS: usize = 100_000;
 
@@ -85,6 +86,11 @@ pub struct BiomeOutbox {
     inner: Mutex<Vec<BiomeActivityEvent>>,
 }
 
+struct JsonlRead {
+    events: Vec<BiomeActivityEvent>,
+    malformed_lines: Vec<String>,
+}
+
 impl BiomeOutbox {
     pub fn load() -> io::Result<Self> {
         Self::load_from(outbox_path())
@@ -95,7 +101,16 @@ impl BiomeOutbox {
             fs::create_dir_all(parent)?;
         }
         let events = if path.exists() {
-            read_jsonl(&path).unwrap_or_default()
+            let read = read_jsonl(&path)?;
+            let raw_event_count = read.events.len();
+            let events = dedupe_events(read.events);
+            if !read.malformed_lines.is_empty() {
+                quarantine_malformed(&path, &read.malformed_lines)?;
+            }
+            if !read.malformed_lines.is_empty() || events.len() != raw_event_count {
+                write_jsonl(&path, &events)?;
+            }
+            events
         } else {
             Vec::new()
         };
@@ -147,19 +162,30 @@ pub fn outbox_path() -> PathBuf {
         .join("biome_iphone_events.jsonl")
 }
 
-fn read_jsonl(path: &PathBuf) -> io::Result<Vec<BiomeActivityEvent>> {
+fn read_jsonl(path: &PathBuf) -> io::Result<JsonlRead> {
     let raw = fs::read_to_string(path)?;
     let mut events = Vec::new();
-    for line in raw.lines() {
+    let mut malformed_lines = Vec::new();
+    for (index, line) in raw.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        let event = serde_json::from_str::<BiomeActivityEvent>(trimmed)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        events.push(event);
+        match serde_json::from_str::<BiomeActivityEvent>(trimmed) {
+            Ok(event) => events.push(event),
+            Err(error) => malformed_lines.push(format!(
+                "{{\"line\":{},\"error\":{},\"raw\":{}}}",
+                index + 1,
+                serde_json::to_string(&error.to_string())
+                    .unwrap_or_else(|_| "\"parse error\"".to_string()),
+                serde_json::to_string(trimmed).unwrap_or_else(|_| "\"\"".to_string())
+            )),
+        }
     }
-    Ok(events)
+    Ok(JsonlRead {
+        events,
+        malformed_lines,
+    })
 }
 
 fn write_jsonl(path: &PathBuf, events: &[BiomeActivityEvent]) -> io::Result<()> {
@@ -174,6 +200,37 @@ fn write_jsonl(path: &PathBuf, events: &[BiomeActivityEvent]) -> io::Result<()> 
     fs::write(&tmp, body)?;
     fs::rename(&tmp, path)?;
     Ok(())
+}
+
+fn dedupe_events(events: Vec<BiomeActivityEvent>) -> Vec<BiomeActivityEvent> {
+    let mut output: Vec<BiomeActivityEvent> = Vec::new();
+    for event in events {
+        let key = event.key();
+        if let Some(existing) = output.iter_mut().find(|candidate| candidate.key() == key) {
+            existing.merge_from(event);
+        } else {
+            output.push(event);
+        }
+    }
+    output
+}
+
+fn quarantine_malformed(path: &PathBuf, malformed_lines: &[String]) -> io::Result<()> {
+    if malformed_lines.is_empty() {
+        return Ok(());
+    }
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or(0);
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("biome_iphone_events.jsonl");
+    let quarantine = path.with_file_name(format!("{file_name}.malformed.{stamp}.jsonl"));
+    let mut body = malformed_lines.join("\n");
+    body.push('\n');
+    fs::write(quarantine, body)
 }
 
 #[cfg(test)]
@@ -246,5 +303,31 @@ mod tests {
         assert_eq!(snapshot.len(), 1);
         assert_eq!(snapshot[0].ts_end, 400);
         assert!(!snapshot[0].biome_is_provisional);
+    }
+
+    #[test]
+    fn load_from_quarantines_malformed_rows_without_dropping_valid_events() {
+        let path = isolated_path();
+        let first = serde_json::to_string(&event("first")).unwrap();
+        let second = serde_json::to_string(&event("second")).unwrap();
+        fs::write(&path, format!("{first}\n{{bad-json\n{second}\n")).unwrap();
+
+        let outbox = BiomeOutbox::load_from(path.clone()).unwrap();
+
+        assert_eq!(outbox.snapshot().len(), 1);
+        let rewritten = fs::read_to_string(&path).unwrap();
+        assert!(rewritten.contains("Messages"));
+        assert!(!rewritten.contains("bad-json"));
+        let quarantine_count = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".malformed.")
+            })
+            .count();
+        assert_eq!(quarantine_count, 1);
     }
 }

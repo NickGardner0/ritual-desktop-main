@@ -9,8 +9,8 @@ mod outbox;
 mod protobuf;
 mod segb;
 
-use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -376,20 +376,39 @@ fn device_stream_files(base: &Path, device_id: &str) -> Result<Vec<PathBuf>, Str
     Ok(files)
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct BiomeBookmarks {
-    devices: std::collections::HashMap<String, i64>,
+    devices: HashMap<String, i64>,
 }
 
 impl BiomeBookmarks {
     fn load() -> Result<Self, String> {
-        let path = bookmarks_path();
+        Self::load_from(&bookmarks_path())
+    }
+
+    fn load_from(path: &Path) -> Result<Self, String> {
         if !path.exists() {
             return Ok(Self::default());
         }
         let raw =
             fs::read_to_string(&path).map_err(|error| format!("read Biome bookmarks: {error}"))?;
-        serde_json::from_str(&raw).map_err(|error| format!("parse Biome bookmarks: {error}"))
+        Self::from_json(&raw)
+    }
+
+    fn from_json(raw: &str) -> Result<Self, String> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum CursorFile {
+            Plain(HashMap<String, i64>),
+            Wrapped { devices: HashMap<String, i64> },
+        }
+
+        match serde_json::from_str::<CursorFile>(raw)
+            .map_err(|error| format!("parse Biome bookmarks: {error}"))?
+        {
+            CursorFile::Plain(devices) => Ok(Self { devices }),
+            CursorFile::Wrapped { devices } => Ok(Self { devices }),
+        }
     }
 
     fn last_end_ms(&self, device_id: &str) -> i64 {
@@ -548,5 +567,22 @@ mod tests {
     #[test]
     fn converts_cf_absolute_time() {
         assert_eq!(cf_absolute_to_unix_ms(0.0), 978_307_200_000);
+    }
+
+    #[test]
+    fn bookmarks_read_plain_committed_cursor_shape() {
+        let parsed = BiomeBookmarks::from_json(r#"{"iphone-a":1234,"iphone-b":5678}"#)
+            .expect("parse plain cursors");
+
+        assert_eq!(parsed.last_end_ms("iphone-a"), 1234);
+        assert_eq!(parsed.last_end_ms("iphone-b"), 5678);
+    }
+
+    #[test]
+    fn bookmarks_read_legacy_wrapped_cursor_shape() {
+        let parsed = BiomeBookmarks::from_json(r#"{"devices":{"iphone-a":1234}}"#)
+            .expect("parse wrapped cursors");
+
+        assert_eq!(parsed.last_end_ms("iphone-a"), 1234);
     }
 }
