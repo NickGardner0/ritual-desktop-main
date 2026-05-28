@@ -76,6 +76,7 @@ const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 65000
 const DESKTOP_DAILY_TIMEOUT_MS = 65000
 const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
 const DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS = 7
+const DESKTOP_LOCAL_FALLBACK_MAX_DAYS = 45
 const DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS = 7
 const DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS = 5 * 60 * 1000
 const summaryCache = new Map<string, ComputerSummaryResponse>()
@@ -296,7 +297,7 @@ function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams
 function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
   if (!isTauri()) return true
   return rangeIncludesLocalToday(params)
-    && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+    && getInclusiveRangeDays(params) <= DESKTOP_LOCAL_FALLBACK_MAX_DAYS
 }
 
 function shouldAllowDesktopAggregateLocalFallback(_params: ComputerActivityRangeParams) {
@@ -325,10 +326,40 @@ async function getDesktopLocalAggregatedStats(
   limit: number,
 ): Promise<AggregatedComputerStatsResponse> {
   const { startTs, endTs } = getRangeTimestamps(params)
-  const [dailyRows, detailed] = await Promise.all([
+  const [dailyResult, detailedResult] = await Promise.allSettled([
     getDesktopLocalDailyRows(params),
     invokeDetailedActivityWithInitRetry({ startTs, endTs, limit }),
   ])
+
+  if (dailyResult.status === 'rejected' && detailedResult.status === 'rejected') {
+    throw new Error(
+      `desktop local aggregate unavailable: daily=${String(dailyResult.reason)} detailed=${String(detailedResult.reason)}`,
+    )
+  }
+
+  const dailyRows = dailyResult.status === 'fulfilled' ? dailyResult.value : []
+  const detailed = detailedResult.status === 'fulfilled'
+    ? detailedResult.value
+    : {
+        events: [],
+        apps: [],
+        domains: [],
+        total_active_ms: 0,
+        total_afk_ms: 0,
+      }
+
+  if (dailyResult.status === 'rejected') {
+    perfWarn('computer-activity-client', 'aggregate-local-daily-failed', {
+      params,
+      error: dailyResult.reason instanceof Error ? dailyResult.reason.message : String(dailyResult.reason),
+    })
+  }
+  if (detailedResult.status === 'rejected') {
+    perfWarn('computer-activity-client', 'aggregate-local-detailed-failed', {
+      params,
+      error: detailedResult.reason instanceof Error ? detailedResult.reason.message : String(detailedResult.reason),
+    })
+  }
 
   const totalActiveMs = Math.max(
     0,

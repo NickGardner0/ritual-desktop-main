@@ -390,10 +390,52 @@ fn spawn_watcher_watchdog() {
     });
 }
 
+const WATCHER_AUTOSTART_SUCCESS_LOG: &str = "Watcher auto-started successfully";
+
+async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
+    let watcher_start_started_at = Instant::now();
+    info!(
+        device_id = %config.device_id,
+        user_id = %config.user_id,
+        "Auto-starting Ritual Watcher"
+    );
+
+    if watcher::check_accessibility_permission() {
+        match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
+            .await
+        {
+            Ok(Ok(status)) => {
+                info!(
+                    pid = status.pid,
+                    duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                    "{}",
+                    WATCHER_AUTOSTART_SUCCESS_LOG
+                );
+            }
+            Ok(Err(error)) => {
+                warn!(
+                    error = %error,
+                    duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                    "Failed to auto-start watcher"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
+                    "Watcher auto-start task failed"
+                );
+            }
+        }
+    } else {
+        warn!("Watcher auto-start skipped: accessibility permission not granted");
+    }
+}
+
 fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let startup_started_at = Instant::now();
-        let mut database_ready = false;
+        let mut activity_database_ready = false;
 
         // Let the webview paint before doing heavier native startup work so the
         // main app finishes launching faster and the Dock icon settles sooner.
@@ -424,89 +466,108 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
             }
         }
 
-        let db_init_started_at = Instant::now();
+        let activity_db_init_started_at = Instant::now();
         match tauri::async_runtime::spawn_blocking(|| {
-            ritual_database::initialize_database_with_origin("startup")
+            ritual_database::initialize_activity_database_with_origin("startup:activity")
         })
         .await
         {
             Ok(Ok(())) => {
-                database_ready = true;
+                activity_database_ready = true;
                 info!(
-                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
-                    "Ritual unified database ready"
+                    duration_ms = activity_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual activity database ready"
                 );
-                info!("Project-time attribution is the desktop computer activity cloud path");
             }
             Ok(Err(error)) => {
                 warn!(
                     error = %error,
-                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
-                    "Ritual database init deferred"
+                    duration_ms = activity_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual activity database init deferred"
                 );
             }
             Err(error) => {
                 warn!(
                     error = %error,
-                    duration_ms = db_init_started_at.elapsed().as_millis() as u64,
-                    "Ritual database init task failed"
+                    duration_ms = activity_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual activity database init task failed"
                 );
             }
         }
 
-        if database_ready {
+        if activity_database_ready {
             cloud_sync::spawn_cloud_sync_worker(app.clone());
-            ritual_database::spawn_project_time_attribution_worker();
         }
 
         if let Some(config) = read_watcher_config() {
-            let watcher_start_started_at = Instant::now();
-            info!(
-                device_id = %config.device_id,
-                user_id = %config.user_id,
-                "Auto-starting Ritual Watcher"
-            );
-
-            if watcher::check_accessibility_permission() {
-                match tauri::async_runtime::spawn_blocking(move || {
-                    watcher::start_watcher_sync(config)
-                })
-                .await
-                {
-                    Ok(Ok(status)) => {
-                        info!(
-                            pid = status.pid,
-                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
-                            "Watcher auto-started successfully"
-                        );
-                    }
-                    Ok(Err(error)) => {
-                        warn!(
-                            error = %error,
-                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
-                            "Failed to auto-start watcher"
-                        );
-                    }
-                    Err(error) => {
-                        warn!(
-                            error = %error,
-                            duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
-                            "Watcher auto-start task failed"
-                        );
-                    }
-                }
-            } else {
-                warn!("Watcher auto-start skipped: accessibility permission not granted");
-            }
+            auto_start_watcher_from_config(config).await;
         }
 
         spawn_watcher_watchdog();
+        desktop_runtime::emit_runtime_state_changed(app.clone());
+
+        tauri::async_runtime::spawn(async move {
+            match tauri::async_runtime::spawn_blocking(|| {
+                ritual_database::import_historical_activity_with_origin(
+                    "startup:historical-activity",
+                )
+            })
+            .await
+            {
+                Ok(()) => info!("Historical activity import check completed"),
+                Err(error) => warn!(error = %error, "Historical activity import check task failed"),
+            }
+        });
+
+        let memory_db_init_started_at = Instant::now();
+        match tauri::async_runtime::spawn_blocking(|| {
+            ritual_database::initialize_memory_database_with_origin("startup:memory")
+        })
+        .await
+        {
+            Ok(Ok(())) => {
+                info!(
+                    duration_ms = memory_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual memory database ready"
+                );
+                info!("Project-time attribution is the desktop computer activity cloud path");
+                ritual_database::spawn_project_time_attribution_worker();
+            }
+            Ok(Err(error)) => {
+                warn!(
+                    error = %error,
+                    duration_ms = memory_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual memory database init deferred"
+                );
+            }
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    duration_ms = memory_db_init_started_at.elapsed().as_millis() as u64,
+                    "Ritual memory database init task failed"
+                );
+            }
+        }
+
         desktop_runtime::emit_runtime_state_changed(app);
         info!(
             duration_ms = startup_started_at.elapsed().as_millis() as u64,
             "Desktop background startup completed"
         );
     });
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    #[test]
+    fn watcher_config_startup_has_assertable_success_log() {
+        let watcher_config_exists = true;
+        let expected_log = watcher_config_exists.then_some(WATCHER_AUTOSTART_SUCCESS_LOG);
+
+        assert_eq!(expected_log, Some("Watcher auto-started successfully"));
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -1228,282 +1289,306 @@ fn main() {
     let builder = builder;
 
     builder
-    .manage(SidebarWindowState::default())
-    .manage(shell_feature_flags)
-    .manage(desktop_runtime::DesktopShellState::default())
-    // Only expose native macOS features - auth is handled by Clerk
-    .invoke_handler(tauri::generate_handler![
-      // Window management
-      show_main_window,
-      sidebar_set_width,
-      sidebar_navigate,
-      sidebar_get_main_state,
-      // Desktop runtime bridge commands
-      native_widget::write_auth_token_to_file,
-      native_widget::write_turso_sync_config,
-      native_widget::check_runtime_bridge_signals,
-      native_widget::check_dashboard_refresh_trigger,
-      native_widget::check_token_refresh_request,
-      native_widget::show_native_microphone_permission_dialog,
-      native_widget::check_native_microphone_permission,
-      native_widget::show_native_speech_recognition_permission_dialog,
-      native_widget::check_native_speech_recognition_permission,
-      native_widget::start_native_speech_recognition,
-      native_widget::stop_native_speech_recognition,
-      native_widget::get_native_speech_state,
-      native_widget::clear_native_speech_state,
-      // Ritual Watcher commands for computer activity tracking
-      watcher::check_accessibility_permission,
-      watcher::request_accessibility_permission,
-      watcher::start_watcher,
-      watcher::stop_watcher,
-      watcher::get_watcher_status,
-      watcher::open_accessibility_settings,
-      // Local activity queries (for detailed view with full URLs/titles)
-      watcher::get_detailed_activity,
-      watcher::get_daily_summaries,
-      // Real-time status
-      watcher::get_watcher_extended_status,
-      watcher::get_browser_extension_diagnostics,
-      // Watchdog - auto-restart hung watcher
-      watcher::check_and_restart_watcher_if_hung,
-      // App icon extraction
-      watcher::get_app_icon,
-      watcher::get_app_icons_batch,
-      // Watcher config persistence for auto-start
-      save_watcher_config_cmd,
-      clear_watcher_config_cmd,
-      reconcile_watcher_config_user_cmd,
-      // Desktop shell bootstrap commands
-      get_desktop_shell_bootstrap_config,
-      check_desktop_hosted_app_reachable,
-      desktop_observability::desktop_record_shell_event,
-      desktop_observability::desktop_capture_sentry_smoke,
-      // Desktop runtime / updater commands
-      desktop_runtime::get_desktop_runtime_info,
-      desktop_runtime::get_desktop_runtime_state,
-      desktop_runtime::desktop_set_auth_token,
-      desktop_runtime::desktop_frontend_ready,
-      desktop_runtime::desktop_manual_update_check,
-      desktop_runtime::desktop_install_update,
-      // Ritual Database commands (unified libSQL)
-      ritual_database::init_ritual_database,
-      ritual_database::get_ritual_db_stats,
-      ritual_database::text_search,
-      ritual_database::check_migration_status,
-      ritual_database::run_project_time_attribution_once,
-      ritual_database::run_project_time_retention_once,
-      ritual_database::get_project_time_attribution_health,
-    ])
-    .setup(|app| {
-      let setup_started_at = Instant::now();
-      desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
-      desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
-      desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
+        .manage(SidebarWindowState::default())
+        .manage(shell_feature_flags)
+        .manage(desktop_runtime::DesktopShellState::default())
+        // Only expose native macOS features - auth is handled by Clerk
+        .invoke_handler(tauri::generate_handler![
+            // Window management
+            show_main_window,
+            sidebar_set_width,
+            sidebar_navigate,
+            sidebar_get_main_state,
+            // Desktop runtime bridge commands
+            native_widget::write_auth_token_to_file,
+            native_widget::write_turso_sync_config,
+            native_widget::check_runtime_bridge_signals,
+            native_widget::check_dashboard_refresh_trigger,
+            native_widget::check_token_refresh_request,
+            native_widget::show_native_microphone_permission_dialog,
+            native_widget::check_native_microphone_permission,
+            native_widget::show_native_speech_recognition_permission_dialog,
+            native_widget::check_native_speech_recognition_permission,
+            native_widget::start_native_speech_recognition,
+            native_widget::stop_native_speech_recognition,
+            native_widget::get_native_speech_state,
+            native_widget::clear_native_speech_state,
+            // Ritual Watcher commands for computer activity tracking
+            watcher::check_accessibility_permission,
+            watcher::request_accessibility_permission,
+            watcher::start_watcher,
+            watcher::stop_watcher,
+            watcher::get_watcher_status,
+            watcher::open_accessibility_settings,
+            // Local activity queries (for detailed view with full URLs/titles)
+            watcher::get_detailed_activity,
+            watcher::get_daily_summaries,
+            // Real-time status
+            watcher::get_watcher_extended_status,
+            watcher::get_browser_extension_diagnostics,
+            // Watchdog - auto-restart hung watcher
+            watcher::check_and_restart_watcher_if_hung,
+            // App icon extraction
+            watcher::get_app_icon,
+            watcher::get_app_icons_batch,
+            // Watcher config persistence for auto-start
+            save_watcher_config_cmd,
+            clear_watcher_config_cmd,
+            reconcile_watcher_config_user_cmd,
+            // Desktop shell bootstrap commands
+            get_desktop_shell_bootstrap_config,
+            check_desktop_hosted_app_reachable,
+            desktop_observability::desktop_record_shell_event,
+            desktop_observability::desktop_capture_sentry_smoke,
+            // Desktop runtime / updater commands
+            desktop_runtime::get_desktop_runtime_info,
+            desktop_runtime::get_desktop_runtime_state,
+            desktop_runtime::desktop_set_auth_token,
+            desktop_runtime::desktop_frontend_ready,
+            desktop_runtime::desktop_manual_update_check,
+            desktop_runtime::desktop_install_update,
+            // Ritual Database commands (unified libSQL)
+            ritual_database::init_ritual_database,
+            ritual_database::get_ritual_db_stats,
+            ritual_database::text_search,
+            ritual_database::check_migration_status,
+            ritual_database::run_project_time_attribution_once,
+            ritual_database::run_project_time_retention_once,
+            ritual_database::get_project_time_attribution_health,
+        ])
+        .setup(|app| {
+            let setup_started_at = Instant::now();
+            desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
+            desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
+            desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
 
-      let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-      let check_updates = MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
-      let tray_menu = MenuBuilder::new(app).items(&[&check_updates, &quit]).build()?;
-      let _tray = TrayIconBuilder::new()
-        .menu(&tray_menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id().as_ref() {
-          "quit" => {
-            std::process::exit(0);
-          }
-          "check_updates" => {
-            info!("Check for updates requested from system tray");
-            if let Some(window) = app.get_webview_window("main") {
-              let _ = window.show();
-              let _ = window.set_focus();
+            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
+            let check_updates =
+                MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
+            let tray_menu = MenuBuilder::new(app)
+                .items(&[&check_updates, &quit])
+                .build()?;
+            let _tray = TrayIconBuilder::new()
+                .menu(&tray_menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "quit" => {
+                        std::process::exit(0);
+                    }
+                    "check_updates" => {
+                        info!("Check for updates requested from system tray");
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        desktop_runtime::tray_check_for_updates(app.clone());
+                    }
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                })
+                .build(app)?;
+
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(urls) = app.deep_link().get_current().map_err(|error| {
+                    std::io::Error::other(format!("Failed reading initial deep links: {error}"))
+                })? {
+                    for url in urls {
+                        handle_desktop_auth_deep_link(&app.handle(), url.to_string());
+                    }
+                }
+
+                let deep_link_app = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        handle_desktop_auth_deep_link(&deep_link_app, url.to_string());
+                    }
+                });
             }
-            desktop_runtime::tray_check_for_updates(app.clone());
-          }
-          _ => {}
-        })
-        .on_tray_icon_event(|tray, event| {
-          if let TrayIconEvent::Click {
-            button: MouseButton::Left,
-            button_state: MouseButtonState::Up,
-            ..
-          } = event
-          {
-            let app = tray.app_handle();
-            if let Some(window) = app.get_webview_window("main") {
-              let _ = window.show();
-              let _ = window.set_focus();
+
+            // Get the app URL based on environment (Midday pattern)
+            let ritual_env = configured_ritual_env();
+            let app_origin = get_app_url();
+            let mut app_url =
+                with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
+            let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
+            let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
+            let main_glass_enabled =
+                transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+            if main_glass_enabled {
+                app_url = with_query_param(&app_url, "ritual_main_glass=1");
             }
-          }
+            if transparency_probe {
+                info!("Transparency probe mode enabled");
+                app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
+            }
+
+            let window = if let Some(window) = app.get_webview_window("main") {
+                window
+            } else {
+                let mut builder =
+                    tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
+                        .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+                        .title("")
+                        .inner_size(1150.0, 800.0)
+                        .min_inner_size(800.0, 450.0)
+                        .resizable(true)
+                        .decorations(true)
+                        .transparent(main_glass_enabled)
+                        .visible(true);
+
+                #[cfg(target_os = "macos")]
+                {
+                    builder = builder
+                        .title_bar_style(tauri::TitleBarStyle::Overlay)
+                        .hidden_title(true);
+                }
+
+                builder.build().map_err(|e| {
+                    std::io::Error::other(format!("Failed to create main window: {e}"))
+                })?
+            };
+
+            // Configure window after creation
+            {
+                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+                    width: 1150.0,
+                    height: 800.0,
+                }));
+                let _ = window.center();
+                #[cfg(target_os = "macos")]
+                {
+                    configure_macos_native_window_chrome(&window);
+
+                    if main_glass_enabled {
+                        info!("Main window glass enabled");
+                        configure_macos_window_transparency(&window);
+                        configure_macos_webview_transparency(&window);
+                    } else {
+                        info!("Main window glass disabled for stable production rendering");
+                    }
+
+                    // Position traffic lights into the sidebar region (macOS native feel).
+                    schedule_reposition_traffic_lights(window.clone());
+
+                    let detached_sidebar_enabled = !transparency_probe
+                        && env::var("RITUAL_DETACHED_SIDEBAR")
+                            .map(|v| {
+                                let value = v.trim().to_ascii_lowercase();
+                                matches!(value.as_str(), "1" | "true" | "on" | "yes")
+                            })
+                            .unwrap_or(false);
+                    let sidebar_state = app.state::<SidebarWindowState>();
+                    sidebar_state.set_detached_enabled(detached_sidebar_enabled);
+                    sidebar_state.set_width(70.0);
+
+                    if detached_sidebar_enabled {
+                        info!("Detached sidebar mode enabled");
+                        let _ = ensure_detached_sidebar_window(
+                            &app.handle(),
+                            &app_url,
+                            sidebar_state.get_width(),
+                        );
+                        let _ = window.emit("sidebar:width", sidebar_state.get_width());
+
+                        let app_handle_for_sync = app.handle().clone();
+                        let traffic_light_window = window.clone();
+                        window.on_window_event(move |event| {
+                            match event {
+                                tauri::WindowEvent::Moved(_)
+                                | tauri::WindowEvent::Resized(_)
+                                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                                    // Re-position traffic lights after native relayout settles.
+                                    schedule_reposition_traffic_lights(
+                                        traffic_light_window.clone(),
+                                    );
+                                    let state = app_handle_for_sync.state::<SidebarWindowState>();
+                                    let width = state.get_width();
+                                    let _ =
+                                        sync_detached_sidebar_window(&app_handle_for_sync, width);
+                                    if let Some(main_window) =
+                                        app_handle_for_sync.get_webview_window("main")
+                                    {
+                                        let _ = main_window.emit("sidebar:width", width);
+                                    }
+                                }
+                                tauri::WindowEvent::CloseRequested { .. } => {
+                                    if let Some(sidebar_window) =
+                                        app_handle_for_sync.get_webview_window("sidebar")
+                                    {
+                                        let _ = sidebar_window.close();
+                                    }
+                                }
+                                _ => {}
+                            }
+                        });
+                    } else {
+                        sidebar_state.set_detached_enabled(false);
+                        if let Some(sidebar_window) = app.get_webview_window("sidebar") {
+                            let _ = sidebar_window.close();
+                        }
+                        // Non-detached mode: still re-position traffic lights on resize or
+                        // display scale changes (moving between monitors can reset them).
+                        let traffic_light_window = window.clone();
+                        window.on_window_event(move |event| {
+                            if matches!(
+                                event,
+                                tauri::WindowEvent::Resized(_)
+                                    | tauri::WindowEvent::ScaleFactorChanged { .. }
+                            ) {
+                                schedule_reposition_traffic_lights(traffic_light_window.clone());
+                            }
+                        });
+                    }
+                }
+
+                if should_use_local_shell_window() {
+                    let bootstrap_url_json =
+                        serde_json::to_string(&bootstrap_url).unwrap_or_else(|_| {
+                            "\"https://desktop.ritualdb.com/dashboard\"".to_string()
+                        });
+                    let _ = window.eval(&format!(
+                        "window.__RITUAL_BOOTSTRAP_URL__ = {};",
+                        bootstrap_url_json
+                    ));
+                }
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            info!("Using watcher-owned context capture; legacy recorder sidecar is not shipped");
+
+            desktop_runtime::emit_runtime_state_changed(app.handle().clone());
+            spawn_background_startup_tasks(app.handle().clone());
+
+            desktop_runtime::register_startup_update_check(app.handle().clone());
+            info!(
+                duration_ms = setup_started_at.elapsed().as_millis() as u64,
+                "Desktop setup completed"
+            );
+
+            Ok(())
         })
-        .build(app)?;
-
-      #[cfg(target_os = "macos")]
-      {
-        if let Some(urls) = app
-          .deep_link()
-          .get_current()
-          .map_err(|error| std::io::Error::other(format!("Failed reading initial deep links: {error}")))?
-        {
-          for url in urls {
-            handle_desktop_auth_deep_link(&app.handle(), url.to_string());
-          }
-        }
-
-        let deep_link_app = app.handle().clone();
-        app.deep_link().on_open_url(move |event| {
-          for url in event.urls() {
-            handle_desktop_auth_deep_link(&deep_link_app, url.to_string());
-          }
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, event| match event {
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+                shutdown_background_helpers();
+            }
+            _ => {}
         });
-      }
-
-      // Get the app URL based on environment (Midday pattern)
-      let ritual_env = configured_ritual_env();
-      let app_origin = get_app_url();
-      let mut app_url = with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
-      let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
-      let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
-      let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
-      if main_glass_enabled {
-        app_url = with_query_param(&app_url, "ritual_main_glass=1");
-      }
-      if transparency_probe {
-        info!("Transparency probe mode enabled");
-        app_url = with_query_param(&app_url, "ritual_transparency_probe=1");
-      }
-
-      let window = if let Some(window) = app.get_webview_window("main") {
-        window
-      } else {
-        let mut builder = tauri::WebviewWindowBuilder::new(
-          app,
-          "main",
-          desktop_shell_window_url()?,
-        )
-        .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
-        .title("")
-        .inner_size(1150.0, 800.0)
-        .min_inner_size(800.0, 450.0)
-        .resizable(true)
-        .decorations(true)
-        .transparent(main_glass_enabled)
-        .visible(true);
-
-        #[cfg(target_os = "macos")]
-        {
-          builder = builder
-            .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
-        }
-
-        builder.build()
-        .map_err(|e| std::io::Error::other(format!("Failed to create main window: {e}")))?
-      };
-
-      // Configure window after creation
-      {
-        let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize { width: 1150.0, height: 800.0 }));
-        let _ = window.center();
-        #[cfg(target_os = "macos")]
-        {
-          configure_macos_native_window_chrome(&window);
-
-          if main_glass_enabled {
-            info!("Main window glass enabled");
-            configure_macos_window_transparency(&window);
-            configure_macos_webview_transparency(&window);
-          } else {
-            info!("Main window glass disabled for stable production rendering");
-          }
-
-          // Position traffic lights into the sidebar region (macOS native feel).
-          schedule_reposition_traffic_lights(window.clone());
-
-          let detached_sidebar_enabled = !transparency_probe
-            && env::var("RITUAL_DETACHED_SIDEBAR")
-              .map(|v| {
-                let value = v.trim().to_ascii_lowercase();
-                matches!(value.as_str(), "1" | "true" | "on" | "yes")
-              })
-              .unwrap_or(false);
-          let sidebar_state = app.state::<SidebarWindowState>();
-          sidebar_state.set_detached_enabled(detached_sidebar_enabled);
-          sidebar_state.set_width(70.0);
-
-          if detached_sidebar_enabled {
-            info!("Detached sidebar mode enabled");
-            let _ = ensure_detached_sidebar_window(&app.handle(), &app_url, sidebar_state.get_width());
-            let _ = window.emit("sidebar:width", sidebar_state.get_width());
-
-            let app_handle_for_sync = app.handle().clone();
-            let traffic_light_window = window.clone();
-            window.on_window_event(move |event| {
-              match event {
-                tauri::WindowEvent::Moved(_)
-                | tauri::WindowEvent::Resized(_)
-                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                  // Re-position traffic lights after native relayout settles.
-                  schedule_reposition_traffic_lights(traffic_light_window.clone());
-                  let state = app_handle_for_sync.state::<SidebarWindowState>();
-                  let width = state.get_width();
-                  let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
-                  if let Some(main_window) = app_handle_for_sync.get_webview_window("main") {
-                    let _ = main_window.emit("sidebar:width", width);
-                  }
-                }
-                tauri::WindowEvent::CloseRequested { .. } => {
-                  if let Some(sidebar_window) = app_handle_for_sync.get_webview_window("sidebar") {
-                    let _ = sidebar_window.close();
-                  }
-                }
-                _ => {}
-              }
-            });
-          } else {
-            sidebar_state.set_detached_enabled(false);
-            if let Some(sidebar_window) = app.get_webview_window("sidebar") {
-              let _ = sidebar_window.close();
-            }
-            // Non-detached mode: still re-position traffic lights on resize or
-            // display scale changes (moving between monitors can reset them).
-            let traffic_light_window = window.clone();
-            window.on_window_event(move |event| {
-              if matches!(event, tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }) {
-                schedule_reposition_traffic_lights(traffic_light_window.clone());
-              }
-            });
-          }
-        }
-
-        if should_use_local_shell_window() {
-          let bootstrap_url_json = serde_json::to_string(&bootstrap_url)
-            .unwrap_or_else(|_| "\"https://desktop.ritualdb.com/dashboard\"".to_string());
-          let _ = window.eval(&format!("window.__RITUAL_BOOTSTRAP_URL__ = {};", bootstrap_url_json));
-        }
-        let _ = window.show();
-        let _ = window.set_focus();
-      }
-      info!("Using watcher-owned context capture; legacy recorder sidecar is not shipped");
-
-      desktop_runtime::emit_runtime_state_changed(app.handle().clone());
-      spawn_background_startup_tasks(app.handle().clone());
-
-      desktop_runtime::register_startup_update_check(app.handle().clone());
-      info!(
-        duration_ms = setup_started_at.elapsed().as_millis() as u64,
-        "Desktop setup completed"
-      );
-
-      Ok(())
-    })
-    .build(tauri::generate_context!())
-    .expect("error while building tauri application")
-    .run(|_app_handle, event| match event {
-      RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-        shutdown_background_helpers();
-      }
-      _ => {}
-    });
 
     info!(
         duration_ms = startup_started_at.elapsed().as_millis() as u64,

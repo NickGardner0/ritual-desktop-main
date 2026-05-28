@@ -257,6 +257,102 @@ async fn open_activity_database() -> Result<RitualDatabase, String> {
     })
 }
 
+fn prepare_activity_database_files(origin: &str) {
+    if let Err(err) = ensure_split_local_databases() {
+        db_error!("⚠️ Split DB preparation failed origin={}: {}", origin, err);
+    }
+}
+
+pub fn import_historical_activity_with_origin(origin: &str) {
+    if let Err(err) = ensure_historical_activity_import() {
+        db_error!(
+            "⚠️ Historical activity import failed origin={}: {}",
+            origin,
+            err
+        );
+    }
+}
+
+async fn initialize_activity_database_inner(origin: String) -> Result<(), String> {
+    let activity_ready = ACTIVITY_DB.read().await.is_some();
+    if activity_ready {
+        db_info!(
+            "⏭️ initialize_activity_database skipped origin={} activity_ready=true",
+            origin
+        );
+        return Ok(());
+    }
+
+    set_activity_runtime_state(DatabaseConnectionState::Reloading, None);
+    db_info!("📂 Opening live activity.db handle origin={}", origin);
+
+    match open_activity_database().await {
+        Ok(activity_db) => {
+            let mut activity_guard = ACTIVITY_DB.write().await;
+            if activity_guard.is_none() {
+                *activity_guard = Some(activity_db);
+            }
+            set_activity_runtime_state(DatabaseConnectionState::ReadyLocal, None);
+            db_info!(
+                "✅ Activity database initialized independently at {:?}",
+                get_activity_db_path()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            set_activity_runtime_state(DatabaseConnectionState::Uninitialized, Some(error.clone()));
+            Err(error)
+        }
+    }
+}
+
+pub fn initialize_activity_database_with_origin(origin: &str) -> Result<(), String> {
+    let origin = normalize_db_command_origin(Some(origin), "native:initialize_activity_database");
+    prepare_activity_database_files(&origin);
+    RUNTIME.block_on(initialize_activity_database_inner(origin))
+}
+
+async fn initialize_memory_database_inner(origin: String) -> Result<(), String> {
+    let memory_ready = RITUAL_DB.read().await.is_some();
+    if memory_ready {
+        db_info!(
+            "⏭️ initialize_memory_database skipped origin={} memory_ready=true",
+            origin
+        );
+        return Ok(());
+    }
+
+    set_memory_runtime_state(DatabaseConnectionState::Reloading, None);
+    db_info!("📂 Opening live memory.db handle origin={}", origin);
+
+    match open_memory_database().await {
+        Ok(memory_db) => {
+            let mut memory_guard = RITUAL_DB.write().await;
+            if memory_guard.is_none() {
+                *memory_guard = Some(memory_db);
+            }
+            set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
+            db_info!(
+                "✅ Memory database initialized at {:?}",
+                get_memory_db_path()
+            );
+            Ok(())
+        }
+        Err(error) => {
+            set_memory_runtime_state(DatabaseConnectionState::Uninitialized, Some(error.clone()));
+            Err(error)
+        }
+    }
+}
+
+pub fn initialize_memory_database_with_origin(origin: &str) -> Result<(), String> {
+    let origin = normalize_db_command_origin(Some(origin), "native:initialize_memory_database");
+    if let Err(err) = ensure_split_local_databases() {
+        db_error!("⚠️ Split DB preparation failed origin={}: {}", origin, err);
+    }
+    RUNTIME.block_on(initialize_memory_database_inner(origin))
+}
+
 fn initialize_schema_in_blocking_thread(
     db_path: PathBuf,
     label: &'static str,
@@ -724,50 +820,28 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
             db_info!("📂 Opening live activity.db handle origin={}", origin);
         }
 
-        let (memory_result, activity_result) = tokio::join!(
-            async {
-                if memory_ready {
-                    None
-                } else {
-                    Some(open_memory_database().await)
-                }
-            },
-            async {
-                if activity_ready {
-                    None
-                } else {
-                    Some(open_activity_database().await)
-                }
-            }
-        );
+        let mut first_error: Option<String> = None;
 
-        if let Some(memory_result) = memory_result {
-            let memory_db = memory_result?;
-            let mut memory_guard = RITUAL_DB.write().await;
-            if memory_guard.is_none() {
-                *memory_guard = Some(memory_db);
+        if !activity_ready {
+            if let Err(error) =
+                initialize_activity_database_inner(format!("{origin}:activity")).await
+            {
+                first_error = Some(error);
             }
-            set_memory_runtime_state(DatabaseConnectionState::ReadyLocal, None);
-            db_info!(
-                "✅ Memory database initialized at {:?}",
-                get_memory_db_path()
-            );
         }
 
-        if let Some(activity_result) = activity_result {
-            let activity_db = activity_result?;
-            let mut activity_guard = ACTIVITY_DB.write().await;
-            if activity_guard.is_none() {
-                *activity_guard = Some(activity_db);
+        if !memory_ready {
+            if let Err(error) = initialize_memory_database_inner(format!("{origin}:memory")).await {
+                if first_error.is_none() {
+                    first_error = Some(error);
+                }
             }
-            set_activity_runtime_state(DatabaseConnectionState::ReadyLocal, None);
-            db_info!(
-                "✅ Activity database initialized at {:?}",
-                get_activity_db_path()
-            );
         }
 
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     })
 }
 
@@ -791,6 +865,25 @@ pub(crate) async fn get_activity_db(
         );
     }
     Ok(guard)
+}
+
+pub(crate) async fn get_or_initialize_activity_db(
+    origin: &str,
+) -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
+    {
+        let guard = ACTIVITY_DB.read().await;
+        if guard.is_some() {
+            return Ok(guard);
+        }
+    }
+
+    let init_origin = origin.to_string();
+    let init_result =
+        tokio::task::spawn_blocking(move || initialize_activity_database_with_origin(&init_origin))
+            .await
+            .map_err(|error| format!("Activity database init task failed: {error}"))?;
+    init_result?;
+    get_activity_db().await
 }
 
 fn require_db_ref<'a>(db: Option<&'a RitualDatabase>) -> Result<&'a RitualDatabase, String> {

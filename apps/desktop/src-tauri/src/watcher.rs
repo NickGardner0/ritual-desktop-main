@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::ritual_database::{get_activity_db, ACTIVITY_DB};
+use crate::ritual_database::ACTIVITY_DB;
 use tracing::instrument;
 
 macro_rules! watcher_info {
@@ -256,11 +256,8 @@ fn clip_interval(
     range_start: i64,
     range_end: i64,
 ) -> Option<(i64, i64)> {
-    let event_end = if event.ts_end.saturating_sub(event.ts_start) > MAX_SINGLE_ACTIVITY_EVENT_MS
-    {
-        event
-            .ts_start
-            .saturating_add(MAX_SINGLE_ACTIVITY_EVENT_MS)
+    let event_end = if event.ts_end.saturating_sub(event.ts_start) > MAX_SINGLE_ACTIVITY_EVENT_MS {
+        event.ts_start.saturating_add(MAX_SINGLE_ACTIVITY_EVENT_MS)
     } else {
         event.ts_end
     };
@@ -1425,7 +1422,9 @@ pub async fn get_detailed_activity(
         .filter(|value| !value.is_empty())
         .unwrap_or("tauri:get_detailed_activity:unknown");
 
-    let guard = get_activity_db().await?;
+    let guard =
+        crate::ritual_database::get_or_initialize_activity_db("watcher:get_detailed_activity")
+            .await?;
     let db = require_db(guard.as_ref())?;
 
     // Get events in range
@@ -1528,7 +1527,9 @@ pub async fn get_daily_summaries(
         return Err("end_date must be on or after start_date".to_string());
     }
 
-    let guard = get_activity_db().await?;
+    let guard =
+        crate::ritual_database::get_or_initialize_activity_db("watcher:get_daily_summaries")
+            .await?;
     let db = require_db(guard.as_ref())?;
     let start_of_range = Local
         .with_ymd_and_hms(start.year(), start.month(), start.day(), 0, 0, 0)

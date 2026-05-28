@@ -2,7 +2,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::env;
+#[cfg(target_os = "macos")]
+use std::ffi::CString;
 use std::fs;
+#[cfg(target_os = "macos")]
+use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -14,6 +18,11 @@ use tauri_plugin_updater::UpdaterExt;
 use tracing::{info, instrument, warn};
 
 use crate::desktop_observability::redact_sensitive_url_for_log;
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn show_ritual_update_install_prompt(version: *const c_char) -> bool;
+}
 
 const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
@@ -1205,21 +1214,33 @@ async fn show_native_message<R: Runtime>(app: AppHandle<R>, title: String, body:
 async fn prompt_for_native_install<R: Runtime>(
     _app: AppHandle<R>,
     latest_version: String,
-    body: Option<String>,
+    _body: Option<String>,
 ) -> Result<bool, String> {
-    let release_notes = body.unwrap_or_else(|| {
-        "This update includes the latest Ritual desktop improvements.".to_string()
-    });
-    let prompt =
-        format!("Ritual {latest_version} is ready to install.\n\n{release_notes}\n\nRitual will relaunch after the update is installed.");
+    #[cfg(target_os = "macos")]
+    {
+        return tauri::async_runtime::spawn_blocking(move || {
+            let version = CString::new(latest_version)
+                .map_err(|_| "Update version contained an interior null byte.".to_string())?;
+            let should_install = unsafe { show_ritual_update_install_prompt(version.as_ptr()) };
+            Ok::<bool, String>(should_install)
+        })
+        .await
+        .map_err(|error| format!("Failed to show native update prompt: {error}"))?;
+    }
 
+    #[cfg(not(target_os = "macos"))]
+    let prompt = format!(
+        "Ritual {latest_version} is ready to install.\n\nRitual will relaunch after the update is installed."
+    );
+
+    #[cfg(not(target_os = "macos"))]
     tauri::async_runtime::spawn_blocking(move || {
         Ok::<bool, String>(
             _app.dialog()
                 .message(prompt)
-                .title("Ritual Update Ready")
+                .title(format!("Install Ritual {latest_version}?"))
                 .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Install and Relaunch".to_string(),
+                    "Install".to_string(),
                     "Later".to_string(),
                 ))
                 .kind(MessageDialogKind::Info)

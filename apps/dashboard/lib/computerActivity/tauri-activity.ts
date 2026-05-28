@@ -1,7 +1,7 @@
 'use client'
 
 import { invoke } from '@tauri-apps/api/core'
-import { buildDesktopCommandOrigin, desktopHasCapability } from '@/lib/desktop-runtime'
+import { buildDesktopCommandOrigin } from '@/lib/desktop-runtime'
 
 const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:3031'
 
@@ -42,10 +42,6 @@ export function isDbNotInitializedError(error: unknown): boolean {
     message.includes('database not initialized') &&
     message.includes('initialize_database')
   )
-}
-
-async function desktopOwnsDbLifecycle(): Promise<boolean> {
-  return desktopHasCapability('desktop-runtime-state-v1')
 }
 
 function hasTauriIpcBridge(): boolean {
@@ -102,7 +98,6 @@ export async function invokeDetailedActivityWithInitRetry(params: {
     limit: params.limit,
   }
   const detailedActivityOrigin = buildDesktopCommandOrigin('tauri-activity:get_detailed_activity')
-  const nativeDbLifecycle = await desktopOwnsDbLifecycle()
 
   try {
     return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
@@ -110,7 +105,7 @@ export async function invokeDetailedActivityWithInitRetry(params: {
       origin: detailedActivityOrigin,
     })
   } catch (error) {
-    if (!nativeDbLifecycle && isDbNotInitializedError(error)) {
+    if (isDbNotInitializedError(error)) {
       await invoke<string>('init_ritual_database', {
         origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:detailed'),
       })
@@ -159,7 +154,6 @@ export async function invokeDailySummariesWithInitRetry(
   const camelParams = { startDate, endDate }
   const snakeParams = { start_date: startDate, end_date: endDate }
   const dailySummariesOrigin = buildDesktopCommandOrigin('tauri-activity:get_daily_summaries')
-  const nativeDbLifecycle = await desktopOwnsDbLifecycle()
 
   try {
     return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
@@ -167,7 +161,7 @@ export async function invokeDailySummariesWithInitRetry(
       origin: dailySummariesOrigin,
     })
   } catch (error) {
-    if (!nativeDbLifecycle && isDbNotInitializedError(error)) {
+    if (isDbNotInitializedError(error)) {
       await invoke<string>('init_ritual_database', {
         origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:daily-summaries'),
       })

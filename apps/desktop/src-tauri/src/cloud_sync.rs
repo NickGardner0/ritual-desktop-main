@@ -76,7 +76,7 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
         return Ok(());
     }
 
-    let guard = ritual_database::get_activity_db().await?;
+    let guard = ritual_database::get_or_initialize_activity_db("cloud_sync:outbox").await?;
     let db = guard
         .as_ref()
         .ok_or_else(|| "Activity database is not initialized".to_string())?;
@@ -594,7 +594,7 @@ struct LocalCloudSyncMetrics {
 }
 
 async fn read_local_cloud_sync_metrics() -> Result<LocalCloudSyncMetrics, String> {
-    let guard = ritual_database::get_activity_db().await?;
+    let guard = ritual_database::get_or_initialize_activity_db("cloud_sync:metrics").await?;
     let db = guard
         .as_ref()
         .ok_or_else(|| "Activity database is not initialized".to_string())?;
