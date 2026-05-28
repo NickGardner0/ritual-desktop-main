@@ -91,22 +91,67 @@ class BiomeIngestTests(unittest.IsolatedAsyncioTestCase):
             ):
                 with patch("services.biome_ingest.open_activity_connection_for_user", fake_open):
                     with patch(
-                        "services.biome_ingest.resolve_for",
-                        AsyncMock(return_value=resolved),
+                        "services.biome_ingest.resolve_many_for",
+                        AsyncMock(return_value={1_700_000_000_000: resolved}),
                     ), patch(
                         "services.biome_ingest._ensure_iphone_time_habit",
+                        AsyncMock(return_value="habit-iphone-time"),
+                    ) as ensure_habit, patch(
+                        "services.biome_ingest._rebuild_iphone_time_facts_for_dates",
                         AsyncMock(),
-                    ) as ensure_habit:
+                    ) as rebuild_facts:
                         result = await ingest_biome_events("user-1", [_event(), _event()])
 
             self.assertEqual(result.accepted, 1)
             self.assertEqual(result.duplicates, 1)
+            self.assertEqual(result.accepted_event_uids, ("biome:iphone-1:com.apple.MobileSMS:1700000000000",))
+            self.assertEqual(result.duplicate_event_uids, ("biome:iphone-1:com.apple.MobileSMS:1700000000000",))
             ensure_habit.assert_awaited_once_with("user-1")
+            rebuild_facts.assert_awaited_once()
             row = conn.execute("SELECT * FROM activity_events").fetchone()
             self.assertEqual(row["source"], "biome_iphone")
             self.assertEqual(row["device_platform"], "ios")
+            self.assertEqual(row["biome_is_provisional"], 0)
             self.assertEqual(row["location_place_label"], "Home")
             self.assertEqual(row["biome_source_file"], "remote/device/App.InFocus/foo.segb")
+
+    async def test_provisional_update_uses_stable_uid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conn = _make_conn(Path(tmp) / "activity.db")
+
+            @asynccontextmanager
+            async def fake_open(_user_id: str, *, write: bool = False):
+                self.assertTrue(write)
+                yield conn
+
+            with patch(
+                "services.biome_ingest.execute_remote_activity_batch",
+                AsyncMock(return_value=False),
+            ), patch("services.biome_ingest.open_activity_connection_for_user", fake_open), patch(
+                "services.biome_ingest.resolve_many_for",
+                AsyncMock(return_value={}),
+            ), patch(
+                "services.biome_ingest._ensure_iphone_time_habit",
+                AsyncMock(return_value="habit-iphone-time"),
+            ), patch(
+                "services.biome_ingest._rebuild_iphone_time_facts_for_dates",
+                AsyncMock(),
+            ):
+                first = await ingest_biome_events(
+                    "user-1",
+                    [_event(ts_end=1_700_000_030_000, biome_is_provisional=True)],
+                )
+                second = await ingest_biome_events(
+                    "user-1",
+                    [_event(ts_end=1_700_000_060_000, biome_is_provisional=False)],
+                )
+
+            self.assertEqual(first.accepted, 1)
+            self.assertEqual(second.accepted, 1)
+            row = conn.execute("SELECT event_uid, ts_end, biome_is_provisional FROM activity_events").fetchone()
+            self.assertEqual(row["event_uid"], "biome:iphone-1:com.apple.MobileSMS:1700000000000")
+            self.assertEqual(row["ts_end"], 1_700_000_060_000)
+            self.assertEqual(row["biome_is_provisional"], 0)
 
     async def test_rejects_invalid_interval(self):
         with self.assertRaises(ValueError):

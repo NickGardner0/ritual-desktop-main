@@ -83,7 +83,10 @@ fn run_service(device_id: String) {
 
     // Initial fingerprint snapshot
     if let Some(fp) = wifi_monitor::current_fingerprint() {
-        debug!("Initial Wi-Fi fingerprint: ssid={:?} bssid={:?}", fp.ssid, fp.bssid);
+        debug!(
+            "Initial Wi-Fi fingerprint: ssid={:?} bssid={:?}",
+            fp.ssid, fp.bssid
+        );
         record_ping(&outbox, &device_id, &fp, "mac_one_shot");
         last_fingerprint = Some(fp);
     }
@@ -93,18 +96,18 @@ fn run_service(device_id: String) {
 
         // Wi-Fi-change trigger
         let current = wifi_monitor::current_fingerprint();
-        let changed = match (&current, &last_fingerprint) {
-            (Some(c), Some(l)) => c.bssid != l.bssid,
-            (Some(_), None) => true,
-            (None, Some(_)) => true,  // joined → disconnected counts as a change
-            (None, None) => false,
-        };
+        let changed = fingerprint_changed(current.as_ref(), last_fingerprint.as_ref());
 
         if changed {
             if let Some(fp) = &current {
-                debug!("Wi-Fi BSSID change → ping ({}→{})",
-                    last_fingerprint.as_ref().and_then(|f| f.bssid.as_deref()).unwrap_or("none"),
-                    fp.bssid.as_deref().unwrap_or("none"));
+                debug!(
+                    "Wi-Fi BSSID change → ping ({}→{})",
+                    last_fingerprint
+                        .as_ref()
+                        .and_then(|f| f.bssid.as_deref())
+                        .unwrap_or("none"),
+                    fp.bssid.as_deref().unwrap_or("none")
+                );
                 record_ping(&outbox, &device_id, fp, "mac_bssid_trigger");
             }
             last_fingerprint = current;
@@ -122,7 +125,24 @@ fn run_service(device_id: String) {
     }
 }
 
-fn record_ping(outbox: &PingOutbox, device_id: &str, fp: &wifi_monitor::WifiFingerprint, source: &str) {
+fn fingerprint_changed(
+    current: Option<&wifi_monitor::WifiFingerprint>,
+    last: Option<&wifi_monitor::WifiFingerprint>,
+) -> bool {
+    match (current, last) {
+        (Some(c), Some(l)) => c.bssid != l.bssid || c.ssid != l.ssid,
+        (Some(_), None) => true,
+        (None, Some(_)) => true,
+        (None, None) => false,
+    }
+}
+
+fn record_ping(
+    outbox: &PingOutbox,
+    device_id: &str,
+    fp: &wifi_monitor::WifiFingerprint,
+    source: &str,
+) {
     // We don't have raw lat/lon without Core Location bindings. Emit a
     // coordinate-less fingerprint ping carrying ssid/bssid as the meaningful
     // payload. The backend stores these pings but excludes them from coordinate
@@ -177,4 +197,35 @@ fn uuid_v4_string() -> String {
         bytes[8], bytes[9],
         bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_change_detects_masked_bssid_ssid_changes() {
+        let home = wifi_monitor::WifiFingerprint {
+            ssid: Some("Home".to_string()),
+            bssid: None,
+        };
+        let office = wifi_monitor::WifiFingerprint {
+            ssid: Some("Office".to_string()),
+            bssid: None,
+        };
+        assert!(fingerprint_changed(Some(&office), Some(&home)));
+    }
+
+    #[test]
+    fn fingerprint_change_detects_bssid_changes() {
+        let first = wifi_monitor::WifiFingerprint {
+            ssid: Some("Home".to_string()),
+            bssid: Some("aa:bb:cc:dd:ee:ff".to_string()),
+        };
+        let second = wifi_monitor::WifiFingerprint {
+            ssid: Some("Home".to_string()),
+            bssid: Some("11:22:33:44:55:66".to_string()),
+        };
+        assert!(fingerprint_changed(Some(&second), Some(&first)));
+    }
 }

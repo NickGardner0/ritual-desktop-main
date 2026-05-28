@@ -79,3 +79,6 @@ class IngestResponse(BaseModel):
     accepted: int
     rejected: int
     duplicates: int
+    accepted_ids: list[str] = Field(default_factory=list)
+    duplicate_ids: list[str] = Field(default_factory=list)
+    rejected_ids: list[str] = Field(default_factory=list)

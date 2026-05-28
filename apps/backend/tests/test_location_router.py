@@ -57,7 +57,14 @@ class LocationRouterTests(unittest.TestCase):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(
             response.json(),
-            {"accepted": 0, "rejected": 0, "duplicates": 0},
+            {
+                "accepted": 0,
+                "rejected": 0,
+                "duplicates": 0,
+                "accepted_ids": [],
+                "duplicate_ids": [],
+                "rejected_ids": [],
+            },
         )
 
     def test_valid_batch_calls_ingest(self):
@@ -66,7 +73,14 @@ class LocationRouterTests(unittest.TestCase):
         # so the factory captures the patched version.
         with patch(
             "services.location.ingest.ingest_location_pings",
-            AsyncMock(return_value=IngestResult(accepted=2, rejected=0, duplicates=0)),
+            AsyncMock(
+                return_value=IngestResult(
+                    accepted=2,
+                    rejected=0,
+                    duplicates=0,
+                    accepted_ids=("e1", "e2"),
+                )
+            ),
         ):
             app = _build_app()
             client = TestClient(app)
@@ -96,6 +110,7 @@ class LocationRouterTests(unittest.TestCase):
         self.assertEqual(body["accepted"], 2)
         self.assertEqual(body["duplicates"], 0)
         self.assertEqual(body["rejected"], 0)
+        self.assertEqual(body["accepted_ids"], ["e1", "e2"])
 
     def test_invalid_lat_returns_422(self):
         response = self.client.post(

@@ -14,13 +14,15 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, warn};
 
 pub use outbox::{BiomeActivityEvent, BiomeOutbox};
 
 const SCAN_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const APPLE_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
+const MAX_PROVISIONAL_INTERVAL_MS: i64 = 2 * 60 * 60 * 1000;
+const RECENT_OPEN_SOURCE_WINDOW_MS: i64 = 45 * 60 * 1000;
 
 pub struct BiomeScanner {
     _join: std::thread::JoinHandle<()>,
@@ -45,7 +47,10 @@ fn run_scanner() {
     let outbox = match BiomeOutbox::load() {
         Ok(outbox) => outbox,
         Err(error) => {
-            warn!("Failed to open Biome iPhone outbox: {}. Scanner disabled.", error);
+            warn!(
+                "Failed to open Biome iPhone outbox: {}. Scanner disabled.",
+                error
+            );
             return;
         }
     };
@@ -69,9 +74,10 @@ fn scan_once(outbox: &BiomeOutbox) -> Result<usize, String> {
         return Ok(0);
     }
 
-    let mut bookmarks = BiomeBookmarks::load().unwrap_or_default();
+    let bookmarks = BiomeBookmarks::load().unwrap_or_default();
     let devices = discover_ios_devices(&base);
     let mut total_added = 0usize;
+    let scan_now_ms = now_ms();
 
     for device_id in devices {
         let files = device_stream_files(&base, &device_id)?;
@@ -79,7 +85,7 @@ fn scan_once(outbox: &BiomeOutbox) -> Result<usize, String> {
             continue;
         }
         let records = read_device_records(&files);
-        let intervals = stitch_intervals(&device_id, records);
+        let intervals = stitch_intervals(&device_id, records, scan_now_ms);
         let last_end = bookmarks.last_end_ms(&device_id);
         let new_events: Vec<BiomeActivityEvent> = intervals
             .into_iter()
@@ -88,20 +94,13 @@ fn scan_once(outbox: &BiomeOutbox) -> Result<usize, String> {
         if new_events.is_empty() {
             continue;
         }
-        let next_last_end = new_events
-            .iter()
-            .map(|event| event.ts_end)
-            .max()
-            .unwrap_or(last_end);
         let added = outbox
             .enqueue_many(new_events)
             .map_err(|error| format!("write Biome outbox: {error}"))?;
-        bookmarks.set_last_end_ms(&device_id, next_last_end);
         total_added += added;
         info!(device_id = %device_id, added, "Queued Biome iPhone activity events");
     }
 
-    bookmarks.save()?;
     Ok(total_added)
 }
 
@@ -112,6 +111,7 @@ struct FocusRecord {
     app_bundle_id: String,
     in_foreground: bool,
     ts_ms: i64,
+    source_mtime_ms: Option<i64>,
     app_version: Option<String>,
     app_build: Option<String>,
     transition_reason: Option<String>,
@@ -133,6 +133,11 @@ fn read_device_records(files: &[PathBuf]) -> Vec<FocusRecord> {
             .and_then(|value| value.to_str())
             .map(|name| format!("{device_id}/{name}"))
             .unwrap_or_else(|| device_id.clone());
+        let source_mtime_ms = file
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(system_time_ms);
         match segb::read_app_in_focus_records(file) {
             Ok(parsed) => {
                 for record in parsed {
@@ -148,6 +153,7 @@ fn read_device_records(files: &[PathBuf]) -> Vec<FocusRecord> {
                         app_bundle_id: bundle_id,
                         in_foreground: record.event.in_foreground,
                         ts_ms: cf_absolute_to_unix_ms(cf_time),
+                        source_mtime_ms,
                         app_version: record.event.app_version,
                         app_build: record.event.app_build,
                         transition_reason: record.event.transition_reason,
@@ -163,7 +169,11 @@ fn read_device_records(files: &[PathBuf]) -> Vec<FocusRecord> {
     records
 }
 
-fn stitch_intervals(device_id: &str, records: Vec<FocusRecord>) -> Vec<BiomeActivityEvent> {
+fn stitch_intervals(
+    device_id: &str,
+    records: Vec<FocusRecord>,
+    scan_now_ms: i64,
+) -> Vec<BiomeActivityEvent> {
     let mut events = Vec::new();
     let mut current: Option<FocusRecord> = None;
 
@@ -189,7 +199,7 @@ fn stitch_intervals(device_id: &str, records: Vec<FocusRecord>) -> Vec<BiomeActi
         if should_close {
             if let Some(open) = current.take() {
                 if record.ts_ms > open.ts_ms {
-                    events.push(event_from_interval(device_id, &open, record.ts_ms));
+                    events.push(event_from_interval(device_id, &open, record.ts_ms, false));
                 }
             }
         }
@@ -201,15 +211,36 @@ fn stitch_intervals(device_id: &str, records: Vec<FocusRecord>) -> Vec<BiomeActi
         }
     }
 
+    if let Some(open) = current {
+        let source_is_recent = scan_now_ms.saturating_sub(open.ts_ms)
+            <= RECENT_OPEN_SOURCE_WINDOW_MS
+            || open
+                .source_mtime_ms
+                .map(|mtime| scan_now_ms.saturating_sub(mtime) <= RECENT_OPEN_SOURCE_WINDOW_MS)
+                .unwrap_or(false);
+        if source_is_recent {
+            let bounded_end =
+                scan_now_ms.min(open.ts_ms.saturating_add(MAX_PROVISIONAL_INTERVAL_MS));
+            if bounded_end > open.ts_ms {
+                events.push(event_from_interval(device_id, &open, bounded_end, true));
+            }
+        }
+    }
+
     events
 }
 
-fn event_from_interval(device_id: &str, start: &FocusRecord, ts_end: i64) -> BiomeActivityEvent {
+fn event_from_interval(
+    device_id: &str,
+    start: &FocusRecord,
+    ts_end: i64,
+    provisional: bool,
+) -> BiomeActivityEvent {
     let app_name = app_name_from_bundle(&start.app_bundle_id);
     BiomeActivityEvent {
         event_uid: Some(format!(
-            "biome:{}:{}:{}:{}",
-            device_id, start.app_bundle_id, start.ts_ms, ts_end
+            "biome:{}:{}:{}",
+            device_id, start.app_bundle_id, start.ts_ms
         )),
         device_id: start.device_id.clone(),
         app_bundle_id: start.app_bundle_id.clone(),
@@ -224,6 +255,7 @@ fn event_from_interval(device_id: &str, start: &FocusRecord, ts_end: i64) -> Bio
         app_version: start.app_version.clone(),
         app_build: start.app_build.clone(),
         transition_reason: start.transition_reason.clone(),
+        biome_is_provisional: provisional,
     }
 }
 
@@ -355,30 +387,13 @@ impl BiomeBookmarks {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let raw = fs::read_to_string(&path)
-            .map_err(|error| format!("read Biome bookmarks: {error}"))?;
+        let raw =
+            fs::read_to_string(&path).map_err(|error| format!("read Biome bookmarks: {error}"))?;
         serde_json::from_str(&raw).map_err(|error| format!("parse Biome bookmarks: {error}"))
-    }
-
-    fn save(&self) -> Result<(), String> {
-        let path = bookmarks_path();
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|error| format!("create Biome bookmark dir: {error}"))?;
-        }
-        let raw = serde_json::to_string(self)
-            .map_err(|error| format!("encode Biome bookmarks: {error}"))?;
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, raw).map_err(|error| format!("write Biome bookmarks: {error}"))?;
-        fs::rename(&tmp, &path).map_err(|error| format!("replace Biome bookmarks: {error}"))
     }
 
     fn last_end_ms(&self, device_id: &str) -> i64 {
         self.devices.get(device_id).copied().unwrap_or(0)
-    }
-
-    fn set_last_end_ms(&mut self, device_id: &str, value: i64) {
-        self.devices.insert(device_id.to_string(), value);
     }
 }
 
@@ -397,7 +412,7 @@ fn bookmarks_path() -> PathBuf {
         .join("Library")
         .join("Application Support")
         .join("Ritual")
-        .join("biome_scan_bookmarks.json")
+        .join("biome_committed_cursors.json")
 }
 
 fn home_dir() -> PathBuf {
@@ -410,16 +425,35 @@ fn cf_absolute_to_unix_ms(value: f64) -> i64 {
     ((value + APPLE_EPOCH_OFFSET_SECONDS) * 1000.0).round() as i64
 }
 
+fn now_ms() -> i64 {
+    system_time_ms(SystemTime::now()).unwrap_or(0)
+}
+
+fn system_time_ms(value: SystemTime) -> Option<i64> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+}
+
 fn env_flag_enabled(name: &str) -> bool {
     std::env::var(name)
         .ok()
-        .map(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
     fn record(bundle: &str, foreground: bool, ts: i64) -> FocusRecord {
         FocusRecord {
@@ -428,6 +462,7 @@ mod tests {
             app_bundle_id: bundle.to_string(),
             in_foreground: foreground,
             ts_ms: ts,
+            source_mtime_ms: None,
             app_version: None,
             app_build: None,
             transition_reason: None,
@@ -444,6 +479,7 @@ mod tests {
                 record("com.google.ios.youtube", true, 300),
                 record("com.burbn.instagram", true, 500),
             ],
+            500 + RECENT_OPEN_SOURCE_WINDOW_MS + 1,
         );
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].app_name, "Messages");
@@ -452,6 +488,61 @@ mod tests {
         assert_eq!(events[1].app_name, "YouTube");
         assert_eq!(events[1].ts_start, 300);
         assert_eq!(events[1].ts_end, 500);
+        assert!(!events[1].biome_is_provisional);
+    }
+
+    #[test]
+    fn stitch_emits_bounded_recent_open_interval() {
+        let events = stitch_intervals(
+            "iphone",
+            vec![record("com.openai.chat", true, 1_000)],
+            1_000 + MAX_PROVISIONAL_INTERVAL_MS + 10_000,
+        );
+        assert_eq!(events.len(), 0);
+
+        let mut recent = record("com.openai.chat", true, 1_000);
+        recent.source_mtime_ms = Some(1_000 + MAX_PROVISIONAL_INTERVAL_MS + 10_000);
+        let events = stitch_intervals(
+            "iphone",
+            vec![recent],
+            1_000 + MAX_PROVISIONAL_INTERVAL_MS + 10_000,
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].ts_end, 1_000 + MAX_PROVISIONAL_INTERVAL_MS);
+        assert!(events[0].biome_is_provisional);
+    }
+
+    #[test]
+    fn event_uid_is_stable_when_end_changes() {
+        let record = record("com.openai.chat", true, 1_000);
+        let first = event_from_interval("iphone", &record, 2_000, true);
+        let second = event_from_interval("iphone", &record, 3_000, false);
+        assert_eq!(first.event_uid, second.event_uid);
+    }
+
+    #[test]
+    fn sanitized_segb_fixture_parses_and_stitches() {
+        let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = std::env::temp_dir()
+            .join(format!("ritual-biome-fixture-{}-{}", std::process::id(), n))
+            .join("iphone-fixture");
+        fs::create_dir_all(&dir).expect("create fixture dir");
+        let path = dir.join("app_in_focus.segb");
+        let bytes = hex::decode(include_str!("fixtures/app_in_focus_v2.hex").trim())
+            .expect("decode fixture");
+        fs::write(&path, bytes).expect("write fixture");
+
+        let records = read_device_records(&[path]);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].app_bundle_id, "com.apple.MobileSMS");
+        let events = stitch_intervals("iphone-fixture", records, cf_absolute_to_unix_ms(1200.0));
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].app_name, "Messages");
+        assert_eq!(
+            events[0].event_uid.as_deref(),
+            Some("biome:iphone-fixture:com.apple.MobileSMS:978308200000")
+        );
+        assert!(!events[0].biome_is_provisional);
     }
 
     #[test]

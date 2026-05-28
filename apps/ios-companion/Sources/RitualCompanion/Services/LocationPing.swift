@@ -34,4 +34,16 @@ struct LocationPingIngestResponse: Codable {
     let accepted: Int
     let rejected: Int
     let duplicates: Int
+    let acceptedIds: [String]?
+    let duplicateIds: [String]?
+    let rejectedIds: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case accepted
+        case rejected
+        case duplicates
+        case acceptedIds = "accepted_ids"
+        case duplicateIds = "duplicate_ids"
+        case rejectedIds = "rejected_ids"
+    }
 }

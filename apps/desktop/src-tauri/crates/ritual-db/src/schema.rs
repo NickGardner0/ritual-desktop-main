@@ -320,6 +320,7 @@ async fn create_activity_tables(conn: &Connection) -> Result<()> {
             browser_url TEXT,
             browser_domain TEXT,
             is_incognito INTEGER NOT NULL DEFAULT 0,
+            biome_is_provisional INTEGER NOT NULL DEFAULT 0,
             source TEXT NOT NULL DEFAULT 'ritual_watcher_v2',
             created_at INTEGER NOT NULL
         );
@@ -1419,6 +1420,13 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         ()
     ).await;
     add_column_if_missing(conn, "activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''").await?;
+    add_column_if_missing(
+        conn,
+        "activity_events",
+        "biome_is_provisional",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
     add_column_if_missing(conn, "afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''").await?;
     add_column_if_missing(conn, "context_sessions", "session_uid", "TEXT NOT NULL DEFAULT ''")
         .await?;

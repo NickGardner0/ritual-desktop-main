@@ -23,7 +23,14 @@ actor LocationPingOutbox {
         // Ensure parent dir exists (Application Support is not auto-created)
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
         self.storageURL = appSupport.appendingPathComponent(filename)
-        loadFromDisk()
+        if let data = try? Data(contentsOf: self.storageURL) {
+            do {
+                self.pending = try JSONDecoder().decode([LocationPing].self, from: data)
+            } catch {
+                Self.quarantineRaw(data, reason: "malformed_outbox", storageURL: self.storageURL, logger: self.logger)
+                self.pending = []
+            }
+        }
     }
 
     /// Buffer a new ping. Persists to disk immediately.
@@ -60,11 +67,21 @@ actor LocationPingOutbox {
         guard !pending.isEmpty else { return 0 }
         let batch = pending
         do {
-            _ = try await api.postLocationPings(batch)
-            let submittedIds = Set(batch.map { $0.clientEventId })
-            drain(submittedEventIds: submittedIds)
-            logger.info("Flushed \(batch.count) location pings")
-            return batch.count
+            let response = try await api.postLocationPings(batch)
+            var acknowledgedIds = Set((response.acceptedIds ?? []) + (response.duplicateIds ?? []))
+            let rejectedIds = Set(response.rejectedIds ?? [])
+            if acknowledgedIds.isEmpty && rejectedIds.isEmpty && response.rejected == 0 {
+                acknowledgedIds = Set(batch.map { $0.clientEventId })
+            }
+            if acknowledgedIds.isEmpty && rejectedIds.isEmpty && response.rejected > 0 {
+                logger.warning("Location ping flush returned rejects without IDs; keeping pending pings")
+                return 0
+            }
+            let rejected = batch.filter { rejectedIds.contains($0.clientEventId) }
+            quarantineRejected(rejected, reason: "backend_rejected")
+            drain(submittedEventIds: acknowledgedIds.union(rejectedIds))
+            logger.info("Flushed \(acknowledgedIds.count) location pings; quarantined \(rejected.count)")
+            return acknowledgedIds.count + rejected.count
         } catch {
             logger.warning("Location ping flush failed: \(error.localizedDescription, privacy: .public)")
             return 0
@@ -72,17 +89,6 @@ actor LocationPingOutbox {
     }
 
     // MARK: - Disk persistence
-
-    private func loadFromDisk() {
-        guard let data = try? Data(contentsOf: storageURL) else { return }
-        do {
-            pending = try JSONDecoder().decode([LocationPing].self, from: data)
-            logger.debug("Loaded \(self.pending.count) pings from outbox")
-        } catch {
-            logger.error("Failed to decode location outbox; starting fresh: \(error.localizedDescription, privacy: .public)")
-            pending = []
-        }
-    }
 
     private func persistToDisk() {
         do {
@@ -92,4 +98,71 @@ actor LocationPingOutbox {
             logger.error("Failed to persist location outbox: \(error.localizedDescription, privacy: .public)")
         }
     }
+
+    private func quarantineRejected(_ pings: [LocationPing], reason: String) {
+        guard !pings.isEmpty else { return }
+        let quarantineURL = storageURL.deletingPathExtension().appendingPathExtension("rejected.jsonl")
+        var body = ""
+        for ping in pings {
+            do {
+                let encoded = try JSONEncoder().encode(QuarantinedPing(reason: reason, ping: ping, quarantinedAt: Date()))
+                if let line = String(data: encoded, encoding: .utf8) {
+                    body.append(line)
+                    body.append("\n")
+                }
+            } catch {
+                logger.error("Failed to encode rejected location ping: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        append(body, to: quarantineURL)
+    }
+
+    private func quarantineRaw(_ data: Data, reason: String) {
+        Self.quarantineRaw(data, reason: reason, storageURL: storageURL, logger: logger)
+    }
+
+    private static func quarantineRaw(_ data: Data, reason: String, storageURL: URL, logger: Logger) {
+        let quarantineURL = storageURL.deletingPathExtension().appendingPathExtension("malformed.json")
+        let payload = String(data: data, encoding: .utf8) ?? ""
+        do {
+            let encoded = try JSONEncoder().encode(QuarantinedRaw(reason: reason, raw: payload, quarantinedAt: Date()))
+            if let line = String(data: encoded, encoding: .utf8) {
+                append(line + "\n", to: quarantineURL, logger: logger)
+            }
+        } catch {
+            logger.error("Failed to encode malformed location outbox: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func append(_ body: String, to url: URL) {
+        Self.append(body, to: url, logger: logger)
+    }
+
+    private static func append(_ body: String, to url: URL, logger: Logger) {
+        guard let data = body.data(using: .utf8), !data.isEmpty else { return }
+        do {
+            if FileManager.default.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
+                try handle.seekToEnd()
+                try handle.write(contentsOf: data)
+                try handle.close()
+            } else {
+                try data.write(to: url, options: .atomic)
+            }
+        } catch {
+            logger.error("Failed to write location quarantine: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+}
+
+private struct QuarantinedPing: Codable {
+    let reason: String
+    let ping: LocationPing
+    let quarantinedAt: Date
+}
+
+private struct QuarantinedRaw: Codable {
+    let reason: String
+    let raw: String
+    let quarantinedAt: Date
 }

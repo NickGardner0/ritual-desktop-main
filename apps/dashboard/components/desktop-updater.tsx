@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import {
   checkDesktopForUpdates,
   getDesktopCompatibilityIssue,
@@ -15,6 +14,13 @@ import { isTauri } from '@/lib/tauri-utils';
 type UpdateStatusPayload = {
   error?: string | null;
   status?: string | null;
+};
+
+type RecoveryAction = {
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
 };
 
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
@@ -46,6 +52,69 @@ function errorToMessage(error: unknown): string {
   }
 
   return 'Install failed. Please try again or reinstall Ritual if the issue persists.';
+}
+
+function RecoveryNotice({
+  actions,
+  details,
+  message,
+  title,
+  tone = 'info',
+}: {
+  actions: RecoveryAction[];
+  details?: string | null;
+  message: string;
+  title: string;
+  tone?: 'info' | 'error';
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className="fixed bottom-5 right-5 z-[1300] w-[min(390px,calc(100vw-40px))] rounded-[12px] border border-black/15 bg-[#f6f6f7]/95 p-4 text-[#1d1d1f] shadow-[0_16px_48px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+      role="status"
+    >
+      <div className="flex items-start gap-3">
+        <img
+          alt=""
+          className="h-11 w-11 shrink-0 rounded-[10px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+          src={RITUAL_APP_ICON_SRC}
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold leading-5 text-[#1d1d1f]">{title}</h2>
+          <p
+            className={`mt-1 text-[13px] leading-5 ${
+              tone === 'error' ? 'text-[#9a3b2d]' : 'text-[#555960]'
+            }`}
+          >
+            {message}
+          </p>
+          {details ? (
+            <p className="mt-1 max-h-20 overflow-auto whitespace-pre-line text-[12px] leading-5 text-[#70747b]">
+              {details}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        {actions.map((action) => (
+          <button
+            className={
+              action.variant === 'primary'
+                ? 'h-8 min-w-[82px] rounded-[7px] bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#a2a7b0]'
+                : 'h-8 min-w-[72px] rounded-[7px] border border-black/15 bg-white px-3 text-[13px] font-medium text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:bg-[#fbfbfc] disabled:cursor-not-allowed disabled:opacity-50'
+            }
+            disabled={action.disabled}
+            key={action.label}
+            onClick={action.onClick}
+            type="button"
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function DesktopUpdater() {
@@ -285,56 +354,38 @@ export function DesktopUpdater() {
         : null;
 
     return (
-      <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/20 px-6 backdrop-blur-md">
-        <div className="w-full max-w-[440px] rounded-[16px] border border-black/15 bg-[#f5f5f7] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
-          <div className="flex items-start gap-4">
-            <img
-              alt=""
-              className="h-16 w-16 shrink-0 rounded-[15px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
-              src={RITUAL_APP_ICON_SRC}
-            />
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[20px] font-semibold leading-6 text-[#1d1d1f]">
-                Ritual needs a newer desktop app.
-              </h2>
-              <p className="mt-3 text-[14px] leading-6 text-[#4f5257]">
-                {compatibilityIssue.kind === 'version'
-                  ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
-                  : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
-              </p>
-              <p className="mt-2 text-[14px] leading-6 text-[#4f5257]">
-                Check for the latest Ritual desktop update before continuing.
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-end gap-2">
-            {effectivePendingUpdate ? (
-              <Button disabled={installing} onClick={installUpdateNow} size="sm">
-                {installing ? 'Installing…' : `Install ${effectivePendingUpdate.version ?? 'update'}`}
-              </Button>
-            ) : (
-              <Button disabled={checking || !shouldEnableUpdater} onClick={runManualUpdateCheck} size="sm">
-                {checking ? 'Checking…' : 'Check for update'}
-              </Button>
-            )}
-            {statusMessage ? (
-              <Button
-                disabled={checking || installing}
-                onClick={() => setStatusMessage(null)}
-                size="sm"
-                variant="outline"
-              >
-                Dismiss
-              </Button>
-            ) : null}
-          </div>
-
-          {statusMessage ? (
-            <p className="mt-4 text-sm leading-6 text-[#5a5147]">{statusMessage}</p>
-          ) : null}
-        </div>
-      </div>
+      <RecoveryNotice
+        actions={[
+          effectivePendingUpdate
+            ? {
+                disabled: installing,
+                label: installing ? 'Installing...' : `Install ${effectivePendingUpdate.version ?? 'update'}`,
+                onClick: installUpdateNow,
+                variant: 'primary',
+              }
+            : {
+                disabled: checking || !shouldEnableUpdater,
+                label: checking ? 'Checking...' : 'Check Update',
+                onClick: runManualUpdateCheck,
+                variant: 'primary',
+              },
+          ...(statusMessage
+            ? [{
+                disabled: checking || installing,
+                label: 'Dismiss',
+                onClick: () => setStatusMessage(null),
+                variant: 'secondary' as const,
+              }]
+            : []),
+        ]}
+        details={statusMessage}
+        message={
+          compatibilityIssue.kind === 'version'
+            ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
+            : `Missing desktop capability: ${requiredCapabilities}.`
+        }
+        title="Desktop update required"
+      />
     );
   }
 
@@ -343,7 +394,11 @@ export function DesktopUpdater() {
   }
 
   if (effectivePendingUpdate || hasStatusMessage) {
-    if (supportsNativeUpdatePrompt && effectivePendingUpdate && !statusLooksLikeError) {
+    if (supportsNativeUpdatePrompt && !statusLooksLikeError) {
+      return null;
+    }
+
+    if (!runtimeInfo && effectivePendingUpdate && !statusLooksLikeError) {
       return null;
     }
 
@@ -351,73 +406,43 @@ export function DesktopUpdater() {
       ? 'Ritual Update Failed'
       : installing
         ? 'Installing Ritual Update'
-        : effectivePendingUpdate
-          ? 'Ritual Update Ready'
+        : effectivePendingUpdate && !supportsNativeUpdatePrompt
+          ? 'Desktop update recovery'
+          : effectivePendingUpdate
+            ? 'Ritual Update Ready'
           : 'Ritual Desktop';
 
     return (
-      <div
-        aria-modal="true"
-        className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/20 px-6 backdrop-blur-md"
-        role="dialog"
-      >
-        <div className="w-full max-w-[430px] rounded-[16px] border border-black/15 bg-[#f5f5f7] p-6 shadow-[0_24px_70px_rgba(0,0,0,0.24)]">
-          <div className="flex items-start gap-4">
-            <img
-              alt=""
-              className="h-16 w-16 shrink-0 rounded-[15px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
-              src={RITUAL_APP_ICON_SRC}
-            />
-
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[20px] font-semibold leading-6 text-[#1d1d1f]">{title}</h2>
-
-              {effectivePendingUpdate ? (
-                <p className="mt-3 text-[14px] leading-6 text-[#303236]">
-                  Ritual {effectivePendingUpdate.version} is ready to install.
-                </p>
-              ) : null}
-
-              {effectivePendingUpdate?.body ? (
-                <p className="mt-2 max-h-28 overflow-auto whitespace-pre-line text-[13px] leading-5 text-[#60636a]">
-                  {effectivePendingUpdate.body}
-                </p>
-              ) : null}
-
-              {statusMessage ? (
-                <p
-                  className={`mt-4 text-[14px] leading-6 ${
-                    statusLooksLikeError ? 'text-[#a13d2d]' : 'text-[#5d636b]'
-                  }`}
-                >
-                  {statusMessage}
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="mt-6 flex justify-end gap-2">
-            <button
-              className="h-8 min-w-[82px] rounded-[7px] border border-black/15 bg-white px-4 text-[13px] font-medium text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:bg-[#fbfbfc] disabled:cursor-not-allowed disabled:opacity-50"
-              disabled={installing}
-              onClick={dismissUpdaterModal}
-              type="button"
-            >
-              {effectivePendingUpdate ? 'Later' : 'OK'}
-            </button>
-            {effectivePendingUpdate ? (
-              <button
-                className="h-8 min-w-[92px] rounded-[7px] bg-[#007aff] px-4 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#a2a7b0]"
-                disabled={checking || installing}
-                onClick={installUpdateNow}
-                type="button"
-              >
-                {installing ? 'Installing...' : 'Install'}
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      <RecoveryNotice
+        actions={[
+          {
+            disabled: installing,
+            label: effectivePendingUpdate ? 'Later' : 'OK',
+            onClick: dismissUpdaterModal,
+            variant: 'secondary',
+          },
+          ...(effectivePendingUpdate
+            ? [{
+                disabled: checking || installing,
+                label: installing ? 'Installing...' : 'Install',
+                onClick: installUpdateNow,
+                variant: 'primary' as const,
+              }]
+            : []),
+        ]}
+        details={effectivePendingUpdate?.body}
+        message={
+          statusMessage
+            ? statusMessage
+            : effectivePendingUpdate && !supportsNativeUpdatePrompt
+              ? `Ritual ${effectivePendingUpdate.version} is ready. This installed shell is too old to show the native macOS updater prompt, so this recovery notice can install it.`
+              : effectivePendingUpdate
+                ? `Ritual ${effectivePendingUpdate.version} is ready to install.`
+                : 'Ritual desktop update status changed.'
+        }
+        title={title}
+        tone={statusLooksLikeError ? 'error' : 'info'}
+      />
     );
   }
 

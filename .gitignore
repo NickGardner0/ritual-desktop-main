@@ -119,6 +119,7 @@ apps/backend/.memory_cloud.db.*
 
 # Backup files
 backups/
+.db-backups/
 *.backup
 *.bak
 *~

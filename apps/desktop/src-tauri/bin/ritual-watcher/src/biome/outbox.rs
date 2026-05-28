@@ -34,16 +34,49 @@ pub struct BiomeActivityEvent {
     pub app_build: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub transition_reason: Option<String>,
+    #[serde(default)]
+    pub biome_is_provisional: bool,
 }
 
 impl BiomeActivityEvent {
     pub fn key(&self) -> String {
-        self.event_uid.clone().unwrap_or_else(|| {
-            format!(
-                "{}:{}:{}:{}",
-                self.device_id, self.app_bundle_id, self.ts_start, self.ts_end
-            )
-        })
+        format!(
+            "biome:{}:{}:{}",
+            self.device_id, self.app_bundle_id, self.ts_start
+        )
+    }
+
+    fn merge_from(&mut self, incoming: BiomeActivityEvent) -> bool {
+        let mut changed = false;
+        if incoming.ts_end > self.ts_end {
+            self.ts_end = incoming.ts_end;
+            changed = true;
+        }
+        if self.biome_is_provisional && !incoming.biome_is_provisional {
+            self.biome_is_provisional = false;
+            changed = true;
+        }
+        if self.window_title.is_none() && incoming.window_title.is_some() {
+            self.window_title = incoming.window_title;
+            changed = true;
+        }
+        if self.browser_url.is_none() && incoming.browser_url.is_some() {
+            self.browser_url = incoming.browser_url;
+            changed = true;
+        }
+        if self.browser_domain.is_none() && incoming.browser_domain.is_some() {
+            self.browser_domain = incoming.browser_domain;
+            changed = true;
+        }
+        if self.transition_reason.is_none() && incoming.transition_reason.is_some() {
+            self.transition_reason = incoming.transition_reason;
+            changed = true;
+        }
+        if self.source_file.is_none() && incoming.source_file.is_some() {
+            self.source_file = incoming.source_file;
+            changed = true;
+        }
+        changed
     }
 }
 
@@ -80,9 +113,13 @@ impl BiomeOutbox {
         let mut keys: HashSet<String> = guard.iter().map(BiomeActivityEvent::key).collect();
         let mut added = 0usize;
         for event in events {
-            if keys.insert(event.key()) {
+            let key = event.key();
+            if keys.insert(key.clone()) {
                 guard.push(event);
                 added += 1;
+            } else if let Some(existing) = guard.iter_mut().find(|candidate| candidate.key() == key)
+            {
+                existing.merge_from(event);
             }
         }
         if guard.len() > MAX_OUTBOX_EVENTS {
@@ -94,7 +131,10 @@ impl BiomeOutbox {
     }
 
     pub fn snapshot(&self) -> Vec<BiomeActivityEvent> {
-        self.inner.lock().expect("biome outbox mutex poisoned").clone()
+        self.inner
+            .lock()
+            .expect("biome outbox mutex poisoned")
+            .clone()
     }
 }
 
@@ -146,8 +186,11 @@ mod tests {
 
     fn isolated_path() -> PathBuf {
         let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let tmp = env::temp_dir()
-            .join(format!("ritual-biome-outbox-test-{}-{}", std::process::id(), n));
+        let tmp = env::temp_dir().join(format!(
+            "ritual-biome-outbox-test-{}-{}",
+            std::process::id(),
+            n
+        ));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).expect("create test dir");
         tmp.join("biome_iphone_events.jsonl")
@@ -169,6 +212,7 @@ mod tests {
             app_version: None,
             app_build: None,
             transition_reason: None,
+            biome_is_provisional: false,
         }
     }
 
@@ -179,8 +223,28 @@ mod tests {
         let added = outbox
             .enqueue_many(vec![event("a"), event("a"), event("b")])
             .unwrap();
-        assert_eq!(added, 2);
+        assert_eq!(added, 1);
         let reopened = BiomeOutbox::load_from(path).unwrap();
-        assert_eq!(reopened.snapshot().len(), 2);
+        assert_eq!(reopened.snapshot().len(), 1);
+    }
+
+    #[test]
+    fn enqueue_many_extends_existing_stable_key() {
+        let path = isolated_path();
+        let outbox = BiomeOutbox::load_from(path.clone()).unwrap();
+        let mut first = event("old-style-a");
+        first.ts_end = 200;
+        first.biome_is_provisional = true;
+        let mut second = event("old-style-b");
+        second.ts_end = 400;
+        second.biome_is_provisional = false;
+
+        let added = outbox.enqueue_many(vec![first, second]).unwrap();
+        assert_eq!(added, 1);
+
+        let snapshot = outbox.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].ts_end, 400);
+        assert!(!snapshot[0].biome_is_provisional);
     }
 }

@@ -1218,6 +1218,7 @@ class ActivityEventDB(Base):
     app_build = Column(String, nullable=True)
     transition_reason = Column(String, nullable=True)
     biome_source_file = Column(String, nullable=True)
+    biome_is_provisional = Column(Integer, nullable=False, default=0)
     location_lat = Column(Float, nullable=True)
     location_lon = Column(Float, nullable=True)
     location_accuracy_m = Column(Float, nullable=True)

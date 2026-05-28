@@ -24,6 +24,7 @@ class BiomeActivityEvent(BaseModel):
     app_version: Optional[str] = Field(default=None, max_length=128)
     app_build: Optional[str] = Field(default=None, max_length=128)
     transition_reason: Optional[str] = Field(default=None, max_length=128)
+    biome_is_provisional: bool = False
 
     @field_validator("device_id", "app_bundle_id", "app_name")
     @classmethod
@@ -50,3 +51,6 @@ class BiomeIngestResponse(BaseModel):
     accepted: int
     rejected: int
     duplicates: int
+    accepted_event_uids: List[str] = Field(default_factory=list)
+    duplicate_event_uids: List[str] = Field(default_factory=list)
+    rejected_event_uids: List[str] = Field(default_factory=list)

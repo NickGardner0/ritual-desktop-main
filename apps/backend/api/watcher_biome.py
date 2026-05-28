@@ -32,6 +32,9 @@ async def ingest_biome_activity(
             accepted=result.accepted,
             rejected=result.rejected,
             duplicates=result.duplicates,
+            accepted_event_uids=list(result.accepted_event_uids),
+            duplicate_event_uids=list(result.duplicate_event_uids),
+            rejected_event_uids=list(result.rejected_event_uids),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

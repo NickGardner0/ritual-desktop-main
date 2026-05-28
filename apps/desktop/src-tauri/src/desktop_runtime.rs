@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -150,6 +150,12 @@ struct LocationIngestResponse {
     accepted: i64,
     rejected: i64,
     duplicates: i64,
+    #[serde(default)]
+    accepted_ids: Vec<String>,
+    #[serde(default)]
+    duplicate_ids: Vec<String>,
+    #[serde(default)]
+    rejected_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -177,6 +183,8 @@ struct DesktopBiomeActivityEvent {
     app_build: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transition_reason: Option<String>,
+    #[serde(default)]
+    biome_is_provisional: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -184,6 +192,12 @@ struct BiomeIngestResponse {
     accepted: i64,
     rejected: i64,
     duplicates: i64,
+    #[serde(default)]
+    accepted_event_uids: Vec<String>,
+    #[serde(default)]
+    duplicate_event_uids: Vec<String>,
+    #[serde(default)]
+    rejected_event_uids: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -482,6 +496,90 @@ fn write_location_outbox(path: &PathBuf, pings: &[DesktopLocationPing]) -> Resul
     fs::rename(&tmp, path).map_err(|error| format!("Failed to replace location outbox: {error}"))
 }
 
+fn quarantine_text(path: &PathBuf, suffix: &str, body: &str) -> Result<(), String> {
+    let quarantine =
+        path.with_extension(format!("{suffix}.{}.jsonl", Utc::now().timestamp_millis()));
+    fs::write(&quarantine, body).map_err(|error| {
+        format!(
+            "Failed to write quarantine {}: {error}",
+            quarantine.display()
+        )
+    })
+}
+
+fn append_quarantine_records<T: Serialize>(
+    path: &PathBuf,
+    suffix: &str,
+    reason: &str,
+    records: &[T],
+) -> Result<(), String> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let quarantine = path.with_extension(format!("{suffix}.jsonl"));
+    let mut body = String::new();
+    for record in records {
+        let line = serde_json::to_string(&serde_json::json!({
+            "reason": reason,
+            "record": record,
+            "quarantined_at": Utc::now().to_rfc3339(),
+        }))
+        .map_err(|error| format!("Failed to encode quarantine record: {error}"))?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    use std::io::Write;
+    if let Some(parent) = quarantine.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create quarantine directory: {error}"))?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&quarantine)
+        .map_err(|error| {
+            format!(
+                "Failed to open quarantine {}: {error}",
+                quarantine.display()
+            )
+        })?;
+    file.write_all(body.as_bytes()).map_err(|error| {
+        format!(
+            "Failed to write quarantine {}: {error}",
+            quarantine.display()
+        )
+    })
+}
+
+fn classify_location_ack(
+    parsed: &LocationIngestResponse,
+    chunk: &[DesktopLocationPing],
+) -> Result<(HashSet<String>, Vec<DesktopLocationPing>), String> {
+    let mut acknowledged: HashSet<String> = parsed
+        .accepted_ids
+        .iter()
+        .chain(parsed.duplicate_ids.iter())
+        .cloned()
+        .collect();
+    let rejected: HashSet<String> = parsed.rejected_ids.iter().cloned().collect();
+    if acknowledged.is_empty() && rejected.is_empty() && parsed.rejected == 0 {
+        acknowledged.extend(chunk.iter().map(|ping| ping.client_event_id.clone()));
+    }
+    if acknowledged.is_empty() && rejected.is_empty() && parsed.rejected > 0 {
+        return Err(
+            "Location ingest returned rejections without IDs; keeping outbox for retry".to_string(),
+        );
+    }
+    let rejected_records: Vec<DesktopLocationPing> = chunk
+        .iter()
+        .filter(|ping| rejected.contains(&ping.client_event_id))
+        .cloned()
+        .collect();
+    let mut processed_ids = acknowledged;
+    processed_ids.extend(rejected);
+    Ok((processed_ids, rejected_records))
+}
+
 fn drain_location_outbox_blocking(
     auth_token: String,
     backend_base: String,
@@ -499,8 +597,16 @@ fn drain_location_outbox_blocking(
         return Ok(0);
     }
 
-    let pings: Vec<DesktopLocationPing> = serde_json::from_str(&raw)
-        .map_err(|error| format!("Failed to parse location outbox: {error}"))?;
+    let pings: Vec<DesktopLocationPing> = match serde_json::from_str(&raw) {
+        Ok(value) => value,
+        Err(error) => {
+            quarantine_text(&path, "malformed", &raw)?;
+            write_location_outbox(&path, &[])?;
+            return Err(format!(
+                "Failed to parse location outbox; quarantined malformed file: {error}"
+            ));
+        }
+    };
     if pings.is_empty() {
         return Ok(0);
     }
@@ -510,7 +616,7 @@ fn drain_location_outbox_blocking(
         .build()
         .map_err(|error| format!("Failed to create location outbox client: {error}"))?;
     let url = format!("{backend_base}/api/user/location-pings");
-    let mut submitted_ids: HashSet<String> = HashSet::new();
+    let mut processed_ids: HashSet<String> = HashSet::new();
 
     for chunk in pings.chunks(LOCATION_OUTBOX_BATCH_SIZE) {
         let body = serde_json::to_string(&serde_json::json!({ "pings": chunk }))
@@ -541,24 +647,26 @@ fn drain_location_outbox_blocking(
             "Submitted location outbox batch"
         );
 
-        for ping in chunk {
-            submitted_ids.insert(ping.client_event_id.clone());
-        }
+        let (chunk_processed_ids, rejected_records) = classify_location_ack(&parsed, chunk)?;
+        append_quarantine_records(&path, "rejected", "backend_rejected", &rejected_records)?;
+        processed_ids.extend(chunk_processed_ids);
     }
 
-    if submitted_ids.is_empty() {
+    if processed_ids.is_empty() {
         return Ok(0);
     }
 
     let remaining: Vec<DesktopLocationPing> = pings
         .into_iter()
-        .filter(|ping| !submitted_ids.contains(&ping.client_event_id))
+        .filter(|ping| !processed_ids.contains(&ping.client_event_id))
         .collect();
     write_location_outbox(&path, &remaining)?;
-    Ok(submitted_ids.len())
+    Ok(processed_ids.len())
 }
 
-async fn drain_location_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
+async fn drain_location_outbox_once<R: Runtime + 'static>(
+    app: AppHandle<R>,
+) -> Result<usize, String> {
     let auth_state = read_auth_state(&app);
     let auth_token = auth_state
         .token
@@ -596,7 +704,8 @@ pub fn trigger_location_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
 pub fn register_location_outbox_drain_worker<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
-        let mut interval = tokio::time::interval(Duration::from_secs(LOCATION_OUTBOX_DRAIN_INTERVAL_SECS));
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(LOCATION_OUTBOX_DRAIN_INTERVAL_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
@@ -626,35 +735,56 @@ fn biome_outbox_path() -> Option<PathBuf> {
     })
 }
 
-fn biome_event_key(event: &DesktopBiomeActivityEvent) -> String {
-    event.event_uid.clone().unwrap_or_else(|| {
-        format!(
-            "{}:{}:{}:{}",
-            event.device_id, event.app_bundle_id, event.ts_start, event.ts_end
-        )
+fn biome_committed_cursors_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("Ritual")
+            .join("biome_committed_cursors.json")
     })
 }
 
-fn read_biome_outbox(path: &PathBuf) -> Result<Vec<DesktopBiomeActivityEvent>, String> {
+fn biome_event_key(event: &DesktopBiomeActivityEvent) -> String {
+    format!(
+        "biome:{}:{}:{}",
+        event.device_id, event.app_bundle_id, event.ts_start
+    )
+}
+
+#[derive(Debug)]
+struct BiomeOutboxRead {
+    events: Vec<DesktopBiomeActivityEvent>,
+    malformed_lines: Vec<String>,
+}
+
+fn read_biome_outbox(path: &PathBuf) -> Result<BiomeOutboxRead, String> {
     let raw = fs::read_to_string(path)
         .map_err(|error| format!("Failed to read Biome outbox: {error}"))?;
     let mut events = Vec::new();
+    let mut malformed_lines = Vec::new();
     for (index, line) in raw.lines().enumerate() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        let event: DesktopBiomeActivityEvent = serde_json::from_str(trimmed)
-            .map_err(|error| format!("Failed to parse Biome outbox line {}: {error}", index + 1))?;
-        events.push(event);
+        match serde_json::from_str::<DesktopBiomeActivityEvent>(trimmed) {
+            Ok(event) => events.push(event),
+            Err(error) => malformed_lines.push(format!(
+                "{{\"line\":{},\"error\":{},\"raw\":{}}}",
+                index + 1,
+                serde_json::to_string(&error.to_string())
+                    .unwrap_or_else(|_| "\"parse error\"".to_string()),
+                serde_json::to_string(trimmed).unwrap_or_else(|_| "\"\"".to_string())
+            )),
+        }
     }
-    Ok(events)
+    Ok(BiomeOutboxRead {
+        events,
+        malformed_lines,
+    })
 }
 
-fn write_biome_outbox(
-    path: &PathBuf,
-    events: &[DesktopBiomeActivityEvent],
-) -> Result<(), String> {
+fn write_biome_outbox(path: &PathBuf, events: &[DesktopBiomeActivityEvent]) -> Result<(), String> {
     let mut body = String::new();
     for event in events {
         let line = serde_json::to_string(event)
@@ -667,10 +797,91 @@ fn write_biome_outbox(
     fs::rename(&tmp, path).map_err(|error| format!("Failed to replace Biome outbox: {error}"))
 }
 
-fn drain_biome_outbox_blocking(
-    auth_token: String,
-    backend_base: String,
-) -> Result<usize, String> {
+fn read_biome_committed_cursors() -> HashMap<String, i64> {
+    let Some(path) = biome_committed_cursors_path() else {
+        return HashMap::new();
+    };
+    if !path.exists() {
+        return HashMap::new();
+    }
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<HashMap<String, i64>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn write_biome_committed_cursors(cursors: &HashMap<String, i64>) -> Result<(), String> {
+    let Some(path) = biome_committed_cursors_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create Biome cursor dir: {error}"))?;
+    }
+    let raw = serde_json::to_string(cursors)
+        .map_err(|error| format!("Failed to encode Biome committed cursors: {error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw).map_err(|error| format!("Failed to write Biome cursors: {error}"))?;
+    fs::rename(&tmp, path).map_err(|error| format!("Failed to replace Biome cursors: {error}"))
+}
+
+fn advance_biome_committed_cursors(events: &[DesktopBiomeActivityEvent]) -> Result<(), String> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    let mut cursors = read_biome_committed_cursors();
+    for event in events {
+        let entry = cursors.entry(event.device_id.clone()).or_insert(0);
+        *entry = (*entry).max(event.ts_end);
+    }
+    write_biome_committed_cursors(&cursors)
+}
+
+fn classify_biome_ack(
+    parsed: &BiomeIngestResponse,
+    chunk: &[DesktopBiomeActivityEvent],
+) -> Result<
+    (
+        HashSet<String>,
+        Vec<DesktopBiomeActivityEvent>,
+        Vec<DesktopBiomeActivityEvent>,
+    ),
+    String,
+> {
+    let mut acknowledged: HashSet<String> = parsed
+        .accepted_event_uids
+        .iter()
+        .chain(parsed.duplicate_event_uids.iter())
+        .cloned()
+        .collect();
+    let rejected: HashSet<String> = parsed.rejected_event_uids.iter().cloned().collect();
+    if acknowledged.is_empty() && rejected.is_empty() && parsed.rejected == 0 {
+        acknowledged.extend(chunk.iter().map(biome_event_key));
+    }
+    if acknowledged.is_empty() && rejected.is_empty() && parsed.rejected > 0 {
+        return Err(
+            "Biome ingest returned rejections without event IDs; keeping outbox for retry"
+                .to_string(),
+        );
+    }
+    let rejected_records: Vec<DesktopBiomeActivityEvent> = chunk
+        .iter()
+        .filter(|event| rejected.contains(&biome_event_key(event)))
+        .cloned()
+        .collect();
+    let mut processed_keys = HashSet::new();
+    let mut committed_events = Vec::new();
+    for event in chunk {
+        let key = biome_event_key(event);
+        if acknowledged.contains(&key) || rejected.contains(&key) {
+            processed_keys.insert(key);
+            committed_events.push(event.clone());
+        }
+    }
+    Ok((processed_keys, rejected_records, committed_events))
+}
+
+fn drain_biome_outbox_blocking(auth_token: String, backend_base: String) -> Result<usize, String> {
     let Some(path) = biome_outbox_path() else {
         return Ok(0);
     };
@@ -678,8 +889,15 @@ fn drain_biome_outbox_blocking(
         return Ok(0);
     }
 
-    let events = read_biome_outbox(&path)?;
+    let read = read_biome_outbox(&path)?;
+    if !read.malformed_lines.is_empty() {
+        quarantine_text(&path, "malformed", &read.malformed_lines.join("\n"))?;
+    }
+    let events = read.events;
     if events.is_empty() {
+        if !read.malformed_lines.is_empty() {
+            write_biome_outbox(&path, &[])?;
+        }
         return Ok(0);
     }
 
@@ -688,7 +906,8 @@ fn drain_biome_outbox_blocking(
         .build()
         .map_err(|error| format!("Failed to create Biome outbox client: {error}"))?;
     let url = format!("{backend_base}/api/watcher/biome-ingest");
-    let mut submitted_keys: HashSet<String> = HashSet::new();
+    let mut processed_keys: HashSet<String> = HashSet::new();
+    let mut committed_events: Vec<DesktopBiomeActivityEvent> = Vec::new();
 
     for chunk in events.chunks(BIOME_OUTBOX_BATCH_SIZE) {
         let body = serde_json::to_string(&serde_json::json!({ "events": chunk }))
@@ -719,17 +938,20 @@ fn drain_biome_outbox_blocking(
             "Submitted Biome iPhone activity outbox batch"
         );
 
-        for event in chunk {
-            submitted_keys.insert(biome_event_key(event));
-        }
+        let (chunk_processed_keys, rejected_records, chunk_committed_events) =
+            classify_biome_ack(&parsed, chunk)?;
+        append_quarantine_records(&path, "rejected", "backend_rejected", &rejected_records)?;
+        processed_keys.extend(chunk_processed_keys);
+        committed_events.extend(chunk_committed_events);
     }
 
     let remaining: Vec<DesktopBiomeActivityEvent> = events
         .into_iter()
-        .filter(|event| !submitted_keys.contains(&biome_event_key(event)))
+        .filter(|event| !processed_keys.contains(&biome_event_key(event)))
         .collect();
     write_biome_outbox(&path, &remaining)?;
-    Ok(submitted_keys.len())
+    advance_biome_committed_cursors(&committed_events)?;
+    Ok(processed_keys.len())
 }
 
 async fn drain_biome_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
@@ -770,14 +992,18 @@ pub fn trigger_biome_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
 pub fn register_biome_outbox_drain_worker<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(15)).await;
-        let mut interval = tokio::time::interval(Duration::from_secs(BIOME_OUTBOX_DRAIN_INTERVAL_SECS));
+        let mut interval =
+            tokio::time::interval(Duration::from_secs(BIOME_OUTBOX_DRAIN_INTERVAL_SECS));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
         loop {
             interval.tick().await;
             match drain_biome_outbox_once(app.clone()).await {
                 Ok(count) if count > 0 => {
-                    info!(count, "Biome iPhone activity outbox drained by background worker");
+                    info!(
+                        count,
+                        "Biome iPhone activity outbox drained by background worker"
+                    );
                 }
                 Ok(_) => {}
                 Err(error) => {
@@ -789,6 +1015,169 @@ pub fn register_biome_outbox_drain_worker<R: Runtime + 'static>(app: AppHandle<R
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+    fn temp_file(name: &str) -> PathBuf {
+        let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
+        let dir = env::temp_dir().join(format!(
+            "ritual-desktop-runtime-test-{}-{}",
+            std::process::id(),
+            n
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create test directory");
+        dir.join(name)
+    }
+
+    fn biome_event(event_uid: Option<&str>, ts_end: i64) -> DesktopBiomeActivityEvent {
+        DesktopBiomeActivityEvent {
+            event_uid: event_uid.map(str::to_string),
+            device_id: "iphone".to_string(),
+            app_bundle_id: "com.apple.MobileSMS".to_string(),
+            app_name: "Messages".to_string(),
+            ts_start: 1_000,
+            ts_end,
+            window_title: Some("Messages".to_string()),
+            browser_url: None,
+            browser_domain: None,
+            is_incognito: false,
+            source_file: Some("fixture.segb".to_string()),
+            app_version: None,
+            app_build: None,
+            transition_reason: None,
+            biome_is_provisional: false,
+        }
+    }
+
+    fn location_ping(id: &str) -> DesktopLocationPing {
+        DesktopLocationPing {
+            lat: Some(40.0),
+            lon: Some(-73.0),
+            horizontal_accuracy_m: Some(25.0),
+            source: "iphone_scls".to_string(),
+            device_id: Some("iphone".to_string()),
+            bssid: None,
+            ssid: None,
+            client_ts: 1_000,
+            client_event_id: id.to_string(),
+        }
+    }
+
+    #[test]
+    fn biome_event_key_ignores_legacy_uid_and_end_time() {
+        let legacy = biome_event(Some("old:iphone:messages:1000:2000"), 2_000);
+        let newer = biome_event(Some("old:iphone:messages:1000:4000"), 4_000);
+
+        assert_eq!(
+            biome_event_key(&legacy),
+            "biome:iphone:com.apple.MobileSMS:1000"
+        );
+        assert_eq!(biome_event_key(&legacy), biome_event_key(&newer));
+    }
+
+    #[test]
+    fn read_biome_outbox_keeps_valid_rows_when_one_line_is_malformed() {
+        let path = temp_file("biome_iphone_events.jsonl");
+        let first = serde_json::to_string(&biome_event(Some("first"), 2_000)).unwrap();
+        let second = serde_json::to_string(&biome_event(Some("second"), 3_000)).unwrap();
+        fs::write(&path, format!("{first}\n{{bad-json\n{second}\n")).unwrap();
+
+        let read = read_biome_outbox(&path).expect("read biome outbox");
+
+        assert_eq!(read.events.len(), 2);
+        assert_eq!(read.malformed_lines.len(), 1);
+        assert!(read.malformed_lines[0].contains("bad-json"));
+    }
+
+    #[test]
+    fn classify_location_ack_handles_accepted_duplicates_and_rejects() {
+        let chunk = vec![
+            location_ping("accepted"),
+            location_ping("duplicate"),
+            location_ping("rejected"),
+        ];
+        let parsed = LocationIngestResponse {
+            accepted: 1,
+            rejected: 1,
+            duplicates: 1,
+            accepted_ids: vec!["accepted".to_string()],
+            duplicate_ids: vec!["duplicate".to_string()],
+            rejected_ids: vec!["rejected".to_string()],
+        };
+
+        let (processed, rejected) = classify_location_ack(&parsed, &chunk).unwrap();
+
+        assert_eq!(processed.len(), 3);
+        assert!(processed.contains("accepted"));
+        assert!(processed.contains("duplicate"));
+        assert!(processed.contains("rejected"));
+        assert_eq!(rejected.len(), 1);
+        assert_eq!(rejected[0].client_event_id, "rejected");
+    }
+
+    #[test]
+    fn classify_location_ack_keeps_batch_when_rejects_have_no_ids() {
+        let chunk = vec![location_ping("pending")];
+        let parsed = LocationIngestResponse {
+            accepted: 0,
+            rejected: 1,
+            duplicates: 0,
+            accepted_ids: vec![],
+            duplicate_ids: vec![],
+            rejected_ids: vec![],
+        };
+
+        assert!(classify_location_ack(&parsed, &chunk).is_err());
+    }
+
+    #[test]
+    fn classify_biome_ack_handles_mixed_response_and_commits_processed_events() {
+        let accepted = biome_event(Some("legacy-accepted"), 2_000);
+        let mut rejected = biome_event(Some("legacy-rejected"), 3_000);
+        rejected.app_bundle_id = "com.apple.Preferences".to_string();
+        rejected.ts_start = 3_000;
+        let accepted_key = biome_event_key(&accepted);
+        let rejected_key = biome_event_key(&rejected);
+        let chunk = vec![accepted, rejected];
+        let parsed = BiomeIngestResponse {
+            accepted: 1,
+            rejected: 1,
+            duplicates: 0,
+            accepted_event_uids: vec![accepted_key.clone()],
+            duplicate_event_uids: vec![],
+            rejected_event_uids: vec![rejected_key.clone()],
+        };
+
+        let (processed, rejected_records, committed) = classify_biome_ack(&parsed, &chunk).unwrap();
+
+        assert_eq!(processed.len(), 2);
+        assert!(processed.contains(&accepted_key));
+        assert!(processed.contains(&rejected_key));
+        assert_eq!(rejected_records.len(), 1);
+        assert_eq!(committed.len(), 2);
+    }
+
+    #[test]
+    fn classify_biome_ack_keeps_batch_when_rejects_have_no_ids() {
+        let chunk = vec![biome_event(Some("pending"), 2_000)];
+        let parsed = BiomeIngestResponse {
+            accepted: 0,
+            rejected: 1,
+            duplicates: 0,
+            accepted_event_uids: vec![],
+            duplicate_event_uids: vec![],
+            rejected_event_uids: vec![],
+        };
+
+        assert!(classify_biome_ack(&parsed, &chunk).is_err());
+    }
 }
 
 fn emit_update_status<R: Runtime>(app: &AppHandle<R>, status: &str, error: Option<String>) {

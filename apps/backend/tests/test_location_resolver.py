@@ -30,6 +30,7 @@ from services.location.resolver import (  # noqa: E402
     TIER_RULES,
     _decay_confidence,
     resolve_for,
+    resolve_many_for,
 )
 
 
@@ -75,6 +76,15 @@ class _FakeExecuteResult:
     def scalar_one_or_none(self):
         return self._row
 
+    def scalars(self):
+        values = self._row if isinstance(self._row, list) else ([] if self._row is None else [self._row])
+
+        class _Scalars:
+            def all(self_inner):
+                return values
+
+        return _Scalars()
+
 
 class _FakeSession:
     """Returns scripted results for each execute() call.
@@ -85,8 +95,10 @@ class _FakeSession:
 
     def __init__(self, rows):
         self._rows = list(rows)
+        self._execute_count = 0
 
     async def execute(self, *args, **kwargs):
+        self._execute_count += 1
         if self._rows:
             return _FakeExecuteResult(self._rows.pop(0))
         return _FakeExecuteResult(None)
@@ -124,7 +136,7 @@ class StateDirectPathTests(unittest.IsolatedAsyncioTestCase):
         # State is 2 hours old → outside STATE_DIRECT_WINDOW_MS (1h), falls to tier scan
         old_state = _FakeStateRow(ping_client_ts=target_ts - 2 * 60 * 60_000, source="ios_scls")
         # No tier matches available
-        rows = [old_state] + [None] * len(TIER_RULES)
+        rows = [old_state, []]
         with patch(
             "services.location.resolver.get_db_session",
             _fake_session_factory(rows),
@@ -136,7 +148,7 @@ class StateDirectPathTests(unittest.IsolatedAsyncioTestCase):
         target_ts = 1_700_000_000_000
         # State is from the future relative to target → age < 0, skip direct path
         future_state = _FakeStateRow(ping_client_ts=target_ts + 60_000, source="ios_scls")
-        rows = [future_state] + [None] * len(TIER_RULES)
+        rows = [future_state, []]
         with patch(
             "services.location.resolver.get_db_session",
             _fake_session_factory(rows),
@@ -157,7 +169,7 @@ class TieredFallbackTests(unittest.IsolatedAsyncioTestCase):
             source="ios_scls",
             client_ts=target_ts - 60_000,  # 1 min ago
         )
-        rows = [None, hit]
+        rows = [None, [hit]]
         with patch(
             "services.location.resolver.get_db_session",
             _fake_session_factory(rows),
@@ -178,7 +190,7 @@ class TieredFallbackTests(unittest.IsolatedAsyncioTestCase):
             source="ios_scls",
             client_ts=target_ts - 10 * 60_000,
         )
-        rows = [None, None, None, None, hit]  # state + 3 misses + hit
+        rows = [None, [hit]]
         with patch(
             "services.location.resolver.get_db_session",
             _fake_session_factory(rows),
@@ -189,7 +201,7 @@ class TieredFallbackTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_returns_none_when_all_tiers_empty(self):
         target_ts = 1_700_000_000_000
-        rows = [None] + [None] * len(TIER_RULES)
+        rows = [None, []]
         with patch(
             "services.location.resolver.get_db_session",
             _fake_session_factory(rows),
@@ -219,6 +231,42 @@ class ConfidenceDecayTests(unittest.TestCase):
     def test_unknown_source_uses_default_base(self):
         c = _decay_confidence("unknown_source", 0)
         self.assertAlmostEqual(c, 0.7, places=2)
+
+
+class BatchResolveTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resolve_many_uses_single_session_for_many_timestamps(self):
+        target = 1_700_000_000_000
+        hit = _FakePingRow(lat=40.0, lon=-74.0, source="ios_scls", client_ts=target)
+        fake_session = _FakeSession([None, [hit]])
+
+        @asynccontextmanager
+        async def _ctx():
+            yield fake_session
+
+        with patch("services.location.resolver.get_db_session", _ctx):
+            result = await resolve_many_for("user-1", [target, target + 1_000])
+
+        self.assertEqual(len(result), 2)
+        self.assertIsNotNone(result[target])
+        self.assertIsNotNone(result[target + 1_000])
+        self.assertEqual(fake_session._execute_count, 2)
+
+    async def test_historical_ping_does_not_inherit_current_place_label(self):
+        target = 1_700_000_000_000
+        stale_state = _FakeStateRow(
+            ping_client_ts=target - 2 * STATE_DIRECT_WINDOW_MS,
+            source="ios_scls",
+            place_label="Current Home",
+        )
+        hit = _FakePingRow(lat=40.0, lon=-74.0, source="ios_scls", client_ts=target)
+        with patch(
+            "services.location.resolver.get_db_session",
+            _fake_session_factory([stale_state, [hit]]),
+        ):
+            result = await resolve_for("user-1", target)
+
+        self.assertIsNotNone(result)
+        self.assertIsNone(result.place_label)
 
 
 if __name__ == "__main__":

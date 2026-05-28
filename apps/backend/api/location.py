@@ -43,6 +43,9 @@ def create_location_router(
             accepted=result.accepted,
             rejected=result.rejected,
             duplicates=result.duplicates,
+            accepted_ids=list(result.accepted_ids),
+            duplicate_ids=list(result.duplicate_ids),
+            rejected_ids=list(result.rejected_ids),
         )
 
     return router
