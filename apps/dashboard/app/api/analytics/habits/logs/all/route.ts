@@ -51,6 +51,21 @@ type NormalizedLog = {
   source_device_name?: string | null;
 };
 
+type MetricDailyFactRow = {
+  habit_id?: string;
+  habit_name?: string;
+  metric_key?: string;
+  date?: string;
+  daily_value?: number;
+  value?: number;
+  total_amount?: number;
+  unit?: string;
+  source_family?: string;
+  provider?: string | null;
+  record_count?: number;
+  status?: string;
+};
+
 function parseCompletedAt(value?: string | null): Date | null {
   if (!value || typeof value !== 'string') return null;
 
@@ -256,6 +271,101 @@ function dedupeDailyRowsWhenGranularExists(items: WearableTimelineItem[]): Weara
   });
 }
 
+function isIphoneTimeHabit(habit: HabitMeta): boolean {
+  const name = String(habit.name || '').trim().toLowerCase();
+  const metricType = String(habit.metric_type || '').trim().toLowerCase();
+  const source = String(habit.integration_source || '').trim().toLowerCase();
+  return (
+    name === 'iphone time'
+    || metricType === 'iphone_time'
+    || metricType === 'iphone_screen_time'
+    || source === 'biome_iphone'
+  );
+}
+
+function shouldIncludeIphoneTimeLogs(sources: string[]): boolean {
+  if (sources.length === 0) return true;
+  const normalized = sources.map((source) => source.trim().toLowerCase());
+  return normalized.some((source) => (
+    source === 'biome_iphone'
+    || source === 'iphone'
+    || source === 'iphone_time'
+    || source === 'apple_screen_time'
+    || source === 'screen_time'
+  ));
+}
+
+async function fetchIphoneTimeFactLogs({
+  userId,
+  token,
+  habit,
+  startDate,
+  endDate,
+}: {
+  userId: string;
+  token: string | null;
+  habit: HabitMeta;
+  startDate: string;
+  endDate: string;
+}): Promise<NormalizedLog[]> {
+  const params = new URLSearchParams({
+    habit_id: habit.id,
+    start_date: startDate,
+    end_date: endDate,
+  });
+  const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/metrics/facts/daily?${params.toString()}`, {
+    headers: buildBackendAuthHeaders({ userId, token }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    console.warn('Failed to fetch iPhone Time daily facts for logs:', response.status, errorText);
+    return [];
+  }
+
+  const payload = await response.json().catch(() => null);
+  const rows = Array.isArray(payload?.data) ? payload.data as MetricDailyFactRow[] : [];
+  return rows
+    .map((row): NormalizedLog | null => {
+      const date = String(row.date || '').slice(0, 10);
+      if (!date) return null;
+      const value = Number(row.daily_value ?? row.value ?? row.total_amount ?? 0);
+      if (!Number.isFinite(value) || value <= 0) return null;
+      return {
+        id: `metric-fact:iphone-time:${habit.id}:${date}`,
+        habit_id: habit.id,
+        habit_name: habit.name || row.habit_name || 'iPhone Time',
+        category: habit.category || 'Device Usage',
+        icon: habit.icon,
+        date,
+        raw_date: date,
+        completed_at: `${date}T12:00:00Z`,
+        amount: value,
+        unit_type: habit.unit_type || row.unit || 'Hours',
+        status: 'completed',
+        notes: `Daily iPhone Time rollup from ${Number(row.record_count || 0).toLocaleString()} app interval${Number(row.record_count || 0) === 1 ? '' : 's'}.`,
+        integration_source: 'biome_iphone',
+        metric_type: row.metric_key || habit.metric_type || 'iphone_time',
+        time_precision: 'day',
+        metadata: {
+          record_kind: 'metric_daily_fact',
+          source_family: row.source_family || 'watcher',
+          provider: row.provider || 'biome_iphone',
+          record_count: Number(row.record_count || 0),
+          read_only: true,
+        },
+        editable: false,
+        record_kind: 'habit_log',
+        rollup_level: 'day',
+        aggregation_kind: 'daily_total',
+        source_device_name: 'iPhone',
+      };
+    })
+    .filter((row): row is NormalizedLog => Boolean(row));
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { userId, getToken } = await auth();
@@ -330,6 +440,18 @@ export async function GET(request: NextRequest) {
     let logs = dedupeDailyRowsWhenGranularExists(timelinePayload.items || [])
       .map((item) => normalizeTimelineItem(item, habitLookup, timezone))
       .filter((item): item is NormalizedLog => Boolean(item));
+
+    const iphoneTimeHabit = habitsList.find(isIphoneTimeHabit);
+    if (iphoneTimeHabit && shouldIncludeIphoneTimeLogs(sources)) {
+      const iphoneFactLogs = await fetchIphoneTimeFactLogs({
+        userId,
+        token,
+        habit: iphoneTimeHabit,
+        startDate,
+        endDate,
+      });
+      logs = [...logs, ...iphoneFactLogs];
+    }
 
     logs = logs.filter((log) => log.date >= startDate && log.date <= endDate);
 
