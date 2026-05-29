@@ -16,7 +16,7 @@ import { perfInfo } from '@/lib/perf-debug';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
 const DASHBOARD_SNAPSHOT_STORAGE_KEY = 'ritual:dashboard-snapshot:v3';
-const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 type PersistedSnapshot = {
   updatedAt: number;
@@ -102,6 +102,31 @@ function persistSnapshot(
   } catch (error) {
     console.warn('Failed to persist dashboard snapshot:', error);
   }
+}
+
+function countPositiveOverviewStats(stats?: DashboardSnapshot['overviewStats']): number {
+  if (!stats) return 0;
+
+  return Object.values(stats).filter((stat) => {
+    const total = Number(stat?.total || 0);
+    const daysWithData = Number(stat?.days_with_data || 0);
+    return Number.isFinite(total) && total > 0 || daysWithData > 0;
+  }).length;
+}
+
+function isDegradedOverviewPayload(
+  baseSnapshot: DashboardSnapshot,
+  payload: DashboardOverviewSnapshotResponse,
+): boolean {
+  const baseStats = baseSnapshot.overviewStats || {};
+  const incomingStats = payload.overviewStats || {};
+  const basePositive = countPositiveOverviewStats(baseStats);
+  const incomingPositive = countPositiveOverviewStats(incomingStats);
+
+  if (basePositive < 4) return false;
+  if (Object.keys(incomingStats).length === 0) return true;
+
+  return incomingPositive <= Math.max(1, Math.floor(basePositive * 0.35));
 }
 
 export function clearPersistedDashboardSnapshots(userId?: string | null): void {
@@ -243,6 +268,17 @@ export function useDashboardSnapshotQuery({
         const payload = await fetchOverviewSnapshot(dateRange);
         if (Array.isArray(payload.habits) && payload.habits.length > 0) {
           queryClient.setQueryData(habitKeys.list(resolvedUserId), payload.habits);
+        }
+        if (isDegradedOverviewPayload(baseSnapshot, payload)) {
+          console.warn('Keeping cached dashboard snapshot because live overview payload was degraded');
+          return {
+            ...baseSnapshot,
+            meta: {
+              ...baseSnapshot.meta,
+              hydratedFrom: 'persisted-query',
+              generatedAt: Date.now(),
+            },
+          };
         }
         return mergeOverviewSnapshot(baseSnapshot, payload, resolvedUserId, rangeKey);
       } catch (error) {

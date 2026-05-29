@@ -9,7 +9,7 @@ mod outbox;
 mod protobuf;
 mod segb;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,9 +23,44 @@ const SCAN_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const APPLE_EPOCH_OFFSET_SECONDS: f64 = 978_307_200.0;
 const MAX_PROVISIONAL_INTERVAL_MS: i64 = 2 * 60 * 60 * 1000;
 const RECENT_OPEN_SOURCE_WINDOW_MS: i64 = 45 * 60 * 1000;
+const IGNORED_BIOME_BUNDLE_IDS: &[&str] = &[
+    "com.apple.carplaysplashscreen",
+    "com.apple.control-center",
+    "com.apple.screenshotservicesservice",
+    "com.apple.sleeplockscreen",
+];
+const IGNORED_BIOME_BUNDLE_PREFIXES: &[&str] = &["com.apple.springboard"];
 
 pub struct BiomeScanner {
     _join: std::thread::JoinHandle<()>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BiomeSourceDeviceReport {
+    pub device_id: String,
+    pub source_file_count: usize,
+    pub parsed_record_count: usize,
+    pub stitched_interval_count: usize,
+    pub source_bytes: u64,
+    pub first_event_start_ms: Option<i64>,
+    pub last_event_end_ms: Option<i64>,
+    pub sample_events: Vec<BiomeActivityEvent>,
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BiomeSourceReport {
+    pub generated_at_ms: i64,
+    pub home: String,
+    pub app_in_focus_remote_path: String,
+    pub app_in_focus_remote_exists: bool,
+    pub ios_device_ids: Vec<String>,
+    pub device_folder_ids: Vec<String>,
+    pub devices: Vec<BiomeSourceDeviceReport>,
+    pub total_source_file_count: usize,
+    pub total_parsed_record_count: usize,
+    pub total_stitched_interval_count: usize,
+    pub notes: Vec<String>,
 }
 
 impl BiomeScanner {
@@ -104,6 +139,146 @@ fn scan_once(outbox: &BiomeOutbox) -> Result<usize, String> {
     Ok(total_added)
 }
 
+pub fn build_source_report() -> BiomeSourceReport {
+    let base = app_in_focus_remote_dir();
+    let ios_device_ids = read_ios_devices_from_sync_db();
+    let device_folder_ids = if base.exists() {
+        read_device_dirs(&base)
+    } else {
+        Vec::new()
+    };
+    let mut all_devices = ios_device_ids.clone();
+    all_devices.extend(device_folder_ids.iter().cloned());
+    all_devices.sort();
+    all_devices.dedup();
+
+    let scan_now_ms = now_ms();
+    let devices: Vec<BiomeSourceDeviceReport> = all_devices
+        .iter()
+        .map(|device_id| build_source_device_report(&base, device_id, scan_now_ms))
+        .collect();
+    let total_source_file_count = devices.iter().map(|device| device.source_file_count).sum();
+    let total_parsed_record_count = devices
+        .iter()
+        .map(|device| device.parsed_record_count)
+        .sum();
+    let total_stitched_interval_count = devices
+        .iter()
+        .map(|device| device.stitched_interval_count)
+        .sum();
+    let mut notes = Vec::new();
+    if !base.exists() {
+        notes.push("App.InFocus remote directory is missing for this macOS user.".to_string());
+    } else if total_source_file_count == 0 {
+        notes.push(
+            "App.InFocus remote directory exists but contains no readable source files."
+                .to_string(),
+        );
+    } else if total_stitched_interval_count == 0 {
+        notes.push("Source files exist, but Ritual did not decode any foreground intervals. Parser or source format needs review.".to_string());
+    } else {
+        notes.push(
+            "Ritual decoded Biome App.InFocus intervals from this macOS account.".to_string(),
+        );
+    }
+
+    BiomeSourceReport {
+        generated_at_ms: scan_now_ms,
+        home: home_dir().display().to_string(),
+        app_in_focus_remote_path: base.display().to_string(),
+        app_in_focus_remote_exists: base.exists(),
+        ios_device_ids,
+        device_folder_ids,
+        devices,
+        total_source_file_count,
+        total_parsed_record_count,
+        total_stitched_interval_count,
+        notes,
+    }
+}
+
+pub fn write_source_report(output: &Path) -> Result<(), String> {
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create Biome diagnostics output dir: {error}"))?;
+    }
+    let report = build_source_report();
+    let body = serde_json::to_string_pretty(&report)
+        .map_err(|error| format!("encode Biome diagnostics report: {error}"))?;
+    fs::write(output, format!("{body}\n"))
+        .map_err(|error| format!("write Biome diagnostics report: {error}"))
+}
+
+pub fn write_export_jsonl(output: &Path) -> Result<usize, String> {
+    if let Some(parent) = output.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create Biome export output dir: {error}"))?;
+    }
+    let events = collect_export_events()?;
+    let mut body = String::new();
+    for event in &events {
+        let line = serde_json::to_string(event)
+            .map_err(|error| format!("encode Biome export event: {error}"))?;
+        body.push_str(&line);
+        body.push('\n');
+    }
+    fs::write(output, body).map_err(|error| format!("write Biome export JSONL: {error}"))?;
+    Ok(events.len())
+}
+
+fn collect_export_events() -> Result<Vec<BiomeActivityEvent>, String> {
+    let base = app_in_focus_remote_dir();
+    if !base.exists() {
+        return Ok(Vec::new());
+    }
+    let scan_now_ms = now_ms();
+    let mut events = Vec::new();
+    for device_id in discover_ios_devices(&base) {
+        let files = device_stream_files(&base, &device_id)?;
+        let records = read_device_records(&files);
+        events.extend(stitch_intervals(&device_id, records, scan_now_ms));
+    }
+    events.sort_by_key(|event| (event.ts_start, event.ts_end));
+    Ok(events)
+}
+
+fn build_source_device_report(
+    base: &Path,
+    device_id: &str,
+    scan_now_ms: i64,
+) -> BiomeSourceDeviceReport {
+    let mut errors = Vec::new();
+    let files = match device_stream_files(base, device_id) {
+        Ok(files) => files,
+        Err(error) => {
+            errors.push(error);
+            Vec::new()
+        }
+    };
+    let source_bytes = files
+        .iter()
+        .filter_map(|file| file.metadata().ok().map(|metadata| metadata.len()))
+        .sum();
+    let records = read_device_records_with_errors(&files, &mut errors);
+    let parsed_record_count = records.len();
+    let events = stitch_intervals(device_id, records, scan_now_ms);
+    let first_event_start_ms = events.iter().map(|event| event.ts_start).min();
+    let last_event_end_ms = events.iter().map(|event| event.ts_end).max();
+    let sample_events = events.iter().take(10).cloned().collect();
+
+    BiomeSourceDeviceReport {
+        device_id: device_id.to_string(),
+        source_file_count: files.len(),
+        parsed_record_count,
+        stitched_interval_count: events.len(),
+        source_bytes,
+        first_event_start_ms,
+        last_event_end_ms,
+        sample_events,
+        errors,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct FocusRecord {
     device_id: String,
@@ -118,6 +293,14 @@ struct FocusRecord {
 }
 
 fn read_device_records(files: &[PathBuf]) -> Vec<FocusRecord> {
+    let mut errors = Vec::new();
+    read_device_records_with_errors(files, &mut errors)
+}
+
+fn read_device_records_with_errors(
+    files: &[PathBuf],
+    errors: &mut Vec<String>,
+) -> Vec<FocusRecord> {
     let mut records = Vec::new();
     for file in files {
         let Some(device_id) = file
@@ -162,6 +345,7 @@ fn read_device_records(files: &[PathBuf]) -> Vec<FocusRecord> {
             }
             Err(error) => {
                 debug!(path = %file.display(), error = %error, "Skipping Biome file");
+                errors.push(format!("{}: {}", file.display(), error));
             }
         }
     }
@@ -179,6 +363,17 @@ fn stitch_intervals(
 
     for record in records {
         if record.app_bundle_id.trim().is_empty() {
+            continue;
+        }
+
+        if is_ignored_biome_bundle(&record.app_bundle_id) {
+            if record.in_foreground {
+                if let Some(open) = current.take() {
+                    if record.ts_ms > open.ts_ms {
+                        events.push(event_from_interval(device_id, &open, record.ts_ms, false));
+                    }
+                }
+            }
             continue;
         }
 
@@ -228,6 +423,14 @@ fn stitch_intervals(
     }
 
     events
+}
+
+fn is_ignored_biome_bundle(bundle_id: &str) -> bool {
+    let normalized = bundle_id.trim().to_ascii_lowercase();
+    IGNORED_BIOME_BUNDLE_IDS.contains(&normalized.as_str())
+        || IGNORED_BIOME_BUNDLE_PREFIXES
+            .iter()
+            .any(|prefix| normalized == *prefix || normalized.starts_with(&format!("{prefix}.")))
 }
 
 fn event_from_interval(
@@ -508,6 +711,48 @@ mod tests {
         assert_eq!(events[1].ts_start, 300);
         assert_eq!(events[1].ts_end, 500);
         assert!(!events[1].biome_is_provisional);
+    }
+
+    #[test]
+    fn stitch_closes_current_interval_on_ignored_system_foreground() {
+        let events = stitch_intervals(
+            "iphone",
+            vec![
+                record("com.apple.MobileSMS", true, 100),
+                record("com.apple.SleepLockScreen", true, 250),
+                record("com.apple.SleepLockScreen", false, 300),
+                record("com.google.ios.youtube", true, 400),
+                record("com.google.ios.youtube", false, 600),
+            ],
+            1_000,
+        );
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].app_bundle_id, "com.apple.MobileSMS");
+        assert_eq!(events[0].ts_end, 250);
+        assert_eq!(events[1].app_bundle_id, "com.google.ios.youtube");
+    }
+
+    #[test]
+    fn stitch_ignores_springboard_prefix_and_system_ui() {
+        let events = stitch_intervals(
+            "iphone",
+            vec![
+                record("com.apple.springboard.home-screen-open-folder", true, 100),
+                record("com.apple.ScreenshotServicesService", true, 200),
+                record("com.google.ios.youtube", true, 300),
+                record("com.apple.control-center", true, 450),
+                record("com.google.chrome.ios", true, 600),
+                record("com.google.chrome.ios", false, 900),
+            ],
+            1_000,
+        );
+
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].app_bundle_id, "com.google.ios.youtube");
+        assert_eq!(events[0].ts_start, 300);
+        assert_eq!(events[0].ts_end, 450);
+        assert_eq!(events[1].app_bundle_id, "com.google.chrome.ios");
     }
 
     #[test]

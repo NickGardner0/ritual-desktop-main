@@ -13,6 +13,7 @@ import { markReadConsistencyRequired } from '@/lib/read-consistency';
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
 const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 60_000;
+const DESKTOP_AUTH_TOKEN_REFRESH_MS = 45_000;
 const COMPUTER_HISTORY_BACKFILL_DAYS = 3650;
 const COMPUTER_HISTORY_BACKFILL_DELAY_MS = 20_000;
 const COMPUTER_HISTORY_BACKFILL_THROTTLE_MS = 12 * 60 * 60 * 1000;
@@ -126,24 +127,29 @@ function RuntimeSyncBridge() {
         const token = await getToken();
         if (!token || cancelled) return;
 
-        if (bridgeMode === 'native') {
-          await desktopSetAuthToken({
-            token,
-            userId: user?.id ?? null,
-            backendBase: PYTHON_API_BASE,
-          });
+        const nativeResult = await desktopSetAuthToken({
+          token,
+          userId: user?.id ?? null,
+          backendBase: PYTHON_API_BASE,
+        });
+        if (nativeResult) {
+          if (bridgeMode !== 'native' && !cancelled) {
+            setBridgeMode('native');
+          }
           return;
         }
 
-        const { invoke } = await import('@tauri-apps/api/core');
-        await invoke('write_auth_token_to_file', {
-          token,
-          origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_auth_token_to_file'),
-        });
+        if (bridgeMode === 'legacy') {
+          const { invoke } = await import('@tauri-apps/api/core');
+          await invoke('write_auth_token_to_file', {
+            token,
+            origin: buildDesktopCommandOrigin('desktop-runtime-bridge:write_auth_token_to_file'),
+          });
 
-        if (user?.id && lastLegacyReconciledUserRef.current !== user.id) {
-          lastLegacyReconciledUserRef.current = user.id;
-          await invoke<boolean>('reconcile_watcher_config_user_cmd', { userId: user.id }).catch(() => false);
+          if (user?.id && lastLegacyReconciledUserRef.current !== user.id) {
+            lastLegacyReconciledUserRef.current = user.id;
+            await invoke<boolean>('reconcile_watcher_config_user_cmd', { userId: user.id }).catch(() => false);
+          }
         }
       } catch {
         // Ignore until the native client/backend are ready.
@@ -151,11 +157,9 @@ function RuntimeSyncBridge() {
     };
 
     void syncAuthToken();
-    if (bridgeMode === 'legacy') {
-      interval = setInterval(() => {
-        void syncAuthToken();
-      }, 5 * 60_000);
-    }
+    interval = setInterval(() => {
+      void syncAuthToken();
+    }, DESKTOP_AUTH_TOKEN_REFRESH_MS);
 
     return () => {
       cancelled = true;

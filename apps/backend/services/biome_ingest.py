@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 MAX_BIOME_EVENTS_PER_BATCH = 2_000
 SOURCE = "biome_iphone"
 EVENT_LOOKUP_CHUNK_SIZE = 500
+IGNORED_BIOME_BUNDLE_IDS = {
+    "com.apple.carplaysplashscreen",
+    "com.apple.control-center",
+    "com.apple.screenshotservicesservice",
+    "com.apple.sleeplockscreen",
+}
+IGNORED_BIOME_BUNDLE_PREFIXES = {
+    "com.apple.springboard",
+}
 
 ACTIVITY_COLUMNS = [
     "event_uid",
@@ -119,14 +128,30 @@ async def ingest_biome_events(
     if len(events) > MAX_BIOME_EVENTS_PER_BATCH:
         raise ValueError(f"batch too large; max {MAX_BIOME_EVENTS_PER_BATCH}")
 
-    rows = await _events_to_rows(user_id, events)
+    valid_events: list[BiomeActivityEvent] = []
+    rejected_event_uids: list[str] = []
+    for event in events:
+        if _is_ignored_biome_event(event):
+            rejected_event_uids.append(stable_biome_event_uid(event))
+        else:
+            valid_events.append(event)
+    if not valid_events:
+        return BiomeIngestResult(
+            accepted=0,
+            rejected=len(rejected_event_uids),
+            duplicates=0,
+            rejected_event_uids=tuple(rejected_event_uids),
+        )
+
+    rows = await _events_to_rows(user_id, valid_events)
     rows, in_batch_duplicate_uids = _dedupe_rows(rows)
     if not rows:
         return BiomeIngestResult(
             accepted=0,
-            rejected=0,
+            rejected=len(rejected_event_uids),
             duplicates=len(in_batch_duplicate_uids),
             duplicate_event_uids=tuple(in_batch_duplicate_uids),
+            rejected_event_uids=tuple(rejected_event_uids),
         )
 
     write_result = await _write_rows(user_id, rows)
@@ -141,11 +166,19 @@ async def ingest_biome_events(
     duplicate_event_uids = (*in_batch_duplicate_uids, *write_result.duplicate_event_uids)
     return BiomeIngestResult(
         accepted=write_result.accepted,
-        rejected=0,
+        rejected=len(rejected_event_uids),
         duplicates=len(duplicate_event_uids),
         accepted_event_uids=write_result.accepted_event_uids,
         duplicate_event_uids=duplicate_event_uids,
-        rejected_event_uids=(),
+        rejected_event_uids=tuple(rejected_event_uids),
+    )
+
+
+def _is_ignored_biome_event(event: BiomeActivityEvent) -> bool:
+    bundle_id = event.app_bundle_id.strip().lower()
+    return bundle_id in IGNORED_BIOME_BUNDLE_IDS or any(
+        bundle_id == prefix or bundle_id.startswith(f"{prefix}.")
+        for prefix in IGNORED_BIOME_BUNDLE_PREFIXES
     )
 
 

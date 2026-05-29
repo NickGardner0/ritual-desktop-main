@@ -82,12 +82,12 @@ struct Args {
     database: String,
 
     /// Device ID (UUID)
-    #[arg(short = 'i', long)]
-    device_id: String,
+    #[arg(short = 'i', long, required_unless_present_any = ["biome_source_report", "biome_export_jsonl"])]
+    device_id: Option<String>,
 
     /// User ID
-    #[arg(short, long)]
-    user_id: String,
+    #[arg(short, long, required_unless_present_any = ["biome_source_report", "biome_export_jsonl"])]
+    user_id: Option<String>,
 
     /// Poll interval in milliseconds
     #[arg(short, long, default_value = "2000")]
@@ -136,6 +136,14 @@ struct Args {
     /// Max children/siblings per node for AX dump mode.
     #[arg(long, default_value = "8")]
     ax_dump_max_children: usize,
+
+    /// Write a one-shot Biome App.InFocus parser report and exit.
+    #[arg(long, value_name = "PATH")]
+    biome_source_report: Option<String>,
+
+    /// Export normalized Biome iPhone intervals as JSONL and exit.
+    #[arg(long, value_name = "PATH")]
+    biome_export_jsonl: Option<String>,
 }
 
 /// Activity signature for detecting changes (used for event merging)

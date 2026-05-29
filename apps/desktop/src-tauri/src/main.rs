@@ -496,6 +496,25 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
         }
 
         if activity_database_ready {
+            let historical_import_started_at = Instant::now();
+            match tauri::async_runtime::spawn_blocking(|| {
+                ritual_database::import_historical_activity_with_origin(
+                    "startup:historical-activity",
+                )
+            })
+            .await
+            {
+                Ok(()) => info!(
+                    duration_ms = historical_import_started_at.elapsed().as_millis() as u64,
+                    "Historical activity import check completed before watcher start"
+                ),
+                Err(error) => warn!(
+                    error = %error,
+                    duration_ms = historical_import_started_at.elapsed().as_millis() as u64,
+                    "Historical activity import check task failed before watcher start"
+                ),
+            }
+
             cloud_sync::spawn_cloud_sync_worker(app.clone());
         }
 
@@ -505,19 +524,6 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
 
         spawn_watcher_watchdog();
         desktop_runtime::emit_runtime_state_changed(app.clone());
-
-        tauri::async_runtime::spawn(async move {
-            match tauri::async_runtime::spawn_blocking(|| {
-                ritual_database::import_historical_activity_with_origin(
-                    "startup:historical-activity",
-                )
-            })
-            .await
-            {
-                Ok(()) => info!("Historical activity import check completed"),
-                Err(error) => warn!(error = %error, "Historical activity import check task failed"),
-            }
-        });
 
         let memory_db_init_started_at = Instant::now();
         match tauri::async_runtime::spawn_blocking(|| {

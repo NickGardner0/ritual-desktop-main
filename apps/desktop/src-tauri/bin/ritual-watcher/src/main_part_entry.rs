@@ -12,10 +12,45 @@ fn main() {
     configure_process_as_background_agent();
 
     let args = Args::parse();
-    sentry_observability::set_watcher_context(&args.user_id, &args.device_id);
+    if let Some(output) = args.biome_source_report.as_deref() {
+        let output = std::path::PathBuf::from(shellexpand::tilde(output).to_string());
+        match biome::write_source_report(&output) {
+            Ok(()) => {
+                println!("{}", output.display());
+                return;
+            }
+            Err(err) => {
+                error!("Biome source report failed: {}", err);
+                std::process::exit(1);
+            }
+        }
+    }
+    if let Some(output) = args.biome_export_jsonl.as_deref() {
+        let output = std::path::PathBuf::from(shellexpand::tilde(output).to_string());
+        match biome::write_export_jsonl(&output) {
+            Ok(count) => {
+                println!("{} events -> {}", count, output.display());
+                return;
+            }
+            Err(err) => {
+                error!("Biome export failed: {}", err);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let device_id = args
+        .device_id
+        .clone()
+        .unwrap_or_else(|| "diagnostic-device".to_string());
+    let user_id = args
+        .user_id
+        .clone()
+        .unwrap_or_else(|| "diagnostic-user".to_string());
+    sentry_observability::set_watcher_context(&user_id, &device_id);
 
     info!("🚀 Ritual Watcher v2 starting...");
-    info!("   Device ID: {}", args.device_id);
+    info!("   Device ID: {}", device_id);
     info!("   Poll interval: {}ms", args.poll_interval);
     info!("   Title mode: {}", args.title_mode);
     info!("   URL mode: {}", args.url_mode);
@@ -55,8 +90,8 @@ fn main() {
     // Parse configuration
     let config = WatcherConfig {
         database_path: shellexpand::tilde(&args.database).to_string(),
-        device_id: args.device_id.clone(),
-        user_id: args.user_id.clone(),
+        device_id: device_id.clone(),
+        user_id,
         poll_interval_ms: args.poll_interval,
         title_mode: match args.title_mode.as_str() {
             "full" => TitleMode::Full,

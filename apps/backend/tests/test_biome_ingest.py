@@ -157,6 +157,79 @@ class BiomeIngestTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             _event(ts_start=100, ts_end=100)
 
+    async def test_ignores_system_lockscreen_rows(self):
+        result = await ingest_biome_events(
+            "user-1",
+            [
+                _event(
+                    app_bundle_id="com.apple.SleepLockScreen",
+                    app_name="SleepLockScreen",
+                    ts_start=1_700_000_000_000,
+                    ts_end=1_700_000_001_000,
+                )
+            ],
+        )
+
+        self.assertEqual(result.accepted, 0)
+        self.assertEqual(result.rejected, 1)
+        self.assertEqual(
+            result.rejected_event_uids,
+            ("biome:iphone-1:com.apple.SleepLockScreen:1700000000000",),
+        )
+
+    async def test_ignores_springboard_and_system_ui_rows(self):
+        valid_event = _event(
+            app_bundle_id="com.apple.MobileSMS",
+            app_name="Messages",
+            ts_start=1_700_000_020_000,
+            ts_end=1_700_000_021_000,
+        )
+        valid_uid = stable_biome_event_uid(valid_event)
+        with patch("services.biome_ingest.resolve_many_for", AsyncMock(return_value={})), patch(
+            "services.biome_ingest._write_rows",
+            AsyncMock(
+                return_value=SimpleNamespace(
+                    accepted=1,
+                    duplicates=0,
+                    accepted_event_uids=(valid_uid,),
+                    duplicate_event_uids=(),
+                    affected_dates=(),
+                )
+            ),
+        ), patch(
+            "services.biome_ingest._ensure_iphone_time_habit",
+            AsyncMock(return_value="habit-iphone-time"),
+        ):
+            result = await ingest_biome_events(
+                "user-1",
+                [
+                    _event(
+                        app_bundle_id="com.apple.springboard.home-screen-open-folder",
+                        app_name="Home Screen",
+                        ts_start=1_700_000_000_000,
+                        ts_end=1_700_000_001_000,
+                    ),
+                    _event(
+                        app_bundle_id="com.apple.ScreenshotServicesService",
+                        app_name="Screenshot Services",
+                        ts_start=1_700_000_010_000,
+                        ts_end=1_700_000_011_000,
+                    ),
+                    valid_event,
+                ],
+            )
+
+        self.assertEqual(result.accepted, 1)
+        self.assertEqual(result.rejected, 2)
+        self.assertEqual(result.accepted_event_uids, (valid_uid,))
+        self.assertEqual(
+            result.rejected_event_uids,
+            (
+                "biome:iphone-1:com.apple.springboard.home-screen-open-folder:1700000000000",
+                "biome:iphone-1:com.apple.ScreenshotServicesService:1700000010000",
+            ),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -37,7 +37,7 @@ const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
 const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
-const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
 
 type PersistedSnapshot<T> = {
   updatedAt: number;
