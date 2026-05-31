@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   applyCanonicalOverviewSnapshot,
+  applyOptimisticOverviewStatDelta,
   invalidateAfterHabitWrite,
 } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
@@ -115,6 +116,25 @@ export function useAiHabitLogMutation({
   };
 
   const directLogMutation = useMutation({
+    onMutate: ({ matchedHabit, displayValue }: DirectLogParams) => {
+      onHabitUpdate?.({
+        success: true,
+        optimisticUpdate: true,
+        playSound: true,
+        affectedHabitIds: [matchedHabit.id],
+      });
+
+      if (!userId) return undefined;
+      return {
+        rollback: applyOptimisticOverviewStatDelta(queryClient, userId, {
+          habitId: matchedHabit.id,
+          habitName: matchedHabit.name,
+          unit: displayValue.unitLabel,
+          delta: displayValue.value,
+          date: getLocalDateString(),
+        }),
+      };
+    },
     mutationFn: async ({ inputText, parsed, matchedHabit, displayValue }: DirectLogParams) => {
       const sessionToken = await getToken();
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -165,13 +185,16 @@ export function useAiHabitLogMutation({
       onHabitUpdate?.({
         success: true,
         refreshNeeded: true,
-        playSound: true,
+        playSound: false,
         canonicalRefreshHandled: true,
         affectedHabitIds: [matchedHabit.id],
         message: `Logged ${matchedHabit.name}`,
       });
 
       refreshReadModelsInBackground();
+    },
+    onError: (_error, _variables, context) => {
+      context?.rollback?.();
     },
   });
 
@@ -232,6 +255,13 @@ export function useAiHabitLogMutation({
   });
 
   const clarificationMutation = useMutation({
+    onMutate: () => {
+      onHabitUpdate?.({
+        success: true,
+        optimisticUpdate: true,
+        playSound: true,
+      });
+    },
     mutationFn: async ({ clarification, habitId, habitName }: ClarificationParams) => {
       const sessionToken = await getToken();
       const response = await fetch('/api/logs/batch', {
@@ -270,7 +300,7 @@ export function useAiHabitLogMutation({
       onHabitUpdate?.({
         success: true,
         refreshNeeded: true,
-        playSound: true,
+        playSound: false,
         canonicalRefreshHandled: true,
         affectedHabitIds: [habitId],
       });

@@ -3,6 +3,7 @@
 import type { QueryClient } from '@tanstack/react-query';
 import type { Habit } from '@/lib/habit-types';
 import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
+import type { HabitStats } from '@/lib/services/analytics-api';
 import { dashboardSnapshotKeys } from '@/lib/dashboard/dashboard-snapshot';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import { mergeOverviewStatsPreservingKnownValues } from '@/lib/dashboard/overview-snapshot-merge';
@@ -46,6 +47,103 @@ export function applyCanonicalOverviewSnapshot(
       },
     }),
   );
+}
+
+function snapshotRangeIncludesDate(snapshot: DashboardSnapshot | undefined, date: string): boolean {
+  const rangeKey = snapshot?.meta?.snapshotKey;
+  if (!rangeKey || rangeKey === 'all-time') return true;
+  const [startDate, endDate] = String(rangeKey).split(':');
+  if (!startDate || !endDate) return false;
+  return date >= startDate && date <= endDate;
+}
+
+function buildOptimisticStat({
+  previous,
+  habitId,
+  habitName,
+  unit,
+  delta,
+}: {
+  previous?: HabitStats;
+  habitId: string;
+  habitName: string;
+  unit: string;
+  delta: number;
+}): HabitStats {
+  const previousTotal = Number.isFinite(previous?.total) ? Number(previous?.total) : 0;
+  const nextTotal = Math.max(0, previousTotal + delta);
+  const previousEntries = Number.isFinite(previous?.total_entries) ? Number(previous?.total_entries) : 0;
+  const totalEntries = Math.max(1, previousEntries + 1);
+  const previousDays = Number.isFinite(previous?.days_with_data) ? Number(previous?.days_with_data) : 0;
+  const daysWithData = Math.max(1, previousDays);
+  const average = daysWithData > 0 ? nextTotal / daysWithData : nextTotal;
+
+  return {
+    id: previous?.id || habitId,
+    name: previous?.name || habitName,
+    category: previous?.category || '',
+    unit: previous?.unit || unit,
+    total: nextTotal,
+    average,
+    min: previous ? Math.min(previous.min ?? delta, delta) : delta,
+    max: previous ? Math.max(previous.max ?? delta, delta) : delta,
+    variance: previous?.variance ?? 0,
+    std_dev: previous?.std_dev ?? 0,
+    days_with_data: daysWithData,
+    total_entries: totalEntries,
+    summary: `${previous?.name || habitName}: ${nextTotal.toFixed(2)} total`,
+  };
+}
+
+export function applyOptimisticOverviewStatDelta(
+  queryClient: QueryClient,
+  userId: string,
+  {
+    habitId,
+    habitName,
+    unit,
+    delta,
+    date,
+  }: {
+    habitId: string;
+    habitName: string;
+    unit: string;
+    delta: number;
+    date: string;
+  },
+): () => void {
+  const queryKey = dashboardSnapshotKeys.byUser(userId);
+  const previousEntries = queryClient.getQueriesData<DashboardSnapshot>({ queryKey });
+
+  queryClient.setQueriesData<DashboardSnapshot>({ queryKey }, (previous) => {
+    if (!previous || !snapshotRangeIncludesDate(previous, date)) return previous;
+    const previousStats = previous.overviewStats || {};
+    const previousStat = previousStats[habitId];
+
+    return {
+      ...previous,
+      overviewStats: {
+        ...previousStats,
+        [habitId]: buildOptimisticStat({
+          previous: previousStat,
+          habitId,
+          habitName,
+          unit,
+          delta,
+        }),
+      },
+      meta: {
+        ...previous.meta,
+        generatedAt: Date.now(),
+      },
+    };
+  });
+
+  return () => {
+    for (const [entryKey, data] of previousEntries) {
+      queryClient.setQueryData(entryKey, data);
+    }
+  };
 }
 
 export async function invalidateHabitData(
