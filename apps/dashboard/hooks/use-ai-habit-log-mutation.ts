@@ -106,6 +106,14 @@ export function useAiHabitLogMutation({
     applyCanonicalOverviewSnapshot(queryClient, userId, snapshot);
   };
 
+  const refreshReadModelsInBackground = () => {
+    if (!userId) return;
+    markReadConsistencyRequired(userId);
+    void invalidateAfterHabitWrite(queryClient, userId).catch((error) => {
+      console.warn('Post-log read-model refresh failed:', error);
+    });
+  };
+
   const directLogMutation = useMutation({
     mutationFn: async ({ inputText, parsed, matchedHabit, displayValue }: DirectLogParams) => {
       const sessionToken = await getToken();
@@ -157,13 +165,13 @@ export function useAiHabitLogMutation({
       onHabitUpdate?.({
         success: true,
         refreshNeeded: true,
-        playSound: false,
+        playSound: true,
+        canonicalRefreshHandled: true,
         affectedHabitIds: [matchedHabit.id],
         message: `Logged ${matchedHabit.name}`,
       });
 
-      markReadConsistencyRequired(userId);
-      await invalidateAfterHabitWrite(queryClient, userId);
+      refreshReadModelsInBackground();
     },
   });
 
@@ -210,15 +218,15 @@ export function useAiHabitLogMutation({
         onHabitUpdate?.({
           success: true,
           refreshNeeded: true,
-          playSound: false,
+          playSound: true,
+          canonicalRefreshHandled: true,
           affectedHabitIds: result.affectedHabitIds,
           message: result.message,
         });
       }
 
       if (successfulLogs.length > 0) {
-        markReadConsistencyRequired(userId);
-        await invalidateAfterHabitWrite(queryClient, userId);
+        refreshReadModelsInBackground();
       }
     },
   });
@@ -263,6 +271,7 @@ export function useAiHabitLogMutation({
         success: true,
         refreshNeeded: true,
         playSound: true,
+        canonicalRefreshHandled: true,
         affectedHabitIds: [habitId],
       });
 
@@ -274,8 +283,7 @@ export function useAiHabitLogMutation({
         source: 'ai_chat',
       });
 
-      markReadConsistencyRequired(userId);
-      await invalidateAfterHabitWrite(queryClient, userId);
+      refreshReadModelsInBackground();
     },
   });
 

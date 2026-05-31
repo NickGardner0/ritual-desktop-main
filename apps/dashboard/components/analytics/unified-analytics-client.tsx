@@ -43,6 +43,43 @@ const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
 const ENABLE_STARTUP_COMPUTER_SYNC = false;
 const DATE_FILTERED_LOG_REFRESH_THROTTLE_MS = 20_000;
 
+async function playHabitSuccessSound() {
+  try {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const audioContext = new AudioContextCtor();
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume();
+    }
+
+    const oscillator1 = audioContext.createOscillator();
+    const oscillator2 = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator1.connect(gainNode);
+    oscillator2.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
+    oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
+
+    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
+
+    oscillator1.type = 'sine';
+    oscillator2.type = 'sine';
+
+    oscillator1.start(audioContext.currentTime);
+    oscillator2.start(audioContext.currentTime);
+    oscillator1.stop(audioContext.currentTime + 0.6);
+    oscillator2.stop(audioContext.currentTime + 0.6);
+  } catch (e) {
+    console.log('Sound playback failed:', e);
+  }
+}
+
 // Dynamic imports with ssr:false — Turbopack skips these modules during
 // server-side compilation, cutting the initial /dashboard compile from ~70s.
 const DateRangePicker = dynamic(
@@ -520,84 +557,29 @@ function UnifiedAnalyticsContent({
                     // the backend writes logs and metric facts.
                     console.log('🚀 Habit log accepted locally; waiting for canonical backend snapshot...');
                     
-                    // Play the ring sound effect
                     if (habitData.playSound) {
-                      try {
-                        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                        if (audioContext.state === 'suspended') {
-                          await audioContext.resume();
-                        }
-                        
-                        const oscillator1 = audioContext.createOscillator();
-                        const oscillator2 = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        
-                        oscillator1.connect(gainNode);
-                        oscillator2.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
-                        oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
-                        
-                        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-                        gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
-                        gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
-                        
-                        oscillator1.type = 'sine';
-                        oscillator2.type = 'sine';
-                        
-                        oscillator1.start(audioContext.currentTime);
-                        oscillator2.start(audioContext.currentTime);
-                        oscillator1.stop(audioContext.currentTime + 0.6);
-                        oscillator2.stop(audioContext.currentTime + 0.6);
-                      } catch (e) {
-                        console.log('Sound playback failed:', e);
-                      }
+                      void playHabitSuccessSound();
                     }
                     
                     console.log('✅ Local feedback complete, waiting for backend confirmation...');
                   } else if (habitData.refreshNeeded) {
-                    // Backend confirmed - now refresh from database
-                    console.log('🔄 Backend confirmed success, refreshing from database...');
+                    console.log('🔄 Backend confirmed success');
+                    if (habitData.playSound) {
+                      void playHabitSuccessSound();
+                    }
+
+                    if (habitData.canonicalRefreshHandled) {
+                      console.log('✅ Canonical snapshot applied; read-model refresh is running in the background');
+                      return;
+                    }
+
+                    // Legacy/screenshot flows do not return the canonical snapshot,
+                    // so refresh read models without blocking UI feedback.
                     try {
                       markReadConsistencyRequired(user?.id);
-                      await invalidateHabitData(queryClient, user?.id);
-                      console.log('✅ Dashboard data refreshed after habit log');
-                      
-                      // Play sound on successful multi-intent log (when no optimistic update was done)
-                      if (habitData.playSound) {
-                        try {
-                          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                          if (audioContext.state === 'suspended') {
-                            await audioContext.resume();
-                          }
-                          
-                          const oscillator1 = audioContext.createOscillator();
-                          const oscillator2 = audioContext.createOscillator();
-                          const gainNode = audioContext.createGain();
-                          
-                          oscillator1.connect(gainNode);
-                          oscillator2.connect(gainNode);
-                          gainNode.connect(audioContext.destination);
-                          
-                          oscillator1.frequency.setValueAtTime(523.25, audioContext.currentTime);
-                          oscillator2.frequency.setValueAtTime(659.25, audioContext.currentTime);
-                          
-                          gainNode.gain.setValueAtTime(0, audioContext.currentTime);
-                          gainNode.gain.linearRampToValueAtTime(0.5, audioContext.currentTime + 0.1);
-                          gainNode.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.6);
-                          
-                          oscillator1.type = 'sine';
-                          oscillator2.type = 'sine';
-                          
-                          oscillator1.start(audioContext.currentTime);
-                          oscillator2.start(audioContext.currentTime);
-                          oscillator1.stop(audioContext.currentTime + 0.6);
-                          oscillator2.stop(audioContext.currentTime + 0.6);
-                        } catch (e) {
-                          console.log('Sound playback failed:', e);
-                        }
-                      }
+                      void invalidateHabitData(queryClient, user?.id).catch((error) => {
+                        console.error('❌ Error refreshing dashboard data:', error);
+                      });
                     } catch (error) {
                       console.error('❌ Error refreshing dashboard data:', error);
                     }

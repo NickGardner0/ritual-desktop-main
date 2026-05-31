@@ -21,7 +21,13 @@ function parseArgs(argv) {
     token:
       process.env.RITUAL_SMOKE_BEARER_TOKEN ||
       process.env.RITUAL_SMOKE_AUTH_TOKEN ||
+      process.env.RITUAL_SMOKE_INTERNAL_BACKEND_TOKEN ||
+      process.env.INTERNAL_BACKEND_TOKEN ||
       process.env.RITUAL_AUTH_TOKEN ||
+      "",
+    internalUserId:
+      process.env.RITUAL_SMOKE_INTERNAL_USER_ID ||
+      process.env.RITUAL_SMOKE_USER_ID ||
       "",
     requiredHabits: parseCsv(process.env.RITUAL_SMOKE_REQUIRED_HABITS) || DEFAULT_REQUIRED_HABITS,
     allowZero: parseCsv(process.env.RITUAL_SMOKE_ALLOW_ZERO) || [],
@@ -46,6 +52,8 @@ function parseArgs(argv) {
       args.baseUrl = next() || "";
     } else if (arg === "--token") {
       args.token = next() || "";
+    } else if (arg === "--internal-user-id") {
+      args.internalUserId = next() || "";
     } else if (arg === "--required-habits") {
       args.requiredHabits = parseCsv(next()) || [];
     } else if (arg === "--allow-zero") {
@@ -81,6 +89,7 @@ function printHelp() {
 Options:
   --base-url <url>             Backend or dashboard base URL
   --token <token>              Bearer token for the production user
+  --internal-user-id <id>      Clerk user id when using INTERNAL_BACKEND_TOKEN
   --required-habits <csv>      Important all-time habits that must exist and be non-zero
   --allow-zero <csv>           Required habits allowed to be zero for this run
   --allow-missing <csv>        Required habits allowed to be absent for this run
@@ -89,7 +98,12 @@ Options:
   --no-force-fresh             Do not send x-ritual-force-fresh: 1
   --json                       Print machine-readable JSON output
 
-This script is read-only. It does not create, edit, or delete habit logs.`);
+This script is read-only. It does not create, edit, or delete habit logs.
+
+Auth options:
+  1. User auth: RITUAL_SMOKE_BEARER_TOKEN=<Clerk session JWT>
+  2. Internal auth: RITUAL_SMOKE_INTERNAL_BACKEND_TOKEN=<INTERNAL_BACKEND_TOKEN>
+                    RITUAL_SMOKE_INTERNAL_USER_ID=<Clerk user id>`);
 }
 
 function parseCsv(value) {
@@ -134,7 +148,7 @@ function assert(condition, message, errors) {
   if (!condition) errors.push(message);
 }
 
-async function requestJson({ baseUrl, token, path, params = {}, timeoutMs, forceFresh }) {
+async function requestJson({ baseUrl, token, internalUserId, path, params = {}, timeoutMs, forceFresh }) {
   const url = new URL(`${baseUrl}${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") {
@@ -149,6 +163,9 @@ async function requestJson({ baseUrl, token, path, params = {}, timeoutMs, force
       Accept: "application/json",
       Authorization: `Bearer ${token}`,
     };
+    if (internalUserId) {
+      headers["x-internal-user-id"] = internalUserId;
+    }
     if (forceFresh) {
       headers["x-ritual-force-fresh"] = "1";
     }
@@ -348,6 +365,7 @@ async function main() {
   const common = {
     baseUrl: config.baseUrl,
     token: config.token,
+    internalUserId: config.internalUserId,
     timeoutMs: config.timeoutMs,
     forceFresh: config.forceFresh,
   };
