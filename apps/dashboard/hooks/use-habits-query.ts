@@ -3,7 +3,7 @@
  * 
  * These hooks provide:
  * - Automatic caching
- * - Optimistic updates
+ * - Canonical post-write snapshots
  * - Background refetching
  * - Deduplication of requests
  * - Analytics tracking via OpenPanel
@@ -20,11 +20,14 @@ import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { useAnalytics } from '@/lib/analytics';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import {
-  applyOptimisticHabitLogUpdate,
+  applyCanonicalOverviewSnapshot,
+  invalidateAfterHabitWrite,
   invalidateHabitData,
-  rollbackOptimisticHabitLogUpdate,
-  ritualQueryKeys,
 } from '@/lib/query-invalidation';
+import {
+  habitKeys as canonicalHabitKeys,
+  habitLogKeys as canonicalHabitLogKeys,
+} from '@/lib/dashboard/query-keys';
 import {
   clearReadConsistencyRequirement,
   getReadConsistencyHeaders,
@@ -38,6 +41,9 @@ const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
 const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
+
+export const habitKeys = canonicalHabitKeys;
+export const habitLogKeys = canonicalHabitLogKeys;
 
 type PersistedSnapshot<T> = {
   updatedAt: number;
@@ -165,21 +171,6 @@ async function fetchWithAuthRetry(
 
   return response;
 }
-
-// Query Keys (following Midday's pattern)
-export const habitKeys = {
-  all: ['habits'] as const,
-  lists: () => [...habitKeys.all, 'list'] as const,
-  list: (userId: string) => [...habitKeys.lists(), userId] as const,
-  details: () => [...habitKeys.all, 'detail'] as const,
-  detail: (id: string) => [...habitKeys.details(), id] as const,
-};
-
-export const habitLogKeys = {
-  all: ['habit-logs'] as const,
-  lists: () => [...habitLogKeys.all, 'list'] as const,
-  list: (userId: string) => [...habitLogKeys.lists(), userId] as const,
-};
 
 /**
  * Fetch Habits with React Query
@@ -328,9 +319,9 @@ export function useHabitLogsQuery({
 }
 
 /**
- * Log Habit Mutation with Optimistic Updates
+ * Log Habit Mutation with canonical post-write refresh
  * 
- * This provides instant UI feedback while saving to the backend
+ * Aggregate totals are updated from the backend snapshot returned by /api/logs/batch.
  */
 export function useLogHabitMutation() {
   const queryClient = useQueryClient();
@@ -343,77 +334,55 @@ export function useLogHabitMutation() {
       const token = await getToken();
       if (process.env.NODE_ENV !== 'production') { console.log('📝 [React Query] Logging habit:', habitLog); }
 
-      // Use correct endpoint: /api/habits/{habit_id}/logs
-      // This endpoint syncs to Tinybird automatically!
-      const response = await fetch(`${PYTHON_API_BASE}/api/habits/${habitLog.habit_id}/logs`, {
+      const response = await fetch('/api/logs/batch', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
-          duration: habitLog.duration,
-          amount: habitLog.amount,
-          date: habitLog.date,
-          completed_at: habitLog.completed_at,
-          status: habitLog.status,
-          notes: habitLog.notes,
+          items: [{
+            habit_id: habitLog.habit_id,
+            duration: habitLog.duration,
+            amount: habitLog.amount,
+            date: habitLog.date,
+            completed_at: habitLog.completed_at,
+            unit: habitLog.unit,
+            source: 'manual',
+            notes: habitLog.notes,
+          }],
+          client_event_id: `${habitLog.habit_id}:${habitLog.date}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`,
         }),
       });
 
+      const result = await response.json().catch(() => null);
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Failed to log habit:', errorText);
-        throw new Error(`Failed to log habit: ${response.status}`);
+        console.error('❌ Failed to log habit:', result);
+        throw new Error(result?.error || result?.detail?.message || `Failed to log habit: ${response.status}`);
       }
-
-      const result = await response.json();
+      if (!result?.success || !result?.results?.[0]?.success) {
+        throw new Error(result?.error || result?.message || 'Failed to log habit');
+      }
       if (process.env.NODE_ENV !== 'production') { console.log('✅ Habit logged and synced to Tinybird!'); }
-      
+
       // Track analytics event
       trackHabitLogged({
         habitId: habitLog.habit_id,
-        habitName: habitLog.habit_name || result.habit_name || 'Unknown',
+        habitName: habitLog.habit_name || result.results?.[0]?.habit_name || 'Unknown',
         value: habitLog.amount ?? habitLog.duration ?? undefined,
         unit: habitLog.unit,
       });
-      
+
       return result;
     },
 
-    // Optimistic update - instant UI feedback!
-    onMutate: async (newLog) => {
-      const queryUserId = user?.id || 'anonymous';
-      const queryKey = habitLogKeys.list(queryUserId);
-
-      // Cancel any outgoing refetches
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey }),
-        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
-      ]);
-
-      const rollback = applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
-        ...newLog,
-        id: `temp-${Date.now()}`,
-      } as HabitLog);
-
-      if (process.env.NODE_ENV !== 'production') { console.log('⚡ [React Query] Optimistic update applied!'); }
-
-      return rollback;
-    },
-
-    // Rollback on error
-    onError: (err, newLog, context) => {
-      console.error('❌ [React Query] Log failed, rolling back:', err);
-      rollbackOptimisticHabitLogUpdate(queryClient, user?.id || 'anonymous', context);
-    },
-
-    // Refetch after mutation completes
-    onSettled: async () => {
+    onSuccess: async (result) => {
       markReadConsistencyRequired(user?.id);
-      if (process.env.NODE_ENV !== 'production') { console.log('✅ [React Query] Refetching logs after mutation...'); }
-      await invalidateHabitData(queryClient, user?.id || 'anonymous');
-      if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Analytics cache invalidated - will refetch on navigation!'); }
+      if (user?.id && result?.overview_snapshot?.overviewStats) {
+        applyCanonicalOverviewSnapshot(queryClient, user.id, result.overview_snapshot);
+      }
+      await invalidateAfterHabitWrite(queryClient, user?.id || 'anonymous');
+      if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Canonical habit data invalidated after log write.'); }
     },
   });
 }

@@ -290,6 +290,111 @@ def create_core_router(
             logger.exception("dashboard overview snapshot failed for user %s", current_user.get("id"))
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
+    @router.get("/api/dashboard/metrics-snapshot")
+    async def get_dashboard_metrics_snapshot(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.metric_facts_service import metric_fact_service
+
+            return await metric_fact_service.get_metrics_snapshot(
+                user_id=current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                days_back=3650,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("dashboard metrics snapshot failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/api/logs/read-model")
+    async def get_logs_read_model(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        limit: int = Query(200, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        habit_id: Optional[str] = Query(None),
+        q: Optional[str] = Query(None),
+        categories: Optional[str] = Query(None),
+        habits: Optional[str] = Query(None),
+        statuses: Optional[str] = Query(None),
+        sources: Optional[str] = Query(None),
+        sort: Optional[str] = Query(None),
+        order: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.screen_read_models_service import screen_read_models_service
+
+            return await screen_read_models_service.get_logs_read_model(
+                user_id=current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+                habit_id=habit_id,
+                q=q,
+                categories=categories,
+                habits=habits,
+                statuses=statuses,
+                sources=sources,
+                sort=sort,
+                order=order,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("logs read model failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/api/calendar/read-model")
+    async def get_calendar_read_model(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.screen_read_models_service import screen_read_models_service
+
+            return await screen_read_models_service.get_calendar_read_model(
+                user_id=current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("calendar read model failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
     @router.get("/api/habits/aliases")
     async def get_all_habit_aliases(current_user=Depends(get_current_user)):
         try:

@@ -2405,6 +2405,11 @@
             ],
             "title": "App Version"
           },
+          "biome_is_provisional": {
+            "default": false,
+            "title": "Biome Is Provisional",
+            "type": "boolean"
+          },
           "browser_domain": {
             "anyOf": [
               {
@@ -2528,6 +2533,20 @@
             "title": "Accepted",
             "type": "integer"
           },
+          "accepted_event_uids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Event Uids",
+            "type": "array"
+          },
+          "duplicate_event_uids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Duplicate Event Uids",
+            "type": "array"
+          },
           "duplicates": {
             "title": "Duplicates",
             "type": "integer"
@@ -2535,6 +2554,13 @@
           "rejected": {
             "title": "Rejected",
             "type": "integer"
+          },
+          "rejected_event_uids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Event Uids",
+            "type": "array"
           }
         },
         "required": [
@@ -5741,6 +5767,20 @@
             "title": "Accepted",
             "type": "integer"
           },
+          "accepted_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Ids",
+            "type": "array"
+          },
+          "duplicate_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Duplicate Ids",
+            "type": "array"
+          },
           "duplicates": {
             "title": "Duplicates",
             "type": "integer"
@@ -5748,6 +5788,13 @@
           "rejected": {
             "title": "Rejected",
             "type": "integer"
+          },
+          "rejected_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Ids",
+            "type": "array"
           }
         },
         "required": [
@@ -12387,6 +12434,74 @@
         ]
       }
     },
+    "/api/calendar/read-model": {
+      "get": {
+        "operationId": "get_calendar_read_model_api_calendar_read_model_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calendar Read Model",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/api/calendar/scheduled-blocks": {
       "get": {
         "operationId": "get_scheduled_blocks_api_calendar_scheduled_blocks_get",
@@ -13190,6 +13305,74 @@
         "summary": "Update Conversation Response Mode",
         "tags": [
           "conversations"
+        ]
+      }
+    },
+    "/api/dashboard/metrics-snapshot": {
+      "get": {
+        "operationId": "get_dashboard_metrics_snapshot_api_dashboard_metrics_snapshot_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Dashboard Metrics Snapshot",
+        "tags": [
+          "core"
         ]
       }
     },
@@ -15953,6 +16136,225 @@
           }
         ],
         "summary": "Batch Log Habits",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/logs/read-model": {
+      "get": {
+        "operationId": "get_logs_read_model_api_logs_read_model_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "habit_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Habit Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "categories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categories"
+            }
+          },
+          {
+            "in": "query",
+            "name": "habits",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Habits"
+            }
+          },
+          {
+            "in": "query",
+            "name": "statuses",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Statuses"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sources",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sources"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Order"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Logs Read Model",
         "tags": [
           "core"
         ]

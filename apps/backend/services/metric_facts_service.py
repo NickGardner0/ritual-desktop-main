@@ -411,6 +411,26 @@ class MetricFactService:
             for habit in habits
             if habit.id
         }
+        manual_habit_ids = {
+            habit.id
+            for habit in habits
+            if habit.id and _classify_habit(habit) == "manual"
+        }
+        if manual_habit_ids:
+            try:
+                from services.habits_service import HabitsService
+
+                raw_snapshot = await HabitsService().get_overview_snapshot(
+                    user_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+                raw_stats = raw_snapshot.get("overviewStats") or {}
+                for habit_id in manual_habit_ids:
+                    if habit_id in raw_stats:
+                        overview_stats[habit_id] = raw_stats[habit_id]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Metric facts overview could not overlay manual habit logs: %s", exc)
         from database.helpers import habit_db_to_pydantic
 
         return {
@@ -422,6 +442,100 @@ class MetricFactService:
                 "startDate": start_date,
                 "endDate": end_date,
                 "source": "metric_daily_facts",
+            },
+        }
+
+    async def get_metrics_snapshot(
+        self,
+        *,
+        user_id: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        days_back: int = 3650,
+        sparkline_days: int = 180,
+        bar_list_days: int = 90,
+    ) -> Dict[str, Any]:
+        """Return the canonical backend read model for the Metrics screen.
+
+        The dashboard can still layer local watcher fallback on top of this for
+        app/website widgets, but habit totals and sparklines come from persisted
+        metric facts here.
+        """
+        start, end = self._resolve_range(start_date, end_date, days_back)
+        explicit_range = bool(start_date and end_date)
+        daily_start = start if explicit_range else self._resolve_range(None, None, sparkline_days)[0]
+        bar_start = start if explicit_range else self._resolve_range(None, None, bar_list_days)[0]
+        query_start = min(start, daily_start, bar_start)
+
+        async with get_db_session() as session:
+            habits = await self._load_habits(session, user_id=user_id, habit_ids=None)
+            facts_query = (
+                select(MetricDailyFactDB)
+                .where(
+                    MetricDailyFactDB.user_id == user_id,
+                    MetricDailyFactDB.date >= query_start,
+                    MetricDailyFactDB.date <= end,
+                )
+                .order_by(MetricDailyFactDB.date.asc(), MetricDailyFactDB.habit_name.asc())
+            )
+            facts = list((await session.execute(facts_query)).scalars().all())
+
+        summary_rows = [row for row in facts if row.date >= start]
+        daily_rows = [row for row in facts if row.date >= daily_start]
+        bar_rows = [row for row in facts if row.date >= bar_start]
+
+        def daily_map(rows: Sequence[MetricDailyFactDB]) -> Dict[str, List[Dict[str, Any]]]:
+            by_habit: Dict[str, List[Dict[str, Any]]] = {}
+            for row in rows:
+                by_habit.setdefault(row.habit_id, []).append(self._serialize_daily(row))
+            return by_habit
+
+        summary_by_habit = {
+            row["habit_id"]: row
+            for row in self._summarize_fact_rows(summary_rows)
+            if row.get("habit_id")
+        }
+        bar_summary_by_habit = {
+            row["habit_id"]: row
+            for row in self._summarize_fact_rows(bar_rows)
+            if row.get("habit_id")
+        }
+        facts_by_habit: Dict[str, List[MetricDailyFactDB]] = {}
+        for fact in summary_rows:
+            facts_by_habit.setdefault(fact.habit_id, []).append(fact)
+
+        from database.helpers import habit_db_to_pydantic
+
+        generated_at = int(datetime.now(timezone.utc).timestamp() * 1000)
+        range_key = (
+            f"{start}:{end}"
+            if explicit_range
+            else "all-time"
+        )
+        return {
+            "habits": [habit_db_to_pydantic(habit).model_dump(mode="json") for habit in habits],
+            "overviewStats": {
+                habit.id: self._build_habit_stat(habit, facts_by_habit.get(habit.id, []))
+                for habit in habits
+                if habit.id
+            },
+            "metricsAnalyticsData": daily_map(daily_rows),
+            "metricsSummaryMetrics": summary_by_habit,
+            "metricsBarListAnalyticsData": daily_map(bar_rows),
+            "metricsBarListSummaryMetrics": bar_summary_by_habit,
+            "appRankings": [],
+            "websiteRankings": [],
+            "meta": {
+                "userId": user_id,
+                "generatedAt": generated_at,
+                "rangeKey": range_key,
+                "startDate": start,
+                "endDate": end,
+                "dailyStartDate": daily_start,
+                "barListStartDate": bar_start,
+                "source": "metric_facts",
+                "partial": False,
+                "warnings": [],
             },
         }
 

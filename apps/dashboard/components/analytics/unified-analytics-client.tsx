@@ -30,9 +30,9 @@ import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { habitLogKeys } from '@/hooks/use-habits-query';
 import { useUser } from '@clerk/nextjs';
 import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
+import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
 import { perfInfo } from '@/lib/perf-debug';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
@@ -127,6 +127,14 @@ function UnifiedAnalyticsContent({
     snapshot: dashboardSnapshot,
     isFetching: isDashboardSnapshotFetching,
   } = useDashboardSnapshotQuery({ initialUserId, dateRange });
+  const {
+    snapshot: metricsSnapshot,
+  } = useMetricsSnapshotQuery({
+    initialUserId,
+    dateRange,
+    enabled: viewMode === 'metrics',
+  });
+  const metricsReadModel = metricsSnapshot ?? dashboardSnapshot;
   const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
@@ -301,7 +309,7 @@ function UnifiedAnalyticsContent({
       if (!hasOverviewPayload && habits.length === 0) return;
     }
     if (viewMode === 'metrics') {
-      const hasMetricsPayload = Boolean(dashboardSnapshot.metricsAnalyticsData && Object.keys(dashboardSnapshot.metricsAnalyticsData).length > 0);
+      const hasMetricsPayload = Boolean(metricsReadModel.metricsAnalyticsData && Object.keys(metricsReadModel.metricsAnalyticsData).length > 0);
       if (!hasMetricsPayload && habits.length === 0) return;
     }
 
@@ -327,7 +335,7 @@ function UnifiedAnalyticsContent({
         if (frame2) window.cancelAnimationFrame(frame2);
       }
     };
-  }, [dashboardSnapshot.metricsAnalyticsData, dashboardSnapshot.overviewStats, habits.length, viewMode]);
+  }, [dashboardSnapshot.overviewStats, habits.length, metricsReadModel.metricsAnalyticsData, viewMode]);
   
   // Update URL when view mode changes
   const handleViewChange = useCallback((newView: ViewMode) => {
@@ -464,10 +472,10 @@ function UnifiedAnalyticsContent({
           {viewMode === 'metrics' && (
             <MetricsView
               hideControls={true}
-              initialAnalyticsData={dashboardSnapshot.metricsAnalyticsData}
-              initialSummaryMetrics={dashboardSnapshot.metricsSummaryMetrics}
-              initialBarListAnalyticsData={dashboardSnapshot.metricsBarListAnalyticsData}
-              initialBarListSummaryMetrics={dashboardSnapshot.metricsBarListSummaryMetrics}
+              initialAnalyticsData={metricsReadModel.metricsAnalyticsData}
+              initialSummaryMetrics={metricsReadModel.metricsSummaryMetrics}
+              initialBarListAnalyticsData={metricsReadModel.metricsBarListAnalyticsData}
+              initialBarListSummaryMetrics={metricsReadModel.metricsBarListSummaryMetrics}
             />
           )}
         </div>
@@ -502,37 +510,15 @@ function UnifiedAnalyticsContent({
           style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
         >
           <div className="w-full max-w-2xl pointer-events-auto">
-              <AIHabitChat
+                <AIHabitChat
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
                   
                   if (habitData.optimisticUpdate) {
-                    // Optimistic update: instantly add a temporary log to the UI
-                    console.log('🚀 Optimistic update received, updating UI immediately...');
-                    const todayLocalDate = new Date().toLocaleDateString('en-CA');
-                    
-                    if (habitData.habitId && (habitData.duration !== undefined || habitData.amount !== undefined)) {
-                      const tempLog = {
-                        id: `temp-${Date.now()}`,
-                        habit_id: habitData.habitId,
-                        duration: habitData.duration ? habitData.duration * 60 : 0,
-                        amount: habitData.amount || null,
-                        date: todayLocalDate,
-                        completed_at: new Date().toISOString(),
-                        status: 'completed' as const,
-                        notes: habitData.notes || '',
-                        unit: habitData.unit || ''
-                      };
-                      
-                      // Add temporary log via React Query cache for instant UI update
-                      if (user?.id) {
-                        queryClient.setQueryData(
-                          habitLogKeys.list(user.id),
-                          (old: any[] | undefined) => old ? [...old, tempLog] : [tempLog]
-                        );
-                        console.log('✅ Added optimistic log to React Query cache:', tempLog);
-                      }
-                    }
+                    // Keep optimistic feedback local to the composer. Aggregate
+                    // screen data is refreshed from canonical read models after
+                    // the backend writes logs and metric facts.
+                    console.log('🚀 Habit log accepted locally; waiting for canonical backend snapshot...');
                     
                     // Play the ring sound effect
                     if (habitData.playSound) {
@@ -569,7 +555,7 @@ function UnifiedAnalyticsContent({
                       }
                     }
                     
-                    console.log('✅ Optimistic update complete, waiting for backend confirmation...');
+                    console.log('✅ Local feedback complete, waiting for backend confirmation...');
                   } else if (habitData.refreshNeeded) {
                     // Backend confirmed - now refresh from database
                     console.log('🔄 Backend confirmed success, refreshing from database...');

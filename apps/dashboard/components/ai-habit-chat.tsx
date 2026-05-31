@@ -402,26 +402,13 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     // or an error requires the original text again.
     setInput('');
 
-    // OPTIMISTIC UPDATE: Try to parse locally first for instant feedback
+    // Fast path: local parse chooses the habit, then the backend returns the
+    // canonical post-write snapshot. Avoid local optimistic totals here; a
+    // partial habit-log cache can otherwise zero unrelated Overview metrics.
     const localParsed = parseHabitInput(inputText);
     const matchedHabit = findHabitByParsedName(localParsed?.habitName);
 
     if (localParsed?.success && matchedHabit) {
-      if (onHabitUpdate) {
-        // Send optimistic update IMMEDIATELY (before API call)
-        onHabitUpdate({
-          success: true,
-          optimisticUpdate: true,
-          habitId: matchedHabit.id,
-          duration: localParsed.duration || undefined,
-          amount: localParsed.amount || undefined,
-          unit: localParsed.unit || matchedHabit.unit_type || undefined,
-          playSound: true,
-          refreshNeeded: false,
-        });
-        console.log('⚡ Direct local log path for:', matchedHabit.name);
-      }
-
       try {
         await submitDirectLog({
           inputText,

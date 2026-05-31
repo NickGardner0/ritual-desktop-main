@@ -700,6 +700,9 @@ Non-trackable input →
 
     // Batch log the resolved intents
     const logResults: LogResult[] = [];
+    let overviewSnapshot: unknown = undefined;
+    let affectedHabitIds: string[] = [];
+    let affectedDates: string[] = [];
     
     if (toLog.length > 0) {
       const batchItems = toLog.map(intent => {
@@ -742,6 +745,9 @@ Non-trackable input →
         if (batchResponse.ok) {
           const batchResult = await batchResponse.json();
           logger.info('✅ Batch log result:', batchResult);
+          overviewSnapshot = batchResult.overview_snapshot;
+          affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
+          affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
           
           for (const result of batchResult.results || []) {
             const intent = toLog[result.index];
@@ -843,7 +849,9 @@ Non-trackable input →
       logged: logResults,
       clarifications,
       refreshNeeded: successfulLogs.length > 0,
-      affectedHabitIds: successfulLogs.map(r => r.habit_id)
+      affectedHabitIds: affectedHabitIds.length > 0 ? affectedHabitIds : successfulLogs.map(r => r.habit_id),
+      affectedDates,
+      overview_snapshot: overviewSnapshot,
     }), { headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {

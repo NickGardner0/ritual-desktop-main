@@ -24,6 +24,7 @@ import {
 } from 'date-fns';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useHeartRateRange } from '@/hooks/useHeartRateRange';
+import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 
 import { CalendarHeader } from './calendar-header';
 import { CalendarMonthView } from './calendar-month-view';
@@ -280,6 +281,9 @@ export function CalendarClient() {
         await queryClient.invalidateQueries({
           queryKey: ['calendar-scheduled-blocks', user.id],
         });
+        await queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.calendarReadModel.byUser(user.id),
+        });
       }
     };
 
@@ -332,31 +336,37 @@ export function CalendarClient() {
     }
   }, [currentDate, viewMode, weekStartsOnMonday]);
 
-  // Fetch habit logs
-  const { data: logs = [], isPending: logsPending } = useQuery<HabitLog[]>({
-    queryKey: [
-      'habit-logs-calendar',
-      user?.id,
-      format(dateRange.start, 'yyyy-MM-dd'),
-      format(dateRange.end, 'yyyy-MM-dd'),
-    ],
+  const calendarReadModelRange = useMemo(() => {
+    const start = format(dateRange.start, 'yyyy-MM-dd');
+    const end = format(dateRange.end, 'yyyy-MM-dd');
+    return { start, end, key: `${start}:${end}` };
+  }, [dateRange.end, dateRange.start]);
+
+  const calendarReadModelQuery = useQuery({
+    queryKey: dashboardQueryKeys.calendarReadModel.detail(
+      user?.id ?? 'anonymous',
+      calendarReadModelRange.key,
+    ),
     queryFn: async () => {
-      const token = await getToken();
-      const backendUrl =
-        process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
       const params = new URLSearchParams({
-        start_date: format(dateRange.start, 'yyyy-MM-dd'),
-        end_date: format(dateRange.end, 'yyyy-MM-dd'),
+        start_date: calendarReadModelRange.start,
+        end_date: calendarReadModelRange.end,
       });
-      const res = await fetch(`${backendUrl}/api/habit-logs?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`/api/calendar/read-model?${params}`, {
+        credentials: 'include',
+        cache: 'no-store',
       });
-      if (!res.ok) throw new Error('Failed to fetch logs');
+      if (!res.ok) throw new Error('Failed to fetch calendar read model');
       return res.json();
     },
     enabled: !!user?.id,
     staleTime: 30 * 1000,
   });
+  const logs = useMemo<HabitLog[]>(() => {
+    const rows = calendarReadModelQuery.data?.habitLogs;
+    return Array.isArray(rows) ? rows : [];
+  }, [calendarReadModelQuery.data]);
+  const logsPending = calendarReadModelQuery.isPending;
 
   const heartRateRangeQuery = useHeartRateRange(
     {
@@ -458,38 +468,12 @@ export function CalendarClient() {
     return eachDayOfInterval({ start: weekStart, end: weekEnd });
   }, [currentDate, weekStartsOnMonday]);
 
-  const scheduledBlockRange = useMemo(() => {
-    return {
-      start: format(dateRange.start, 'yyyy-MM-dd'),
-      end: format(dateRange.end, 'yyyy-MM-dd'),
-    };
-  }, [dateRange.end, dateRange.start]);
-
-  const { data: scheduledBlocks = [] } = useQuery<WeekScheduledItem[]>({
-    queryKey: [
-      'calendar-scheduled-blocks',
-      user?.id,
-      scheduledBlockRange.start,
-      scheduledBlockRange.end,
-    ],
-    queryFn: async () => {
-      const token = await getToken();
-      const backendUrl =
-        process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-      const params = new URLSearchParams({
-        start_date: scheduledBlockRange.start,
-        end_date: scheduledBlockRange.end,
-      });
-      const res = await fetch(`${backendUrl}/api/calendar/scheduled-blocks?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Failed to fetch scheduled blocks');
-      const data = (await res.json()) as ScheduledBlockApi[];
-      return data.map(mapScheduledBlockFromApi);
-    },
-    enabled: !!user?.id,
-    staleTime: 30 * 1000,
-  });
+  const scheduledBlocks = useMemo<WeekScheduledItem[]>(() => {
+    const rows = calendarReadModelQuery.data?.scheduledBlocks;
+    return Array.isArray(rows)
+      ? (rows as ScheduledBlockApi[]).map(mapScheduledBlockFromApi)
+      : [];
+  }, [calendarReadModelQuery.data]);
 
   // Navigation
   const navigatePrevious = useCallback(() => {
@@ -787,10 +771,16 @@ export function CalendarClient() {
         await queryClient.invalidateQueries({
           queryKey: ['calendar-scheduled-blocks', user?.id],
         });
+        await queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
+        });
       } catch (error) {
         setTaskComposerError(error instanceof Error ? error.message : 'Failed to update block');
         await queryClient.invalidateQueries({
           queryKey: ['calendar-scheduled-blocks', user?.id],
+        });
+        await queryClient.invalidateQueries({
+          queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
         });
       }
     },
@@ -848,6 +838,9 @@ export function CalendarClient() {
       await queryClient.invalidateQueries({
         queryKey: ['calendar-scheduled-blocks', user?.id],
       });
+      await queryClient.invalidateQueries({
+        queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
+      });
       setTaskComposer(null);
     } catch (error) {
       setTaskComposerError(error instanceof Error ? error.message : 'Failed to save block');
@@ -888,6 +881,9 @@ export function CalendarClient() {
 
       await queryClient.invalidateQueries({
         queryKey: ['calendar-scheduled-blocks', user?.id],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
       });
       setTaskComposer(null);
     } catch (error) {

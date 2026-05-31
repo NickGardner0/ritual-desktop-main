@@ -2,12 +2,11 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
-  applyOptimisticHabitLogUpdate,
-  invalidateHabitData,
-  ritualQueryKeys,
-  rollbackOptimisticHabitLogUpdate,
+  applyCanonicalOverviewSnapshot,
+  invalidateAfterHabitWrite,
 } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
+import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
 
 type HabitUpdateHandler = ((habitData: any) => void) | undefined;
 
@@ -67,6 +66,12 @@ type LoggingResult = {
   clarifications: Clarification[];
   refreshNeeded?: boolean;
   affectedHabitIds?: string[];
+  affectedDates?: string[];
+  overview_snapshot?: {
+    habits?: unknown[];
+    overviewStats?: DashboardSnapshot['overviewStats'];
+    meta?: { generatedAt?: number };
+  };
 };
 
 type ClarificationParams = {
@@ -96,25 +101,12 @@ export function useAiHabitLogMutation({
 }) {
   const queryClient = useQueryClient();
 
-  const directLogMutation = useMutation({
-    onMutate: async ({ inputText, parsed, matchedHabit }) => {
-      const queryUserId = userId ?? 'anonymous';
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitLogsList(queryUserId) }),
-        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
-      ]);
+  const applyPostWriteSnapshot = (snapshot?: LoggingResult['overview_snapshot']) => {
+    if (!userId || !snapshot?.overviewStats) return;
+    applyCanonicalOverviewSnapshot(queryClient, userId, snapshot);
+  };
 
-      return applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
-        id: `temp-${Date.now()}`,
-        habit_id: matchedHabit.id,
-        amount: parsed.amount ?? undefined,
-        duration: parsed.duration != null ? Math.round(parsed.duration * 60) : undefined,
-        unit: matchedHabit.unit_type || parsed.unit || 'Count',
-        date: getLocalDateString(),
-        status: 'completed',
-        notes: inputText,
-      });
-    },
+  const directLogMutation = useMutation({
     mutationFn: async ({ inputText, parsed, matchedHabit, displayValue }: DirectLogParams) => {
       const sessionToken = await getToken();
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
@@ -122,7 +114,7 @@ export function useAiHabitLogMutation({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: sessionToken ? `Bearer ${sessionToken}` : '',
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
         },
         body: JSON.stringify({
           items: [
@@ -149,12 +141,11 @@ export function useAiHabitLogMutation({
       return {
         matchedHabit,
         displayValue,
+        result,
       };
     },
-    onError: (_error, _variables, context) => {
-      rollbackOptimisticHabitLogUpdate(queryClient, userId ?? 'anonymous', context);
-    },
-    onSuccess: async ({ matchedHabit, displayValue }) => {
+    onSuccess: async ({ matchedHabit, displayValue, result }) => {
+      applyPostWriteSnapshot(result?.overview_snapshot);
       trackHabitLogged({
         habitId: matchedHabit.id,
         habitName: matchedHabit.name,
@@ -172,7 +163,7 @@ export function useAiHabitLogMutation({
       });
 
       markReadConsistencyRequired(userId);
-      await invalidateHabitData(queryClient, userId);
+      await invalidateAfterHabitWrite(queryClient, userId);
     },
   });
 
@@ -188,7 +179,7 @@ export function useAiHabitLogMutation({
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: sessionToken ? `Bearer ${sessionToken}` : '',
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
         },
         body: JSON.stringify({
           messages: [{ role: 'user', content: inputText }],
@@ -201,6 +192,7 @@ export function useAiHabitLogMutation({
     },
     onSuccess: async (result) => {
       const successfulLogs = result.logged?.filter((entry) => entry.success) ?? [];
+      applyPostWriteSnapshot(result.overview_snapshot);
 
       successfulLogs.forEach((log) => {
         if (log.habit_id && log.habit_name) {
@@ -226,36 +218,19 @@ export function useAiHabitLogMutation({
 
       if (successfulLogs.length > 0) {
         markReadConsistencyRequired(userId);
-        await invalidateHabitData(queryClient, userId);
+        await invalidateAfterHabitWrite(queryClient, userId);
       }
     },
   });
 
   const clarificationMutation = useMutation({
-    onMutate: async ({ clarification, habitId }) => {
-      const queryUserId = userId ?? 'anonymous';
-      await Promise.all([
-        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitLogsList(queryUserId) }),
-        queryClient.cancelQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
-      ]);
-
-      return applyOptimisticHabitLogUpdate(queryClient, queryUserId, {
-        id: `temp-clarify-${Date.now()}`,
-        habit_id: habitId,
-        amount: clarification.value ?? undefined,
-        unit: clarification.unit ?? undefined,
-        date: clarification.date,
-        status: 'completed',
-        notes: `Logged via clarification: ${clarification.habit_hint}`,
-      });
-    },
     mutationFn: async ({ clarification, habitId, habitName }: ClarificationParams) => {
       const sessionToken = await getToken();
       const response = await fetch('/api/logs/batch', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: sessionToken ? `Bearer ${sessionToken}` : '',
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
         },
         body: JSON.stringify({
           items: [{
@@ -279,12 +254,11 @@ export function useAiHabitLogMutation({
         habitId,
         habitName,
         clarification,
+        result,
       };
     },
-    onError: (_error, _variables, context) => {
-      rollbackOptimisticHabitLogUpdate(queryClient, userId ?? 'anonymous', context);
-    },
-    onSuccess: async ({ habitId, habitName, clarification }) => {
+    onSuccess: async ({ habitId, habitName, clarification, result }) => {
+      applyPostWriteSnapshot(result?.overview_snapshot);
       onHabitUpdate?.({
         success: true,
         refreshNeeded: true,
@@ -301,7 +275,7 @@ export function useAiHabitLogMutation({
       });
 
       markReadConsistencyRequired(userId);
-      await invalidateHabitData(queryClient, userId);
+      await invalidateAfterHabitWrite(queryClient, userId);
     },
   });
 

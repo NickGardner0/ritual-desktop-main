@@ -5,14 +5,17 @@ import { useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DateRange } from 'react-day-picker';
 import {
-  buildDashboardSnapshot,
   createEmptyDashboardSnapshot,
   dashboardSnapshotKeys,
 } from '@/lib/dashboard/dashboard-snapshot';
 import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
-import { habitKeys, useHabitLogsQuery, useHabitsQuery } from '@/hooks/use-habits-query';
+import { habitKeys, useHabitsQuery } from '@/hooks/use-habits-query';
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
-import { perfInfo } from '@/lib/perf-debug';
+import {
+  isDegradedOverviewPayload,
+  mergeOverviewStatsPreservingKnownValues,
+  type DashboardOverviewSnapshotResponse,
+} from '@/lib/dashboard/overview-snapshot-merge';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
 const DASHBOARD_SNAPSHOT_STORAGE_KEY = 'ritual:dashboard-snapshot:v3';
@@ -25,14 +28,6 @@ type PersistedSnapshot = {
 
 type SnapshotEnvelope = {
   byUser?: Record<string, Record<string, PersistedSnapshot>>;
-};
-
-type DashboardOverviewSnapshotResponse = {
-  habits?: unknown[];
-  overviewStats?: DashboardSnapshot['overviewStats'];
-  meta?: {
-    generatedAt?: number;
-  };
 };
 
 function buildFallbackSnapshot(
@@ -104,31 +99,6 @@ function persistSnapshot(
   }
 }
 
-function countPositiveOverviewStats(stats?: DashboardSnapshot['overviewStats']): number {
-  if (!stats) return 0;
-
-  return Object.values(stats).filter((stat) => {
-    const total = Number(stat?.total || 0);
-    const daysWithData = Number(stat?.days_with_data || 0);
-    return Number.isFinite(total) && total > 0 || daysWithData > 0;
-  }).length;
-}
-
-function isDegradedOverviewPayload(
-  baseSnapshot: DashboardSnapshot,
-  payload: DashboardOverviewSnapshotResponse,
-): boolean {
-  const baseStats = baseSnapshot.overviewStats || {};
-  const incomingStats = payload.overviewStats || {};
-  const basePositive = countPositiveOverviewStats(baseStats);
-  const incomingPositive = countPositiveOverviewStats(incomingStats);
-
-  if (basePositive < 4) return false;
-  if (Object.keys(incomingStats).length === 0) return true;
-
-  return incomingPositive <= Math.max(1, Math.floor(basePositive * 0.35));
-}
-
 export function clearPersistedDashboardSnapshots(userId?: string | null): void {
   if (typeof window === 'undefined') return;
 
@@ -166,7 +136,10 @@ function mergeOverviewSnapshot(
 ): DashboardSnapshot {
   return {
     ...baseSnapshot,
-    overviewStats: payload.overviewStats || {},
+    overviewStats: mergeOverviewStatsPreservingKnownValues(
+      baseSnapshot.overviewStats,
+      payload.overviewStats,
+    ),
     meta: {
       ...baseSnapshot.meta,
       userId,
@@ -207,8 +180,7 @@ export function useDashboardSnapshotQuery({
 } = {}) {
   const { user } = useUser();
   const queryClient = useQueryClient();
-  const habitsQuery = useHabitsQuery();
-  const habitLogsQuery = useHabitLogsQuery({ enabled: false });
+  useHabitsQuery();
 
   const resolvedUserId = user?.id ?? initialUserId ?? null;
   const queryUserId = resolvedUserId ?? 'anonymous';
@@ -221,35 +193,10 @@ export function useDashboardSnapshotQuery({
     () => readPersistedSnapshot(resolvedUserId, rangeKey),
     [rangeKey, resolvedUserId],
   );
-  const immediateDerivedSnapshot = useMemo(() => {
-    if (!resolvedUserId || !habitsQuery.data || !habitLogsQuery.data) {
-      return null;
-    }
-
-    return buildDashboardSnapshot(habitsQuery.data, habitLogsQuery.data, {
-      userId: resolvedUserId,
-      hydratedFrom: 'client-derived',
-      dateRange,
-      snapshotKey: rangeKey,
-    });
-  }, [dateRange, habitLogsQuery.data, habitsQuery.data, rangeKey, resolvedUserId]);
   const fallbackSnapshot = useMemo(
     () => buildFallbackSnapshot(resolvedUserId, dateRange),
     [dateRange, resolvedUserId],
   );
-
-  useEffect(() => {
-    if (!immediateDerivedSnapshot) {
-      return;
-    }
-
-    queryClient.setQueryData(queryKey, immediateDerivedSnapshot);
-    perfInfo('dashboard-snapshot', 'query-populated', {
-      range_key: rangeKey,
-      hydrated_from: immediateDerivedSnapshot.meta.hydratedFrom,
-      bytes: JSON.stringify(immediateDerivedSnapshot).length,
-    });
-  }, [immediateDerivedSnapshot, queryClient, queryKey, rangeKey]);
 
   const snapshotQuery = useQuery({
     queryKey,
@@ -260,7 +207,6 @@ export function useDashboardSnapshotQuery({
 
       const baseSnapshot =
         queryClient.getQueryData<DashboardSnapshot>(queryKey)
-        ?? immediateDerivedSnapshot
         ?? persistedSnapshot?.data
         ?? fallbackSnapshot;
 
@@ -269,7 +215,7 @@ export function useDashboardSnapshotQuery({
         if (Array.isArray(payload.habits) && payload.habits.length > 0) {
           queryClient.setQueryData(habitKeys.list(resolvedUserId), payload.habits);
         }
-        if (isDegradedOverviewPayload(baseSnapshot, payload)) {
+        if (isDegradedOverviewPayload(baseSnapshot.overviewStats, payload.overviewStats)) {
           console.warn('Keeping cached dashboard snapshot because live overview payload was degraded');
           return {
             ...baseSnapshot,
@@ -291,13 +237,12 @@ export function useDashboardSnapshotQuery({
     },
     initialData: () =>
       queryClient.getQueryData<DashboardSnapshot>(queryKey)
-      ?? immediateDerivedSnapshot
       ?? persistedSnapshot?.data
       ?? undefined,
     initialDataUpdatedAt: persistedSnapshot?.updatedAt,
     enabled: Boolean(resolvedUserId),
     placeholderData: (previous) =>
-      previous ?? persistedSnapshot?.data ?? immediateDerivedSnapshot ?? fallbackSnapshot,
+      previous ?? persistedSnapshot?.data ?? fallbackSnapshot,
     staleTime: QUERY_POLICY.dashboardSnapshot.staleTime,
     gcTime: QUERY_POLICY.dashboardSnapshot.gcTime,
   });
@@ -310,6 +255,6 @@ export function useDashboardSnapshotQuery({
   return {
     ...snapshotQuery,
     rangeKey,
-    snapshot: snapshotQuery.data ?? immediateDerivedSnapshot ?? fallbackSnapshot,
+    snapshot: snapshotQuery.data ?? fallbackSnapshot,
   };
 }

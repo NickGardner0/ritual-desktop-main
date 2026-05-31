@@ -300,15 +300,27 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       signal?.addEventListener('abort', abortFromQuery, { once: true });
 
       try {
-        const res = await fetch(`/api/analytics/habits/logs/all?${params.toString()}`, {
+        const res = await fetch(`/api/logs/read-model?${params.toString()}`, {
           cache: 'no-store',
           signal: controller.signal,
+          credentials: 'include',
         });
         if (!res.ok) {
           const message = await res.text().catch(() => '');
           throw new Error(message || 'Failed to fetch logs');
         }
-        return res.json();
+        const payload = await res.json();
+        return {
+          data: Array.isArray(payload?.rows) ? payload.rows : [],
+          meta: {
+            ...(payload?.meta || {}),
+            ...(payload?.pagination || {}),
+            hasMore: Boolean(payload?.pagination?.hasMore),
+            total: Number(payload?.pagination?.total || 0),
+            sourceCounts: payload?.sourceCounts || {},
+          },
+          readModel: payload,
+        };
       } catch (fetchError) {
         if (controller.signal.aborted && !signal?.aborted) {
           throw new Error('Logs request timed out');
@@ -489,7 +501,7 @@ function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const sources = useMemo(() => {
     const srcs = new Set<string>();
     scopedLogs.forEach((log) => {
-      srcs.add(log.integration_source || 'manual');
+      srcs.add((log as any).source || log.integration_source || 'manual');
     });
     return Array.from(srcs).sort((a, b) => a.localeCompare(b));
   }, [scopedLogs]);
