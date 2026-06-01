@@ -1,172 +1,167 @@
 ---
 title: "Context Understanding"
-description: "How computer tracking, accessibility capture, OCR, local search, and optional cloud memory work together."
+description: "How Ritual uses local watcher activity, workstreams, and daily rollups to understand computer context."
 ---
 
-Context understanding combines structured activity tracking, browser heartbeats, accessibility-based app capture, OCR, and search. Together, these layers create a local-first record of what was happening on screen, what app was in focus, and how that context can be queried later.
+Context Understanding uses local watcher activity to group computer work into compact project/task workstreams, alongside habit logs, wearable data, phone usage, and location context.
+
+The current path is structured and lightweight. Ritual focuses on activity signals and daily summaries instead of broad screen recording, OCR frame history, or "search everything I saw" memory.
 
 ---
 
 ## Overview
 
-There are two main capture paths:
+Ritual's context model is built around structured signals.
 
-| Path | Role | Best at |
-|------|------|---------|
-| Watcher | Structured desktop context | App usage, browser activity, titles, accessibility text, session boundaries |
-| Recorder | Visible-content capture | OCR text, thumbnail history, search evidence when native app context is weak |
+| Layer | Role |
+|-------|------|
+| Watcher activity | Tracks local app and website usage over time |
+| Workstreams | Groups computer time into project/task labels |
+| Daily rollups | Summarizes app, domain, project, and task activity by day |
+| Habit and health context | Adds manual logs, wearable data, phone usage, and location context |
 
-Those feeds are indexed locally for text, semantic, and hybrid retrieval. When cloud memory is enabled, local chunks can also be uploaded to the memory pipeline for cloud-backed querying.
+This gives Ritual enough context to explain where time went without treating your screen as a permanent raw memory surface.
 
 ---
 
-## Context sources
+## What Ritual Uses
 
-Several signals contribute to the final context model.
+The watcher collects compact activity signals from your Mac.
 
-| Source | What it contributes |
-|--------|---------------------|
-| Browser extension heartbeats | Active tab context, browser domain, tab/url state, extension health |
-| macOS accessibility snapshots | Focused UI state, selected text, document hints, visible app context |
-| Window/title observation | Main window changes, title changes, focused UI changes |
-| Activity tracking | Focused app, timing, AFK, lock/unlock, sleep/wake |
-| OCR capture | Screen text that is visible but not exposed cleanly through native app APIs |
+| Signal | How it is used |
+|--------|----------------|
+| Active app | Builds app usage totals and active computer-time segments |
+| Website/domain | Builds website usage totals without needing full browsing history as the default |
+| Window/title signals | Helps identify the current task or project when available |
+| Safe artifact hints | Uses file, project, or workspace hints when apps expose them safely |
+| Time ranges | Preserves start/end boundaries for app and work sessions |
+| App/domain counts | Powers app and website rankings in Metrics |
+| Project/task labels | Groups related computer activity into workstreams |
+| Compact daily rollups | Keeps the long-term record small and useful |
 
-For rich desktop context, the primary path is browser + accessibility capture. OCR is used to extend or recover context when native capture is thin, degraded, or unavailable.
+These signals feed Computer Time, app/website breakdowns, and workstream summaries.
+
+---
+
+## What Ritual Avoids
+
+The current context path is intentionally narrower than the older recorder/search design.
+
+| Avoided as the primary path | Why |
+|-----------------------------|-----|
+| Full screen recording | Too heavy and unnecessary for most time/context questions |
+| OCR frame history | Creates too much noisy text and sensitive raw context |
+| Raw screen text as memory | Not needed for daily rollups and workstream grouping |
+| Broad "search everything I saw" memory | Harder to control, explain, and keep lightweight |
+
+Ritual can still use richer context in targeted places later, but the core product now relies on structured activity and rollups.
 
 ---
 
 ## Watcher
 
-The watcher is the structured activity layer. It handles app/browser usage, context snapshots, and session boundaries.
+Ritual Watcher tracks app and website activity locally, then groups computer time into project/task workstreams and daily rollups.
 
 ### What it captures
 
 | Signal | Stored data |
 |--------|-------------|
-| Active app | Bundle id, app name, process, and timing for the focused app |
-| Window title | Off, truncated, hashed, or full title depending on privacy mode |
-| Browser context | Domain by default, or full URL when enabled |
-| Browser tab changes | Heartbeat-driven browser updates |
-| AFK state | Idle detection so inactive time does not count as active usage |
-| Session boundaries | Lock/unlock, sleep/wake, app switches, active segments |
-| Daily rollups | Aggregated app usage for analytics and habit sync |
+| Active app | Bundle id, app name, process, and focused time |
+| Window title | A task/project hint when available and allowed |
+| Browser domain | Domain-level website activity |
+| Session boundaries | App switches, idle periods, lock/unlock, sleep/wake |
+| Daily rollups | App, website, computer-time, and workstream summaries |
 
-### Accessibility capture
+### Workstreams
 
-On macOS, the watcher reads accessibility trees to capture richer app context than app-time tracking alone can provide. Depending on the app, this can include:
+Workstreams are compact labels for what your computer time was about. They are built from app usage, domains, titles, and safe project/file hints when available.
 
-| Accessibility-derived signal | Example |
-|------------------------------|---------|
-| Focused or selected text | Selected code, editor text, highlighted content |
-| Document identity | File path, document name, filename hints |
-| Window and UI labels | Current panel, section, or tool state |
-| Visible descendant text | Nearby visible text inside editors and app windows |
+Examples:
 
-The watcher also uses event-driven accessibility observers for focused UI changes, main-window changes, and title changes, so context updates are not limited to coarse polling.
+| Raw activity | Workstream result |
+|--------------|-------------------|
+| Cursor + project folder + terminal activity | Coding on a project |
+| Chrome + docs/wiki domains + document titles | Research or writing |
+| Figma + design file title | Design work |
+| Calendar + meeting app activity | Meetings and planning |
 
-### Defaults and controls
-
-| Setting | Current behavior |
-|---------|------------------|
-| Poll interval | Roughly every 2 seconds by default |
-| Title mode | `off`, `truncate`, `hash`, or `full` |
-| URL mode | Domain-only by default |
-| Incognito | Off by default |
-| AFK timeout | 15 minutes by default |
-| Exclusions | Per-app exclusions for sensitive or irrelevant tools |
+The goal is not to preserve every piece of screen text. The goal is to make the day understandable at the level of useful tasks, projects, and time blocks.
 
 ---
 
-## Recorder
+## Daily Rollups
 
-The recorder is the visible-content layer. It captures periodic screen frames, skips near-duplicates, runs Apple Vision OCR locally, and stores thumbnails plus extracted text in the local database.
+Ritual turns raw activity segments into compact daily facts.
 
-### Pipeline
+| Rollup | Used for |
+|--------|----------|
+| Computer Time | Total active computer usage |
+| App rankings | Which apps took the most time |
+| Website rankings | Which domains took the most time |
+| Project/task workstreams | What the work was about |
+| Date-range summaries | Daily, weekly, monthly, and all-time views |
 
-| Stage | What happens |
-|-------|--------------|
-| Capture | Read the current screen plus active-window metadata |
-| Dedup | Skip frames that are visually and textually too similar to the last stored frame |
-| OCR | Extract visible text on-device with Apple's Vision framework |
-| Thumbnailing | Save a lightweight image preview instead of continuous video |
-| Storage | Write OCR text, quality score, metadata, and thumbnail path to local libSQL |
-
-This layer is especially useful when accessibility output is sparse, noisy, or unavailable, and for building searchable evidence over time.
+These rollups are what power Overview, Metrics, Logs, Calendar, and Chat summaries.
 
 ---
 
-## Search and memory
+## Context Sources
 
-Local context is turned into searchable memory in two stages: local retrieval first, optional cloud memory second.
+Computer activity is only one part of Ritual's context model.
 
-### Local retrieval
+| Source | What it contributes |
+|--------|---------------------|
+| Manual habit logs | What you explicitly logged |
+| Wearables and health signals | Sleep, workouts, heart rate, steps, recovery, and related metrics |
+| iPhone Time | Foreground iPhone app usage when Apple Biome data is available |
+| Location context | Optional location enrichment for habits and activity |
+| Watcher workstreams | Computer-time context grouped into tasks and projects |
 
-| Mode | How it works | Best for |
-|------|--------------|----------|
-| Text search | FTS over OCR text and metadata | Exact terms, app names, localhost URLs, identifiers |
-| Semantic search | Vector similarity over embedded chunks | Natural-language questions |
-| Hybrid search | Lexical + vector signals combined | Best default for most context questions |
-| Activity fallback | Watcher activity when semantic evidence is weak | Time-spent and app-usage questions |
-
-The local hybrid bridge lets query paths call into the local vector + FTS index without requiring raw context to leave the machine first.
-
-### Optional cloud memory
-
-When cloud memory is enabled, local `search_chunks` can be uploaded to the memory pipeline. Those chunks are deduplicated, embedded, retained, and queried through the memory API.
-
-| Route | Purpose |
-|-------|---------|
-| `POST /api/memory/ingest-chunks` | Ingest local chunks from the upload outbox |
-| `POST /api/memory/query` | Query cloud-backed memory |
-| `GET /api/memory/health` | Inspect pipeline freshness and indexing health |
-
-Older watcher-memory routes still exist as temporary compatibility aliases, but the canonical path is now `/api/memory/*`.
+Together, these sources make it easier to explain the relationship between habits, health, work, phone usage, and environment.
 
 ---
 
-## What this enables
+## What This Enables
 
-The combined model supports several different kinds of questions.
+The current model is designed for practical questions.
 
 | Question | Primary backing signal |
 |----------|------------------------|
-| "What app did I spend the most time in?" | Activity rollups and segments |
-| "Where did my computer time go today?" | Watcher activity plus sync-to-habit rollups |
-| "When was I working on the settings page?" | Recorder OCR + local hybrid retrieval |
-| "What was on screen when I was in Figma?" | OCR evidence + app/window context |
-| "Summarize what I was doing this afternoon" | Hybrid retrieval plus activity context |
-| "What did I work on recently across devices?" | Cloud memory, when enabled |
+| "Where did my computer time go today?" | Watcher rollups and workstreams |
+| "What apps did I use most this week?" | App usage rollups |
+| "What websites took the most time?" | Domain usage rollups |
+| "What did I work on yesterday?" | Project/task workstreams |
+| "How did sleep relate to work or phone usage?" | Habit facts plus watcher and iPhone rollups |
+| "Summarize my day" | Habit logs, health data, activity rollups, and context sources |
 
 ---
 
-## Privacy and control
+## Privacy And Control
 
-These layers have separate controls and different storage characteristics.
+The context system is meant to stay understandable and controllable.
 
 | Control | Effect |
 |---------|--------|
+| Local-first watcher data | Raw computer activity starts on the Mac |
 | App exclusions | Stop tracking for selected apps |
-| Title mode | Disable titles or reduce sensitivity with truncation or hashing |
-| URL mode | Limit browser capture to domains instead of full URLs |
-| Incognito off by default | Ignore incognito browser tabs unless explicitly enabled |
-| Local-first storage | Raw watcher data and recorder output are stored locally first |
-| Optional cloud memory | Cloud indexing is a separate pipeline, not a requirement for local context capture |
+| Domain-focused browser usage | Website activity can be summarized without full-page capture |
+| Compact rollups | Long-term storage favors daily facts over raw screen content |
+| Workstream labels | Context is summarized as projects/tasks instead of broad raw memory |
 
-The recorder stores deduplicated thumbnails plus OCR text, not continuous desktop video. The watcher stores structured activity metadata and native context snapshots rather than full screen imagery.
+This keeps Ritual useful for self-observation without making the default system heavier than it needs to be.
 
 ---
 
-## Health signals
+## Health Signals
 
-The app surfaces several diagnostics so context quality is visible, not opaque.
+Ritual surfaces diagnostics so context quality is visible.
 
 | Signal | Meaning |
 |--------|---------|
-| `context_enabled` | Enough recent high-fidelity context is being captured |
-| `context_quality` | `high`, `medium`, `degraded`, or `unavailable` based on recent coverage |
-| Browser heartbeat live | The extension is reaching the watcher listener |
-| Duplicate watcher detection | Multiple local listeners may be splitting context and degrading capture |
-| Freshness | Search and memory responses can report stale or degraded OCR/semantic state |
+| Watcher running | The local activity collector is active |
+| Recent activity | App/website segments are being captured recently |
+| Rollup freshness | Daily facts have been rebuilt from recent activity |
+| Sync status | Local activity has reached the backend when needed |
+| Degraded mode | The app can still show partial summaries if one source is unavailable |
 
-If quality drops, the system can still fall back to weaker signals such as activity-only summaries, but screen-grounded answers will be less precise.
+If a source is missing, Ritual should degrade gracefully instead of overwriting known-good habit totals with empty data.
