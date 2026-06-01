@@ -235,6 +235,9 @@ export function MetricsView({
       return next.length > 4 ? next.slice(next.length - 4) : next;
     });
   }, []);
+  const unpinHabit = React.useCallback((habitId: string) => {
+    setPinnedHabitIds((prev) => prev.filter((id) => id !== habitId));
+  }, []);
   const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
   const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
   const [loadingComparison, setLoadingComparison] = useState(false);
@@ -757,6 +760,17 @@ export function MetricsView({
     dateRange?.to &&
     differenceInDays(dateRange.to, dateRange.from) > 60
   ));
+  const miniChartDefaultRange = useMemo<RangeKey>(() => {
+    if (!dateRange?.from || !dateRange?.to) return 'MAX';
+    const days = Math.max(1, differenceInDays(dateRange.to, dateRange.from) + 1);
+    if (days <= 1) return '1D';
+    if (days <= 7) return '1W';
+    if (days <= 31) return '1M';
+    if (days <= 93) return '3M';
+    if (days <= 183) return '6M';
+    if (days <= 370) return '1Y';
+    return 'MAX';
+  }, [dateRange?.from, dateRange?.to]);
 
   // When the user has explicitly selected a date range, pass it through so the
   // spark cards compare that exact window vs the prior equivalent window.
@@ -816,6 +830,7 @@ export function MetricsView({
     getHabitCardData,
     handleDragEnd,
     habitLogsByHabitId,
+    mergedCardAnalyticsData,
     mergedBarListAnalyticsData,
     mergedBarListSummaryMetrics,
     pinnedHabitIds,
@@ -926,6 +941,8 @@ export function MetricsView({
             barListRange={barListRange}
             onBarListRangeChange={setBarListRange}
             habitSparkSources={habitSparkSources}
+            miniChartDefaultRange={miniChartDefaultRange}
+            onRemoveHabitSpark={unpinHabit}
             miniChartEmptyHint={
               pinnedHabitIds.length === 0
                 ? 'Pin a habit card above to feature it here.'

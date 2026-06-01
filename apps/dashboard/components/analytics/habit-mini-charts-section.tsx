@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useMemo, useState } from 'react'
+import { X } from 'lucide-react'
 import {
   Bar,
   BarChart,
@@ -54,6 +55,7 @@ interface HabitMiniChartsSectionProps {
   emptyHint?: string
   defaultRange?: RangeKey
   rangeOptions?: RangeOption[]
+  onRemoveSource?: (habitId: string) => void
 }
 
 function getRangeDatesForCard(range: RangeKey): { from: Date; to: Date } {
@@ -216,12 +218,17 @@ function MiniBarChartCard({
   source,
   defaultRange,
   rangeOptions,
+  onRemove,
 }: {
   source: HabitSparkSource
   defaultRange: RangeKey
   rangeOptions: RangeOption[]
+  onRemove?: (habitId: string) => void
 }) {
   const [range, setRange] = useState<RangeKey>(defaultRange)
+  React.useEffect(() => {
+    setRange(defaultRange)
+  }, [defaultRange, source.habitId])
   const series = useMemo(() => buildCardSeries(source, range), [source, range])
 
   const maxValue = useMemo(() => {
@@ -275,10 +282,23 @@ function MiniBarChartCard({
             {rangeToLabel(range)}
           </div>
         </div>
-        <div className="text-right shrink-0">
-          <div className="text-[13px] font-medium tabular-nums text-[#27251E]">{displayValue}</div>
-          {changeText ? (
-            <div className={`text-[11px] tabular-nums ${changeColor}`}>{changeText}</div>
+        <div className="flex shrink-0 items-start gap-2">
+          <div className="text-right">
+            <div className="text-[13px] font-medium tabular-nums text-[#27251E]">{displayValue}</div>
+            {changeText ? (
+              <div className={`text-[11px] tabular-nums ${changeColor}`}>{changeText}</div>
+            ) : null}
+          </div>
+          {onRemove ? (
+            <button
+              type="button"
+              aria-label={`Remove ${source.name} chart`}
+              title={`Remove ${source.name} chart`}
+              onClick={() => onRemove(source.habitId)}
+              className="mt-[-2px] flex h-6 w-6 items-center justify-center rounded-sm text-[rgba(39,37,30,0.35)] transition-colors hover:bg-[rgba(39,37,30,0.05)] hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(39,37,30,0.18)]"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           ) : null}
         </div>
       </div>
@@ -293,76 +313,83 @@ function MiniBarChartCard({
       </div>
 
       <div className="flex-1 min-h-0 px-2 pb-3 pt-1">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={series.data}
-            margin={{ top: 8, right: 8, bottom: 2, left: 0 }}
-            barGap={2}
-            barCategoryGap={series.data.length <= 30 ? '12%' : '20%'}
-          >
-            <CartesianGrid
-              horizontal
-              vertical={false}
-              stroke="rgba(39,37,30,0.06)"
-              strokeWidth={1}
-            />
-            <XAxis
-              dataKey="label"
-              axisLine={false}
-              tickLine={false}
-              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
-              tickMargin={6}
-              interval={tickInterval}
-              minTickGap={8}
-            />
-            <YAxis
-              domain={[0, maxValue]}
-              ticks={yTicks}
-              tickLine={false}
-              axisLine={false}
-              tickFormatter={formatAxisValue}
-              tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
-              width={38}
-            />
-            <Tooltip
-              cursor={{ fill: 'rgba(39,37,30,0.04)' }}
-              content={(
-                <ExpandedChartTooltip
-                  unit={source.unit}
-                  valueKey="value"
-                  dateKey="t"
-                />
-              )}
-            />
-            {referenceValue > 0 ? (
-              <ReferenceLine
-                y={referenceValue}
-                stroke="rgba(39,37,30,0.28)"
+        <div className="relative h-full min-h-0">
+          {series.total <= 0 ? (
+            <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 justify-center text-[11px] text-[rgba(39,37,30,0.34)]">
+              No data in this range
+            </div>
+          ) : null}
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={series.data}
+              margin={{ top: 8, right: 8, bottom: 2, left: 0 }}
+              barGap={2}
+              barCategoryGap={series.data.length <= 30 ? '12%' : '20%'}
+            >
+              <CartesianGrid
+                horizontal
+                vertical={false}
+                stroke="rgba(39,37,30,0.06)"
                 strokeWidth={1}
-                strokeDasharray="6 4"
               />
-            ) : null}
-            <Bar
-              dataKey="value"
-              fill="#27251E"
-              fillOpacity={0.85}
-              radius={[2, 2, 0, 0]}
-              // Mirror the expanded chart's tiers: thicker bars for short
-              // ranges, let long ranges (>30 days) fill the category width
-              // so 6M/1Y pack tightly instead of rendering as hair lines.
-              maxBarSize={
-                series.data.length <= 7
-                  ? 32
-                  : series.data.length <= 14
-                    ? 26
-                    : series.data.length <= 30
-                      ? 22
-                      : undefined
-              }
-              isAnimationActive={false}
-            />
-          </BarChart>
-        </ResponsiveContainer>
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
+                tickMargin={6}
+                interval={tickInterval}
+                minTickGap={8}
+              />
+              <YAxis
+                domain={[0, maxValue]}
+                ticks={yTicks}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={formatAxisValue}
+                tick={{ fontSize: 10, fill: 'rgba(39,37,30,0.3)' }}
+                width={38}
+              />
+              <Tooltip
+                cursor={{ fill: 'rgba(39,37,30,0.04)' }}
+                content={(
+                  <ExpandedChartTooltip
+                    unit={source.unit}
+                    valueKey="value"
+                    dateKey="t"
+                  />
+                )}
+              />
+              {referenceValue > 0 ? (
+                <ReferenceLine
+                  y={referenceValue}
+                  stroke="rgba(39,37,30,0.28)"
+                  strokeWidth={1}
+                  strokeDasharray="6 4"
+                />
+              ) : null}
+              <Bar
+                dataKey="value"
+                fill="#27251E"
+                fillOpacity={0.85}
+                radius={[2, 2, 0, 0]}
+                // Mirror the expanded chart's tiers: thicker bars for short
+                // ranges, let long ranges (>30 days) fill the category width
+                // so 6M/1Y pack tightly instead of rendering as hair lines.
+                maxBarSize={
+                  series.data.length <= 7
+                    ? 32
+                    : series.data.length <= 14
+                      ? 26
+                      : series.data.length <= 30
+                        ? 22
+                        : undefined
+                }
+                isAnimationActive={false}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   )
@@ -373,6 +400,7 @@ export function HabitMiniChartsSection({
   emptyHint,
   defaultRange = '1M',
   rangeOptions = DEFAULT_MINI_CHART_RANGE_OPTIONS,
+  onRemoveSource,
 }: HabitMiniChartsSectionProps) {
   if (sources.length === 0) {
     return emptyHint ? (
@@ -390,6 +418,7 @@ export function HabitMiniChartsSection({
           source={source}
           defaultRange={defaultRange}
           rangeOptions={rangeOptions}
+          onRemove={onRemoveSource}
         />
       ))}
     </div>

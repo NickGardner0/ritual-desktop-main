@@ -12,6 +12,7 @@ import {
   formatMetricBarValue,
   getMetricCategoryForHabit,
   inferHigherIsBetter,
+  type MetricDailyRow,
   type MetricHabitLike,
 } from '@/components/analytics/metrics-derived';
 import type { HabitSparkSource } from '@/components/analytics/habit-mini-charts-section';
@@ -26,6 +27,34 @@ import {
   type ChartDataPoint,
   type HabitData,
 } from './metrics-view.shared';
+
+function hasPositiveComputerDailyRows(rows: MetricDailyRow[]): boolean {
+  return rows.some((row) => Number(row.active_hours || row.value || row.daily_value || row.total_amount || 0) > 0);
+}
+
+function factRowsToComputerDailyRows(rows: MetricDailyRow[] | undefined): MetricDailyRow[] {
+  const normalized: MetricDailyRow[] = [];
+  for (const row of rows || []) {
+    const day = String(row.day || row.date || '').slice(0, 10);
+    if (!day) continue;
+    const hours = Math.max(0, Number(row.active_hours ?? row.daily_value ?? row.value ?? row.total_amount ?? 0));
+    normalized.push({
+      ...row,
+      day,
+      active_hours: hours,
+      active_ms: Math.round(hours * 60 * 60 * 1000),
+      events_count: Number(row.events_count || row.completed_count || 0),
+    });
+  }
+  return normalized;
+}
+
+function firstNonEmptyMetricRows(...candidates: Array<MetricDailyRow[] | undefined>): MetricDailyRow[] {
+  for (const rows of candidates) {
+    if (Array.isArray(rows) && rows.length > 0) return rows;
+  }
+  return [];
+}
 
 export function useMetricsCardSections(ctx: Record<string, any>) {
   const {
@@ -44,6 +73,7 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
     getHabitCardData,
     handleDragEnd,
     habitLogsByHabitId,
+    mergedCardAnalyticsData,
     mergedBarListAnalyticsData,
     mergedBarListSummaryMetrics,
     pinnedHabitIds,
@@ -112,13 +142,22 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
     const sources: HabitSparkSource[] = [];
     for (const habitId of pinnedHabitIds) {
       if (habitId === COMPUTER_ACTIVITY_CARD_ID) {
+        const factBackedComputerDaily = detectedComputerHabitId
+          ? factRowsToComputerDailyRows(firstNonEmptyMetricRows(
+              mergedCardAnalyticsData[detectedComputerHabitId] as MetricDailyRow[] | undefined,
+              mergedBarListAnalyticsData[detectedComputerHabitId] as MetricDailyRow[] | undefined,
+            ))
+          : [];
+        const resolvedComputerDaily = hasPositiveComputerDailyRows(computerActivityDaily)
+          ? computerActivityDaily
+          : factBackedComputerDaily;
         sources.push({
           habitId,
           name: COMPUTER_HABIT_DISPLAY_NAME,
           unit: 'Hours',
           higherIsBetter: inferHigherIsBetter(computerActivityHabit.habit_name, 'Hours'),
           logs: [],
-          computerActivityDaily,
+          computerActivityDaily: resolvedComputerDaily,
         });
         continue;
       }
@@ -129,7 +168,10 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
       const wideRangeDailyRows = buildLocalMetricDailyRows(habit, localLogs, fiveYearsAgo, today);
       const logs = wideRangeDailyRows.length > 0
         ? wideRangeDailyRows
-        : (mergedBarListAnalyticsData[habitId] || []);
+        : firstNonEmptyMetricRows(
+            mergedCardAnalyticsData[habitId] as MetricDailyRow[] | undefined,
+            mergedBarListAnalyticsData[habitId] as MetricDailyRow[] | undefined,
+          );
       sources.push({
         habitId,
         name: habit.habit_name,
@@ -141,8 +183,10 @@ export function useMetricsCardSections(ctx: Record<string, any>) {
     return sources;
   }, [
     computerActivityDaily,
+    detectedComputerHabitId,
     filteredHabits,
     habitLogsByHabitId,
+    mergedCardAnalyticsData,
     mergedBarListAnalyticsData,
     mergedBarListSummaryMetrics,
     pinnedHabitIds,
