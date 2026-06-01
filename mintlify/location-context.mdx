@@ -1,0 +1,34 @@
+---
+title: "Location Context"
+description: "How optional location signals help Ritual add place context to habits and activity."
+---
+
+Ritual can use optional location signals to add place context to habit logs and activity events.
+
+Location is not meant to be another score. It is context that helps answer questions like: where did this routine happen, what places correlate with good habits, and what changed when you traveled?
+
+## What It Adds
+
+Location context can attach:
+
+- Latitude and longitude when available.
+- Place labels when they can be resolved confidently.
+- Wi-Fi fingerprints on Mac as a lightweight movement signal.
+- Backfilled context when location pings arrive after a habit or activity event.
+
+## Sources
+
+Ritual supports two location signal paths:
+
+| Source | Notes |
+|--------|-------|
+| iOS companion | Can send location pings when permission is granted |
+| Mac watcher | Can record Wi-Fi fingerprint changes as coarse context |
+
+## Privacy Shape
+
+Location tracking is optional and permission-based. The goal is to enrich your own timeline, not to create a live map. Ritual uses bounded backfill windows so late location pings can improve nearby logs without rewriting unrelated history.
+
+<Warning>
+  Location data is sensitive. Only enable it if you are comfortable using place context inside your personal tracking history.
+</Warning>

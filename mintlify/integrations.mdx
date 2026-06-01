@@ -1,368 +1,41 @@
 ---
 title: "Integrations"
-description: "Wearable, health, desktop, and Plaid-backed financial integrations used to bring behavior and spending data into Ritual."
+description: "Devices and data sources that connect to Ritual automatically."
 ---
 
-Ritual now routes wearable integrations through a unified API under `/api/wearables`. Instead of each provider exposing a separate storage model, Ritual keeps a shared connection layer, canonical samples/events, and sync run history, then projects matched data back into habits and analytics.
+Ritual works best when manual tracking and passive sources are combined. Passive integrations reduce friction — you don't have to remember to log what your devices already know.
 
-Legacy Whoop-specific routes still exist for older clients, but new integrations should use the unified wearable endpoints below.
+## Live Integrations
 
-Financial integrations currently use a separate API under `/api/financial`. Plaid-backed spending sync is not modeled as a wearable feed. Instead, Ritual ingests connection, account, and transaction data, computes daily spending totals, and projects those totals into a managed `Spending` habit.
+These are available now in the current version of Ritual.
 
----
+| Source | Type | Notes |
+|--------|------|-------|
+| Ritual Desktop Watcher | Desktop | Computer Time, active apps, websites, and local activity fallback |
+| Apple Biome / iPhone Time | Device usage | iPhone foreground app usage when local Biome sync data is available |
+| Location Context | Context | Optional location pings can enrich habit and activity logs |
+| Apple Watch / Health | Wearable | Activity, heart rate, sleep, steps, workouts, and related health signals through supported import/sync paths |
+| Whoop | Wearable | Sleep, recovery, strain, and workout data |
+| Oura Ring | Wearable | Sleep, readiness, activity, and recovery signals where configured |
+| Garmin | Wearable | Activity, workouts, and health metrics where configured |
+| Plaid | Finance | Spending context for finance-related habits and summaries |
+| Weather | Context | Daily weather context for richer review and summaries |
 
-## Unified wearables API
+<Info>
+  iPhone Time depends on Apple Biome data being available on a Mac account that can read the synced App.InFocus stream. Some setups may require additional local setup or export/import bridging.
+</Info>
 
-### Core endpoints
+## In Development
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/wearables/providers` | List provider capabilities and connection requirements |
-| GET | `/api/wearables/connections` | List the current user's wearable connections |
-| POST | `/api/wearables/connections/{provider}/authorize` | Start provider auth or return provider-specific guidance |
-| POST | `/api/wearables/connections/{provider}/disconnect` | Revoke a connection in Ritual |
-| POST | `/api/wearables/connections/{provider}/sync` | Trigger a manual sync or account refresh |
-| GET | `/api/wearables/samples` | Query canonical numeric samples across providers |
-| GET | `/api/wearables/events` | Query canonical interval events such as sleep and workouts |
-| GET | `/api/wearables/sync-runs` | Inspect recent sync runs, status, and item counts |
-| GET | `/api/wearables/metrics` | Compatibility query route that returns samples as `metrics` |
+These areas are still being expanded and refined.
 
-### OAuth, callback, and webhook endpoints
+| Source | Type | Notes |
+|--------|------|-------|
+| Google Calendar | Schedule | Calendar context for daily summaries and planning |
+| Additional phone usage sources | Device usage | Backup paths for Screen Time when Biome data is unavailable |
+| More wearable providers | Wearable | Broader provider coverage and more granular health signals |
+| Import workflows | Data import | CSV and screenshot-based import cleanup for historical data |
 
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/wearables/oauth/{provider}/callback` | OAuth callback for Whoop, Oura, and Garmin |
-| POST | `/api/wearables/webhooks/garmin` | Garmin server-to-server webhook ingest |
+## Philosophy
 
-### Canonical model
-
-| Resource | What it stores |
-|----------|----------------|
-| Connection | Provider, auth method, status, provider user id, last sync state, tracked metrics, source count |
-| Sample | Numeric wearable values such as steps, HRV, readiness score, or resting heart rate |
-| Event | Time-bounded records such as sleep sessions and workouts |
-| Sync run | A single auth refresh, manual sync, webhook ingest, or background ingest status record |
-
-When a canonical sample or event matches a habit with the same `integration_source` and `metric_type`, Ritual automatically projects it into `habit_logs` and forwards the compatible record to Tinybird when enabled.
-
----
-
-## Provider matrix
-
-| Provider | Auth method | Status in current build | Sync model | Notes |
-|----------|-------------|-------------------------|------------|-------|
-| Apple Health | SDK | Live | iOS companion registers a device and pushes signed ingest requests | Supports import fallback; no OAuth |
-| Whoop | OAuth | Live | Manual/background cloud sync via `/connections/whoop/sync` | Uses provider-specific fetch logic behind the unified API |
-| Oura | OAuth | Live | Manual/background cloud sync via `/connections/oura/sync` | Normalized into shared samples/events |
-| Garmin | OAuth | Live | OAuth account setup plus webhook-driven ingestion | Manual sync refreshes permissions; data delivery is webhook-based |
-| Tesla | OAuth | Live | Manual/background cloud sync via `/api/integrations/tesla/sync` | Uses Tesla Fleet API for odometer/mileage tracking |
-| Fitbit | OAuth placeholder | Not enabled | Not available in this build | Present in contracts/provider enum, but auth is disabled |
-
----
-
-## Plaid (bank connections for spending tracking)
-
-Plaid is the first financial integration in Ritual. It is used to help users track spending behavior, not to provide a full banking or budgeting product.
-
-In the current build, Ritual:
-
-- creates a Plaid Link token on the backend
-- exchanges the public token for an access token server-side
-- stores financial connections, accounts, and normalized transactions
-- backfills available transaction history
-- computes one positive daily spending total per day
-- projects that total into a managed `Spending` habit
-
-### Financial integration API
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/financial/plaid/link-token` | Create a Plaid Link token for first-time connect or update-mode reconnect |
-| POST | `/api/financial/plaid/exchange-public-token` | Exchange Plaid `public_token`, create the Ritual connection, and optionally auto-backfill history |
-| POST | `/api/financial/plaid/webhook` | Receive Plaid webhooks for transaction and Item status changes |
-| GET | `/api/financial/connections` | List the current user's financial connections, accounts, and sync state |
-| POST | `/api/financial/connections/{connection_id}/backfill` | Import available Plaid history and rebuild daily spending totals |
-| POST | `/api/financial/connections/{connection_id}/sync` | Pull the latest transactions and refresh daily spending totals |
-| PUT | `/api/financial/connections/{connection_id}/sync-settings` | Update auto-sync and preferred sync hour |
-| PUT | `/api/financial/connections/{connection_id}/accounts/{account_id}` | Include or exclude an account from spending rollups |
-| DELETE | `/api/financial/connections/{connection_id}` | Disconnect Plaid inside Ritual |
-| POST | `/api/financial/sync-all` | Internal scheduled sync entrypoint for active Plaid connections |
-
-### Current spending rules
-
-Plaid-backed spending is intentionally narrow in scope. In the current build, Ritual counts:
-
-- posted outflows on **depository** accounts
-- positive daily spending totals only
-
-And excludes:
-
-- pending transactions
-- transfers
-- loan-like and credit-card payment transactions
-- non-depository accounts from the daily spending rollup
-
-This means the integration is optimized for tracking daily spending behavior inside Ritual rather than reproducing a full transaction ledger.
-
-### Current connect and sync behavior
-
-| Behavior | Current implementation |
-|----------|------------------------|
-| Security gate | Users must enable MFA before Plaid Link can be used |
-| Initial connect | Creates the Plaid connection, stores account metadata, and can auto-backfill history |
-| Backfill | Imports available Plaid transaction history and recomputes daily totals |
-| Incremental sync | Uses Plaid transaction sync plus a stored cursor |
-| Reconnect | Uses Plaid update mode when an Item requires re-authentication |
-| Account controls | Users can include or exclude individual accounts from spending totals |
-| Scheduled sync | Active connections can be refreshed through the internal `sync-all` endpoint |
-
-### Data Ritual stores from Plaid
-
-Ritual stores:
-
-- connection status and institution metadata
-- account metadata such as name, mask, type, and subtype
-- normalized transactions including date, amount, merchant/transaction name, direction, pending state, and provider category/code metadata
-- derived daily spending habit logs and sync metadata
-
-Plaid access tokens remain server-side. The product purpose for this data is to support spending-tracking features selected by the user.
-
-### Current scope and limitations
-
-The current Plaid integration should be documented as:
-
-- Plaid-only financial connectivity
-- spending tracking, not budgeting or accounting
-- daily rollups into a `Spending` habit
-- best suited for supported Plaid institutions and available transaction history
-
-If the production Plaid rollout is still pending approval, present this section as beta or coming soon rather than as a generally available banking feature.
-
----
-
-## Apple Health (HealthKit via iOS Companion)
-
-Apple Health uses the Ritual iOS companion app, not OAuth. The device registers once, stores a device secret in Keychain, and signs every ingest request with HMAC-SHA256. The backend enforces idempotency with `client_event_id`.
-
-### Apple Health endpoints
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/wearables/apple/register_device` | Create `device_id` and `device_secret` for the iOS companion |
-| GET | `/api/wearables/apple/devices` | List registered Apple Health devices |
-| DELETE | `/api/wearables/apple/devices/{device_id}` | Deactivate a device |
-| GET | `/api/wearables/apple/tracked_metrics` | Return the Apple-linked habit metric types the client should sync |
-| POST | `/api/wearables/apple/ingest` | Legacy signed ingest endpoint |
-| POST | `/api/wearables/apple/ingest/v2` | Incremental ingest with `added`, `deleted`, `modified`, and anchor confirmation |
-| GET | `/api/wearables/apple/devices/{device_id}/status` | Per-device sync health |
-| GET | `/api/wearables/apple/sync-status` | Sync health for all Apple devices |
-
-### Incremental sync behavior
-
-`/api/wearables/apple/ingest/v2` is the current path for HealthKit sync. The client sends:
-
-| Field | Meaning |
-|-------|---------|
-| `added` | New HealthKit samples since the last anchor |
-| `modified` | Existing HealthKit samples whose values changed |
-| `deleted` | HealthKit UUIDs that should be soft-deleted in Ritual |
-| `anchors` | Per-metric anchor tokens that are only committed client-side after server confirmation |
-
-### Apple Health metric mapping
-
-The iOS app syncs provider metric types such as `steps`, `hr`, `hrv`, `sleep_session`, and `workout`. Ritual stores provider-neutral canonical names where possible.
-
-| Apple metric type | Stored as |
-|-------------------|-----------|
-| `steps` | `steps` |
-| `active_energy` | `active_energy` |
-| `basal_energy` | `basal_energy` |
-| `distance` | `distance` |
-| `flights_climbed` | `flights_climbed` |
-| `exercise_time` | `exercise_time` |
-| `stand_time` | `stand_time` |
-| `hr` | `heart_rate` |
-| `hrv` | `hrv` |
-| `resting_hr` | `resting_heart_rate` |
-| `walking_hr` | `walking_heart_rate` |
-| `respiratory_rate` | `respiratory_rate` |
-| `oxygen_saturation` | `oxygen_saturation` |
-| `sleep_session` | `sleep_total` |
-| `sleep_asleep` | `sleep_asleep` |
-| `sleep_awake` | `sleep_awake` |
-| `sleep_rem` | `sleep_rem` |
-| `sleep_deep` | `sleep_deep` |
-| `sleep_core` | `sleep_light` |
-| `workout` | `workout` |
-| `mindful_minutes` | `mindful_minutes` |
-
----
-
-## Whoop
-
-Whoop is connected through the unified wearables connection flow, but the actual sync still uses the provider-specific Whoop service under the hood.
-
-### OAuth scopes
-
-`offline read:recovery read:sleep read:workout read:cycles read:profile`
-
-### Whoop endpoints Ritual calls
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `https://api.prod.whoop.com/oauth/oauth2/auth` | OAuth authorization |
-| POST | `https://api.prod.whoop.com/oauth/oauth2/token` | Token exchange and refresh |
-| GET | `/developer/v1/user/profile/basic` | Resolve the Whoop user id after OAuth |
-| GET | `/developer/v1/recovery` | Recovery data with pagination |
-| GET | `/developer/v1/cycle` | Cycle/day records with pagination |
-| GET | `/developer/v2/cycle/{cycleId}/sleep` | Sleep session for a cycle |
-| GET | `/developer/v1/activity/workout` | Workout data with pagination |
-
-### Whoop sync behavior
-
-| Behavior | Current implementation |
-|----------|------------------------|
-| First sync | Pulls the last 30 days |
-| Incremental sync | Pulls from last sync time with a 2-day overlap |
-| Token refresh | Refreshes when expiry is within 5 minutes |
-| Metric gating | Recovery and workout fetches are skipped if the user has no matching Whoop-linked habits |
-
-### Canonical Whoop data Ritual stores
-
-| Kind | Stored as | Source fields |
-|------|-----------|---------------|
-| Sample | `recovery_score` | Recovery score |
-| Sample | `hrv` | `hrv_rmssd_milli` |
-| Sample | `resting_heart_rate` | Resting heart rate |
-| Sample | `oxygen_saturation` | SpO2 percentage |
-| Sample | `temperature_delta` | Skin temperature delta |
-| Event | `sleep_total` | Sleep session with stage summary details |
-| Event | `workout` | Workout window with strain, distance, and HR details |
-
----
-
-## Oura Ring
-
-Oura is now part of the unified cloud wearable flow. Ritual exchanges OAuth tokens, refreshes them automatically, fetches recent collections, and normalizes the results into shared samples and events.
-
-### OAuth scopes
-
-`email personal daily heartrate session workout tag`
-
-### Oura endpoints Ritual calls
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `https://cloud.ouraring.com/oauth/authorize` | OAuth authorization |
-| POST | `https://api.ouraring.com/oauth/token` | Token exchange and refresh |
-| GET | `/v2/usercollection/personal_info` | Resolve the Oura identity/profile |
-| GET | `/v2/usercollection/daily_sleep` | Daily sleep summary |
-| GET | `/v2/usercollection/sleep` | Sleep sessions |
-| GET | `/v2/usercollection/daily_readiness` | Readiness summary |
-| GET | `/v2/usercollection/daily_activity` | Activity summary |
-| GET | `/v2/usercollection/workout` | Workout sessions |
-| GET | `/v2/usercollection/heartrate` | Heart-rate series when available for the token/scope |
-
-### Oura sync behavior
-
-| Behavior | Current implementation |
-|----------|------------------------|
-| First sync | Pulls the last 30 days |
-| Incremental sync | Uses last sync time with a minimum 2-day overlap and maximum 30-day lookback |
-| Scope tolerance | `403` and `404` collection responses are treated as unavailable scope/data, not fatal |
-
-### Canonical Oura data Ritual stores
-
-| Kind | Stored as |
-|------|-----------|
-| Sample | `steps`, `active_energy`, `distance`, `activity_score` |
-| Sample | `readiness_score`, `temperature_delta` |
-| Sample | `sleep_score`, `sleep_deep`, `sleep_rem`, `sleep_light` |
-| Sample | `hrv`, `resting_heart_rate`, `heart_rate` |
-| Event | `sleep_total` |
-| Event | `workout` |
-
----
-
-## Garmin
-
-Garmin is connected through unified OAuth plus a webhook ingest path. The manual sync endpoint is mainly an account refresh step that loads the provider user id and permissions; actual activity data is expected to arrive through Garmin webhooks.
-
-### OAuth and webhook flow
-
-| Step | Current implementation |
-|------|------------------------|
-| Authorization | PKCE OAuth via `/api/wearables/connections/garmin/authorize` |
-| Callback | `/api/wearables/oauth/garmin/callback` validates `state`, exchanges `code`, stores tokens, and records permissions |
-| Manual sync | `/api/wearables/connections/garmin/sync` refreshes account metadata and permissions |
-| Webhook ingest | `/api/wearables/webhooks/garmin` accepts Garmin payloads and maps them to the linked Ritual user |
-
-If `GARMIN_WEBHOOK_SECRET` is configured, the webhook requires the `x-garmin-webhook-secret` header.
-
-### Canonical Garmin data Ritual stores
-
-| Kind | Stored as |
-|------|-----------|
-| Sample | `steps`, `distance`, `active_energy`, `resting_heart_rate` |
-| Sample | `stress_score`, `body_battery` |
-| Event | `sleep_total` |
-| Event | `workout` |
-
----
-
-## Tesla
-
-Tesla is connected through OAuth via the Tesla Fleet API. Ritual tracks odometer readings and calculates daily miles driven, projecting them into a managed habit.
-
-### Tesla integration API
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| POST | `/api/integrations/tesla/callback` | OAuth token exchange |
-| GET | `/api/integrations/tesla/status` | Connection status, last sync time, and vehicle list |
-| POST | `/api/integrations/tesla/sync` | Manual odometer sync |
-| POST | `/api/integrations/tesla/backfill-odometer` | Backfill historical mileage across a date range |
-| POST | `/api/integrations/tesla/disconnect` | Revoke the Tesla connection |
-
-### What Ritual tracks from Tesla
-
-| Data | How it's stored |
-|------|-----------------|
-| Odometer readings | Raw odometer value per vehicle per sync |
-| Miles driven | Daily delta calculated from consecutive odometer readings, projected into a managed "Miles Driven" habit |
-| Vehicle metadata | Display name and vehicle IDs |
-
-### Tesla sync behavior
-
-| Behavior | Current implementation |
-|----------|------------------------|
-| Auth | OAuth 2.0 with automatic token refresh when expiry is within 5 minutes |
-| Token storage | Encrypted access and refresh tokens stored server-side |
-| Multi-vehicle | Supports multiple vehicles per account with per-vehicle odometer tracking |
-| Backfill | Distributes historical miles evenly across days with idempotent log creation |
-| Scheduled sync | Active connections are refreshed through a Trigger.dev background task |
-| Deduplication | Skips logging if the odometer delta is zero or a log already exists for that date |
-
----
-
-## Desktop context
-
-Ritual Watcher and Ritual Recorder are separate from the unified wearables API. They are first-party desktop context features, not third-party integrations.
-
-For detailed docs on computer tracking, OCR capture, memory indexing, and hybrid search, see [Context Understanding](/context-understanding).
-
----
-
-## Weather
-
-Weather context is also outside the unified wearables API. Ritual attaches local conditions and temperature context to logs automatically where location support is available.
-
----
-
-## Not yet enabled
-
-| Integration | Current state |
-|-------------|---------------|
-| Fitbit | Included in provider enums/contracts, but auth is disabled in this build. Data can be imported via the bulk import system. |
-| Apple Screen Time cloud ingest | Metric types exist in shared Apple schemas, but there is no live unified provider flow yet |
-| Google Calendar | Still planned |
+Ritual treats integrations as context layers, not scorecards. The goal is to give you a richer picture of why your habits went the way they did, not to add more things to optimize.

@@ -1,29 +1,45 @@
 ---
 title: "Future Updates"
-description: "Planned product directions for Ritual."
+description: "What's coming next in Ritual."
 ---
 
-## Planned
+Ritual is in active development. Here's what's on the roadmap.
 
-| Feature | Description |
-|--------|-------------|
-| Apple Screen Time (iPhone) | Hourly, daily, weekly, and monthly app usage and statistics synced from iOS. |
-| Controlled Experiments | Run behavioral experiments and use the app as an N=1 research tool with control/treatment periods and statistical analysis. |
-| Life Timeline | Unified timeline of your life, with the ability to scrub through your history across all data sources. |
-| Simulations | Predict outcomes based on extensive behavioral data. |
-| Google Calendar | Two-way calendar sync for planning and schedule tracking. |
-| Fitbit | Full OAuth integration for Fitbit wearable data (currently import-only). |
+## Coming Soon
 
-## Recently shipped
+<CardGroup cols={2}>
+  <Card title="Richer Health Signals" icon="heart-pulse">
+    More granular wearable and biometric context across sleep, recovery, workouts, heart rate, and readiness.
+  </Card>
+  <Card title="Phone Usage Depth" icon="mobile-screen">
+    Better iPhone app breakdowns, fallback collection paths, and clearer logs around what data was imported.
+  </Card>
+  <Card title="Location-Aware Review" icon="map-pin">
+    More useful place labels and location-aware summaries without turning location into another scorecard.
+  </Card>
+  <Card title="Deeper Pattern Summaries" icon="chart-line">
+    Smarter cross-habit analysis across habits, schedule, and activity. Surface connections you'd never notice manually.
+  </Card>
+  <Card title="Import Workflows" icon="file-import">
+    Faster cleanup and import for existing tracking data from other apps and CSV exports.
+  </Card>
+  <Card title="Weekly & Monthly Guidance" icon="calendar-days">
+    Clearer weekly and monthly insights delivered directly inside the app — not just raw data.
+  </Card>
+</CardGroup>
 
-| Feature | Description |
-|--------|-------------|
-| AI Chat with tool-calling | Conversational AI with 16+ structured tool calls for querying habits, trends, correlations, anomalies, and activity data. |
-| Voice mode | Native macOS speech recognition with real-time waveform visualization, contextual vocabulary hints, and streaming transcription. |
-| Tesla integration | OAuth-connected Tesla vehicle tracking with automatic miles-driven habit logging via the Fleet API. |
-| Plaid spending tracking | Bank account connectivity for daily spending behavior tracking projected into a managed habit. |
-| Analytics dashboard | Draggable metric cards with streaks, trends, percent-change indicators, and correlation analysis. |
-| Cloud memory | Optional cloud-backed semantic search over desktop activity and screen content with hybrid retrieval. |
-| Data import system | Multi-format bulk import (CSV, screenshots, Apple Health, Whoop, Oura, Garmin, Fitbit) with validation, conflict resolution, and undo. |
-| SMS onboarding | Automated welcome SMS with vCard contact card on user signup via SendBlue. |
-| Anomaly detection | Z-score-based statistical outlier detection across all tracked habits. |
+## Principles for New Features
+
+Every new feature in Ritual is evaluated against the same criteria:
+
+1. **Does it make the daily review faster or more useful?**
+2. **Does it reduce friction for logging?**
+3. **Does it help you understand your life better over time?**
+
+If it doesn't pass all three, it doesn't ship.
+
+---
+
+<Card title="Download Ritual" icon="download" href="https://ritual.app/download">
+  Ready to start? Download Ritual and begin with a simple daily tracking rhythm.
+</Card>

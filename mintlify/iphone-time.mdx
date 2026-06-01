@@ -1,0 +1,33 @@
+---
+title: "iPhone Time"
+description: "How Ritual imports iPhone foreground app usage and turns it into metrics."
+---
+
+iPhone Time is Ritual's phone-usage metric. It measures time spent in foreground iPhone apps and shows that usage alongside habits, computer activity, sleep, and other signals.
+
+## Where It Appears
+
+iPhone Time can appear in:
+
+- **Overview** as an all-time or date-range habit total.
+- **Metrics** as a chart and habit row.
+- **Logs** as daily read-only rollup rows instead of thousands of raw app events.
+- **AI summaries** as phone-usage context when available.
+
+## Data Source
+
+Ritual currently uses Apple Biome App.InFocus data when it is locally available on a Mac account. That data is parsed into foreground app intervals, uploaded, and projected into the iPhone Time habit.
+
+<Info>
+  Apple Biome availability depends on iCloud/device sync behavior. If your iPhone and daily Mac user are signed into different iCloud accounts, Ritual may need an explicit bridge/export path or an alternate Screen Time sync path.
+</Info>
+
+## App-Level Detail
+
+Ritual stores normalized foreground app intervals, so the product can support iPhone app breakdowns similar to Computer Time app rankings. Logs intentionally show daily rollups, not every raw foreground event, to keep the history view readable.
+
+## Current Limitations
+
+- Biome data may lag behind real time.
+- Some iCloud setups do not sync App.InFocus files to the Mac account running Ritual.
+- Raw phone app events are treated as activity data; Logs shows rollups by default.

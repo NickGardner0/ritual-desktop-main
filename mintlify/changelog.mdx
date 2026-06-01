@@ -6,9 +6,31 @@ rss: true
 
 Follow what’s new in Ritual: features, fixes, and improvements. Subscribe via RSS at [this page’s RSS feed](/changelog/rss.xml).
 
+<Update label="June 2026" description="Desktop activity, iPhone Time, and canonical metrics" tags={["Desktop", "Metrics", "Integrations"]}>
+
+### What’s new
+
+- **Computer Time reliability** — Desktop activity tracking now has a stronger local fallback path and better watcher crash protection.
+- **iPhone Time** — Ritual can ingest Apple Biome App.InFocus data where available and project it into daily iPhone Time metrics.
+- **Location context** — Optional location pings can enrich habit logs and activity events, including bounded backfill for late signals.
+- **Canonical read models** — Overview, Metrics, Logs, and Calendar now rely on backend-owned read models for more consistent totals across views.
+- **Native desktop updater** — Desktop updates use the native Tauri updater flow with notarized macOS release artifacts.
+
+### Improvements
+
+- Faster and more stable manual logging updates.
+- Cleaner Metrics app and habit lists.
+- Better desktop release validation and updater artifact checks.
+
+</Update>
+
 <Update label="April 2026" description="Public beta" tags={["App", "Docs"]}>
 
+### What’s new
 
+- **Landing & download** — Public beta positioning with a clearer path to the Mac build and documentation.
+- **Docs site** — Introduction, core features, integrations, and how Ritual fits into your routine.
+- **Stability** — Ongoing fixes and polish across onboarding and tracking flows.
 
 ### For developers
 
@@ -18,5 +40,11 @@ Follow what’s new in Ritual: features, fixes, and improvements. Subscribe via 
 
 <Update label="March 2026" description="Early access" tags={["App"]}>
 
+### Improvements
+
+- Refinements to habit and signal capture for daily use.
+- Performance and reliability work ahead of wider beta invites.
+
+If something looks off, ping us from the app or docs — we read everything.
 
 </Update>
