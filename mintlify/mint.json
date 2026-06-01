@@ -30,19 +30,8 @@
       "group": "Getting Started",
       "pages": [
         "introduction",
-        "what-ritual-is",
-        "how-it-works"
-      ]
-    },
-    {
-      "group": "Product",
-      "pages": [
-        "core-features",
-        "integrations",
-        "desktop-activity",
-        "iphone-time",
-        "location-context",
-        "daily-routine"
+        "context-understanding",
+        "integrations"
       ]
     },
     {
@@ -55,13 +44,5 @@
   ],
   "footerSocials": {
     "github": "https://github.com/NickGardner0/ritual-desktop-main"
-  },
-  "font": {
-    "headings": {
-      "family": "Inter"
-    },
-    "body": {
-      "family": "Inter"
-    }
   }
 }

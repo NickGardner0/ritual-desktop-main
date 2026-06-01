@@ -1,31 +1,172 @@
 ---
 title: "Context Understanding"
-description: "How Ritual combines habits, desktop activity, iPhone Time, wearables, and optional location context."
+description: "How computer tracking, accessibility capture, OCR, local search, and optional cloud memory work together."
 ---
 
-Ritual's context layer is now centered on structured activity and habit data rather than a separate recorder workflow.
+Context understanding combines structured activity tracking, browser heartbeats, accessibility-based app capture, OCR, and search. Together, these layers create a local-first record of what was happening on screen, what app was in focus, and how that context can be queried later.
 
-The current system combines:
+---
 
-- Manual and voice habit logs
-- Computer Time, app usage, and website usage from the Mac desktop watcher
-- iPhone Time from Apple Biome App.InFocus data when available
-- Wearable and health signals
-- Optional location context for habit and activity events
+## Overview
 
-For the current documentation, see:
+There are two main capture paths:
 
-<CardGroup cols={2}>
-  <Card title="Desktop Activity" icon="monitor" href="/desktop-activity">
-    Computer Time, app usage, website usage, and watcher behavior.
-  </Card>
-  <Card title="iPhone Time" icon="mobile-screen" href="/iphone-time">
-    iPhone foreground app usage, rollups, and current limitations.
-  </Card>
-  <Card title="Location Context" icon="map-pin" href="/location-context">
-    Optional place context for habit logs and activity events.
-  </Card>
-  <Card title="How It Works" icon="sparkles" href="/how-it-works">
-    The full capture, organize, review, and adjustment loop.
-  </Card>
-</CardGroup>
+| Path | Role | Best at |
+|------|------|---------|
+| Watcher | Structured desktop context | App usage, browser activity, titles, accessibility text, session boundaries |
+| Recorder | Visible-content capture | OCR text, thumbnail history, search evidence when native app context is weak |
+
+Those feeds are indexed locally for text, semantic, and hybrid retrieval. When cloud memory is enabled, local chunks can also be uploaded to the memory pipeline for cloud-backed querying.
+
+---
+
+## Context sources
+
+Several signals contribute to the final context model.
+
+| Source | What it contributes |
+|--------|---------------------|
+| Browser extension heartbeats | Active tab context, browser domain, tab/url state, extension health |
+| macOS accessibility snapshots | Focused UI state, selected text, document hints, visible app context |
+| Window/title observation | Main window changes, title changes, focused UI changes |
+| Activity tracking | Focused app, timing, AFK, lock/unlock, sleep/wake |
+| OCR capture | Screen text that is visible but not exposed cleanly through native app APIs |
+
+For rich desktop context, the primary path is browser + accessibility capture. OCR is used to extend or recover context when native capture is thin, degraded, or unavailable.
+
+---
+
+## Watcher
+
+The watcher is the structured activity layer. It handles app/browser usage, context snapshots, and session boundaries.
+
+### What it captures
+
+| Signal | Stored data |
+|--------|-------------|
+| Active app | Bundle id, app name, process, and timing for the focused app |
+| Window title | Off, truncated, hashed, or full title depending on privacy mode |
+| Browser context | Domain by default, or full URL when enabled |
+| Browser tab changes | Heartbeat-driven browser updates |
+| AFK state | Idle detection so inactive time does not count as active usage |
+| Session boundaries | Lock/unlock, sleep/wake, app switches, active segments |
+| Daily rollups | Aggregated app usage for analytics and habit sync |
+
+### Accessibility capture
+
+On macOS, the watcher reads accessibility trees to capture richer app context than app-time tracking alone can provide. Depending on the app, this can include:
+
+| Accessibility-derived signal | Example |
+|------------------------------|---------|
+| Focused or selected text | Selected code, editor text, highlighted content |
+| Document identity | File path, document name, filename hints |
+| Window and UI labels | Current panel, section, or tool state |
+| Visible descendant text | Nearby visible text inside editors and app windows |
+
+The watcher also uses event-driven accessibility observers for focused UI changes, main-window changes, and title changes, so context updates are not limited to coarse polling.
+
+### Defaults and controls
+
+| Setting | Current behavior |
+|---------|------------------|
+| Poll interval | Roughly every 2 seconds by default |
+| Title mode | `off`, `truncate`, `hash`, or `full` |
+| URL mode | Domain-only by default |
+| Incognito | Off by default |
+| AFK timeout | 15 minutes by default |
+| Exclusions | Per-app exclusions for sensitive or irrelevant tools |
+
+---
+
+## Recorder
+
+The recorder is the visible-content layer. It captures periodic screen frames, skips near-duplicates, runs Apple Vision OCR locally, and stores thumbnails plus extracted text in the local database.
+
+### Pipeline
+
+| Stage | What happens |
+|-------|--------------|
+| Capture | Read the current screen plus active-window metadata |
+| Dedup | Skip frames that are visually and textually too similar to the last stored frame |
+| OCR | Extract visible text on-device with Apple's Vision framework |
+| Thumbnailing | Save a lightweight image preview instead of continuous video |
+| Storage | Write OCR text, quality score, metadata, and thumbnail path to local libSQL |
+
+This layer is especially useful when accessibility output is sparse, noisy, or unavailable, and for building searchable evidence over time.
+
+---
+
+## Search and memory
+
+Local context is turned into searchable memory in two stages: local retrieval first, optional cloud memory second.
+
+### Local retrieval
+
+| Mode | How it works | Best for |
+|------|--------------|----------|
+| Text search | FTS over OCR text and metadata | Exact terms, app names, localhost URLs, identifiers |
+| Semantic search | Vector similarity over embedded chunks | Natural-language questions |
+| Hybrid search | Lexical + vector signals combined | Best default for most context questions |
+| Activity fallback | Watcher activity when semantic evidence is weak | Time-spent and app-usage questions |
+
+The local hybrid bridge lets query paths call into the local vector + FTS index without requiring raw context to leave the machine first.
+
+### Optional cloud memory
+
+When cloud memory is enabled, local `search_chunks` can be uploaded to the memory pipeline. Those chunks are deduplicated, embedded, retained, and queried through the memory API.
+
+| Route | Purpose |
+|-------|---------|
+| `POST /api/memory/ingest-chunks` | Ingest local chunks from the upload outbox |
+| `POST /api/memory/query` | Query cloud-backed memory |
+| `GET /api/memory/health` | Inspect pipeline freshness and indexing health |
+
+Older watcher-memory routes still exist as temporary compatibility aliases, but the canonical path is now `/api/memory/*`.
+
+---
+
+## What this enables
+
+The combined model supports several different kinds of questions.
+
+| Question | Primary backing signal |
+|----------|------------------------|
+| "What app did I spend the most time in?" | Activity rollups and segments |
+| "Where did my computer time go today?" | Watcher activity plus sync-to-habit rollups |
+| "When was I working on the settings page?" | Recorder OCR + local hybrid retrieval |
+| "What was on screen when I was in Figma?" | OCR evidence + app/window context |
+| "Summarize what I was doing this afternoon" | Hybrid retrieval plus activity context |
+| "What did I work on recently across devices?" | Cloud memory, when enabled |
+
+---
+
+## Privacy and control
+
+These layers have separate controls and different storage characteristics.
+
+| Control | Effect |
+|---------|--------|
+| App exclusions | Stop tracking for selected apps |
+| Title mode | Disable titles or reduce sensitivity with truncation or hashing |
+| URL mode | Limit browser capture to domains instead of full URLs |
+| Incognito off by default | Ignore incognito browser tabs unless explicitly enabled |
+| Local-first storage | Raw watcher data and recorder output are stored locally first |
+| Optional cloud memory | Cloud indexing is a separate pipeline, not a requirement for local context capture |
+
+The recorder stores deduplicated thumbnails plus OCR text, not continuous desktop video. The watcher stores structured activity metadata and native context snapshots rather than full screen imagery.
+
+---
+
+## Health signals
+
+The app surfaces several diagnostics so context quality is visible, not opaque.
+
+| Signal | Meaning |
+|--------|---------|
+| `context_enabled` | Enough recent high-fidelity context is being captured |
+| `context_quality` | `high`, `medium`, `degraded`, or `unavailable` based on recent coverage |
+| Browser heartbeat live | The extension is reaching the watcher listener |
+| Duplicate watcher detection | Multiple local listeners may be splitting context and degrading capture |
+| Freshness | Search and memory responses can report stale or degraded OCR/semantic state |
+
+If quality drops, the system can still fall back to weaker signals such as activity-only summaries, but screen-grounded answers will be less precise.
