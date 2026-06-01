@@ -75,7 +75,7 @@ export async function invokeDetailedActivityWithInitRetry(params: {
   endTs: number
   limit?: number
 }): Promise<TauriDetailedActivityResponse> {
-  if (isDesktopUserAgent()) {
+  if (isDesktopUserAgent() && !hasTauriIpcBridge()) {
     try {
       return await fetchLocalBridgeJson<TauriDetailedActivityResponse>('/v1/activity/detailed', {
         start_ts: params.startTs,
@@ -136,7 +136,7 @@ export async function invokeDailySummariesWithInitRetry(
   startDate: string,
   endDate: string,
 ): Promise<TauriDailySummaryRow[]> {
-  if (isDesktopUserAgent()) {
+  if (isDesktopUserAgent() && !hasTauriIpcBridge()) {
     try {
       return await fetchLocalBridgeJson<TauriDailySummaryRow[]>('/v1/activity/daily-summaries', {
         start_date: startDate,

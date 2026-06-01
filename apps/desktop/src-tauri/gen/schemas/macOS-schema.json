@@ -2211,6 +2211,12 @@
       "description": "Permission identifier",
       "oneOf": [
         {
+          "description": "Allows the hosted dashboard to query local desktop activity data and watcher status for offline/recent metrics fallback.",
+          "type": "string",
+          "const": "desktop-activity",
+          "markdownDescription": "Allows the hosted dashboard to query local desktop activity data and watcher status for offline/recent metrics fallback."
+        },
+        {
           "description": "Allows the dashboard webview to trigger native desktop observability diagnostics.",
           "type": "string",
           "const": "desktop-observability",

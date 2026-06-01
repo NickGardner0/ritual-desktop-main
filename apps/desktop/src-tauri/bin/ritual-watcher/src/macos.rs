@@ -12,6 +12,8 @@ use std::ptr;
 
 use core_foundation::base::{CFRelease, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
+use core_foundation_sys::base::{CFGetTypeID, CFTypeRef};
+use core_foundation_sys::string::CFStringGetTypeID;
 use serde::Serialize;
 use std::env;
 
@@ -20,6 +22,40 @@ fn env_flag_enabled(name: &str) -> bool {
         env::var(name).ok().as_deref(),
         Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
     )
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cf_string_from_get_rule(value: *const std::ffi::c_void) -> Option<String> {
+    if value.is_null() || CFGetTypeID(value as CFTypeRef) != CFStringGetTypeID() {
+        return None;
+    }
+    let cf = CFString::wrap_under_get_rule(value as CFStringRef);
+    let text = cf.to_string();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn cf_string_from_create_rule(value: *const std::ffi::c_void) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    if CFGetTypeID(value as CFTypeRef) != CFStringGetTypeID() {
+        CFRelease(value as *const _);
+        return None;
+    }
+    let cf = CFString::wrap_under_create_rule(value as CFStringRef);
+    let text = cf.to_string();
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 /// Information about the currently active window
@@ -1148,13 +1184,7 @@ fn get_frontmost_window_metadata(pid: i32) -> (Option<String>, Option<ActiveWind
     ) -> Option<String> {
         let key = CFString::new(key);
         let value_ref = dict.find(&key)?;
-        let value = CFString::wrap_under_get_rule(*value_ref as _).to_string();
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
+        cf_string_from_get_rule(*value_ref as _)
     }
 
     unsafe fn dict_bounds(
@@ -1278,9 +1308,7 @@ fn get_window_title_ax(pid: i32) -> Option<String> {
                         // Get window name
                         let name_key = CFString::new("kCGWindowName");
                         if let Some(name_ref) = window.find(&name_key) {
-                            let name = CFString::wrap_under_get_rule(*name_ref as _);
-                            let title = name.to_string();
-                            if !title.is_empty() {
+                            if let Some(title) = cf_string_from_get_rule(*name_ref as _) {
                                 return Some(title);
                             }
                         }
@@ -1360,9 +1388,7 @@ fn get_window_title_accessibility(pid: i32) -> Option<String> {
             return None;
         }
 
-        // Convert CFString to Rust String
-        let title_cf = CFString::wrap_under_create_rule(title_value as CFStringRef);
-        Some(title_cf.to_string())
+        cf_string_from_create_rule(title_value)
     }
 }
 
@@ -1414,13 +1440,7 @@ pub fn get_focused_text_info(
         if result != K_AX_ERROR_SUCCESS || value.is_null() {
             return None;
         }
-        let cf = CFString::wrap_under_create_rule(value as CFStringRef);
-        let output = cf.to_string();
-        if output.trim().is_empty() {
-            None
-        } else {
-            Some(output)
-        }
+        cf_string_from_create_rule(value)
     }
 
     unsafe fn copy_element_attr(
@@ -1827,8 +1847,8 @@ pub fn dump_accessibility_context(
         if result != K_AX_ERROR_SUCCESS || value.is_null() {
             return None;
         }
-        let cf = CFString::wrap_under_create_rule(value as CFStringRef);
-        normalize_ax_candidate_text(&cf.to_string(), 4_000)
+        cf_string_from_create_rule(value)
+            .and_then(|text| normalize_ax_candidate_text(&text, 4_000))
     }
 
     unsafe fn copy_element_attr(

@@ -13,7 +13,9 @@ use std::time::Duration;
 
 use core_foundation::base::{CFRelease, TCFType};
 use core_foundation::runloop::{kCFRunLoopDefaultMode, CFRunLoopAddSource, CFRunLoopGetCurrent};
-use core_foundation::string::CFString;
+use core_foundation::string::{CFString, CFStringRef};
+use core_foundation_sys::base::{CFGetTypeID, CFTypeRef};
+use core_foundation_sys::string::CFStringGetTypeID;
 use tracing::{debug, info, trace, warn};
 
 /// Window change event
@@ -237,12 +239,19 @@ unsafe fn get_window_title_for_element(element: AXUIElementRef) -> Option<String
     let result =
         AXUIElementCopyAttributeValue(element, title_attr.as_concrete_TypeRef(), &mut title_value);
 
-    if result == K_AX_ERROR_SUCCESS && !title_value.is_null() {
-        let title_cf = CFString::wrap_under_create_rule(title_value as _);
-        Some(title_cf.to_string())
-    } else {
-        None
+    if result != K_AX_ERROR_SUCCESS || title_value.is_null() {
+        return None;
     }
+
+    if CFGetTypeID(title_value as CFTypeRef) != CFStringGetTypeID() {
+        CFRelease(title_value as *const _);
+        return None;
+    }
+
+    let title_cf = CFString::wrap_under_create_rule(title_value as CFStringRef);
+    let title = title_cf.to_string();
+    let trimmed = title.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
 /// Window change listener

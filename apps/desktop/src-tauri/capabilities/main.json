@@ -15,6 +15,7 @@
     "desktop-shell-bootstrap",
     "desktop-observability",
     "desktop-runtime",
+    "desktop-activity",
     "dialog:allow-save",
     "shell:allow-open",
     "fs:allow-exists",

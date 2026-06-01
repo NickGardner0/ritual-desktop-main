@@ -38,6 +38,7 @@
     "desktop-shell-bootstrap",
     "desktop-observability",
     "desktop-runtime",
+    "desktop-activity",
     "deep-link:default",
     "dialog:default",
     "shell:allow-open",
