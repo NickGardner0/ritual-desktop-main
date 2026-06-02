@@ -20,7 +20,7 @@ class WearableOuraSyncMixin:
         daily_activity_records: List[Dict[str, Any]],
         workout_records: List[Dict[str, Any]],
         heartrate_records: List[Dict[str, Any]],
-    ) -> Dict[str, int]:
+    ) -> Dict[str, Any]:
         connection = await self.connection_service.get_or_create_connection(
             user_id=user_id,
             provider="oura",
@@ -60,6 +60,14 @@ class WearableOuraSyncMixin:
         )
 
         counts = {"samples": 0, "events": 0}
+        affected_dates = self._oura_affected_dates(
+            daily_sleep_records=daily_sleep_records,
+            sleep_records=sleep_records,
+            daily_readiness_records=daily_readiness_records,
+            daily_activity_records=daily_activity_records,
+            workout_records=workout_records,
+            heartrate_records=heartrate_records,
+        )
         sleep_daily_by_day = {
             str(record.get("day")): record
             for record in daily_sleep_records
@@ -115,8 +123,80 @@ class WearableOuraSyncMixin:
                 record=record,
             )
 
-        await self.update_connection_sync_state(connection_id=connection.id)
-        return counts
+        projected_records = counts["samples"] + counts["events"]
+        post_ingest = await self.post_ingest_service.run_for_provider_dates(
+            user_id=user_id,
+            provider="oura",
+            affected_dates=affected_dates,
+            projected_records=projected_records,
+        )
+        if post_ingest.success:
+            await self.update_connection_sync_state(connection_id=connection.id)
+        else:
+            await self.update_connection_sync_state(
+                connection_id=connection.id,
+                error={
+                    "message": "Oura post-ingest failed",
+                    "detail": post_ingest.error,
+                    "affected_dates": post_ingest.affected_dates,
+                },
+            )
+        return {
+            **counts,
+            "post_ingest": post_ingest.as_dict(),
+            "post_ingest_success": post_ingest.success,
+            "metric_facts": post_ingest.metric_facts,
+            "metric_facts_error": post_ingest.error,
+        }
+
+    def _oura_affected_dates(
+        self,
+        *,
+        daily_sleep_records: List[Dict[str, Any]],
+        sleep_records: List[Dict[str, Any]],
+        daily_readiness_records: List[Dict[str, Any]],
+        daily_activity_records: List[Dict[str, Any]],
+        workout_records: List[Dict[str, Any]],
+        heartrate_records: List[Dict[str, Any]],
+    ) -> List[str]:
+        dates: List[str] = []
+        for record in daily_sleep_records:
+            self._append_date_prefix(dates, record.get("day") or record.get("summary_date"))
+        for record in sleep_records:
+            self._append_date_prefix(
+                dates,
+                record.get("day")
+                or record.get("summary_date")
+                or record.get("bedtime_end")
+                or record.get("end_datetime")
+                or record.get("end_time")
+                or record.get("bedtime_start")
+                or record.get("start_datetime")
+                or record.get("start_time"),
+            )
+        for record in daily_readiness_records:
+            self._append_date_prefix(dates, record.get("day") or record.get("summary_date"))
+        for record in daily_activity_records:
+            self._append_date_prefix(dates, record.get("day") or record.get("summary_date"))
+        for record in workout_records:
+            self._append_date_prefix(
+                dates,
+                record.get("start_datetime") or record.get("start_time"),
+            )
+        for record in heartrate_records:
+            self._append_date_prefix(
+                dates,
+                record.get("timestamp") or record.get("datetime"),
+            )
+        return sorted(set(dates))
+
+    @staticmethod
+    def _append_date_prefix(dates: List[str], value: Any) -> None:
+        if not value:
+            return
+        text = str(value)
+        if len(text) >= 10:
+            dates.append(text[:10])
 
     async def _ingest_oura_daily_activity_record(
         self,
@@ -431,4 +511,3 @@ class WearableOuraSyncMixin:
             created=created,
         )
         return 1 if created else 0
-

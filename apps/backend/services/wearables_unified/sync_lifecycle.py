@@ -286,10 +286,10 @@ class WearableSyncLifecycleMixin:
             if connection is None:
                 return
             now = datetime.now(timezone.utc)
-            connection.last_sync_at = now
             connection.updated_at = now
             connection.status = status
             if error is None:
+                connection.last_sync_at = now
                 connection.last_successful_sync_at = now
                 connection.last_error_json = None
             else:
@@ -330,4 +330,3 @@ class WearableSyncLifecycleMixin:
             await session.commit()
             await session.refresh(cursor)
             return cursor
-

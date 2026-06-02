@@ -563,7 +563,7 @@ class WhoopService:
         )
         return inferred
     
-    async def sync_whoop_data(
+    async def fetch_whoop_sync_payload(
         self,
         user_id: str,
         days_back: int = None,
@@ -656,16 +656,6 @@ class WhoopService:
                     f"📅 First sync: fetching last {default_initial_sync_days} days of historical data"
                 )
         
-        recovery_data = None
-        sleep_data: Dict[str, Any] = {"records": []}
-        workout_data = None
-        cycle_data = None
-        synced_data = {"recovery": 0, "sleep": 0, "workouts": 0, "cycles": 0}
-        any_api_success = False
-        canonical_sync_succeeded = False
-        metric_facts_result: Optional[Dict[str, Any]] = None
-        metric_facts_error: Optional[str] = None
-
         try:
             fetched = await self.api_client.fetch_enabled_data(
                 access_token=access_token,
@@ -673,75 +663,101 @@ class WhoopService:
                 end_date=end_date,
                 enabled_metrics=enabled_metrics,
             )
-            recovery_data = fetched.recovery_data
-            sleep_data = fetched.sleep_data
-            workout_data = fetched.workout_data
-            cycle_data = fetched.cycle_data
-            synced_data = fetched.synced_data
-            any_api_success = fetched.any_api_success
+        except Exception as e:
+            logger.warning(f"⚠️  Error fetching Whoop data: {str(e)}")
+            raise
 
-            # Store data in Tinybird for analytics
-            if self.tinybird_enabled:
-                try:
-                    await ingest_whoop_tinybird(
-                        self.tinybird,
-                        user_id=user_id,
-                        whoop_connection_id=integration.id if integration else user_id,
-                        recovery_data=recovery_data,
-                        sleep_data=sleep_data,
-                        workout_data=workout_data,
-                        cycle_data=cycle_data
-                    )
-                    logger.info(f"✅ Whoop data synced to Tinybird for analytics")
-                except Exception as tb_error:
-                    logger.warning(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
+        if not fetched.any_api_success:
+            total_records = sum(fetched.synced_data.values())
+            if total_records == 0:
+                raise Exception(
+                    "Whoop API authentication failed - all requests returned 401. "
+                    "Please disconnect and reconnect your Whoop integration to get fresh tokens."
+                )
 
+        return {
+            "user_id": user_id,
+            "access_token": access_token,
+            "integration": {
+                "id": integration.id if integration else user_id,
+                "whoop_user_id": integration.whoop_user_id if integration else user_id,
+                "refresh_token": integration.refresh_token if integration else None,
+                "token_expires_at": integration.token_expires_at if integration else None,
+                "whoop_sync_hour": integration.whoop_sync_hour if integration else 9,
+            },
+            "start_date": start_date,
+            "end_date": end_date,
+            "recovery_data": fetched.recovery_data,
+            "sleep_data": fetched.sleep_data,
+            "workout_data": fetched.workout_data,
+            "cycle_data": fetched.cycle_data,
+            "synced_data": fetched.synced_data,
+            "any_api_success": fetched.any_api_success,
+        }
+
+    async def write_whoop_sync_payload(
+        self,
+        user_id: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        integration = payload["integration"]
+        access_token = payload["access_token"]
+        start_date = payload["start_date"]
+        end_date = payload["end_date"]
+        recovery_data = payload.get("recovery_data")
+        sleep_data: Dict[str, Any] = payload.get("sleep_data") or {"records": []}
+        workout_data = payload.get("workout_data")
+        cycle_data = payload.get("cycle_data")
+        synced_data = payload.get("synced_data") or {"recovery": 0, "sleep": 0, "workouts": 0, "cycles": 0}
+        canonical_sync_succeeded = False
+        metric_facts_result: Optional[Dict[str, Any]] = None
+        metric_facts_error: Optional[str] = None
+        canonical_sync_error: Optional[str] = None
+
+        if self.tinybird_enabled:
             try:
-                await wearable_sync_service.ingest_whoop_data(
+                await ingest_whoop_tinybird(
+                    self.tinybird,
                     user_id=user_id,
-                    provider_user_id=integration.whoop_user_id if integration else user_id,
+                    whoop_connection_id=integration["id"],
                     recovery_data=recovery_data,
                     sleep_data=sleep_data,
                     workout_data=workout_data,
                     cycle_data=cycle_data,
-                    access_token=access_token,
-                    refresh_token=integration.refresh_token if integration else None,
-                    token_expires_at=integration.token_expires_at if integration else None,
                 )
-                canonical_sync_succeeded = True
-                logger.info("✅ Whoop data synced through canonical wearable storage")
-            except Exception as db_error:
-                logger.warning(f"⚠️  Canonical wearable sync failed (non-fatal): {str(db_error)}")
+                logger.info("✅ Whoop data synced to Tinybird for analytics")
+            except Exception as tb_error:
+                logger.warning(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
 
+        try:
+            canonical_result = await wearable_sync_service.ingest_whoop_data(
+                user_id=user_id,
+                provider_user_id=integration["whoop_user_id"],
+                recovery_data=recovery_data,
+                sleep_data=sleep_data,
+                workout_data=workout_data,
+                cycle_data=cycle_data,
+                access_token=access_token,
+                refresh_token=integration["refresh_token"],
+                token_expires_at=integration["token_expires_at"],
+            )
+            canonical_sync_succeeded = bool(canonical_result.get("post_ingest_success", True))
+            metric_facts_result = canonical_result.get("metric_facts")
+            metric_facts_error = canonical_result.get("metric_facts_error")
+            canonical_sync_error = metric_facts_error
             if canonical_sync_succeeded:
-                affected_dates = self._affected_metric_fact_dates(
-                    recovery_data=recovery_data,
-                    sleep_data=sleep_data,
-                    workout_data=workout_data,
-                    cycle_data=cycle_data,
+                logger.info("✅ Whoop data synced through canonical wearable storage and post-ingest")
+            else:
+                logger.warning(
+                    "⚠️  Whoop canonical wearable sync completed but post-ingest failed: %s",
+                    canonical_sync_error,
                 )
-                if affected_dates:
-                    try:
-                        from services.metric_facts_service import metric_fact_service
+        except Exception as db_error:
+            canonical_sync_error = str(db_error)
+            metric_facts_error = canonical_sync_error
+            logger.warning(f"⚠️  Canonical wearable sync failed (non-fatal): {canonical_sync_error}")
 
-                        metric_facts_result = await metric_fact_service.rebuild_facts(
-                            user_id=user_id,
-                            start_date=min(affected_dates),
-                            end_date=max(affected_dates),
-                            apply=True,
-                        )
-                        logger.info(
-                            "✅ Rebuilt metric facts after Whoop sync for %s through %s",
-                            min(affected_dates),
-                            max(affected_dates),
-                        )
-                    except Exception as facts_error:
-                        metric_facts_error = str(facts_error)
-                        logger.warning(
-                            "⚠️  Metric fact rebuild after Whoop sync failed (non-fatal): %s",
-                            metric_facts_error,
-                        )
-
+        if canonical_sync_succeeded:
             try:
                 latest_cycle_date = None
                 if cycle_data and cycle_data.get("records"):
@@ -755,65 +771,60 @@ class WhoopService:
                     )
                 latest_sleep_metadata = self._latest_sleep_record_metadata(sleep_data)
 
-                if integration:
-                    await wearable_connection_service.get_or_create_connection(
-                        user_id=user_id,
-                        provider="whoop",
-                        auth_method="oauth",
-                        provider_user_id=integration.whoop_user_id,
-                        access_token=access_token,
-                        refresh_token=integration.refresh_token,
-                        token_expires_at=integration.token_expires_at,
-                        settings={
-                            "whoop_sync_hour": integration.whoop_sync_hour or 9,
-                            "sync_hour": integration.whoop_sync_hour or 9,
-                            "auto_sync_enabled": True,
-                            "latest_upstream_cycle_date": latest_cycle_date,
-                            **latest_sleep_metadata,
-                        },
-                        status="active",
-                    )
+                await wearable_connection_service.get_or_create_connection(
+                    user_id=user_id,
+                    provider="whoop",
+                    auth_method="oauth",
+                    provider_user_id=integration["whoop_user_id"],
+                    access_token=access_token,
+                    refresh_token=integration["refresh_token"],
+                    token_expires_at=integration["token_expires_at"],
+                    settings={
+                        "whoop_sync_hour": integration["whoop_sync_hour"] or 9,
+                        "sync_hour": integration["whoop_sync_hour"] or 9,
+                        "auto_sync_enabled": True,
+                        "latest_upstream_cycle_date": latest_cycle_date,
+                        **latest_sleep_metadata,
+                    },
+                    status="active",
+                )
             except Exception as connection_error:
                 logger.warning(f"⚠️  Failed to persist Whoop upstream sync metadata: {str(connection_error)}")
+        else:
+            logger.warning(
+                "⚠️  Skipping Whoop sync metadata/checkpoint update because canonical post-ingest did not succeed"
+            )
 
-        except Exception as e:
-            logger.warning(f"⚠️  Error fetching Whoop data: {str(e)}")
-        
-        # If no API call succeeded at all, this is likely a total auth failure
-        # Don't update last_sync_at so the next sync uses the correct date range
-        if not any_api_success:
-            total_records = sum(synced_data.values())
-            if total_records == 0:
-                raise Exception(
-                    "Whoop API authentication failed - all requests returned 401. "
-                    "Please disconnect and reconnect your Whoop integration to get fresh tokens."
-                )
-        
-        # Update last sync time (only if we successfully talked to the API)
-        async with get_db_session() as session:
-            try:
-                synced_at = datetime.utcnow()
+        if canonical_sync_succeeded:
+            async with get_db_session() as session:
+                try:
+                    synced_at = datetime.utcnow()
 
-                # Route the write through the sync bridge to avoid libsql async
-                # cursor cleanup bugs that surface after an otherwise successful sync.
-                def _mark_synced(sync_session):
-                    sync_session.execute(
-                        update(WhoopIntegrationDB)
-                        .where(WhoopIntegrationDB.user_id == user_id)
-                        .where(WhoopIntegrationDB.is_active == True)
-                        .values(last_sync_at=synced_at)
-                    )
+                    # Route the write through the sync bridge to avoid libsql async
+                    # cursor cleanup bugs that surface after an otherwise successful sync.
+                    def _mark_synced(sync_session):
+                        sync_session.execute(
+                            update(WhoopIntegrationDB)
+                            .where(WhoopIntegrationDB.user_id == user_id)
+                            .where(WhoopIntegrationDB.is_active == True)
+                            .values(last_sync_at=synced_at)
+                        )
 
-                await session.run_sync(_mark_synced)
-                await session.commit()
-            except SQLAlchemyError as e:
-                logger.warning(f"⚠️  Error updating last_sync_at: {str(e)}")
+                    await session.run_sync(_mark_synced)
+                    await session.commit()
+                except SQLAlchemyError as e:
+                    logger.warning(f"⚠️  Error updating last_sync_at: {str(e)}")
+        else:
+            logger.warning(
+                "⚠️  Preserving Whoop last_sync_at because canonical ingest/post-ingest failed: %s",
+                canonical_sync_error or metric_facts_error or "unknown error",
+            )
         
         # Calculate days synced for the response
         days_synced = (end_date - start_date).days
         
         return {
-            "status": "success",
+            "status": "success" if canonical_sync_succeeded else "partial",
             "synced_at": datetime.utcnow().isoformat(),
             "sync_period": {
                 "start_date": start_date.strftime('%Y-%m-%d'),
@@ -824,6 +835,22 @@ class WhoopService:
             "data_freshness": self._latest_sleep_record_metadata(sleep_data),
             "metric_facts": metric_facts_result,
             "metric_facts_error": metric_facts_error,
+            "canonical_sync_error": canonical_sync_error,
         }
+
+    async def sync_whoop_data(
+        self,
+        user_id: str,
+        days_back: int = None,
+        force_full_sync: bool = False,
+        full_history: bool = False,
+    ) -> Dict[str, Any]:
+        payload = await self.fetch_whoop_sync_payload(
+            user_id,
+            days_back=days_back,
+            force_full_sync=force_full_sync,
+            full_history=full_history,
+        )
+        return await self.write_whoop_sync_payload(user_id, payload)
 
 whoop_service = WhoopService()

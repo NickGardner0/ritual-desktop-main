@@ -13,6 +13,10 @@ from sqlalchemy import func, select
 from database.connection import get_db_session
 from database.models import WearableEventDB, WhoopIntegrationDB
 from services.unified_wearables_service import wearable_connection_service
+from services.wearable_provider_sync_registry import (
+    WearableProviderSyncServices,
+    sync_wearable_provider_account,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +44,27 @@ def create_whoop_router(
 ) -> APIRouter:
     """Build Whoop integration router with injected dependencies."""
     router = APIRouter(prefix="/api/integrations/whoop", tags=["integrations"])
+
+    async def _sync_whoop_via_registry(
+        user_id: str,
+        *,
+        days_back: Optional[int] = None,
+        force_full_sync: bool = False,
+        full_history: bool = False,
+    ) -> dict[str, Any]:
+        result = await sync_wearable_provider_account(
+            provider="whoop",
+            user_id=user_id,
+            services=WearableProviderSyncServices(
+                whoop_service=whoop_service,
+                oura_service=None,
+                garmin_service=None,
+            ),
+            days_back=days_back,
+            force_full_sync=force_full_sync,
+            full_history=full_history,
+        )
+        return result.data
 
     async def _whoop_sleep_status(user_id: str, canonical: Any = None) -> dict[str, Any]:
         settings = {}
@@ -188,7 +213,7 @@ def create_whoop_router(
                 sync_type,
                 current_user["id"],
             )
-            result = await whoop_service.sync_whoop_data(
+            result = await _sync_whoop_via_registry(
                 current_user["id"],
                 days_back=days_back,
                 force_full_sync=force_full_sync,
@@ -261,7 +286,7 @@ def create_whoop_router(
                 if payload and payload.hour is not None and int(configured_hour) != int(payload.hour):
                     continue
                 try:
-                    result = await whoop_service.sync_whoop_data(
+                    result = await _sync_whoop_via_registry(
                         integration.user_id,
                         days_back=payload.daysBack if payload else None,
                         force_full_sync=payload.forceFullSync if payload else False,

@@ -23,6 +23,7 @@ from .connection import WearableConnectionService
 from .normalization import WearableNormalizationService
 from .outbox import build_wearable_outbox_event_for_event, build_wearable_outbox_event_for_sample
 from .projection import WearableProjectionService
+from .post_ingest import WearablePostIngestResult, WearablePostIngestService
 from .query import WearableQueryService
 from .singletons import (
     normalization_service,
@@ -51,6 +52,8 @@ __all__ = [
     "WearableConnectionService",
     "WearableNormalizationService",
     "WearableProjectionService",
+    "WearablePostIngestResult",
+    "WearablePostIngestService",
     "WearableQueryService",
     "WearableSyncService",
     "_default_source_priority_rank",
