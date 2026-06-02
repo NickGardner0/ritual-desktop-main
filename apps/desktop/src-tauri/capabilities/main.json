@@ -16,6 +16,7 @@
     "desktop-observability",
     "desktop-runtime",
     "desktop-activity",
+    "dialog:allow-open",
     "dialog:allow-save",
     "shell:allow-open",
     "fs:allow-exists",

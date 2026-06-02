@@ -1,0 +1,80 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+
+const dashboardRoot = new URL('../', import.meta.url);
+
+function read(path) {
+  return readFileSync(new URL(path, dashboardRoot), 'utf8');
+}
+
+function sliceBetween(source, start, end) {
+  const startIndex = source.indexOf(start);
+  assert.notEqual(startIndex, -1, `Missing start marker: ${start}`);
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  assert.notEqual(endIndex, -1, `Missing end marker: ${end}`);
+  return source.slice(startIndex, endIndex);
+}
+
+test('Apple Screen Time card is active and directly follows Computer Use', () => {
+  const cardsSource = read('app/(dashboard)/integrations/integrations-client.cards.tsx');
+  const computerIndex = cardsSource.indexOf("id: 'computer'");
+  const screenTimeIndex = cardsSource.indexOf("id: 'apple-screen-time'");
+  const appleWatchIndex = cardsSource.indexOf("id: 'apple-watch'");
+
+  assert.ok(computerIndex >= 0, 'Computer Use card should exist');
+  assert.ok(screenTimeIndex >= 0, 'Apple Screen Time card should exist');
+  assert.ok(appleWatchIndex >= 0, 'Apple Watch card should exist');
+  assert.ok(computerIndex < screenTimeIndex, 'Apple Screen Time should come after Computer Use');
+  assert.ok(screenTimeIndex < appleWatchIndex, 'Apple Screen Time should be in the first row before Apple Watch');
+
+  const screenTimeBlock = sliceBetween(cardsSource, "id: 'apple-screen-time'", "id: 'apple-watch'");
+  assert.match(screenTimeBlock, /title: 'Apple Screen Time'/);
+  assert.match(screenTimeBlock, /description: IPHONE_TIME_CARD_DESCRIPTION/);
+  assert.doesNotMatch(screenTimeBlock, /comingSoon/);
+  assert.match(screenTimeBlock, /onConnect=\{handleIphoneTimeConnect\}/);
+  assert.match(screenTimeBlock, /onSync=\{handleIphoneTimeSync\}/);
+});
+
+test('iPhone Time status model includes required states and user-facing warning', () => {
+  const sharedSource = read('app/(dashboard)/integrations/integrations-client.shared.tsx');
+
+  assert.match(
+    sharedSource,
+    /Track your iPhone screen time and app usage by syncing across devices\./,
+  );
+  assert.match(
+    sharedSource,
+    /Ritual can only read iPhone Screen Time if this Mac user is signed into the same iCloud account/,
+  );
+
+  for (const status of [
+    'not_desktop',
+    'watcher_not_running',
+    'waiting_for_icloud_sync',
+    'source_ready',
+    'queued',
+    'syncing',
+    'connected',
+    'error',
+  ]) {
+    assert.match(sharedSource, new RegExp(`'${status}'`), `Missing iPhone Time status: ${status}`);
+  }
+});
+
+test('iPhone Time details panel exposes diagnostics and bridge import instructions', () => {
+  const detailsSource = read('app/(dashboard)/integrations/integrations-client.details.tsx');
+
+  assert.match(detailsSource, /Current status/);
+  assert.match(detailsSource, /Last imported date/);
+  assert.match(detailsSource, /Total imported events/);
+  assert.match(detailsSource, /Outbox count/);
+  assert.match(detailsSource, /Local Biome files/);
+  assert.match(detailsSource, /Last drain/);
+  assert.match(detailsSource, /Using a different iCloud account\?/);
+  assert.match(
+    detailsSource,
+    /\/Users\/Shared\/ritual-watcher-biome-diagnostic --biome-export-jsonl \/Users\/Shared\/ritual-biome-iphone-export\.jsonl/,
+  );
+  assert.match(detailsSource, /Import Export File/);
+});

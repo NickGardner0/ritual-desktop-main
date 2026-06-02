@@ -8,4 +8,7 @@ commands.allow = [
   "desktop_frontend_ready",
   "desktop_manual_update_check",
   "desktop_install_update",
+  "get_biome_iphone_diagnostics",
+  "desktop_trigger_biome_iphone_sync",
+  "import_biome_iphone_export",
 ]

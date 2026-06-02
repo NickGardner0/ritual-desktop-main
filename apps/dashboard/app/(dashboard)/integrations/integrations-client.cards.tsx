@@ -7,7 +7,7 @@ import { Monitor, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { isTauri } from '@/lib/tauri-utils';
 import { cn } from '@/lib/utils';
-import { IntegrationCard } from './integrations-client.shared';
+import { IPHONE_TIME_CARD_DESCRIPTION, IntegrationCard } from './integrations-client.shared';
 
 export type IntegrationCardItem = {
   id: string;
@@ -40,6 +40,12 @@ export function buildIntegrationCards(ctx: Record<string, any>): IntegrationCard
     handleWhoopConnect,
     handleWhoopDisconnect,
     handleWhoopSync,
+    handleIphoneTimeConnect,
+    handleIphoneTimeSync,
+    iphoneTimeConnecting,
+    iphoneTimeIntegration,
+    iphoneTimeStatusLoading,
+    iphoneTimeSyncing,
     openIntegrationDetails,
     ouraConnection,
     plaidConnected,
@@ -81,6 +87,47 @@ export function buildIntegrationCards(ctx: Record<string, any>): IntegrationCard
           onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
           onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
           onDetails={() => openIntegrationDetails('computer')}
+        />
+      ),
+    });
+
+    integrationCards.push({
+      id: 'apple-screen-time',
+      title: 'Apple Screen Time',
+      description: IPHONE_TIME_CARD_DESCRIPTION,
+      keywords: ['screen time', 'digital habits', 'iphone', 'ipad', 'biome', 'app usage'],
+      isConnected: Boolean(iphoneTimeIntegration?.isConnected),
+      node: (
+        <IntegrationCard
+          logo={<Image src="/images/Screen_Time.svg" alt="Apple Screen Time" width={28} height={28} className="h-7 w-7" />}
+          title="Apple Screen Time"
+          description={IPHONE_TIME_CARD_DESCRIPTION}
+          isStatusLoading={iphoneTimeStatusLoading}
+          isConnected={Boolean(iphoneTimeIntegration?.isConnected)}
+          isConnecting={iphoneTimeConnecting}
+          isSyncing={iphoneTimeSyncing}
+          syncLabel="Sync Now"
+          details={
+            iphoneTimeIntegration ? (
+              <p
+                className={cn(
+                  'line-clamp-2 text-[11px] leading-4',
+                  iphoneTimeIntegration.status === 'error'
+                    ? 'text-[#9a3412]'
+                    : iphoneTimeIntegration.status === 'connected'
+                      ? 'text-[#3f6f13]'
+                      : 'text-gray-500'
+                )}
+              >
+                {iphoneTimeIntegration.statusLabel}
+                {iphoneTimeIntegration.lastImportedDate ? ` • Last imported ${iphoneTimeIntegration.lastImportedDate}` : ''}
+              </p>
+            ) : null
+          }
+          onConnect={handleIphoneTimeConnect}
+          onSync={handleIphoneTimeSync}
+          onDisconnect={() => openIntegrationDetails('screentime')}
+          onDetails={() => openIntegrationDetails('screentime')}
         />
       ),
     });
@@ -258,22 +305,6 @@ export function buildIntegrationCards(ctx: Record<string, any>): IntegrationCard
             onSync={handleTeslaSync}
             onDisconnect={handleTeslaDisconnect}
             onDetails={() => openIntegrationDetails('tesla')}
-          />
-        ),
-      },
-      {
-        id: 'apple-screen-time',
-        title: 'Apple Screen Time',
-        description: 'Track your digital habits by importing Screen Time data from your iPhone or iPad.',
-        keywords: ['screen time', 'digital habits', 'iphone', 'ipad'],
-        isConnected: false,
-        node: (
-          <IntegrationCard
-            logo={<Image src="/images/Screen_Time.svg" alt="Apple Screen Time" width={28} height={28} className="h-7 w-7" />}
-            title="Apple Screen Time"
-            description="Track your digital habits by importing Screen Time data from your iPhone or iPad."
-            comingSoon
-            onDetails={() => openIntegrationDetails('screentime')}
           />
         ),
       },

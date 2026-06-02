@@ -1354,6 +1354,8 @@ fn main() {
             desktop_runtime::desktop_manual_update_check,
             desktop_runtime::desktop_install_update,
             desktop_runtime::get_biome_iphone_diagnostics,
+            desktop_runtime::desktop_trigger_biome_iphone_sync,
+            desktop_runtime::import_biome_iphone_export,
             // Ritual Database commands (unified libSQL)
             ritual_database::init_ritual_database,
             ritual_database::get_ritual_db_stats,

@@ -1102,6 +1102,10 @@ fn read_biome_outbox(path: &PathBuf) -> Result<BiomeOutboxRead, String> {
 }
 
 fn write_biome_outbox(path: &PathBuf, events: &[DesktopBiomeActivityEvent]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create Biome outbox dir: {error}"))?;
+    }
     let mut body = String::new();
     for event in events {
         let line = serde_json::to_string(event)
@@ -1112,6 +1116,135 @@ fn write_biome_outbox(path: &PathBuf, events: &[DesktopBiomeActivityEvent]) -> R
     let tmp = path.with_extension("jsonl.tmp");
     fs::write(&tmp, body).map_err(|error| format!("Failed to write Biome outbox: {error}"))?;
     fs::rename(&tmp, path).map_err(|error| format!("Failed to replace Biome outbox: {error}"))
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BiomeImportResult {
+    imported: usize,
+    duplicates: usize,
+    malformed: usize,
+    outbox_event_count: usize,
+    quarantine_path: Option<String>,
+}
+
+fn validate_biome_import_event(event: &DesktopBiomeActivityEvent) -> Result<(), String> {
+    if event.device_id.trim().is_empty() {
+        return Err("missing device_id".to_string());
+    }
+    if event.app_bundle_id.trim().is_empty() {
+        return Err("missing app_bundle_id".to_string());
+    }
+    if event.app_name.trim().is_empty() {
+        return Err("missing app_name".to_string());
+    }
+    if event.ts_end <= event.ts_start {
+        return Err("ts_end must be greater than ts_start".to_string());
+    }
+    Ok(())
+}
+
+fn write_biome_import_quarantine(
+    source_path: &Path,
+    malformed_lines: &[String],
+) -> Result<Option<String>, String> {
+    if malformed_lines.is_empty() {
+        return Ok(None);
+    }
+    let quarantine_path =
+        source_path.with_extension(format!("malformed.{}.jsonl", Utc::now().timestamp_millis()));
+    let body = malformed_lines.join("\n");
+    fs::write(&quarantine_path, body)
+        .map_err(|error| format!("Failed to write Biome import quarantine: {error}"))?;
+    Ok(Some(path_string(&quarantine_path)))
+}
+
+fn import_biome_export_into_path(
+    source_path: &Path,
+    outbox_path: &PathBuf,
+) -> Result<BiomeImportResult, String> {
+    if !source_path.exists() {
+        return Err(format!(
+            "Biome export file does not exist: {}",
+            path_string(source_path)
+        ));
+    }
+    if !source_path.is_file() {
+        return Err(format!(
+            "Biome export path is not a file: {}",
+            path_string(source_path)
+        ));
+    }
+
+    let mut by_key: HashMap<String, DesktopBiomeActivityEvent> = HashMap::new();
+    if outbox_path.exists() {
+        let existing = read_biome_outbox(outbox_path)?;
+        for event in existing.events {
+            by_key.insert(biome_event_key(&event), event);
+        }
+        if !existing.malformed_lines.is_empty() {
+            quarantine_text(outbox_path, "malformed", &existing.malformed_lines.join("\n"))?;
+        }
+    }
+
+    let raw = fs::read_to_string(source_path)
+        .map_err(|error| format!("Failed to read Biome export file: {error}"))?;
+    let mut imported = 0usize;
+    let mut duplicates = 0usize;
+    let mut malformed_lines = Vec::new();
+
+    for (index, line) in raw.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<DesktopBiomeActivityEvent>(trimmed) {
+            Ok(event) => match validate_biome_import_event(&event) {
+                Ok(()) => {
+                    let key = biome_event_key(&event);
+                    if by_key.contains_key(&key) {
+                        duplicates += 1;
+                    } else {
+                        by_key.insert(key, event);
+                        imported += 1;
+                    }
+                }
+                Err(reason) => malformed_lines.push(format!(
+                    "{{\"line\":{},\"reason\":{},\"raw\":{}}}",
+                    index + 1,
+                    serde_json::to_string(&reason).unwrap_or_else(|_| "\"invalid\"".to_string()),
+                    serde_json::to_string(trimmed).unwrap_or_else(|_| "\"\"".to_string())
+                )),
+            },
+            Err(error) => malformed_lines.push(format!(
+                "{{\"line\":{},\"reason\":{},\"raw\":{}}}",
+                index + 1,
+                serde_json::to_string(&error.to_string())
+                    .unwrap_or_else(|_| "\"parse error\"".to_string()),
+                serde_json::to_string(trimmed).unwrap_or_else(|_| "\"\"".to_string())
+            )),
+        }
+    }
+
+    let quarantine_path = write_biome_import_quarantine(source_path, &malformed_lines)?;
+    let mut events: Vec<DesktopBiomeActivityEvent> = by_key.into_values().collect();
+    events.sort_by_key(|event| (event.ts_start, event.ts_end, event.device_id.clone()));
+    write_biome_outbox(outbox_path, &events)?;
+
+    Ok(BiomeImportResult {
+        imported,
+        duplicates,
+        malformed: malformed_lines.len(),
+        outbox_event_count: events.len(),
+        quarantine_path,
+    })
+}
+
+fn import_biome_export_into_outbox(source_path: &Path) -> Result<BiomeImportResult, String> {
+    let Some(outbox_path) = biome_outbox_path() else {
+        return Err("Biome outbox path is unavailable".to_string());
+    };
+    import_biome_export_into_path(source_path, &outbox_path)
 }
 
 fn read_biome_committed_cursors() -> HashMap<String, i64> {
@@ -1429,6 +1562,82 @@ mod tests {
         assert_eq!(read.events.len(), 2);
         assert_eq!(read.malformed_lines.len(), 1);
         assert!(read.malformed_lines[0].contains("bad-json"));
+    }
+
+    #[test]
+    fn import_biome_export_accepts_valid_rows_and_dedupes_existing_events() {
+        let outbox_path = temp_file("biome_iphone_events.jsonl");
+        let export_path = temp_file("ritual-biome-iphone-export.jsonl");
+        let existing = biome_event(Some("existing"), 2_000);
+        let mut imported = biome_event(Some("imported"), 4_000);
+        imported.app_bundle_id = "com.apple.mobilesafari".to_string();
+        imported.app_name = "Safari".to_string();
+        imported.ts_start = 3_000;
+        imported.ts_end = 4_000;
+
+        write_biome_outbox(&outbox_path, &[existing.clone()]).unwrap();
+        fs::write(
+            &export_path,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&existing).unwrap(),
+                serde_json::to_string(&imported).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let result =
+            import_biome_export_into_path(&export_path, &outbox_path).expect("import export");
+        let outbox = read_biome_outbox(&outbox_path).expect("read imported outbox");
+
+        assert_eq!(result.imported, 1);
+        assert_eq!(result.duplicates, 1);
+        assert_eq!(result.malformed, 0);
+        assert_eq!(result.outbox_event_count, 2);
+        assert!(result.quarantine_path.is_none());
+        assert_eq!(outbox.events.len(), 2);
+        assert!(outbox.events.iter().any(|event| event.app_name == "Messages"));
+        assert!(outbox.events.iter().any(|event| event.app_name == "Safari"));
+        assert!(export_path.exists(), "bridge import must not delete the source export");
+    }
+
+    #[test]
+    fn import_biome_export_quarantines_malformed_rows_and_keeps_source_file() {
+        let outbox_path = temp_file("biome_iphone_events.jsonl");
+        let export_path = temp_file("ritual-biome-iphone-export.jsonl");
+        let mut invalid_event = biome_event(Some("invalid"), 5_000);
+        invalid_event.ts_end = invalid_event.ts_start;
+        let valid_event = biome_event(Some("valid"), 2_000);
+
+        fs::write(
+            &export_path,
+            format!(
+                "{{bad-json\n{}\n{}\n",
+                serde_json::to_string(&invalid_event).unwrap(),
+                serde_json::to_string(&valid_event).unwrap()
+            ),
+        )
+        .unwrap();
+
+        let result =
+            import_biome_export_into_path(&export_path, &outbox_path).expect("import export");
+        let quarantine_path = result
+            .quarantine_path
+            .as_ref()
+            .map(PathBuf::from)
+            .expect("malformed rows should be quarantined");
+        let quarantine_body = fs::read_to_string(&quarantine_path).unwrap();
+        let outbox = read_biome_outbox(&outbox_path).expect("read imported outbox");
+
+        assert_eq!(result.imported, 1);
+        assert_eq!(result.duplicates, 0);
+        assert_eq!(result.malformed, 2);
+        assert_eq!(result.outbox_event_count, 1);
+        assert!(quarantine_path.exists());
+        assert!(quarantine_body.contains("bad-json"));
+        assert!(quarantine_body.contains("ts_end must be greater than ts_start"));
+        assert_eq!(outbox.events.len(), 1);
+        assert!(export_path.exists(), "bridge import must not delete the source export");
     }
 
     #[test]
@@ -1993,6 +2202,30 @@ pub async fn get_biome_iphone_diagnostics<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<BiomeIphoneDiagnostics, String> {
     Ok(build_biome_iphone_diagnostics(&app))
+}
+
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn desktop_trigger_biome_iphone_sync<R: Runtime + 'static>(
+    app: AppHandle<R>,
+) -> Result<BiomeIphoneDiagnostics, String> {
+    drain_biome_outbox_once(app.clone()).await?;
+    Ok(build_biome_iphone_diagnostics(&app))
+}
+
+#[tauri::command]
+#[instrument(skip(_app))]
+pub async fn import_biome_iphone_export<R: Runtime + 'static>(
+    _app: AppHandle<R>,
+    path: String,
+) -> Result<BiomeImportResult, String> {
+    let source_path = PathBuf::from(path);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        import_biome_export_into_outbox(&source_path)
+    })
+    .await
+    .map_err(|error| format!("Biome import task failed: {error}"))??;
+    Ok(result)
 }
 
 #[tauri::command]

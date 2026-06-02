@@ -38,7 +38,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import { cn } from '@/lib/utils';
-import { invalidateHabitData } from '@/lib/query-invalidation';
+import { invalidateAfterActivitySync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
 
@@ -57,6 +57,7 @@ import {
   useAppleWatchStatus,
   useComputerTrackingStatus,
   useFinancialConnections,
+  useIphoneTimeIntegrationStatus,
   useIntegrationsOverview,
   useWearableConnections,
   useWhoopStatus,
@@ -75,6 +76,8 @@ export function IntegrationsClient() {
   const { fetchHabits, fetchHabitLogs } = useHabits();
   const queryClient = useQueryClient();
   const { data: integrationsOverview, refetch: refetchOverviewQuery } = useIntegrationsOverview();
+  const iphoneTimeIntegrationQuery = useIphoneTimeIntegrationStatus();
+  const iphoneTimeIntegration = iphoneTimeIntegrationQuery.data;
   const refetchOverview = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
     return refetchOverviewQuery();
@@ -92,6 +95,9 @@ export function IntegrationsClient() {
   const [syncing, setSyncing] = useState(false);
   const [whoopSyncFeedback, setWhoopSyncFeedback] = useState<WhoopSyncFeedback | null>(null);
   const [appleWatchSyncing, setAppleWatchSyncing] = useState(false);
+  const [iphoneTimeConnecting, setIphoneTimeConnecting] = useState(false);
+  const [iphoneTimeSyncing, setIphoneTimeSyncing] = useState(false);
+  const [iphoneTimeImporting, setIphoneTimeImporting] = useState(false);
   const {
     applyExportDatePreset,
     exportDatePreset,
@@ -465,6 +471,75 @@ export function IntegrationsClient() {
     setDetailsTab('overview');
     setDetailsOpen(true);
   };
+
+  const refreshIphoneTimeIntegration = useCallback(async () => {
+    await iphoneTimeIntegrationQuery.refetch();
+    void refetchOverview();
+    void invalidateAfterActivitySync(queryClient, user?.id);
+  }, [iphoneTimeIntegrationQuery, queryClient, refetchOverview, user?.id]);
+
+  const handleIphoneTimeConnect = useCallback(async () => {
+    try {
+      setIphoneTimeConnecting(true);
+      openIntegrationDetails('screentime');
+      if (!isTauri()) {
+        return;
+      }
+      await iphoneTimeIntegrationQuery.refetch();
+    } catch (error) {
+      console.error('Failed to check iPhone Time status:', error);
+    } finally {
+      setIphoneTimeConnecting(false);
+    }
+  }, [iphoneTimeIntegrationQuery]);
+
+  const handleIphoneTimeSync = useCallback(async () => {
+    if (!isTauri()) {
+      openIntegrationDetails('screentime');
+      return;
+    }
+    try {
+      setIphoneTimeSyncing(true);
+      await invoke('desktop_trigger_biome_iphone_sync');
+      await refreshIphoneTimeIntegration();
+    } catch (error) {
+      console.error('Failed to sync iPhone Time:', error);
+      alert(`Failed to sync iPhone Time: ${formatErrorMessage(error, 'Unknown error')}`);
+      await iphoneTimeIntegrationQuery.refetch();
+    } finally {
+      setIphoneTimeSyncing(false);
+    }
+  }, [iphoneTimeIntegrationQuery, refreshIphoneTimeIntegration]);
+
+  const handleIphoneTimeImport = useCallback(async () => {
+    if (!isTauri()) {
+      openIntegrationDetails('screentime');
+      return;
+    }
+    try {
+      setIphoneTimeImporting(true);
+      const { open } = await import('@tauri-apps/plugin-dialog');
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        defaultPath: '/Users/Shared/ritual-biome-iphone-export.jsonl',
+        filters: [
+          { name: 'Biome JSONL export', extensions: ['jsonl', 'json'] },
+        ],
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+      await invoke('import_biome_iphone_export', { path: selected });
+      await handleIphoneTimeSync();
+    } catch (error) {
+      console.error('Failed to import iPhone Time export:', error);
+      alert(`Failed to import iPhone Time export: ${formatErrorMessage(error, 'Unknown error')}`);
+      await iphoneTimeIntegrationQuery.refetch();
+    } finally {
+      setIphoneTimeImporting(false);
+    }
+  }, [handleIphoneTimeSync, iphoneTimeIntegrationQuery]);
 
 
   function getWhoopSyncRequestFromMode(): {
@@ -885,7 +960,15 @@ export function IntegrationsClient() {
     handleWhoopConnect,
     handleWhoopDisconnect,
     handleWhoopSync,
+    handleIphoneTimeConnect,
+    handleIphoneTimeImport,
+    handleIphoneTimeSync,
     historyLoaded,
+    iphoneTimeConnecting,
+    iphoneTimeImporting,
+    iphoneTimeIntegration,
+    iphoneTimeStatusLoading: iphoneTimeIntegrationQuery.isLoading,
+    iphoneTimeSyncing,
     loadExportHistory,
     loadExportSchedule,
     loadMetricCatalogAndPreferences,
@@ -956,6 +1039,12 @@ export function IntegrationsClient() {
     handleWhoopConnect,
     handleWhoopDisconnect,
     handleWhoopSync,
+    handleIphoneTimeConnect,
+    handleIphoneTimeSync,
+    iphoneTimeConnecting,
+    iphoneTimeIntegration,
+    iphoneTimeStatusLoading: iphoneTimeIntegrationQuery.isLoading,
+    iphoneTimeSyncing,
     openIntegrationDetails,
     ouraConnection,
     plaidConnected,

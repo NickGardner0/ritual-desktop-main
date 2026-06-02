@@ -1,69 +1,111 @@
-# Ritual Canonical Screen Read-Model Migration Plan
+# iPhone Time Integration Plan
 
 ## Summary
 
-Replace the root `plan.md` with this migration plan. Ritual should keep FastAPI as the canonical backend and React Query as the dashboard cache, but Metrics, Logs, and Calendar must stop assembling screen truth from scattered client caches. Each major screen should read one backend-owned read model, and each write should update derived facts before returning, then invalidate only the affected read models.
+Replace the root `/Users/nickgardner/Desktop/ritual-desktop-main/plan.md` with this plan. Make Apple Screen Time / iPhone Time a real first-class Integration using the existing Mac Biome pipeline: the desktop watcher reads Apple Biome `App.InFocus` data, queues normalized iPhone app-usage intervals, the Tauri runtime drains them to FastAPI, and backend read models display `iPhone Time` in Overview, Metrics, Logs, and Calendar.
 
-The goal is to prevent zero-out glitches, inconsistent totals, duplicate aggregation rules, and source-precedence bugs across manual logs, wearables, watcher data, Biome iPhone Time, imports, and offline desktop fallback.
+V1 should focus on the desktop Biome path, not the iOS companion path. Same-iCloud Mac users get the most automated setup. Users with a different iCloud account on their daily Mac account get a guided bridge/import path using a shared JSONL export from the matching macOS account.
 
 ## Key Changes
 
-### Backend Read Models
+### Integrations Page
 
-- Keep `/api/dashboard/overview-snapshot` as the canonical Overview read model and add:
-  - `GET /api/dashboard/metrics-snapshot`
-  - `GET /api/logs/read-model`
-  - `GET /api/calendar/read-model`
-- Every read-model response must include:
-  - `generatedAt`, `rangeKey`, `source`, `partial`, `warnings`
-  - complete screen data for the requested user/date range
-  - stable source labels such as `metric_facts`, `watcher_local_fallback`, `biome_iphone`, `wearable`, `import`, `degraded_cache`
-- Metrics snapshot owns metric totals, averages, deltas, sparklines, habit rows, category cards, app rankings, website rankings, Computer Time, and iPhone Time.
-- Logs read model owns paginated rows, filters, source counts, available habits/categories, and daily read-only rollup rows for iPhone Time. Raw iPhone app-level events stay in Metrics/activity detail, not the main Logs table.
-- Calendar read model owns visible calendar days, habit logs, scheduled blocks, project sessions, wearable/biometric summaries, day tooltips, and selected-day summary inputs.
+- Move `Apple Screen Time` into the first row directly after `Computer Use`.
+- Rename the card display to `Apple Screen Time`, keep the tracked habit/read-model label as `iPhone Time`.
+- Update card description to: `Track your iPhone screen time and app usage by syncing across devices.`
+- Remove `Coming soon`; make the card status-driven with `Connect`, `Sync Now`, and `Details`.
+- Add an `iPhone Time` details panel with:
+  - current status,
+  - last imported date,
+  - total imported events,
+  - outbox count,
+  - last drain result/error,
+  - local Biome source-file count,
+  - setup instructions,
+  - bridge import controls.
 
-### Frontend Data Flow
+### Status And Diagnostics
 
-- Add central query keys for `overviewSnapshot`, `metricsSnapshot`, `logsReadModel`, and `calendarReadModel`.
-- Replace screen-local aggregation in Metrics/Calendar/Logs with render-only usage of the backend read models.
-- Remove React aggregation paths that calculate habit totals from `habitLogsList`, local activity rows, wearable rows, or partial analytics payloads.
-- Keep the existing defensive snapshot merge behavior: partial, empty, or zero-heavy payloads must not overwrite known non-zero values.
-- Server-prefetch high-traffic dashboard data where practical, hydrate React Query, then let the client reuse the canonical cache.
+- Add a dashboard hook that combines:
+  - Tauri command `get_biome_iphone_diagnostics`,
+  - backend `/api/screen-time/stats/summary`,
+  - backend read-model/fact state for the `iPhone Time` habit.
+- Derive these exact UI statuses:
+  - `not_desktop`: only available in Ritual desktop.
+  - `watcher_not_running`: desktop is open but watcher is not running.
+  - `waiting_for_icloud_sync`: no local Biome iOS peers/source files found.
+  - `source_ready`: local Biome source files exist and can be parsed.
+  - `queued`: events are waiting in `biome_iphone_events.jsonl`.
+  - `syncing`: drain just ran or queued count is decreasing.
+  - `connected`: backend has recent `iPhone Time` facts.
+  - `error`: latest drain/parser/backend error exists.
+- Show a clear warning when source files are missing: "Ritual can only read iPhone Screen Time if this Mac user is signed into the same iCloud account as the iPhone and Screen Time data has synced locally."
+- Do not claim the Apple ID itself is mismatched, because the app cannot safely read/compare Apple account identity; infer only from missing Biome peers/source files.
 
-### Mutations And Invalidation
+### Connect And Sync Behavior
 
-- Manual/AI habit writes continue through `/api/logs/batch`; the backend must rebuild affected metric facts and return the post-write Overview snapshot plus affected habit/date metadata.
-- Add specific invalidation helpers:
-  - `invalidateAfterHabitWrite`: Overview, Metrics, Logs, Calendar
-  - `invalidateAfterWearableSync`: Overview, Metrics, Calendar
-  - `invalidateAfterActivitySync`: Overview, Metrics, Calendar
-  - `invalidateAfterImport`: Overview, Metrics, Logs, Calendar
-- Keep optimistic updates only for safe local entity edits such as renamed labels or temporary pending row UI. Never optimistically mutate aggregate totals, streaks, app rankings, Computer Time, iPhone Time, or date-range summaries.
-- Log edit/delete endpoints must also rebuild affected metric facts and invalidate the same canonical read models.
+- `Connect` should:
+  - verify Ritual is running in Tauri,
+  - verify watcher runtime,
+  - call `get_biome_iphone_diagnostics`,
+  - show the details panel with the next required action.
+- `Sync Now` should:
+  - trigger the existing Biome outbox drain,
+  - refresh diagnostics,
+  - force-refresh Overview/Metrics/Logs/Calendar read models after success.
+- If source files exist but no events are queued, prompt the user to wait for the watcher scan or restart Computer Use.
+- If backend facts exist, mark the integration connected even if the local outbox is empty.
 
-### Desktop And Multi-Source Rules
+### Bridge Path For BiomeTest / Alternate iCloud Accounts
 
-- Backend metric facts are canonical for habit totals.
-- Watcher local DB and desktop fallback may fill activity-specific widgets only when backend activity data is missing or offline.
-- Local fallback must merge non-destructively and must never zero backend habit totals.
-- Computer Time and iPhone Time use the same projection contract: raw events land in activity storage, affected daily facts are rebuilt, screen snapshots read facts.
-- Metrics can show app/website breakdowns from local watcher fallback, but the habit total remains the backend fact unless explicitly marked degraded.
+- Add a Tauri import command that accepts a Biome JSONL export file and enqueues valid events into the same `biome_iphone_events.jsonl` outbox.
+- Add a details-panel section: `Using a different iCloud account?`
+- Show the exact helper command for the other macOS account:
+  - `/Users/Shared/ritual-watcher-biome-diagnostic --biome-export-jsonl /Users/Shared/ritual-biome-iphone-export.jsonl`
+- Add an `Import Export File` button that lets the daily Ritual account import `/Users/Shared/ritual-biome-iphone-export.jsonl`.
+- Validate imported rows against the existing Biome event schema, dedupe by stable event key, quarantine malformed rows, and never delete the source export.
+- After import, immediately trigger outbox drain and refresh integration/read-model status.
+
+### Backend And Read Models
+
+- Keep `/api/watcher/biome-ingest` as the canonical ingestion endpoint.
+- Add or expose a lightweight backend status endpoint for `iPhone Time` facts if existing summary data is insufficient:
+  - latest imported day,
+  - total active milliseconds,
+  - total event count,
+  - last fact rebuild timestamp if available.
+- Preserve current behavior:
+  - accepted Biome events rebuild `iPhone Time` metric facts,
+  - Logs show daily read-only `iPhone Time` rollups,
+  - raw app-level details stay in Metrics/activity detail.
+- Ensure status reads never overwrite known positive `iPhone Time` values with zero-heavy degraded payloads.
 
 ## Test Plan
 
-- Manual logging regression: log Workout and assert Caffeine, Nicotine, Sleep, Computer Time, iPhone Time, Spending, Steps, Reading, and existing app rankings do not zero or change unexpectedly.
-- Metrics read-model tests: missing watcher rows, empty local fallback, or sync-pending state must preserve backend habit facts.
-- Logs read-model tests: daily iPhone Time rollup rows appear without flooding Logs with raw foreground events; pagination/filter metadata remains stable.
-- Calendar read-model tests: Calendar day totals match Logs and Overview for the same date range.
-- Mutation tests: create, edit, delete, import, wearable sync, and activity sync rebuild affected metric facts before returning or before invalidation completes.
-- Snapshot guard tests: partial, empty, zero-heavy, and degraded payloads cannot overwrite known non-zero cached values.
-- Post-deploy smoke test: run `npm run smoke:prod:read-models` against production to verify Overview, Metrics, Logs, and Calendar read models return complete non-partial payloads and important all-time totals are not unexpectedly zero.
-- Performance tests: compare request count, initial Metrics render time, Calendar range switch time, Logs first page time, and post-log time-to-correct-total before and after migration.
+- Dashboard tests:
+  - Apple Screen Time card appears directly after Computer Use.
+  - Card is no longer `Coming soon`.
+  - Description matches the requested copy.
+  - Missing Biome files shows the same-iCloud warning.
+  - Existing backend facts mark the card connected.
+  - Queued outbox rows show `queued`, drain error shows `error`.
+- Tauri/Rust tests:
+  - `get_biome_iphone_diagnostics` reports source files, outbox count, committed cursors, and last drain.
+  - JSONL bridge import accepts valid rows, dedupes existing events, and quarantines malformed rows.
+  - Import does not advance committed cursors until backend acknowledgement.
+- Backend tests:
+  - Biome ingest still creates/updates `iPhone Time` facts.
+  - Status/summary endpoint returns latest imported day and non-zero totals when facts exist.
+  - Ignored pseudo-app events do not count toward `iPhone Time`.
+- End-to-end smoke:
+  - Same-iCloud Mac with Biome files: Connect -> source ready/connected -> Overview/Metrics show `iPhone Time`.
+  - Alternate iCloud account: export from BiomeTest -> import in Ritual -> drain -> read-model smoke passes -> `iPhone Time` visible.
+  - Network failure: queued rows remain and UI shows retryable error.
 
 ## Assumptions
 
-- Do not migrate to tRPC; keep FastAPI plus generated OpenAPI clients.
-- Do not remove existing endpoints immediately. Add canonical read models first, migrate screens, then delete obsolete client aggregation and proxy paths.
-- Logs should show daily read-only iPhone Time rollups, while raw iPhone app-level events belong in Metrics/activity detail.
-- Correctness beats fake instant aggregate optimism. Manual logging should feel fast by applying canonical returned snapshots, not by doing client-side aggregate math.
-- The first implementation slice should migrate Metrics because it currently has the highest risk of source-precedence bugs and visible zero-out behavior.
+- V1 production path is desktop Biome, not the iOS companion Screen Time path.
+- The app cannot silently read another macOS user's Biome files; alternate-account support must use an explicit export/import bridge.
+- Apple Screen Time is the integration name; `iPhone Time` remains the habit/metric name in app data.
+- Same-iCloud Mac setup should be automated after the user opens Ritual desktop and the watcher runs.
+- The existing backend Biome ingest and metric-fact projection are reused rather than replaced.

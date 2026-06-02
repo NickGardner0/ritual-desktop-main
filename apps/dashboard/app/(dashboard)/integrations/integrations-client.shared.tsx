@@ -206,6 +206,262 @@ export async function getLocalWatcherRuntimeStatus(): Promise<WatcherRuntimeStat
   }
 }
 
+export const IPHONE_TIME_CARD_DESCRIPTION = 'Track your iPhone screen time and app usage by syncing across devices.';
+export const IPHONE_TIME_ICLOUD_WARNING =
+  'Ritual can only read iPhone Screen Time if this Mac user is signed into the same iCloud account as the iPhone and Screen Time data has synced locally.';
+
+export type BiomeDrainSnapshot = {
+  lastCheckedAtMs?: number | null;
+  lastStatus?: string | null;
+  lastProcessedCount?: number | null;
+  lastError?: string | null;
+};
+
+export type BiomeOutboxDiagnostics = {
+  path?: string | null;
+  exists?: boolean;
+  eventCount?: number;
+  malformedLineCount?: number;
+  bytes?: number;
+};
+
+export type BiomeIphoneDiagnostics = {
+  syncDbPath?: string | null;
+  syncDbExists?: boolean;
+  syncDbError?: string | null;
+  iosDevicePeerCount?: number;
+  appInFocusRemotePath?: string | null;
+  appInFocusRemoteExists?: boolean;
+  deviceFolderCount?: number;
+  sourceFileCount?: number;
+  outbox?: BiomeOutboxDiagnostics;
+  committedCursorsPath?: string | null;
+  committedCursors?: Record<string, number>;
+  lastDrain?: BiomeDrainSnapshot;
+  notes?: string[];
+};
+
+export type IphoneTimeIntegrationStatusId =
+  | 'not_desktop'
+  | 'watcher_not_running'
+  | 'waiting_for_icloud_sync'
+  | 'source_ready'
+  | 'queued'
+  | 'syncing'
+  | 'connected'
+  | 'error';
+
+export type IphoneTimeIntegrationStatus = {
+  status: IphoneTimeIntegrationStatusId;
+  statusLabel: string;
+  isConnected: boolean;
+  warning: string | null;
+  backendSummary: Record<string, any> | null;
+  diagnostics: BiomeIphoneDiagnostics | null;
+  watcherStatus: WatcherRuntimeStatus | null;
+  lastImportedDate: string | null;
+  totalImportedEvents: number;
+  totalActiveMs: number;
+  outboxCount: number;
+  localSourceFileCount: number;
+  lastDrainLabel: string;
+  lastError: string | null;
+  notes: string[];
+};
+
+function todayISODate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function extractScreenTimeSummary(payload: any): Record<string, any> | null {
+  if (!payload) {
+    return null;
+  }
+  if (payload.data && typeof payload.data === 'object') {
+    return payload.data;
+  }
+  return typeof payload === 'object' ? payload : null;
+}
+
+function latestDayFromSummary(summary: Record<string, any> | null): string | null {
+  const daily = Array.isArray(summary?.daily) ? summary?.daily : [];
+  let latest: string | null = null;
+  for (const row of daily) {
+    const day = typeof row?.day === 'string' ? row.day : typeof row?.date === 'string' ? row.date : null;
+    const activeMs = Number(row?.active_ms ?? row?.activeMs ?? row?.total_active_ms ?? 0);
+    if (!day || activeMs <= 0) {
+      continue;
+    }
+    latest = latest && latest > day ? latest : day;
+  }
+  return latest;
+}
+
+function formatDrainLabel(snapshot?: BiomeDrainSnapshot | null): string {
+  if (!snapshot?.lastCheckedAtMs) {
+    return 'Never';
+  }
+  const checkedAt = new Date(snapshot.lastCheckedAtMs).toISOString();
+  const status = snapshot.lastStatus ? `${snapshot.lastStatus} ` : '';
+  const count = typeof snapshot.lastProcessedCount === 'number' ? `, ${snapshot.lastProcessedCount} rows` : '';
+  return `${status}${formatRelativeTime(checkedAt)}${count}`;
+}
+
+function statusLabel(status: IphoneTimeIntegrationStatusId): string {
+  switch (status) {
+    case 'not_desktop':
+      return 'Desktop app required';
+    case 'watcher_not_running':
+      return 'Computer Use is not running';
+    case 'waiting_for_icloud_sync':
+      return 'Waiting for iCloud sync';
+    case 'source_ready':
+      return 'Source files ready';
+    case 'queued':
+      return 'Queued for sync';
+    case 'syncing':
+      return 'Syncing';
+    case 'connected':
+      return 'Connected';
+    case 'error':
+      return 'Needs attention';
+  }
+}
+
+export function deriveIphoneTimeIntegrationStatus({
+  backendSummary,
+  diagnostics,
+  isDesktop,
+  localError,
+  watcherStatus,
+}: {
+  backendSummary: Record<string, any> | null;
+  diagnostics: BiomeIphoneDiagnostics | null;
+  isDesktop: boolean;
+  localError?: string | null;
+  watcherStatus: WatcherRuntimeStatus | null;
+}): IphoneTimeIntegrationStatus {
+  const totalActiveMs = Number(backendSummary?.total_active_ms ?? backendSummary?.totalActiveMs ?? 0);
+  const totalImportedEvents = Number(backendSummary?.total_events ?? backendSummary?.totalEvents ?? 0);
+  const lastImportedDate = latestDayFromSummary(backendSummary);
+  const backendHasFacts = totalActiveMs > 0 || Boolean(lastImportedDate) || Boolean(backendSummary?.has_data);
+  const outboxCount = Number(diagnostics?.outbox?.eventCount ?? 0);
+  const localSourceFileCount = Number(diagnostics?.sourceFileCount ?? 0);
+  const lastDrainError = diagnostics?.lastDrain?.lastError || null;
+  const syncDbError = diagnostics?.syncDbError || null;
+  const lastDrainStatus = diagnostics?.lastDrain?.lastStatus || null;
+  const isRecentlySyncing =
+    lastDrainStatus === 'running' ||
+    (lastDrainStatus === 'success' &&
+      diagnostics?.lastDrain?.lastCheckedAtMs &&
+      Date.now() - diagnostics.lastDrain.lastCheckedAtMs < 15_000);
+
+  let status: IphoneTimeIntegrationStatusId = 'waiting_for_icloud_sync';
+  let warning: string | null = null;
+
+  if (!isDesktop) {
+    status = 'not_desktop';
+  } else if (localError || lastDrainError || syncDbError) {
+    status = 'error';
+  } else if (watcherStatus && watcherStatus.is_running === false && !backendHasFacts) {
+    status = 'watcher_not_running';
+  } else if (isRecentlySyncing) {
+    status = 'syncing';
+  } else if (outboxCount > 0) {
+    status = 'queued';
+  } else if (backendHasFacts) {
+    status = 'connected';
+  } else if (localSourceFileCount > 0) {
+    status = 'source_ready';
+  } else {
+    status = 'waiting_for_icloud_sync';
+  }
+
+  if (isDesktop && localSourceFileCount <= 0 && !backendHasFacts) {
+    warning = IPHONE_TIME_ICLOUD_WARNING;
+  }
+
+  const notes = [
+    ...(diagnostics?.notes ?? []),
+    ...(localError ? [localError] : []),
+  ];
+
+  return {
+    status,
+    statusLabel: statusLabel(status),
+    isConnected: backendHasFacts,
+    warning,
+    backendSummary,
+    diagnostics,
+    watcherStatus,
+    lastImportedDate,
+    totalImportedEvents,
+    totalActiveMs,
+    outboxCount,
+    localSourceFileCount,
+    lastDrainLabel: formatDrainLabel(diagnostics?.lastDrain),
+    lastError: localError || lastDrainError || syncDbError || null,
+    notes,
+  };
+}
+
+export function useIphoneTimeIntegrationStatus() {
+  const { user } = useUser();
+  const { getToken } = useAuth();
+
+  return useQuery({
+    queryKey: ['iphone-time-integration-status', user?.id],
+    queryFn: async (): Promise<IphoneTimeIntegrationStatus> => {
+      const desktop = isTauri();
+      const endDate = todayISODate();
+      const token = await getToken();
+      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
+      let backendSummary: Record<string, any> | null = null;
+      let localError: string | null = null;
+
+      try {
+        const response = await fetchJsonWithTimeout(
+          `/api/screen-time/stats/summary?start_date=2000-01-01&end_date=${endDate}`,
+          { headers },
+          8000,
+        );
+        if (response.ok) {
+          backendSummary = extractScreenTimeSummary(await response.json());
+        } else {
+          localError = `Screen Time summary returned HTTP ${response.status}`;
+        }
+      } catch (error) {
+        localError = formatErrorMessage(error, 'Screen Time summary is unavailable.');
+      }
+
+      let diagnostics: BiomeIphoneDiagnostics | null = null;
+      let watcherStatus: WatcherRuntimeStatus | null = null;
+      if (desktop) {
+        watcherStatus = await getLocalWatcherRuntimeStatus();
+        try {
+          diagnostics = await withTimeout<BiomeIphoneDiagnostics | null>(
+            invoke<BiomeIphoneDiagnostics>('get_biome_iphone_diagnostics') as Promise<BiomeIphoneDiagnostics | null>,
+            4000,
+            null,
+          );
+        } catch (error) {
+          localError = formatErrorMessage(error, 'Biome diagnostics are unavailable.');
+        }
+      }
+
+      return deriveIphoneTimeIntegrationStatus({
+        backendSummary,
+        diagnostics,
+        isDesktop: desktop,
+        localError,
+        watcherStatus,
+      });
+    },
+    staleTime: QUERY_POLICY.general.staleTime,
+    enabled: !!user?.id,
+  });
+}
+
 export async function fetchJsonWithTimeout(
   input: RequestInfo | URL,
   init: RequestInit,
