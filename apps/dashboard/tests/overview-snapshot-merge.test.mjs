@@ -84,3 +84,43 @@ test("merge keeps missing base values when the server omits a habit stat", () =>
     workout: { total: 1, days_with_data: 1 },
   });
 });
+
+test("merge preserves known positive stat when the same metric returns under a new zero id", () => {
+  const base = {
+    oldIphoneHabitId: {
+      id: "oldIphoneHabitId",
+      name: "iPhone Time",
+      total: 113.87,
+      days_with_data: 26,
+    },
+  };
+  const incoming = {
+    newIphoneHabitId: {
+      id: "newIphoneHabitId",
+      name: "iPhone Time",
+      total: 0,
+      days_with_data: 0,
+    },
+    workout: {
+      id: "workout",
+      name: "Workout",
+      total: 153.15,
+      days_with_data: 42,
+    },
+  };
+
+  assert.deepEqual(plain(mergeOverviewStatsPreservingKnownValues(base, incoming)), {
+    newIphoneHabitId: {
+      id: "newIphoneHabitId",
+      name: "iPhone Time",
+      total: 113.87,
+      days_with_data: 26,
+    },
+    workout: {
+      id: "workout",
+      name: "Workout",
+      total: 153.15,
+      days_with_data: 42,
+    },
+  });
+});
