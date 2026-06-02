@@ -170,6 +170,11 @@ class WearableWhoopSyncMixin:
             + stage_summary.get("total_slow_wave_sleep_time_milli", 0)
             + stage_summary.get("total_light_sleep_time_milli", 0)
         ) / 60000.0
+        sleep_external_id = (
+            record.get("id")
+            or record.get("cycle_id")
+            or f"{start_raw}:{end_raw}"
+        )
         event_id, created = await self._upsert_event(
             user_id=user_id,
             connection_id=connection_id,
@@ -177,7 +182,7 @@ class WearableWhoopSyncMixin:
             provider="whoop",
             event_type="sleep_total",
             provider_event_type="sleep_session",
-            external_id=record.get("id"),
+            external_id=str(sleep_external_id),
             start_time=start_time,
             end_time=end_time,
             attributed_date=end_time.strftime("%Y-%m-%d"),
@@ -246,4 +251,3 @@ class WearableWhoopSyncMixin:
             created=created,
         )
         return 1 if created else 0
-

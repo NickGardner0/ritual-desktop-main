@@ -96,6 +96,55 @@ class WhoopService:
             "latest_upstream_sleep_cycle_id": latest.get("cycle_id"),
         }
 
+    @staticmethod
+    def _record_date(record: Dict[str, Any], *keys: str) -> Optional[str]:
+        for key in keys:
+            value = record.get(key)
+            if isinstance(value, datetime):
+                return value.date().isoformat()
+            if value:
+                date_value = str(value)[:10]
+                if len(date_value) == 10:
+                    return date_value
+        return None
+
+    @classmethod
+    def _affected_metric_fact_dates(
+        cls,
+        *,
+        recovery_data: Optional[Dict[str, Any]],
+        sleep_data: Optional[Dict[str, Any]],
+        workout_data: Optional[Dict[str, Any]],
+        cycle_data: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        dates: set[str] = set()
+
+        for record in (sleep_data or {}).get("records") or []:
+            if isinstance(record, dict):
+                date_value = cls._record_date(record, "end", "start", "updated_at", "created_at")
+                if date_value:
+                    dates.add(date_value)
+
+        for record in (workout_data or {}).get("records") or []:
+            if isinstance(record, dict):
+                date_value = cls._record_date(record, "start", "end", "updated_at", "created_at")
+                if date_value:
+                    dates.add(date_value)
+
+        for record in (recovery_data or {}).get("records") or []:
+            if isinstance(record, dict):
+                date_value = cls._record_date(record, "created_at", "updated_at", "start", "end")
+                if date_value:
+                    dates.add(date_value)
+
+        for record in (cycle_data or {}).get("records") or []:
+            if isinstance(record, dict):
+                date_value = cls._record_date(record, "start", "end", "updated_at", "created_at")
+                if date_value:
+                    dates.add(date_value)
+
+        return sorted(dates)
+
     async def _request_with_retry(
         self,
         client: httpx.AsyncClient,
@@ -613,6 +662,9 @@ class WhoopService:
         cycle_data = None
         synced_data = {"recovery": 0, "sleep": 0, "workouts": 0, "cycles": 0}
         any_api_success = False
+        canonical_sync_succeeded = False
+        metric_facts_result: Optional[Dict[str, Any]] = None
+        metric_facts_error: Optional[str] = None
 
         try:
             fetched = await self.api_client.fetch_enabled_data(
@@ -656,9 +708,39 @@ class WhoopService:
                     refresh_token=integration.refresh_token if integration else None,
                     token_expires_at=integration.token_expires_at if integration else None,
                 )
+                canonical_sync_succeeded = True
                 logger.info("✅ Whoop data synced through canonical wearable storage")
             except Exception as db_error:
                 logger.warning(f"⚠️  Canonical wearable sync failed (non-fatal): {str(db_error)}")
+
+            if canonical_sync_succeeded:
+                affected_dates = self._affected_metric_fact_dates(
+                    recovery_data=recovery_data,
+                    sleep_data=sleep_data,
+                    workout_data=workout_data,
+                    cycle_data=cycle_data,
+                )
+                if affected_dates:
+                    try:
+                        from services.metric_facts_service import metric_fact_service
+
+                        metric_facts_result = await metric_fact_service.rebuild_facts(
+                            user_id=user_id,
+                            start_date=min(affected_dates),
+                            end_date=max(affected_dates),
+                            apply=True,
+                        )
+                        logger.info(
+                            "✅ Rebuilt metric facts after Whoop sync for %s through %s",
+                            min(affected_dates),
+                            max(affected_dates),
+                        )
+                    except Exception as facts_error:
+                        metric_facts_error = str(facts_error)
+                        logger.warning(
+                            "⚠️  Metric fact rebuild after Whoop sync failed (non-fatal): %s",
+                            metric_facts_error,
+                        )
 
             try:
                 latest_cycle_date = None
@@ -740,6 +822,8 @@ class WhoopService:
             },
             "data": synced_data,
             "data_freshness": self._latest_sleep_record_metadata(sleep_data),
+            "metric_facts": metric_facts_result,
+            "metric_facts_error": metric_facts_error,
         }
 
 whoop_service = WhoopService()

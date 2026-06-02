@@ -72,7 +72,34 @@ class WearableProjectionTests(unittest.TestCase):
 
         self.assertEqual(
             projection._default_projection_source_priority_for_habit(habit),
-            ["whoop", "apple_health"],
+            ["whoop", "apple_health", "oura", "garmin", "fitbit"],
+        )
+
+    def test_default_projection_policy_allows_whoop_as_secondary_for_apple_sleep(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+        habit = SimpleNamespace(name="Sleep Duration", metric_type="sleep_session", integration_source="apple_health")
+
+        self.assertEqual(
+            projection._default_projection_source_priority_for_habit(habit),
+            ["apple_health", "whoop", "oura", "garmin", "fitbit"],
+        )
+
+    def test_sleep_projection_accepts_secondary_priority_provider(self):
+        projection = WearableProjectionService(WearableNormalizationService())
+
+        self.assertTrue(
+            projection._provider_allowed_by_projection_priority(
+                canonical_metric_type="sleep_total",
+                provider="whoop",
+                projection_source_priority=["apple_health", "whoop"],
+            )
+        )
+        self.assertFalse(
+            projection._provider_allowed_by_projection_priority(
+                canonical_metric_type="steps",
+                provider="whoop",
+                projection_source_priority=["apple_health", "whoop"],
+            )
         )
 
     def test_default_projection_policy_keeps_manual_workout_manual(self):

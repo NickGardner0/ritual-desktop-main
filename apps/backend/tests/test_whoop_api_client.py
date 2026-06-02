@@ -154,3 +154,23 @@ def test_latest_sleep_metadata_uses_sleep_end_date_for_overview_attribution():
     assert metadata["latest_upstream_sleep_date"] == "2026-05-25"
     assert metadata["latest_upstream_sleep_id"] == "sleep-new"
     assert metadata["latest_upstream_sleep_cycle_id"] == "cycle-new"
+
+
+def test_whoop_affected_metric_fact_dates_include_sleep_end_dates():
+    dates = WhoopService._affected_metric_fact_dates(
+        recovery_data={"records": [{"created_at": "2026-05-23T12:00:00.000Z"}]},
+        sleep_data={
+            "records": [
+                {
+                    "id": "sleep-1",
+                    "cycle_id": "cycle-1",
+                    "start": "2026-05-24T03:00:00.000Z",
+                    "end": "2026-05-25T12:00:00.000Z",
+                }
+            ],
+        },
+        workout_data={"records": [{"start": "2026-05-26T18:00:00.000Z"}]},
+        cycle_data={"records": [{"start": "2026-05-27T00:00:00.000Z"}]},
+    )
+
+    assert dates == ["2026-05-23", "2026-05-25", "2026-05-26", "2026-05-27"]
