@@ -36,6 +36,12 @@ export function RootProviders({ children }: { children: ReactNode }) {
     const storageValue = window.sessionStorage.getItem('ritual_main_glass');
     return isTauri() || queryValue === '1' || storageValue === '1';
   });
+  const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const queryValue = new URLSearchParams(window.location.search).get('ritual_capture_sidebar');
+    if (queryValue === '1') return true;
+    return false;
+  });
 
   // Show the Tauri window once React has mounted and content is ready
   // This prevents the "tiny window flash" issue on macOS
@@ -103,6 +109,33 @@ export function RootProviders({ children }: { children: ReactNode }) {
       delete document.documentElement.dataset.mainGlass;
     }
   }, [isMainGlassEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isSidebarCaptureMode) {
+      document.documentElement.dataset.sidebarCapture = '1';
+    } else {
+      window.localStorage.removeItem('ritual_capture_sidebar');
+      delete document.documentElement.dataset.sidebarCapture;
+    }
+  }, [isSidebarCaptureMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey && event.altKey && event.shiftKey && event.code === 'KeyB') {
+        event.preventDefault();
+        setIsSidebarCaptureMode((enabled) => !enabled);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const content = (
     <OpenPanelProvider>

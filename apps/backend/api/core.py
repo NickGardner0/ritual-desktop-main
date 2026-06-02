@@ -1,6 +1,7 @@
 """Core API router extracted from main.py (user, habits, calendar, batch logging)."""
 
 import logging
+import os
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
@@ -17,6 +18,10 @@ from models.user_models import OnboardingData, UserProfile
 from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes", "on"}
 
 
 class ScheduledBlockBase(BaseModel):
@@ -238,8 +243,147 @@ def create_core_router(
             if end_date:
                 datetime.strptime(end_date, "%Y-%m-%d")
             await _maybe_force_fresh_read(request)
-            return await habits_service.get_overview_snapshot(
+            if _env_flag("METRIC_FACTS_READS"):
+                from services.metric_facts_service import metric_fact_service
+
+                return await metric_fact_service.get_overview_snapshot(
+                    user_id=current_user["id"],
+                    start_date=start_date,
+                    end_date=end_date,
+                    days_back=3650,
+                )
+            snapshot = await habits_service.get_overview_snapshot(
                 current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if _env_flag("METRIC_FACTS_SHADOW"):
+                try:
+                    from services.metric_facts_service import metric_fact_service
+
+                    fact_snapshot = await metric_fact_service.get_overview_snapshot(
+                        user_id=current_user["id"],
+                        start_date=start_date,
+                        end_date=end_date,
+                        days_back=3650,
+                    )
+                    legacy_stats = snapshot.get("overviewStats") or {}
+                    fact_stats = fact_snapshot.get("overviewStats") or {}
+                    drift_count = 0
+                    for habit_id, legacy in legacy_stats.items():
+                        fact = fact_stats.get(habit_id) or {}
+                        if abs(float((legacy or {}).get("total") or 0) - float(fact.get("total") or 0)) > 0.05:
+                            drift_count += 1
+                    logger.info(
+                        "Metric facts shadow overview computed for user %s; drift_count=%s",
+                        current_user["id"],
+                        drift_count,
+                    )
+                except Exception as exc:
+                    logger.warning("Metric facts shadow overview failed for user %s: %s", current_user["id"], exc)
+            return snapshot
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("dashboard overview snapshot failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/api/dashboard/metrics-snapshot")
+    async def get_dashboard_metrics_snapshot(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.metric_facts_service import metric_fact_service
+
+            return await metric_fact_service.get_metrics_snapshot(
+                user_id=current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                days_back=3650,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("dashboard metrics snapshot failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/api/logs/read-model")
+    async def get_logs_read_model(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        limit: int = Query(200, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        habit_id: Optional[str] = Query(None),
+        q: Optional[str] = Query(None),
+        categories: Optional[str] = Query(None),
+        habits: Optional[str] = Query(None),
+        statuses: Optional[str] = Query(None),
+        sources: Optional[str] = Query(None),
+        sort: Optional[str] = Query(None),
+        order: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.screen_read_models_service import screen_read_models_service
+
+            return await screen_read_models_service.get_logs_read_model(
+                user_id=current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+                habit_id=habit_id,
+                q=q,
+                categories=categories,
+                habits=habits,
+                statuses=statuses,
+                sources=sources,
+                sort=sort,
+                order=order,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("logs read model failed for user %s", current_user.get("id"))
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.get("/api/calendar/read-model")
+    async def get_calendar_read_model(
+        request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
+            await _maybe_force_fresh_read(request)
+            from services.screen_read_models_service import screen_read_models_service
+
+            return await screen_read_models_service.get_calendar_read_model(
+                user_id=current_user["id"],
                 start_date=start_date,
                 end_date=end_date,
             )
@@ -248,7 +392,7 @@ def create_core_router(
         except HTTPException:
             raise
         except Exception:
-            logger.exception("dashboard overview snapshot failed for user %s", current_user.get("id"))
+            logger.exception("calendar read model failed for user %s", current_user.get("id"))
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/api/habits/aliases")
@@ -346,11 +490,28 @@ def create_core_router(
     @router.get("/api/habit-logs", response_model=List[HabitLog])
     async def get_all_habit_logs(
         request: Request,
+        start_date: Optional[str] = Query(None),
+        end_date: Optional[str] = Query(None),
+        limit: Optional[int] = Query(None, ge=1, le=10000),
+        offset: int = Query(0, ge=0),
         current_user=Depends(get_current_user),
     ):
         try:
+            if start_date:
+                datetime.strptime(start_date, "%Y-%m-%d")
+            if end_date:
+                datetime.strptime(end_date, "%Y-%m-%d")
             await _maybe_force_fresh_read(request)
-            return await habits_service.get_habit_logs(None, current_user["id"])
+            return await habits_service.get_habit_logs(
+                None,
+                current_user["id"],
+                start_date=start_date,
+                end_date=end_date,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 

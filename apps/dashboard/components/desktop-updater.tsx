@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@/components/ui/button';
 import {
   checkDesktopForUpdates,
   getDesktopCompatibilityIssue,
@@ -17,7 +16,16 @@ type UpdateStatusPayload = {
   status?: string | null;
 };
 
+type RecoveryAction = {
+  disabled?: boolean;
+  label: string;
+  onClick: () => void;
+  variant?: 'primary' | 'secondary';
+};
+
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
+const NATIVE_UPDATE_PROMPT_CAPABILITY = 'native-update-prompt-v1';
+const RITUAL_APP_ICON_SRC = '/brand/ritual-app-icon.png';
 const RUNTIME_STATE_CHANGED_EVENT = 'desktop://runtime-state-changed';
 const UPDATE_AVAILABLE_EVENT = 'tauri://update-available';
 const UPDATE_STATUS_EVENT = 'tauri://update-status';
@@ -34,10 +42,86 @@ function normalizeManifest(manifest: UpdateManifest | null | undefined): UpdateM
   };
 }
 
+function errorToMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  if (typeof error === 'string' && error.trim()) {
+    return error;
+  }
+
+  return 'Install failed. Please try again or reinstall Ritual if the issue persists.';
+}
+
+function RecoveryNotice({
+  actions,
+  details,
+  message,
+  title,
+  tone = 'info',
+}: {
+  actions: RecoveryAction[];
+  details?: string | null;
+  message: string;
+  title: string;
+  tone?: 'info' | 'error';
+}) {
+  return (
+    <div
+      aria-live="polite"
+      className="fixed bottom-5 right-5 z-[1300] w-[min(390px,calc(100vw-40px))] rounded-[12px] border border-black/15 bg-[#f6f6f7]/95 p-4 text-[#1d1d1f] shadow-[0_16px_48px_rgba(0,0,0,0.22)] backdrop-blur-xl"
+      role="status"
+    >
+      <div className="flex items-start gap-3">
+        <img
+          alt=""
+          className="h-11 w-11 shrink-0 rounded-[10px] object-contain shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+          src={RITUAL_APP_ICON_SRC}
+        />
+        <div className="min-w-0 flex-1">
+          <h2 className="text-[15px] font-semibold leading-5 text-[#1d1d1f]">{title}</h2>
+          <p
+            className={`mt-1 text-[13px] leading-5 ${
+              tone === 'error' ? 'text-[#9a3b2d]' : 'text-[#555960]'
+            }`}
+          >
+            {message}
+          </p>
+          {details ? (
+            <p className="mt-1 max-h-20 overflow-auto whitespace-pre-line text-[12px] leading-5 text-[#70747b]">
+              {details}
+            </p>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        {actions.map((action) => (
+          <button
+            className={
+              action.variant === 'primary'
+                ? 'h-8 min-w-[82px] rounded-[7px] bg-[#007aff] px-3 text-[13px] font-semibold text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition hover:bg-[#006ee6] disabled:cursor-not-allowed disabled:bg-[#a2a7b0]'
+                : 'h-8 min-w-[72px] rounded-[7px] border border-black/15 bg-white px-3 text-[13px] font-medium text-[#1d1d1f] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] transition hover:bg-[#fbfbfc] disabled:cursor-not-allowed disabled:opacity-50'
+            }
+            disabled={action.disabled}
+            key={action.label}
+            onClick={action.onClick}
+            type="button"
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function DesktopUpdater() {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateManifest | null>(null);
   const [checking, setChecking] = useState(false);
   const [desktopEnv, setDesktopEnv] = useState<string | null>(null);
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [manualCheckActive, setManualCheckActive] = useState(false);
   const [runtimeInfo, setRuntimeInfo] = useState<DesktopRuntimeInfo | null>(null);
@@ -132,6 +216,9 @@ export function DesktopUpdater() {
           if (cancelled) return;
 
           const manifest = normalizeManifest(event.payload);
+          setDismissedVersion((current) => (
+            current && manifest?.version === current ? current : null
+          ));
           setAvailableUpdate(manifest);
           setRuntimeInfo((current) => (
             current
@@ -202,10 +289,18 @@ export function DesktopUpdater() {
     };
   }, [shouldEnableUpdater]);
 
-  const effectivePendingUpdate = availableUpdate ?? normalizeManifest(runtimeInfo?.pendingUpdate);
+  const pendingUpdate = availableUpdate ?? normalizeManifest(runtimeInfo?.pendingUpdate);
+  const effectivePendingUpdate =
+    pendingUpdate && pendingUpdate.version !== dismissedVersion ? pendingUpdate : null;
+  const hasStatusMessage = Boolean(statusMessage);
+  const statusLooksLikeError = Boolean(statusMessage && /(failed|error|signature)/i.test(statusMessage));
+  const supportsNativeUpdatePrompt = Boolean(
+    runtimeInfo?.capabilities.includes(NATIVE_UPDATE_PROMPT_CAPABILITY),
+  );
 
   const runManualUpdateCheck = async () => {
     setChecking(true);
+    setDismissedVersion(null);
     setManualCheckActive(true);
     setStatusMessage('Checking for the latest Ritual desktop update...');
 
@@ -233,7 +328,18 @@ export function DesktopUpdater() {
     } catch (error) {
       console.error('Desktop updater install failed:', error);
       setInstalling(false);
-      setStatusMessage('Install failed. Please try again or reinstall Ritual if the issue persists.');
+      setStatusMessage(errorToMessage(error));
+    }
+  };
+
+  const dismissUpdaterModal = () => {
+    if (effectivePendingUpdate?.version) {
+      setDismissedVersion(effectivePendingUpdate.version);
+    }
+
+    if (!installing) {
+      setChecking(false);
+      setStatusMessage(null);
     }
   };
 
@@ -248,55 +354,96 @@ export function DesktopUpdater() {
         : null;
 
     return (
-      <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-[rgba(9,9,11,0.58)] px-6">
-        <div className="w-full max-w-xl rounded-[32px] border border-black/10 bg-white p-8 shadow-[0_40px_100px_rgba(0,0,0,0.28)]">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#8a6f47]">
-            Ritual Desktop Update Required
-          </p>
-          <h2 className="mt-4 text-[30px] font-medium leading-[1.08] tracking-[-0.03em] text-[#1d1a16]">
-            This Ritual web release needs a newer desktop shell.
-          </h2>
-          <p className="mt-4 text-[15px] leading-7 text-[#5a5147]">
-            {compatibilityIssue.kind === 'version'
-              ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
-              : `This page needs desktop capabilities your installed shell does not expose yet: ${requiredCapabilities}.`}
-          </p>
-          <p className="mt-3 text-[14px] leading-6 text-[#6a6157]">
-            Use the button below to check for the latest Ritual desktop update and install it before continuing.
-          </p>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            {effectivePendingUpdate ? (
-              <Button disabled={installing} onClick={installUpdateNow} size="sm">
-                {installing ? 'Installing…' : `Install ${effectivePendingUpdate.version ?? 'update'}`}
-              </Button>
-            ) : (
-              <Button disabled={checking || !shouldEnableUpdater} onClick={runManualUpdateCheck} size="sm">
-                {checking ? 'Checking…' : 'Check for update'}
-              </Button>
-            )}
-            {statusMessage ? (
-              <Button
-                disabled={checking || installing}
-                onClick={() => setStatusMessage(null)}
-                size="sm"
-                variant="outline"
-              >
-                Dismiss
-              </Button>
-            ) : null}
-          </div>
-
-          {statusMessage ? (
-            <p className="mt-4 text-sm leading-6 text-[#5a5147]">{statusMessage}</p>
-          ) : null}
-        </div>
-      </div>
+      <RecoveryNotice
+        actions={[
+          effectivePendingUpdate
+            ? {
+                disabled: installing,
+                label: installing ? 'Installing...' : `Install ${effectivePendingUpdate.version ?? 'update'}`,
+                onClick: installUpdateNow,
+                variant: 'primary',
+              }
+            : {
+                disabled: checking || !shouldEnableUpdater,
+                label: checking ? 'Checking...' : 'Check Update',
+                onClick: runManualUpdateCheck,
+                variant: 'primary',
+              },
+          ...(statusMessage
+            ? [{
+                disabled: checking || installing,
+                label: 'Dismiss',
+                onClick: () => setStatusMessage(null),
+                variant: 'secondary' as const,
+              }]
+            : []),
+        ]}
+        details={statusMessage}
+        message={
+          compatibilityIssue.kind === 'version'
+            ? `Required desktop version: ${compatibilityIssue.requiredVersion}. Current version: ${compatibilityIssue.currentVersion ?? 'unknown'}.`
+            : `Missing desktop capability: ${requiredCapabilities}.`
+        }
+        title="Desktop update required"
+      />
     );
   }
 
   if (!shouldEnableUpdater) {
     return null;
+  }
+
+  if (effectivePendingUpdate || hasStatusMessage) {
+    if (supportsNativeUpdatePrompt && !statusLooksLikeError) {
+      return null;
+    }
+
+    if (!runtimeInfo && effectivePendingUpdate && !statusLooksLikeError) {
+      return null;
+    }
+
+    const title = statusLooksLikeError
+      ? 'Ritual Update Failed'
+      : installing
+        ? 'Installing Ritual Update'
+        : effectivePendingUpdate && !supportsNativeUpdatePrompt
+          ? 'Desktop update recovery'
+          : effectivePendingUpdate
+            ? 'Ritual Update Ready'
+          : 'Ritual Desktop';
+
+    return (
+      <RecoveryNotice
+        actions={[
+          {
+            disabled: installing,
+            label: effectivePendingUpdate ? 'Later' : 'OK',
+            onClick: dismissUpdaterModal,
+            variant: 'secondary',
+          },
+          ...(effectivePendingUpdate
+            ? [{
+                disabled: checking || installing,
+                label: installing ? 'Installing...' : 'Install',
+                onClick: installUpdateNow,
+                variant: 'primary' as const,
+              }]
+            : []),
+        ]}
+        details={effectivePendingUpdate?.body}
+        message={
+          statusMessage
+            ? statusMessage
+            : effectivePendingUpdate && !supportsNativeUpdatePrompt
+              ? `Ritual ${effectivePendingUpdate.version} is ready. This installed shell is too old to show the native macOS updater prompt, so this recovery notice can install it.`
+              : effectivePendingUpdate
+                ? `Ritual ${effectivePendingUpdate.version} is ready to install.`
+                : 'Ritual desktop update status changed.'
+        }
+        title={title}
+        tone={statusLooksLikeError ? 'error' : 'info'}
+      />
+    );
   }
 
   return null;

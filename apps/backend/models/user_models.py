@@ -15,7 +15,7 @@ class OnboardingData(BaseModel):
     tracking_interests: List[str]
     wearable_devices: List[str]
     phone_number: Optional[str] = None
-    client_surface: Literal["desktop", "web"] | None = "web"
+    client_surface: Optional[Literal["desktop", "web"]] = "web"
 
 class UserProfile(BaseModel):
     """User profile response"""

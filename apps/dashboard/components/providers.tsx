@@ -2,6 +2,8 @@
 
 import { QueryClientProvider, dehydrate, hydrate, type Query } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
+import * as Sentry from '@sentry/nextjs';
+import { usePathname } from 'next/navigation';
 import { queryClient } from '@/lib/query-client';
 import { ReactNode, useEffect, useState } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';
@@ -11,6 +13,18 @@ const QUERY_CACHE_STORAGE_KEY = 'ritual:react-query-cache:v1';
 const QUERY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const MAX_PERSISTED_QUERY_BYTES = 75_000;
 const ACTIVE_QUERY_CACHE_USER_KEY = 'ritual:active-query-cache-user:v1';
+
+function isDesktopRuntime(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
+  return Boolean(w.__TAURI__ || w.__TAURI_IPC__ || userAgent.includes('RitualDesktop/'));
+}
+
+function getDesktopVersion(): string | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return navigator.userAgent.match(/RitualDesktop\/([0-9A-Za-z.\-_]+)/)?.[1];
+}
 
 function getPersistedQuerySize(query: Query): number {
   try {
@@ -133,10 +147,33 @@ function clearPersistedQueryCache() {
  */
 export function QueryProvider({ children }: { children: ReactNode }) {
   const { isLoaded, user } = useUser();
+  const pathname = usePathname();
   const [cacheRestored] = useState(() => {
     restorePersistedQueryCache();
     return true;
   });
+
+  useEffect(() => {
+    if (!isLoaded) return;
+
+    const runtime = isDesktopRuntime() ? 'desktop' : 'web';
+    const desktopVersion = getDesktopVersion();
+    Sentry.setTag('runtime', runtime);
+    Sentry.setTag('surface', runtime === 'desktop' ? 'desktop-webview' : 'web-client');
+    Sentry.setTag('route', pathname || 'unknown');
+    if (desktopVersion) {
+      Sentry.setTag('desktop_version', desktopVersion);
+    }
+
+    if (user?.id) {
+      Sentry.setUser({
+        id: user.id,
+        email: user.primaryEmailAddress?.emailAddress,
+      });
+    } else {
+      Sentry.setUser(null);
+    }
+  }, [isLoaded, pathname, user?.id, user?.primaryEmailAddress?.emailAddress]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !isLoaded) return;

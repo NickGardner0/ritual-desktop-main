@@ -91,6 +91,23 @@ EOF
   exit 1
 fi
 
+if [[ -z "${SENTRY_DESKTOP_NATIVE_DSN:-}" && "${RITUAL_ALLOW_MISSING_SENTRY_DESKTOP_NATIVE_DSN:-0}" != "1" ]]; then
+  cat <<'EOF'
+Missing native desktop Sentry DSN.
+
+Set SENTRY_DESKTOP_NATIVE_DSN before building a packaged desktop release.
+Without it, the Tauri shell, watcher, and recorder cannot report native errors
+or smoke-test events to Sentry.
+
+For GitHub Actions, add this repository secret:
+  SENTRY_DESKTOP_NATIVE_DSN
+
+For an intentional local test build without native Sentry, set:
+  RITUAL_ALLOW_MISSING_SENTRY_DESKTOP_NATIVE_DSN=1
+EOF
+  exit 1
+fi
+
 if [[ ! -f "${UPDATER_PUBKEY_PATH}" ]]; then
   echo "Missing updater public key: ${UPDATER_PUBKEY_PATH}" >&2
   exit 1

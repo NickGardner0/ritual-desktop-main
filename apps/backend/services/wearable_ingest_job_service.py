@@ -24,9 +24,19 @@ from services.unified_wearables_service import (
     wearable_connection_service,
     wearable_sync_service,
 )
+from services.wearable_provider_sync_registry import (
+    WearableProviderSyncServices,
+    sync_wearable_provider_account,
+)
 from services.whoop_service import whoop_service
 
 logger = logging.getLogger(__name__)
+
+PROVIDER_SYNC_SERVICES = WearableProviderSyncServices(
+    whoop_service=whoop_service,
+    oura_service=oura_service,
+    garmin_service=garmin_service,
+)
 
 
 def _json_dumps(value: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -381,36 +391,35 @@ class WearableIngestJobService:
         )
         try:
             result: Dict[str, Any]
+            counts: Dict[str, int]
             if job.job_type == "provider_backfill":
                 days_back = self._days_back(job.start_date, job.end_date)
-                if job.provider == "whoop":
-                    result = await whoop_service.sync_whoop_data(
-                        job.user_id,
-                        days_back=days_back,
-                        force_full_sync=True,
-                        full_history=bool(metric_scope.get("full_history", False)),
-                    )
-                elif job.provider == "oura":
-                    result = await oura_service.sync_oura_data(
-                        job.user_id,
-                        days_back=days_back,
-                        force_full_sync=True,
-                    )
-                elif job.provider == "garmin":
-                    result = await garmin_service.sync_garmin_account(job.user_id)
-                else:
-                    raise ValueError(f"Queued backfill is not supported for provider={job.provider}")
+                provider_result = await sync_wearable_provider_account(
+                    provider=job.provider,
+                    user_id=job.user_id,
+                    services=PROVIDER_SYNC_SERVICES,
+                    days_back=days_back,
+                    force_full_sync=True,
+                    full_history=bool(metric_scope.get("full_history", False)),
+                    unsupported_as_partial=False,
+                )
+                result = provider_result.data
+                counts = {
+                    "items_seen": provider_result.items_seen,
+                    "items_written": provider_result.items_written,
+                }
             elif job.job_type == "apple_legacy_backfill":
                 result = await wearable_sync_service.backfill_legacy_apple_metrics(job.user_id)
+                counts = self._sync_counts_from_result(result if isinstance(result, dict) else {"result": 1})
             elif job.job_type == "raw_payload_replay":
                 raw_payload_id = payload.get("raw_payload_id")
                 if not raw_payload_id:
                     raise ValueError("raw_payload_replay job is missing raw_payload_id")
                 result = await wearable_sync_service.replay_raw_payload(payload_id=str(raw_payload_id))
+                counts = self._sync_counts_from_result(result if isinstance(result, dict) else {"result": 1})
             else:
                 raise ValueError(f"Unsupported wearable ingest job type: {job.job_type}")
 
-            counts = self._sync_counts_from_result(result if isinstance(result, dict) else {"result": 1})
             await wearable_sync_service.finish_sync_run(
                 sync_run.id,
                 status="success",

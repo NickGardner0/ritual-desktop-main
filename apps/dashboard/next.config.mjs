@@ -14,6 +14,19 @@ const corsAllowOrigin =
   process.env.NEXT_PUBLIC_APP_ORIGIN ||
   'tauri://localhost';
 
+const primarySentryProject =
+  process.env.SENTRY_SOURCEMAP_PROJECT ||
+  process.env.SENTRY_PROJECT ||
+  'javascript-nextjs';
+
+const sentrySourcemapProjects = [
+  primarySentryProject,
+  ...(process.env.SENTRY_ADDITIONAL_SOURCEMAP_PROJECTS || '')
+    .split(',')
+    .map((project) => project.trim())
+    .filter(Boolean),
+].filter((project, index, projects) => projects.indexOf(project) === index);
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable strict mode for better development experience and catching potential issues
@@ -55,9 +68,21 @@ const nextConfig = {
   webpack: (config) => {
     config.resolve.alias = {
       ...(config.resolve.alias || {}),
-      '@ritual/chat-runtime': path.resolve(
+      '@ritual/chat-runtime$': path.resolve(
         repoRoot,
         'packages/chat-runtime/dist/index.js',
+      ),
+      '@ritual/chat-runtime/executors': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/executors/index.js',
+      ),
+      '@ritual/chat-runtime/narrative': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/narrative/index.js',
+      ),
+      '@ritual/chat-runtime/weekly-overview-utils': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/weekly-overview-utils.js',
       ),
     };
 
@@ -93,17 +118,36 @@ const sentryWebpackPluginOptions = {
   // For all available options, see:
   // https://github.com/getsentry/sentry-webpack-plugin#options
 
-  org: "nick-gardner",
-  project: "javascript-nextjs",
+  org: process.env.SENTRY_ORG || "nick-gardner",
+  project: primarySentryProject,
 
-  // Only print logs for uploading source maps in CI
-  silent: !process.env.CI,
+  // Sentry CLI is very noisy with Next.js debug-ID uploads because it prints a
+  // warning for every generated JS artifact that does not have an adjacent map.
+  // Keep the upload active and still fail the build on real upload errors, but
+  // suppress successful CLI output in CI/Vercel logs.
+  silent: true,
 
   // For all available options, see:
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/manual-setup/
 
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
+
+  sourcemaps: {
+    ignore: [
+      // Preserve the Sentry/Next defaults when overriding the ignore list.
+      '**/static/chunks/main-*',
+      '**/static/chunks/framework-*',
+      '**/static/chunks/framework.*',
+      '**/static/chunks/polyfills-*',
+      '**/static/chunks/webpack-*',
+      // Next.js emits generated UUID-named chunks and client reference
+      // manifests without adjacent source maps. They do not improve stack
+      // trace quality and make Vercel logs noisy during Sentry uploads.
+      '**/????????-????-????-????-????????????-*.js',
+      '**/*_client-reference-manifest.js',
+    ],
+  },
 
   reactComponentAnnotation: {
     enabled: process.env.NODE_ENV === 'production',
@@ -126,6 +170,13 @@ const sentryWebpackPluginOptions = {
   // https://docs.sentry.io/product/crons/
   // https://vercel.com/docs/cron-jobs
   automaticVercelMonitors: true,
+
+  // The underlying Sentry bundler plugin supports uploading one build's debug
+  // files to multiple projects. Use that instead of a second broad CLI scan of
+  // `.next`.
+  unstable_sentryWebpackPluginOptions: {
+    project: sentrySourcemapProjects,
+  },
 };
 
 // Skip Sentry build plugin in development — it adds compilation overhead

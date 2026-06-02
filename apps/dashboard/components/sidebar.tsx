@@ -22,11 +22,10 @@ function SidebarChromeToggleIcon({ className }: { className?: string }) {
       className={className}
       aria-hidden="true"
     >
-      <rect x="2.5" y="3.75" width="19" height="16.5" rx="3.5" stroke="currentColor" strokeWidth="1.95" />
-      <path d="M9.75 5.35V18.65" stroke="currentColor" strokeWidth="1.95" strokeLinecap="round" />
-      <rect x="5.15" y="7" width="2.85" height="1.95" rx="0.975" fill="currentColor" />
-      <rect x="5.15" y="11.05" width="2.85" height="1.95" rx="0.975" fill="currentColor" />
-      <rect x="5.15" y="15.1" width="2.85" height="1.95" rx="0.975" fill="currentColor" />
+      <g fill="none" stroke="currentColor" strokeWidth="2">
+        <rect width="20" height="18" x="2" y="3" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M9 3v18" />
+      </g>
     </svg>
   );
 }
@@ -97,7 +96,7 @@ export function Sidebar() {
         style={{ width: headerWidth, height: headerHeight }}
       >
         {showExpandedChrome ? (
-          <div className="no-drag absolute left-[82px] top-[7px] z-10 flex items-center">
+          <div className="no-drag absolute left-[82px] top-[3px] z-10 flex items-center">
             <button
               type="button"
               onMouseDown={(event) => event.stopPropagation()}
@@ -105,11 +104,11 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(128,131,136)] transition-colors hover:text-[#51545a]"
+              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(143,146,151)] transition-colors hover:text-[#666a70]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
-              <SidebarChromeToggleIcon className="h-[18px] w-[18px]" />
+              <SidebarChromeToggleIcon className="h-[16px] w-[16px]" />
             </button>
             <div className="flex items-center gap-[10px]">
               <button

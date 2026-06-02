@@ -47,6 +47,13 @@ NEXT_PUBLIC_WHOOP_REDIRECT_URI=http://localhost:3000/api/integrations/whoop/call
 NEXT_PUBLIC_SENTRY_WEB_DSN=
 NEXT_PUBLIC_SENTRY_DESKTOP_DSN=
 SENTRY_WEB_DSN=
+SENTRY_AUTH_TOKEN=
+SENTRY_ORG=nick-gardner
+# Primary project slug for dashboard sourcemaps.
+SENTRY_SOURCEMAP_PROJECT=
+# Optional comma-separated extra project slugs. The Next/Sentry build plugin
+# uploads the same dashboard debug files to these projects in the same pass.
+SENTRY_ADDITIONAL_SOURCEMAP_PROJECTS=
 NEXT_PUBLIC_SENTRY_ENVIRONMENT=
 NEXT_PUBLIC_SENTRY_RELEASE=
 OPENPANEL_CLIENT_ID=

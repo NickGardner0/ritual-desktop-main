@@ -694,6 +694,12 @@ impl RitualDatabase {
         sync::SyncOps::new(&conn).mark_synced(queue_id).await
     }
 
+    /// Mark sync items as synced
+    pub async fn mark_synced_many(&self, queue_ids: &[i64]) -> Result<()> {
+        let conn = self.conn.read().await;
+        sync::SyncOps::new(&conn).mark_synced_many(queue_ids).await
+    }
+
     /// Mark sync item as failed
     pub async fn mark_sync_failed(&self, queue_id: i64) -> Result<()> {
         let conn = self.conn.read().await;

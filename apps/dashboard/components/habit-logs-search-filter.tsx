@@ -46,7 +46,7 @@ import type {
   BuiltInFilterPresetId,
   FilterState,
   SavedFilterView,
-} from '@/app/(dashboard)/activity/logs-client';
+} from '@/components/habit-logs/types';
 
 interface Suggestion {
   type: 'habit' | 'date';

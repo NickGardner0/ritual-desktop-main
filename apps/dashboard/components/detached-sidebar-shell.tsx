@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Plug2, Settings, TableProperties, Timer } from "lucide-react";
+import { CalendarDays, FlaskConical, Plug2, Settings, TableProperties } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri-utils";
@@ -31,7 +31,7 @@ const items = [
   { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/activity", name: "Logs", icon: TableProperties },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
-  { path: "/timer", name: "Timer", icon: Timer },
+  { path: "/experiments", name: "Experiments", icon: FlaskConical },
   { path: "/integrations", name: "Integrations", icon: Plug2 },
   { path: "/settings", name: "Settings", icon: Settings },
 ];
@@ -86,6 +86,7 @@ export function DetachedSidebarShell() {
   }, []);
 
   const navigate = async (path: string) => {
+    if (path === "/experiments") return;
     setActivePath(path);
     if (!isTauri()) return;
     const { invoke } = await import("@tauri-apps/api/core");

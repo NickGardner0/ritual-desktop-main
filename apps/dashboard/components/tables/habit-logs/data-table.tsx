@@ -53,7 +53,7 @@ import {
   NotesCell,
   ActionsCell,
 } from './columns';
-import type { HabitLog, TableDensity } from '@/app/(dashboard)/activity/logs-client';
+import type { HabitLog, TableDensity } from '@/components/habit-logs/types';
 
 // ── Types ──────────────────────────────────────────────────
 

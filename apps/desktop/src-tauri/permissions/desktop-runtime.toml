@@ -1,0 +1,11 @@
+[[permission]]
+identifier = "desktop-runtime"
+description = "Allows the hosted dashboard to read desktop runtime state, complete auth handoff, and manage desktop updates."
+commands.allow = [
+  "get_desktop_runtime_info",
+  "get_desktop_runtime_state",
+  "desktop_set_auth_token",
+  "desktop_frontend_ready",
+  "desktop_manual_update_check",
+  "desktop_install_update",
+]

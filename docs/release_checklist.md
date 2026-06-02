@@ -56,6 +56,10 @@
 - [ ] `NEXT_PUBLIC_SENTRY_DESKTOP_DSN` points to the production desktop project
 - [ ] `SENTRY_WEB_DSN` points to the production web project
 - [ ] `SENTRY_BACKEND_DSN` points to the production backend project
+- [ ] `SENTRY_DESKTOP_NATIVE_DSN` is set in GitHub Actions secrets for packaged desktop native monitoring
+- [ ] `SENTRY_AUTH_TOKEN` is set wherever dashboard production builds upload source maps
+- [ ] `SENTRY_SOURCEMAP_PROJECT` points to the primary web frontend Sentry project
+- [ ] `SENTRY_ADDITIONAL_SOURCEMAP_PROJECTS` includes the desktop webview Sentry project, e.g. `ritual-desktop`, so the Sentry build plugin uploads the same dashboard debug files to both frontend projects
 - [ ] `OPENPANEL_CLIENT_ID` set
 
 ---

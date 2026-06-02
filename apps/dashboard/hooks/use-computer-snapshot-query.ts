@@ -3,7 +3,6 @@
 import { useEffect, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { useQuery } from '@tanstack/react-query';
-import { subDays } from 'date-fns';
 import {
   getAggregatedComputerStats,
   type AggregatedComputerStatsResponse,
@@ -15,8 +14,10 @@ import {
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
 import { QUERY_POLICY } from '@/lib/query-policies';
 
-const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v1';
-const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 12;
+const COMPUTER_SNAPSHOT_STORAGE_KEY = 'ritual:computer-snapshot:v2';
+const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
+const LEGACY_SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 90;
+const COMPUTER_ACTIVITY_ALL_TIME_START_DATE = '2020-01-01';
 
 export type ComputerSnapshot = {
   summary: ComputerSummaryResponse;
@@ -74,6 +75,75 @@ type SnapshotEnvelope<T> = {
   byUser?: Record<string, Record<string, PersistedSnapshot<T>>>;
 };
 
+function snapshotHasComputerData(data?: ComputerSnapshot | null): boolean {
+  if (!data) return false;
+  return Number(data.summary?.total_active_ms || 0) > 0
+    || Number(data.summary?.total_hours || 0) > 0
+    || Number(data.summary?.total_events || 0) > 0
+    || (data.daily || []).length > 0
+    || (data.apps || []).length > 0
+    || (data.domains || []).length > 0;
+}
+
+function readLegacyOverviewComputerSnapshot(
+  userId: string,
+  rangeKey: string,
+): PersistedSnapshot<ComputerSnapshot> | null {
+  try {
+    const summaryRaw = window.localStorage.getItem(`ritual:overview-computer:v3:${userId}:${rangeKey}:summary`);
+    const rowsRaw = window.localStorage.getItem(`ritual:overview-computer:v3:${userId}:${rangeKey}`);
+    if (!summaryRaw && !rowsRaw) return null;
+
+    const summaryEnvelope = summaryRaw ? JSON.parse(summaryRaw) : {};
+    const rowsEnvelope = rowsRaw ? JSON.parse(rowsRaw) : {};
+    const updatedAt = Number(summaryEnvelope.timestamp || rowsEnvelope.timestamp || 0);
+    if (!updatedAt || Date.now() - updatedAt > LEGACY_SNAPSHOT_MAX_AGE_MS) return null;
+
+    const rows = Array.isArray(rowsEnvelope.rows) ? rowsEnvelope.rows as ComputerDailyResponseRow[] : [];
+    const summary = summaryEnvelope.summary || {};
+    const totalActiveMs = Math.max(
+      0,
+      Number(summary.total_active_ms || 0)
+        || rows.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0),
+    );
+    const totalEvents = Math.max(
+      0,
+      Number(summary.total_events || 0)
+        || rows.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0),
+    );
+    const daysTracked = Math.max(
+      0,
+      Number(summary.days_tracked || 0)
+        || rows.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length,
+    );
+    const data: ComputerSnapshot = {
+      summary: {
+        total_active_ms: totalActiveMs,
+        total_afk_ms: Math.max(0, Number(summary.total_afk_ms || 0)),
+        total_hours: Math.max(0, Number(summary.total_hours || totalActiveMs / (1000 * 60 * 60))),
+        total_events: totalEvents,
+        days_tracked: daysTracked,
+        avg_daily_hours: Math.max(
+          0,
+          Number(summary.avg_daily_hours || (daysTracked > 0 ? totalActiveMs / (1000 * 60 * 60) / daysTracked : 0)),
+        ),
+        source: 'legacy_overview_cache',
+      },
+      daily: rows,
+      apps: [],
+      domains: [],
+      source: 'legacy_overview_cache',
+      state: 'legacy_cache_fallback',
+      syncPending: false,
+    };
+
+    return snapshotHasComputerData(data) ? { updatedAt, data } : null;
+  } catch (error) {
+    console.warn('Failed to restore legacy computer snapshot:', error);
+    return null;
+  }
+}
+
 function readPersistedSnapshot(
   userId?: string | null,
   rangeKey?: string,
@@ -86,12 +156,19 @@ function readPersistedSnapshot(
 
     const parsed = JSON.parse(raw) as SnapshotEnvelope<ComputerSnapshot>;
     const candidate = parsed.byUser?.[userId]?.[rangeKey];
-    if (!candidate?.data || !candidate.updatedAt) return null;
-    if (Date.now() - candidate.updatedAt > SNAPSHOT_MAX_AGE_MS) return null;
+    if (!candidate?.data || !candidate.updatedAt) {
+      return readLegacyOverviewComputerSnapshot(userId, rangeKey);
+    }
+    if (Date.now() - candidate.updatedAt > SNAPSHOT_MAX_AGE_MS) {
+      return readLegacyOverviewComputerSnapshot(userId, rangeKey);
+    }
+    if (!snapshotHasComputerData(candidate.data)) {
+      return readLegacyOverviewComputerSnapshot(userId, rangeKey);
+    }
     return candidate;
   } catch (error) {
     console.warn('Failed to restore persisted computer snapshot:', error);
-    return null;
+    return readLegacyOverviewComputerSnapshot(userId, rangeKey);
   }
 }
 
@@ -101,6 +178,7 @@ function persistSnapshot(
   data: ComputerSnapshot,
 ): void {
   if (typeof window === 'undefined') return;
+  if (!snapshotHasComputerData(data)) return;
 
   try {
     const raw = window.localStorage.getItem(COMPUTER_SNAPSHOT_STORAGE_KEY);
@@ -127,12 +205,12 @@ export function useComputerSnapshotQuery({
   userId,
   dateRange,
   enabled = true,
-  allTimeDays = 1095,
+  allTimeStartDate = COMPUTER_ACTIVITY_ALL_TIME_START_DATE,
 }: {
   userId?: string | null;
   dateRange?: DateRange;
   enabled?: boolean;
-  allTimeDays?: number;
+  allTimeStartDate?: string;
 }) {
   const rangeWindow = useMemo(() => getAnalyticsRangeWindow(dateRange), [dateRange]);
   const rangeKey = rangeWindow.rangeKey;
@@ -146,15 +224,23 @@ export function useComputerSnapshotQuery({
     queryKey: computerSnapshotKeys.detail(queryUserId, rangeKey),
     queryFn: async (): Promise<ComputerSnapshot> => {
       const today = new Date().toISOString().slice(0, 10);
-      const defaultStartDate = subDays(new Date(), allTimeDays).toISOString().slice(0, 10);
       const payload = await getAggregatedComputerStats(
         {
-          startDate: rangeWindow.startDate ?? defaultStartDate,
+          startDate: rangeWindow.startDate ?? allTimeStartDate,
           endDate: rangeWindow.endDate ?? today,
         },
         10,
       );
-      return toComputerSnapshot(payload);
+      const nextSnapshot = toComputerSnapshot(payload);
+      if (!snapshotHasComputerData(nextSnapshot) && persistedSnapshot?.data) {
+        console.warn('Keeping cached computer snapshot because live computer payload was empty');
+        return {
+          ...persistedSnapshot.data,
+          state: 'stale-fallback-after-empty-live',
+          syncPending: true,
+        };
+      }
+      return nextSnapshot;
     },
     enabled: enabled && Boolean(userId),
     initialData: persistedSnapshot?.data,

@@ -124,8 +124,6 @@ Representative implementation references:
 - `apps/backend/api/financial.py`
 - `apps/backend/services/biometrics_service.py`
 - `apps/backend/services/memory_retention_service.py`
-- `apps/desktop/src-tauri/bin/ritual-recorder/src/config.rs`
-- `apps/desktop/src-tauri/bin/ritual-recorder/src/storage.rs`
 - `apps/desktop/src-tauri/src/watcher.rs`
 
 ## Contact

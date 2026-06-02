@@ -808,6 +808,17 @@ class ImportService:
                         
                         # Prepare for bulk insert
                         log_id = str(uuid.uuid4())
+                        completed_at = datetime.utcnow().isoformat()
+                        location_fields: Dict[str, Any] = {}
+                        try:
+                            from services.location.enrichment import resolve_habit_location_fields
+
+                            location_fields = await resolve_habit_location_fields(
+                                user_id=user_id,
+                                completed_at=completed_at,
+                            )
+                        except Exception as _loc_exc:  # noqa: BLE001
+                            logger.debug("Location enrichment skipped (import): %s", _loc_exc)
                         new_logs_to_insert.append({
                             "id": log_id,
                             "habit_id": log_data.habit_id,
@@ -815,13 +826,14 @@ class ImportService:
                             "amount": log_data.amount,
                             "duration": log_data.duration,
                             "date": log_data.date,
-                            "completed_at": datetime.utcnow().isoformat(),
+                            "completed_at": completed_at,
                             "status": "completed",
                             "notes": log_data.notes,
                             "source": log_data.source or "import",
                             "source_id": log_data.source_id,
                             "dedupe_key": dedupe_key,
-                            "import_run_id": request.import_run_id
+                            "import_run_id": request.import_run_id,
+                            **location_fields,
                         })
                         
                         # V2: Track created log for undo

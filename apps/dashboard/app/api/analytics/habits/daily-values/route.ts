@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 
 export const dynamic = 'force-dynamic';
 
 const TINYBIRD_URL = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
+const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+
+function metricFactsReadsEnabled(): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((process.env.METRIC_FACTS_READS || '').toLowerCase());
+}
 
 export async function GET(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    const clerkAuth = await auth();
+    const { userId } = clerkAuth;
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -61,6 +68,41 @@ export async function GET(request: NextRequest) {
       params.set('end_date', endDate);
     } else {
       params.set('days_back', String(daysBack));
+    }
+
+    if (metricFactsReadsEnabled()) {
+      const token = await clerkAuth.getToken();
+      const backendPath = output === 'daily' ? '/api/metrics/facts/daily' : '/api/metrics/facts/summary';
+      const url = `${BACKEND_URL}${backendPath}?${params.toString()}`;
+      const response = await fetch(url, {
+        headers: buildBackendAuthHeaders({ userId, token }),
+        cache: 'no-store',
+        signal: AbortSignal.timeout(15000),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('metric facts daily-values proxy error:', response.status, errorText);
+        return NextResponse.json({ error: 'Failed to fetch metric facts' }, { status: response.status });
+      }
+
+      const payload = await response.json();
+      return NextResponse.json({
+        success: true,
+        output,
+        data: payload.data || [],
+        meta: {
+          ...(payload.meta || {}),
+          user_id: userId,
+          source: 'metric_daily_facts',
+          habit_id: habitId,
+          habit_ids: habitId ? null : (params.get('habit_ids') || null),
+          start_date: startDate,
+          end_date: endDate,
+          days_back: startDate && endDate ? null : daysBack,
+          rows: payload.data?.length || 0,
+        },
+      });
     }
 
     const pipeName = output === 'daily' ? 'habit_daily_series' : 'habit_daily_values';

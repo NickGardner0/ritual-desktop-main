@@ -76,7 +76,9 @@ const DESKTOP_STATS_DEFAULT_TIMEOUT_MS = 65000
 const DESKTOP_DAILY_TIMEOUT_MS = 65000
 const SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS = 2
 const DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS = 7
+const DESKTOP_LOCAL_FALLBACK_MAX_DAYS = 45
 const DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS = 7
+const DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS = 5 * 60 * 1000
 const summaryCache = new Map<string, ComputerSummaryResponse>()
 const dailyCache = new Map<string, ComputerDailyResponseRow[]>()
 const appsCache = new Map<string, TopAppResponseRow[]>()
@@ -295,7 +297,11 @@ function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams
 function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
   if (!isTauri()) return true
   return rangeIncludesLocalToday(params)
-    && getInclusiveRangeDays(params) <= DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
+    && getInclusiveRangeDays(params) <= DESKTOP_LOCAL_FALLBACK_MAX_DAYS
+}
+
+function shouldAllowDesktopAggregateLocalFallback(_params: ComputerActivityRangeParams) {
+  return isTauri()
 }
 
 function shiftDateString(dateString: string, days: number) {
@@ -313,6 +319,141 @@ async function getDesktopLocalDailyRows(
   return normalizeDailyRows(
     await invokeDailySummariesWithInitRetry(params.startDate, params.endDate),
   ).map((row) => ({ ...row, source: row.source || 'tauri_fallback' }))
+}
+
+async function getDesktopLocalAggregatedStats(
+  params: ComputerActivityRangeParams,
+  limit: number,
+): Promise<AggregatedComputerStatsResponse> {
+  const { startTs, endTs } = getRangeTimestamps(params)
+  const [dailyResult, detailedResult] = await Promise.allSettled([
+    getDesktopLocalDailyRows(params),
+    invokeDetailedActivityWithInitRetry({ startTs, endTs, limit }),
+  ])
+
+  if (dailyResult.status === 'rejected' && detailedResult.status === 'rejected') {
+    throw new Error(
+      `desktop local aggregate unavailable: daily=${String(dailyResult.reason)} detailed=${String(detailedResult.reason)}`,
+    )
+  }
+
+  const dailyRows = dailyResult.status === 'fulfilled' ? dailyResult.value : []
+  const detailed = detailedResult.status === 'fulfilled'
+    ? detailedResult.value
+    : {
+        events: [],
+        apps: [],
+        domains: [],
+        total_active_ms: 0,
+        total_afk_ms: 0,
+      }
+
+  if (dailyResult.status === 'rejected') {
+    perfWarn('computer-activity-client', 'aggregate-local-daily-failed', {
+      params,
+      error: dailyResult.reason instanceof Error ? dailyResult.reason.message : String(dailyResult.reason),
+    })
+  }
+  if (detailedResult.status === 'rejected') {
+    perfWarn('computer-activity-client', 'aggregate-local-detailed-failed', {
+      params,
+      error: detailedResult.reason instanceof Error ? detailedResult.reason.message : String(detailedResult.reason),
+    })
+  }
+
+  const totalActiveMs = Math.max(
+    0,
+    Number(detailed.total_active_ms || 0)
+      || dailyRows.reduce((sum, row) => sum + Math.max(0, Number(row.active_ms || 0)), 0),
+  )
+  const totalAfkMs = Math.max(0, Number(detailed.total_afk_ms || 0))
+  const daysTracked = dailyRows.filter((row) => Math.max(0, Number(row.active_ms || 0)) > 0).length
+  const totalEvents = dailyRows.reduce((sum, row) => sum + Math.max(0, Number(row.events_count || 0)), 0)
+  const apps = detailed.apps
+    .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
+    .slice(0, limit)
+    .map((row) => ({
+      app_bundle_id: row.app_bundle_id,
+      app_name: row.app_name || row.app_bundle_id || 'Unknown',
+      total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
+      total_events: Math.max(0, Number(row.event_count || 0)),
+      hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
+      source: 'tauri_fallback',
+    }))
+  const domains = detailed.domains
+    .filter((row) => Math.max(0, Number(row.total_duration_ms || 0)) > 0)
+    .slice(0, limit)
+    .map((row) => ({
+      domain: row.domain || 'Unknown',
+      total_active_ms: Math.max(0, Number(row.total_duration_ms || 0)),
+      total_events: Math.max(0, Number(row.event_count || 0)),
+      hours: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60 * 60)),
+      minutes: Math.max(0, Number(row.total_duration_ms || 0) / (1000 * 60)),
+      source: 'tauri_fallback',
+    }))
+
+  return {
+    summary: {
+      total_active_ms: totalActiveMs,
+      total_afk_ms: totalAfkMs,
+      total_hours: totalActiveMs / (1000 * 60 * 60),
+      total_events: totalEvents,
+      days_tracked: daysTracked,
+      unique_apps: apps.length,
+      unique_domains: domains.length,
+      avg_daily_hours: daysTracked > 0 ? totalActiveMs / (1000 * 60 * 60) / daysTracked : 0,
+      source: 'tauri_fallback',
+    },
+    daily: dailyRows,
+    apps,
+    domains,
+    source: 'tauri_fallback',
+    state: 'tauri_fallback',
+    sync_pending: false,
+  }
+}
+
+function aggregateHasAnyData(result: AggregatedComputerStatsResponse) {
+  return result.summary.total_active_ms > 0
+    || result.daily.length > 0
+    || result.apps.length > 0
+    || result.domains.length > 0
+}
+
+function preferDesktopLocalAggregate(
+  backendResult: AggregatedComputerStatsResponse,
+  localResult: AggregatedComputerStatsResponse,
+) {
+  const localMs = Math.max(0, Number(localResult.summary.total_active_ms || 0))
+  const backendMs = Math.max(0, Number(backendResult.summary.total_active_ms || 0))
+  if (localMs <= 0) return false
+
+  return localMs > backendMs + DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS
+}
+
+function asDesktopLocalTruth(result: AggregatedComputerStatsResponse): AggregatedComputerStatsResponse {
+  return {
+    ...result,
+    source: 'tauri_local_truth',
+    state: 'desktop_local_truth',
+    summary: {
+      ...result.summary,
+      source: 'tauri_local_truth',
+    },
+    daily: result.daily.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
+    apps: result.apps.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
+    domains: result.domains.map((row) => ({
+      ...row,
+      source: row.source || 'tauri_local_truth',
+    })),
+    sync_pending: false,
+  }
 }
 
 function buildSummaryFromDailyRows(
@@ -1018,13 +1159,92 @@ export async function getAggregatedComputerStats(
     const result = normalizeAggregatedPayload(payload)
     cacheAggregatedResult(cacheKey, params, limit, result)
 
-    const hasAnyData =
-      result.summary.total_active_ms > 0
-      || result.daily.length > 0
-      || result.apps.length > 0
-      || result.domains.length > 0
+    const hasAnyData = aggregateHasAnyData(result)
 
-    if (hasAnyData || result.sync_pending || !isTauri() || !shouldAllowDesktopLocalFallback(params)) {
+    if (isTauri() && shouldAllowDesktopAggregateLocalFallback(params)) {
+      try {
+        const localAggregate = await getDesktopLocalAggregatedStats(params, limit)
+        const localHasAnyData = aggregateHasAnyData(localAggregate)
+        if (localHasAnyData && (!hasAnyData || preferDesktopLocalAggregate(result, localAggregate))) {
+          const localTruth = asDesktopLocalTruth(localAggregate)
+          cacheAggregatedResult(cacheKey, params, limit, localTruth)
+          perfInfo('computer-activity-client', 'aggregate-desktop-local-truth', {
+            params,
+            backend_total_active_ms: result.summary.total_active_ms,
+            local_total_active_ms: localTruth.summary.total_active_ms,
+            backend_daily_rows: result.daily.length,
+            local_daily_rows: localTruth.daily.length,
+          })
+          stopTimer({
+            success: true,
+            source: localTruth.source,
+            state: localTruth.state,
+            summary_active_ms: localTruth.summary.total_active_ms,
+            daily_rows: localTruth.daily.length,
+            app_rows: localTruth.apps.length,
+            domain_rows: localTruth.domains.length,
+          })
+          return localTruth
+        }
+      } catch (localError) {
+        perfWarn('computer-activity-client', 'aggregate-local-truth-check-failed', {
+          params,
+          limit,
+          error: localError instanceof Error ? localError.message : String(localError),
+        })
+      }
+    }
+
+    if (hasAnyData || !isTauri() || !shouldAllowDesktopAggregateLocalFallback(params)) {
+      stopTimer({
+        success: true,
+        source: result.source || result.summary.source,
+        state: result.state,
+        sync_pending: result.sync_pending,
+        summary_active_ms: result.summary.total_active_ms,
+        daily_rows: result.daily.length,
+        app_rows: result.apps.length,
+        domain_rows: result.domains.length,
+      })
+      return result
+    }
+
+    perfWarn('computer-activity-client', 'aggregate-empty-backend-fallback-local', {
+      params,
+      limit,
+      sync_pending: result.sync_pending,
+      empty_reason: result.empty_reason,
+      range_days: getInclusiveRangeDays(params),
+    })
+    try {
+      const localAggregate = await getDesktopLocalAggregatedStats(params, limit)
+      const localHasAnyData =
+        localAggregate.summary.total_active_ms > 0
+        || localAggregate.daily.length > 0
+        || localAggregate.apps.length > 0
+        || localAggregate.domains.length > 0
+      if (localHasAnyData) {
+        cacheAggregatedResult(cacheKey, params, limit, localAggregate)
+        stopTimer({
+          success: true,
+          source: localAggregate.source,
+          state: localAggregate.state,
+          summary_active_ms: localAggregate.summary.total_active_ms,
+          daily_rows: localAggregate.daily.length,
+          app_rows: localAggregate.apps.length,
+          domain_rows: localAggregate.domains.length,
+        })
+        return localAggregate
+      }
+    } catch (localError) {
+      perfWarn('computer-activity-client', 'aggregate-local-fallback-failed', {
+        params,
+        limit,
+        error: localError instanceof Error ? localError.message : String(localError),
+      })
+    }
+
+    if (result.sync_pending) {
       stopTimer({
         success: true,
         source: result.source || result.summary.source,

@@ -181,7 +181,7 @@ export function VercelBarListCard({
         style={items.length > 0 ? { maxHeight: listMaxHeight } : undefined}
       >
         {items.map((item, i) => (
-          <div key={i} className="flex items-center px-4 py-[4.5px] hover:bg-[rgba(39,37,30,0.04)] transition-colors">
+          <div key={i} className="flex cursor-default select-none items-center px-4 py-[4.5px] hover:bg-[rgba(39,37,30,0.04)]">
             <span className="text-[12.5px] font-normal text-[#27251E] flex-1 min-w-0 truncate">
               {item.icon && <span className="mr-1.5">{item.icon}</span>}
               {item.name}

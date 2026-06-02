@@ -92,13 +92,16 @@ fn ensure_watcher_sidecar_for_tauri() {
         command.arg("--release");
     }
 
-    let output = command.current_dir(&manifest_dir).output().unwrap_or_else(|err| {
-        panic!(
-            "Failed to invoke cargo build for watcher sidecar using {}: {}",
-            watcher_manifest.display(),
-            err
-        )
-    });
+    let output = command
+        .current_dir(&manifest_dir)
+        .output()
+        .unwrap_or_else(|err| {
+            panic!(
+                "Failed to invoke cargo build for watcher sidecar using {}: {}",
+                watcher_manifest.display(),
+                err
+            )
+        });
 
     if !output.status.success() {
         panic!(

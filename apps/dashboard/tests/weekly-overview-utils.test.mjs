@@ -5,7 +5,7 @@ import { join } from "node:path";
 import {
   buildWeeklyOverviewCanvasPayload,
   getStrictThisWeekRange,
-} from "../lib/ai/chat-stream/weekly-overview-utils.mjs";
+} from "../lib/ai/overview-activity/weekly-overview-utils.mjs";
 
 function readSnapshot(name) {
   const path = join(

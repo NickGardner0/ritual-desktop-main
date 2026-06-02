@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
-  Timer,
+  FlaskConical,
   Settings,
   Plug2,
   ChevronDown,
@@ -44,14 +44,35 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
   </svg>
 );
 
+const MiddayInvoiceIcon = ({
+  strokeWidth: _strokeWidth,
+  ...props
+}: React.SVGProps<SVGSVGElement>) => (
+  <svg
+    viewBox="0 0 20 20"
+    fill="currentColor"
+    stroke="currentColor"
+    strokeWidth={0.25}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    {...props}
+  >
+    <g transform="translate(10 10) scale(1.16) translate(-10 -10)">
+      <path d="M6.875 14.7916H13.125V13.5416H6.875V14.7916ZM6.875 11.4583H13.125V10.2083H6.875V11.4583ZM3.75 17.9166V2.08331H11.875L16.25 6.45831V17.9166H3.75ZM11.25 7.08331V3.33331H5V16.6666H15V7.08331H11.25Z" />
+    </g>
+  </svg>
+);
+
 const icons = {
   "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
   "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
-  "/reports": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
+  "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
-  "/timer": (props: React.SVGProps<SVGSVGElement>) => <Timer {...props} />,
+  "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
   "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
 } as const;
@@ -78,8 +99,8 @@ const items = [
     name: "Reports",
   },
   {
-    path: "/timer",
-    name: "Timer",
+    path: "/experiments",
+    name: "Experiments",
   },
   {
     path: "/integrations",
@@ -210,6 +231,9 @@ const Item = ({
     if (item.path === "/settings") {
       e.preventDefault();
       onSettingsClick?.();
+    } else if (item.path === "/experiments") {
+      e.preventDefault();
+      onSelect?.();
     } else {
       // Let the Link handle navigation naturally
       // Just call onSelect for any sidebar collapse behavior
@@ -220,7 +244,7 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" || item.path === "/timer" ? "#" : item.path}
+        href={item.path === "/settings" || item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
         className="group"
         prefetch={true}

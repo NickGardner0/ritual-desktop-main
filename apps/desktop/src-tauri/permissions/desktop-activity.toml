@@ -1,0 +1,18 @@
+[[permission]]
+identifier = "desktop-activity"
+description = "Allows the hosted dashboard to query local desktop activity data and watcher status for offline/recent metrics fallback."
+commands.allow = [
+  "get_detailed_activity",
+  "get_daily_summaries",
+  "init_ritual_database",
+  "get_ritual_db_stats",
+  "check_migration_status",
+  "check_accessibility_permission",
+  "request_accessibility_permission",
+  "start_watcher",
+  "stop_watcher",
+  "get_watcher_status",
+  "get_watcher_extended_status",
+  "check_and_restart_watcher_if_hung",
+  "get_browser_extension_diagnostics",
+]

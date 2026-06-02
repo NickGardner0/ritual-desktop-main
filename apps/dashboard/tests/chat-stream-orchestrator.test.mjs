@@ -11,18 +11,8 @@ import test, { describe } from "node:test";
 import assert from "node:assert/strict";
 
 // ---------------------------------------------------------------------------
-// Dynamic import with path-alias resolution
-// (node:test can't resolve @/ aliases, so we use relative paths)
-// ---------------------------------------------------------------------------
-
-const orchestratorPath =
-  "../lib/ai/chat-stream/orchestrator.ts";
-
-// We need to use a dynamic import approach that handles TypeScript.
-// Since the project uses Node's native test runner with .mjs, we'll
-// extract the pure functions into a testable .mjs file.
-// For now, we test the logic patterns directly.
-
+// These tests intentionally exercise pure runtime contracts directly so they
+// remain independent of Next.js path aliases and package build output.
 // ---------------------------------------------------------------------------
 // 1. QUERY CLASSIFIER TESTS
 //
@@ -876,57 +866,5 @@ describe("Voice Mode Post-Processing", () => {
       !result.includes("\n\n\n"),
       "Should not have 3+ consecutive newlines",
     );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 6. TOOL DEFINITIONS CONTRACT TESTS
-//
-// Tool names are the contract between the orchestrator and OpenAI.
-// If a tool name changes, OpenAI can't call it.
-// ---------------------------------------------------------------------------
-
-describe("Tool Definitions Contract", () => {
-  // These are the tool names that must exist. Renaming any of them
-  // breaks the OpenAI function calling contract.
-  const REQUIRED_TOOL_NAMES = [
-    "getHabitStats",
-    "getDailyBreakdown",
-    "getCorrelation",
-    "listHabits",
-    "getHabitTrends",
-    "getHabitAnomalies",
-  ];
-
-  // Additional tools defined inline in orchestrator.ts
-  const ADDITIONAL_TOOL_NAMES = [
-    "getWeeklyOverview",
-    "getDailyOverview",
-    "getMonthlyOverview",
-    "getComputerTimeSpentBreakdown",
-    "getActivitySummary",
-    "getDailyBiometrics",
-    "getScreenTimeSummary",
-    "getCalendarEvents",
-  ];
-
-  test("all required tool names are valid identifiers", () => {
-    for (const name of [...REQUIRED_TOOL_NAMES, ...ADDITIONAL_TOOL_NAMES]) {
-      assert.ok(
-        /^[a-zA-Z][a-zA-Z0-9]*$/.test(name),
-        `Tool name "${name}" must be a valid identifier`,
-      );
-    }
-  });
-
-  test("no duplicate tool names", () => {
-    const all = [...REQUIRED_TOOL_NAMES, ...ADDITIONAL_TOOL_NAMES];
-    const unique = new Set(all);
-    assert.equal(unique.size, all.length, "Tool names must be unique");
-  });
-
-  test("total tool count is 16", () => {
-    const all = [...REQUIRED_TOOL_NAMES, ...ADDITIONAL_TOOL_NAMES];
-    assert.equal(all.length, 16, "Expected 16 tools total");
   });
 });

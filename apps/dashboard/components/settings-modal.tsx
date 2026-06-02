@@ -62,6 +62,7 @@ const TAB_ORDER: SettingsTabId[] = ['account', 'computer-tracking', 'apple-healt
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
+  { value: 'gt-standard', label: 'GT Standard' },
   { value: 'geist-sans', label: 'Geist Sans' },
   { value: 'system-ui', label: 'System UI' },
 ];

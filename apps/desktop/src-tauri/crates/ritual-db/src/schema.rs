@@ -13,7 +13,7 @@ use tracing::{debug, info};
 use crate::error::{DatabaseError, Result};
 
 /// Current schema version - increment when making breaking changes
-pub const SCHEMA_VERSION: i32 = 8;
+pub const SCHEMA_VERSION: i32 = 9;
 
 /// Initialize the complete database schema
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -21,18 +21,26 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
 
     // Create tables in dependency order
     create_metadata_tables(conn).await?;
+    let schema_needs_update = needs_schema_update(conn).await?;
     create_activity_tables(conn).await?;
     create_recorder_tables(conn).await?;
     create_sync_tables(conn).await?;
     create_memory_pipeline_tables(conn).await?;
 
-    // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
-    // before we create indexes that reference them.
-    apply_migrations(conn).await?;
+    if schema_needs_update {
+        // Apply migrations before indexes so older DBs get new columns (e.g. logical_chunk_id)
+        // before we create indexes that reference them.
+        apply_migrations(conn).await?;
+    } else {
+        debug!("Schema v{} already recorded; skipping migration backfills", SCHEMA_VERSION);
+    }
 
     // Create indexes
     create_indexes(conn).await?;
     create_cloud_sync_triggers(conn).await?;
+    // Keep this cheap safety pass on every startup so stale raw-memory rows cannot
+    // re-enter the upload path after a previous crash or partial migration.
+    suppress_legacy_raw_memory_cloud_sync(conn).await?;
 
     // Create FTS tables and triggers
     create_fts_tables(conn).await?;
@@ -312,6 +320,7 @@ async fn create_activity_tables(conn: &Connection) -> Result<()> {
             browser_url TEXT,
             browser_domain TEXT,
             is_incognito INTEGER NOT NULL DEFAULT 0,
+            biome_is_provisional INTEGER NOT NULL DEFAULT 0,
             source TEXT NOT NULL DEFAULT 'ritual_watcher_v2',
             created_at INTEGER NOT NULL
         );
@@ -563,6 +572,9 @@ async fn create_indexes(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status
             ON cloud_sync_outbox(status, next_retry_at, updated_at);
+
+        CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status_created
+            ON cloud_sync_outbox(status, created_at, id);
 
         CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts
             ON context_snapshots(ts);
@@ -1109,6 +1121,38 @@ async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+async fn suppress_legacy_raw_memory_cloud_sync(conn: &Connection) -> Result<()> {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    conn.execute(
+        r#"
+        UPDATE cloud_sync_outbox
+        SET status = 'dead_letter',
+            next_retry_at = NULL,
+            last_error = 'raw_memory_cloud_sync_disabled',
+            updated_at = ?
+        WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
+          AND status IN ('pending', 'failed', 'uploading')
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        DELETE FROM cloud_sync_outbox
+        WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
+          AND status = 'uploaded'
+        "#,
+        (),
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    Ok(())
+}
+
 /// Create FTS5 tables and triggers for full-text search
 async fn create_fts_tables(conn: &Connection) -> Result<()> {
     debug!("Creating FTS tables");
@@ -1376,6 +1420,13 @@ async fn apply_migrations(conn: &Connection) -> Result<()> {
         ()
     ).await;
     add_column_if_missing(conn, "activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''").await?;
+    add_column_if_missing(
+        conn,
+        "activity_events",
+        "biome_is_provisional",
+        "INTEGER NOT NULL DEFAULT 0",
+    )
+    .await?;
     add_column_if_missing(conn, "afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''").await?;
     add_column_if_missing(conn, "context_sessions", "session_uid", "TEXT NOT NULL DEFAULT ''")
         .await?;
@@ -1691,6 +1742,82 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_schema_suppresses_legacy_raw_memory_cloud_sync() {
+        let (conn, _temp) = create_test_db().await;
+
+        initialize_schema(&conn).await.unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE memory_upload_outbox (id INTEGER PRIMARY KEY);
+            CREATE TABLE session_retrieval_docs (id INTEGER PRIMARY KEY);
+            CREATE TABLE embedding_worker_state (id INTEGER PRIMARY KEY);
+            INSERT INTO memory_upload_outbox (id) VALUES (1);
+            INSERT INTO session_retrieval_docs (id) VALUES (1);
+            INSERT INTO embedding_worker_state (id) VALUES (1);
+            "#,
+        )
+        .await
+        .unwrap();
+
+        for (entity_type, entity_uid, status) in [
+            ("context_session", "legacy-session-1", "pending"),
+            ("context_snapshot", "legacy-snapshot-1", "failed"),
+            ("session_retrieval_doc", "legacy-doc-1", "uploading"),
+            ("context_snapshot", "legacy-snapshot-2", "uploaded"),
+            ("activity_event", "activity-1", "pending"),
+        ] {
+            conn.execute(
+                r#"
+                INSERT INTO cloud_sync_outbox (
+                    user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
+                    status, retry_count, next_retry_at, last_error, created_at, updated_at
+                ) VALUES ('user', 'device', ?, ?, 'upsert', '{}', ?, 0, NULL, NULL, 1, 1)
+                "#,
+                libsql::params![entity_type, entity_uid, status],
+            )
+            .await
+            .unwrap();
+        }
+
+        initialize_schema(&conn).await.unwrap();
+
+        let raw_active = count_matching_rows(
+            &conn,
+            "SELECT COUNT(*) FROM cloud_sync_outbox WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc') AND status IN ('pending', 'failed', 'uploading')",
+        )
+        .await;
+        assert_eq!(raw_active, 0);
+
+        let raw_uploaded = count_matching_rows(
+            &conn,
+            "SELECT COUNT(*) FROM cloud_sync_outbox WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc') AND status = 'uploaded'",
+        )
+        .await;
+        assert_eq!(raw_uploaded, 0);
+
+        let raw_dead_letter = count_matching_rows(
+            &conn,
+            "SELECT COUNT(*) FROM cloud_sync_outbox WHERE entity_type IN ('context_session', 'context_snapshot', 'session_retrieval_doc') AND status = 'dead_letter' AND last_error = 'raw_memory_cloud_sync_disabled'",
+        )
+        .await;
+        assert_eq!(raw_dead_letter, 3);
+
+        let activity_pending = count_matching_rows(
+            &conn,
+            "SELECT COUNT(*) FROM cloud_sync_outbox WHERE entity_type = 'activity_event' AND status = 'pending'",
+        )
+        .await;
+        assert_eq!(activity_pending, 1);
+
+        let legacy_tables = count_matching_rows(
+            &conn,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('memory_upload_outbox', 'session_retrieval_docs', 'embedding_worker_state')",
+        )
+        .await;
+        assert_eq!(legacy_tables, 3);
+    }
+
+    #[tokio::test]
     async fn test_fts_backfill_rebuilds_index_for_existing_frames() {
         let (conn, _temp) = create_test_db().await;
         initialize_schema(&conn).await.unwrap();
@@ -1738,5 +1865,14 @@ mod tests {
             .unwrap_or(0);
 
         assert_eq!(matched, 1);
+    }
+
+    async fn count_matching_rows(conn: &Connection, sql: &str) -> i64 {
+        let mut rows = conn.query(sql, ()).await.unwrap();
+        rows.next()
+            .await
+            .unwrap()
+            .map(|row| row.get::<i64>(0).unwrap_or(0))
+            .unwrap_or(0)
     }
 }

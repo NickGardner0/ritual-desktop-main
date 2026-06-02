@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct StatusView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var whoopService: WhoopBroadcastService
+    @EnvironmentObject var locationManager: LocationManager
     @State private var showingPermissions = false
     @State private var showingDisconnectAlert = false
     @State private var lastBackgroundSyncInfo: String? = nil
@@ -229,6 +230,19 @@ struct StatusView: View {
                         tint: .black,
                         title: "Apple Health",
                         detail: healthCardDetail,
+                        badgeText: nil
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Divider().padding(.leading, 74)
+
+                Button(action: toggleLocationTracking) {
+                    CompanionSourceRow(
+                        icon: "location.fill",
+                        tint: .black,
+                        title: "Place tagging",
+                        detail: locationManager.statusText,
                         badgeText: nil
                     )
                 }
@@ -602,6 +616,14 @@ struct StatusView: View {
     private func refreshTrackedMetrics() {
         Task {
             await appState.fetchTrackedMetrics()
+        }
+    }
+
+    private func toggleLocationTracking() {
+        if locationManager.isEnabled {
+            locationManager.disableTracking()
+        } else {
+            locationManager.enableTracking()
         }
     }
 

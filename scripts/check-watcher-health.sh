@@ -69,12 +69,13 @@ if [[ -n "$WATCHER_STATUS_RAW" ]]; then
 import json
 import sys
 from datetime import datetime
+from typing import Optional
 
 raw = sys.argv[1]
 now_ms = int(sys.argv[2])
 status = json.loads(raw)
 
-def fmt_ms(ts_ms: int | None) -> str:
+def fmt_ms(ts_ms: Optional[int]) -> str:
     if ts_ms is None:
         return "none"
     age_s = max(0, (now_ms - int(ts_ms)) // 1000)

@@ -1,7 +1,7 @@
 //! Blocking (synchronous) API for ritual-db
 //!
 //! This module provides synchronous wrappers around the async database operations.
-//! It's designed for use by the standalone binaries (ritual-watcher, ritual-recorder)
+//! It's designed for use by standalone local-capture binaries such as ritual-watcher.
 //! that don't run in an async context.
 //!
 //! # Usage
@@ -416,6 +416,10 @@ impl BlockingDatabase {
     /// Mark sync item as synced
     pub fn mark_synced(&self, queue_id: i64) -> Result<()> {
         self.rt.block_on(self.db.mark_synced(queue_id))
+    }
+
+    pub fn mark_synced_many(&self, queue_ids: &[i64]) -> Result<()> {
+        self.rt.block_on(self.db.mark_synced_many(queue_ids))
     }
 
     /// Mark sync item as failed

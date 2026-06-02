@@ -349,6 +349,12 @@ class TeslaService:
                 source="integration",
                 notes=f"Via {vehicle_name}",
             )
+            try:
+                from services.location.enrichment import enrich_habit_log
+
+                await enrich_habit_log(log, user_id=user_id)
+            except Exception as _loc_exc:  # noqa: BLE001
+                logger.debug("Location enrichment skipped (tesla mileage): %s", _loc_exc)
             session.add(log)
             await session.commit()
 
@@ -486,6 +492,12 @@ class TeslaService:
                     source="integration",
                     notes=f"Backfill via {vehicle_name}",
                 )
+                try:
+                    from services.location.enrichment import enrich_habit_log
+
+                    await enrich_habit_log(log, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (tesla backfill): %s", _loc_exc)
                 session.add(log)
                 logs_created += 1
 

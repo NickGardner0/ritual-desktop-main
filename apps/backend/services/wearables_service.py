@@ -939,6 +939,13 @@ class WearablesService:
                         # Update existing log with new value
                         existing_log.amount = metric.value
                         existing_log.completed_at = datetime.now(timezone.utc).isoformat()
+                        try:
+                            from services.location.enrichment import enrich_habit_log
+
+                            if existing_log.location_lat is None:
+                                await enrich_habit_log(existing_log, user_id=user_id)
+                        except Exception as _loc_exc:  # noqa: BLE001
+                            logger.debug("Location enrichment skipped (legacy wearable update): %s", _loc_exc)
                         await session.commit()
                         
                         # Sync update to Tinybird
@@ -967,6 +974,12 @@ class WearablesService:
                             source="apple_health",
                             notes=f"Auto-synced from Apple Health"
                         )
+                        try:
+                            from services.location.enrichment import enrich_habit_log
+
+                            await enrich_habit_log(new_log, user_id=user_id)
+                        except Exception as _loc_exc:  # noqa: BLE001
+                            logger.debug("Location enrichment skipped (legacy wearable create): %s", _loc_exc)
                         session.add(new_log)
                         await session.commit()
                         

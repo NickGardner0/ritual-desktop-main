@@ -12,7 +12,7 @@ export async function POST() {
     const client = await clerkClient();
     const signInToken = await client.signInTokens.createSignInToken({
       userId,
-      expiresInSeconds: 60,
+      expiresInSeconds: 5 * 60,
     });
 
     return NextResponse.json(

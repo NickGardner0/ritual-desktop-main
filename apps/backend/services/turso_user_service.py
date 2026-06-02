@@ -58,6 +58,20 @@ SCHEMA_STATEMENTS = (
         browser_url TEXT,
         browser_domain TEXT,
         is_incognito INTEGER NOT NULL DEFAULT 0,
+        device_platform TEXT,
+        app_version TEXT,
+        app_build TEXT,
+        transition_reason TEXT,
+        biome_source_file TEXT,
+        biome_is_provisional INTEGER NOT NULL DEFAULT 0,
+        location_lat REAL,
+        location_lon REAL,
+        location_accuracy_m REAL,
+        location_source TEXT,
+        location_place_label TEXT,
+        location_confidence REAL,
+        location_resolved_at INTEGER,
+        location_signal_age_ms INTEGER,
         source TEXT NOT NULL DEFAULT 'ritual_watcher_v2',
         created_at INTEGER NOT NULL
     )
@@ -162,6 +176,20 @@ INDEX_STATEMENTS = (
 
 COLUMN_MIGRATIONS = (
     ("activity_events", "event_uid", "TEXT NOT NULL DEFAULT ''"),
+    ("activity_events", "device_platform", "TEXT"),
+    ("activity_events", "app_version", "TEXT"),
+    ("activity_events", "app_build", "TEXT"),
+    ("activity_events", "transition_reason", "TEXT"),
+    ("activity_events", "biome_source_file", "TEXT"),
+    ("activity_events", "biome_is_provisional", "INTEGER NOT NULL DEFAULT 0"),
+    ("activity_events", "location_lat", "REAL"),
+    ("activity_events", "location_lon", "REAL"),
+    ("activity_events", "location_accuracy_m", "REAL"),
+    ("activity_events", "location_source", "TEXT"),
+    ("activity_events", "location_place_label", "TEXT"),
+    ("activity_events", "location_confidence", "REAL"),
+    ("activity_events", "location_resolved_at", "INTEGER"),
+    ("activity_events", "location_signal_age_ms", "INTEGER"),
     ("afk_events", "afk_uid", "TEXT NOT NULL DEFAULT ''"),
 )
 

@@ -693,6 +693,14 @@ class BiometricsService:
                     existing.origin_record_kind = HEART_RATE_PROJECTION_ORIGIN_KIND
                     existing.origin_record_id = origin_id
 
+                # Location enrichment (Phase: Location Tracking) — best-effort
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    if existing.location_lat is None:
+                        await enrich_habit_log(existing, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (heart rate projection): %s", _loc_exc)
+
                 tinybird_logs.append(
                     {
                         "id": existing.id,

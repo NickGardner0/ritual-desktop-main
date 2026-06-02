@@ -17,7 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
-import type { TableDensity } from '@/app/(dashboard)/activity/logs-client';
+import type { TableDensity } from '@/components/habit-logs/types';
 
 const COLUMN_LABELS: Record<string, string> = {
   select: 'Select',

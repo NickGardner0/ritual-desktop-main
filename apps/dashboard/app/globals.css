@@ -179,6 +179,23 @@
     font-display: swap;
   }
 
+  /* GT Standard (M optical size, regular width) */
+  @font-face {
+    font-family: 'GT Standard';
+    src: url('/fonts/gt-standard/GT-Standard-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  @font-face {
+    font-family: 'GT Standard';
+    src: url('/fonts/gt-standard/GT-Standard-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+  }
+
   @font-face {
     font-family: 'FK Grotesk Neue';
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
@@ -191,7 +208,7 @@
 
 
 :root {
-  --background: 0 0% 100%;
+  --background: 0 0% 99.6%;
   --foreground: 222.2 84% 4.9%;
   --card: 0 0% 100%;
   --card-foreground: 222.2 84% 4.9%;
@@ -519,11 +536,11 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.38) 0%,
-      rgba(252, 252, 250, 0.28) 46%,
-      rgba(249, 249, 247, 0.22) 100%
+      rgba(255, 255, 255, 0.48) 0%,
+      rgba(252, 252, 250, 0.36) 46%,
+      rgba(249, 249, 247, 0.30) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.26) !important;
+    background-color: rgba(252, 252, 250, 0.34) !important;
     border-right: 1px solid rgba(15, 23, 42, 0.045) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -549,9 +566,9 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.015) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.72;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.0) 40%);
+    opacity: 0.78;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
@@ -571,6 +588,25 @@
      The content wrapper gets isolation so fixed children are clipped. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque {
     clip-path: inset(0 0 0 0);
+  }
+
+  /* Landing-page capture mode.
+     Enable with ?ritual_capture_sidebar=1 (or localStorage) to make CleanShotX
+     window screenshots render the sidebar as the same solid app background. */
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy,
+  html.desktop[data-sidebar-capture="1"][data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
+  html.desktop[data-sidebar-capture="1"]:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
+    background: #fefefe !important;
+    background-color: #fefefe !important;
+    border-right: 1px solid rgba(15, 23, 42, 0.035) !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy::before,
+  html.desktop[data-sidebar-capture="1"] .sidebar-vibrancy::after {
+    display: none !important;
   }
 
   /* ===== End macOS Liquid Glass Sidebar ===== */
@@ -801,6 +837,7 @@
 /* App font selection - global overrides with high specificity */
 :root {
   --ritual-font-fk: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --ritual-font-gt-standard: 'GT Standard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-geist: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-selected-font-family: var(--ritual-font-fk);
@@ -810,6 +847,13 @@
 .font-sans,
 .font-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
   --ritual-selected-font-family: var(--ritual-font-fk);
+  font-family: var(--ritual-selected-font-family) !important;
+}
+
+/* GT Standard */
+.font-gt-standard,
+.font-gt-standard *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+  --ritual-selected-font-family: var(--ritual-font-gt-standard);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
@@ -829,6 +873,7 @@
 
 /* Keep Material Symbols from being clobbered by global font overrides. */
 .font-sans .material-symbols-rounded,
+.font-gt-standard .material-symbols-rounded,
 .font-geist-sans .material-symbols-rounded,
 .font-system-ui .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;

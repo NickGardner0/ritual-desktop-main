@@ -1,0 +1,250 @@
+{
+  "version": 1,
+  "scriptsRoot": "apps/backend/scripts",
+  "statuses": {
+    "supported": "Documented operational command that may remain runnable.",
+    "manual_repair": "Break-glass repair or recovery script; keep until replaced by a tested command.",
+    "migration_candidate": "Schema mutation script that should move into Alembic/versioned migrations.",
+    "archive_candidate": "Demo, seed, or stale one-off script that should be archived/deleted after owner review."
+  },
+  "scripts": {
+    "add_habit_log_columns.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/add_habit_log_columns.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "add_habit_name_column.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/add_habit_name_column.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "backfill_activity_events_to_per_user_turso.py": {
+      "owner": "backend",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/backfill_activity_events_to_per_user_turso.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "cleanup_duplicate_habits.py": {
+      "owner": "backend",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/cleanup_duplicate_habits.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "cleanup_duplicate_logs.py": {
+      "owner": "backend",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/cleanup_duplicate_logs.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "cleanup_excessive_apple_health_data.py": {
+      "owner": "wearables",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/cleanup_excessive_apple_health_data.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "fix_screen_time_icon.py": {
+      "owner": "backend",
+      "status": "archive_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/fix_screen_time_icon.py",
+      "review_action": "Archive or delete after confirming no current operational runbook references it."
+    },
+    "fix_sleep_duration_category.py": {
+      "owner": "backend",
+      "status": "archive_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/fix_sleep_duration_category.py",
+      "review_action": "Archive or delete after confirming no current operational runbook references it."
+    },
+    "init_turso_tables.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/init_turso_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_ai_tables.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_ai_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_financial_tables.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_financial_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_heart_rate_tables.py": {
+      "owner": "wearables",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_heart_rate_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_import_tables.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_import_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_screen_time_tables.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_screen_time_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_ui_preferences.py": {
+      "owner": "dashboard",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_ui_preferences.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_watcher_tables.py": {
+      "owner": "desktop",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_watcher_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_add_wearables_tables.py": {
+      "owner": "wearables",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_wearables_tables.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_import_indexes.py": {
+      "owner": "backend",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_import_indexes.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "migrate_watcher_v2.py": {
+      "owner": "desktop",
+      "status": "migration_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_watcher_v2.py",
+      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
+    },
+    "project_time_cloud_memory_migration.py": {
+      "owner": "desktop",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/project_time_cloud_memory_migration.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "rebuild_activity_events_in_per_user_turso.py": {
+      "owner": "desktop",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/rebuild_activity_events_in_per_user_turso.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "rebuild_metric_facts.py": {
+      "owner": "backend",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/rebuild_metric_facts.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "reload_tinybird_from_turso.py": {
+      "owner": "analytics",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/reload_tinybird_from_turso.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "repair_computer_time_facts_from_local_watcher.py": {
+      "owner": "desktop",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/repair_computer_time_facts_from_local_watcher.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "repair_wearable_events_schema.py": {
+      "owner": "wearables",
+      "status": "manual_repair",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/repair_wearable_events_schema.py",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "reset_tinybird_habit_logs.sh": {
+      "owner": "analytics",
+      "status": "manual_repair",
+      "runtime": "shell",
+      "smoke_test": "bash -n apps/backend/scripts/reset_tinybird_habit_logs.sh",
+      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
+    },
+    "run_database_migrations.py": {
+      "owner": "backend",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/run_database_migrations.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "resync_computer_use_to_tinybird.py": {
+      "owner": "analytics",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/resync_computer_use_to_tinybird.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "resync_habit_logs_to_tinybird.py": {
+      "owner": "analytics",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/resync_habit_logs_to_tinybird.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "resync_heart_rate_rollups_to_tinybird.py": {
+      "owner": "analytics",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/resync_heart_rate_rollups_to_tinybird.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "seed_demo_logs.py": {
+      "owner": "backend",
+      "status": "archive_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/seed_demo_logs.py",
+      "review_action": "Archive or delete after confirming no current operational runbook references it."
+    },
+    "seed_fake_habit_logs.py": {
+      "owner": "backend",
+      "status": "archive_candidate",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/seed_fake_habit_logs.py",
+      "review_action": "Archive or delete after confirming no current operational runbook references it."
+    },
+    "verify_per_user_turso_endpoints.py": {
+      "owner": "backend",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/verify_per_user_turso_endpoints.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    },
+    "verify_tinybird_sync.py": {
+      "owner": "analytics",
+      "status": "supported",
+      "runtime": "python",
+      "smoke_test": "python3 -m py_compile apps/backend/scripts/verify_tinybird_sync.py",
+      "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
+    }
+  }
+}

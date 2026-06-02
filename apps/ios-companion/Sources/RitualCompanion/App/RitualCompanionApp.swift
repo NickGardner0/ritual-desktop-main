@@ -6,8 +6,9 @@ import BackgroundTasks
 struct RitualCompanionApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var whoopService = WhoopBroadcastService()
+    @StateObject private var locationManager = LocationManager.shared
     @Environment(\.scenePhase) private var scenePhase
-    
+
     /// Use V2 sync manager for incremental sync, offline queue, etc.
     private let syncManager = BackgroundSyncManagerV2.shared
     private let notificationManager = NotificationManager.shared
@@ -42,6 +43,9 @@ struct RitualCompanionApp: App {
         // Set up V2 background sync - this registers the background task handler
         // MUST be called before the app finishes launching
         BackgroundSyncManagerV2.shared.setupBackgroundSync()
+
+        // Location tracking only resumes after explicit user opt-in.
+        LocationManager.shared.resumeIfEnabled()
     }
     
     var body: some Scene {
@@ -49,6 +53,7 @@ struct RitualCompanionApp: App {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(whoopService)
+                .environmentObject(locationManager)
                 .task {
                     // Load Clerk session
                     do {
@@ -63,6 +68,8 @@ struct RitualCompanionApp: App {
                         taskType: "foreground"
                     )
                     whoopService.handleAppDidBecomeActive()
+                    // Get a fresh location fix when place tagging is enabled.
+                    locationManager.requestOneShot()
                 }
                 .onChange(of: scenePhase) { oldPhase, newPhase in
                     handleScenePhaseChange(from: oldPhase, to: newPhase)
@@ -100,6 +107,8 @@ struct RitualCompanionApp: App {
             print("📱 App became active")
             #endif
             whoopService.handleAppDidBecomeActive()
+            locationManager.resumeIfEnabled()
+            locationManager.requestOneShot()
             
             // Perform a foreground sync if user is connected and has health access
             Task {

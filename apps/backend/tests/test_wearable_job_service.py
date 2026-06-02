@@ -65,6 +65,17 @@ class WearableIngestJobServiceTests(unittest.TestCase):
         self.assertEqual(payload["job_id"], "job-1")
         self.assertEqual(payload["metric_scope"], {"metrics": ["sleep_total"]})
 
+    def test_provider_backfill_dispatches_through_sync_registry(self):
+        source = pathlib.Path(__file__).resolve().parents[1].joinpath(
+            "services",
+            "wearable_ingest_job_service.py",
+        ).read_text()
+
+        self.assertIn("sync_wearable_provider_account", source)
+        self.assertNotIn('job.provider == "whoop"', source)
+        self.assertNotIn('job.provider == "oura"', source)
+        self.assertNotIn('job.provider == "garmin"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,7 @@ if (SENTRY_DSN) {
     dsn: SENTRY_DSN,
     environment,
     release,
+    enableLogs: true,
 
     // Adjust this value in production, or use tracesSampler for greater control
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
@@ -31,11 +32,10 @@ if (SENTRY_DSN) {
     // Setting this option to true will print useful information to the console while you're setting up Sentry.
     debug: false,
 
-    // Filter out some common errors
+    // Filter out extension/noisy promise errors only. Network/fetch failures are
+    // operational signals for Ritual and should be visible in Sentry.
     ignoreErrors: [
       'Non-Error promise rejection captured',
-      'NetworkError',
-      'Failed to fetch',
     ],
 
     initialScope: {
@@ -51,6 +51,12 @@ if (SENTRY_DSN) {
         console.error('Sentry event (dev mode):', event);
       }
       return event;
+    },
+    beforeSendLog(log) {
+      if (process.env.NODE_ENV === 'production' && log.level === 'debug') {
+        return null;
+      }
+      return log;
     },
   });
 }

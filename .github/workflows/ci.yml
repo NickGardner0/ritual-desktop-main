@@ -52,11 +52,17 @@ jobs:
       - name: Lint dashboard
         run: npm run lint
 
+      - name: Test chat runtime
+        run: npm run --workspace @ritual/chat-runtime test
+
       - name: Python backend compile check
         run: python -m compileall -q apps/backend
 
-      - name: Python backend memory tests
-        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_memory_golden_gate.py apps/backend/tests/test_watcher_screen_search.py apps/backend/tests/test_memory_turbopuffer_parser.py apps/backend/tests/test_memory_ingest_supersede.py
+      - name: Python backend project-time tests
+        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_project_time_service.py apps/backend/tests/test_turso_user_service.py
+
+      - name: Python backend architecture boundary tests
+        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_wearable_provider_sync_registry.py apps/backend/tests/test_wearable_provider_pipeline.py apps/backend/tests/test_sync_job_registry.py
 
       - name: Rust desktop check
         run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml --locked

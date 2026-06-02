@@ -22,6 +22,41 @@ logger = logging.getLogger(__name__)
 # Guardrail: extremely long single events are typically stale heartbeat artifacts.
 # Keep this configurable, but default to 15 minutes for analytics rollups.
 MAX_SINGLE_EVENT_MS = max(60_000, int(os.getenv("WATCHER_MAX_SINGLE_EVENT_MS", "900000")))
+RAW_EVENT_FALLBACK_MAX_DAYS = max(1, int(os.getenv("WATCHER_RAW_EVENT_FALLBACK_MAX_DAYS", "45")))
+REMOTE_AGGREGATE_TIMEOUT_SECONDS = max(
+    0.5,
+    float(os.getenv("WATCHER_REMOTE_AGGREGATE_TIMEOUT_SECONDS", "8")),
+)
+REMOTE_RAW_READ_TIMEOUT_SECONDS = max(
+    0.5,
+    float(os.getenv("WATCHER_REMOTE_RAW_READ_TIMEOUT_SECONDS", "6")),
+)
+IPHONE_ACTIVITY_SOURCE = "biome_iphone"
+
+
+def _normalize_activity_source_filter(source_filter: Optional[str]) -> str:
+    normalized = (source_filter or "desktop").strip().lower()
+    if normalized in {"all", "any", "*"}:
+        return "all"
+    if normalized in {"iphone", "ios", IPHONE_ACTIVITY_SOURCE}:
+        return IPHONE_ACTIVITY_SOURCE
+    return "desktop"
+
+
+def _activity_source_sql_clause(source_filter: Optional[str], *, alias: Optional[str] = None) -> tuple[str, List[Any]]:
+    """Return a safe SQL source filter for activity_events.
+
+    Desktop computer time must not accidentally absorb iPhone Biome foreground
+    events, while the iPhone Screen Time surface needs an explicit source-only
+    view over the same table.
+    """
+    source = _normalize_activity_source_filter(source_filter)
+    column = f"{alias}.source" if alias else "source"
+    if source == "all":
+        return "", []
+    if source == IPHONE_ACTIVITY_SOURCE:
+        return f" AND COALESCE({column}, '') = ?", [IPHONE_ACTIVITY_SOURCE]
+    return f" AND COALESCE({column}, '') != ?", [IPHONE_ACTIVITY_SOURCE]
 
 
 def _resolve_activity_user_ids(target_user_id: str) -> List[str]:
@@ -289,6 +324,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Aggregate local watcher events into computer_activity_daily rows with day clipping + de-overlap."""
     import sqlite3
@@ -309,6 +345,7 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
 
         cursor.execute(
             """
@@ -323,11 +360,12 @@ def _get_computer_activity_daily_rows_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -342,6 +380,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Compute de-overlapped day totals across all apps/domains from local watcher DB."""
     import sqlite3
@@ -362,6 +401,7 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
         cursor.execute(
             """
             SELECT
@@ -374,11 +414,12 @@ def _get_computer_activity_daily_totals_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
             ORDER BY ts_start ASC
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -393,6 +434,7 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
     start_date: str,
     end_date: str,
     user_ids: Optional[List[str]] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, int]:
     """Count unique apps/domains in range from local watcher DB (non-AFK, overlapping range)."""
     import sqlite3
@@ -413,6 +455,7 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
         user_params: List[Any] = []
         if user_ids:
             user_clause, user_params = _sqlite_user_filter_clause(user_ids)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
         cursor.execute(
             """
             SELECT
@@ -428,11 +471,12 @@ def _get_computer_activity_distinct_counts_from_local_db_impl(
             WHERE ts_start < ? AND ts_end > ?
             """
             + user_clause
+            + source_clause
             + """
               AND ts_end > ts_start
               AND COALESCE(is_afk, 0) = 0
             """,
-            (end_ms, start_ms, *user_params),
+            (end_ms, start_ms, *user_params, *source_params),
         )
         row = cursor.fetchone()
         conn.close()
@@ -643,6 +687,7 @@ def _fetch_local_activity_event_rows_impl(
     end_ms: int,
     user_ids: List[str],
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[tuple[Any, Any, Any, Any, Any, Any]]:
     import sqlite3
 
@@ -659,6 +704,8 @@ def _fetch_local_activity_event_rows_impl(
         if device_id:
             device_clause = " AND device_id = ?"
             params.append(device_id)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
+        params.extend(source_params)
         cursor.execute(
             """
             SELECT
@@ -676,6 +723,7 @@ def _fetch_local_activity_event_rows_impl(
               AND ts_end > ts_start
             """
             + device_clause
+            + source_clause
             + """
             ORDER BY ts_start ASC
             """,
@@ -689,6 +737,338 @@ def _fetch_local_activity_event_rows_impl(
         return []
 
 
+def _build_snapshot_from_sql_aggregate_rows_impl(
+    *,
+    daily_rows_raw: List[tuple[Any, ...]],
+    app_rows_raw: List[tuple[Any, ...]],
+    domain_rows_raw: List[tuple[Any, ...]],
+    source: str,
+) -> Optional[Dict[str, Any]]:
+    if not daily_rows_raw:
+        return None
+
+    daily_rows = [
+        {
+            "day": str(row[0] or ""),
+            "active_ms": int(row[1] or 0),
+            "afk_ms": int(row[2] or 0),
+            "events_count": int(row[3] or 0),
+            "apps_count": int(row[4] or 0),
+            "domains_count": int(row[5] or 0),
+            "active_hours": round(int(row[1] or 0) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for row in daily_rows_raw
+        if row[0]
+    ]
+    if not daily_rows:
+        return None
+
+    app_rows = [
+        {
+            "app_bundle_id": str(row[0] or "unknown"),
+            "app_name": str(row[1] or row[0] or "Unknown"),
+            "total_active_ms": int(row[2] or 0),
+            "total_events": int(row[3] or 0),
+            "days_used": int(row[4] or 0),
+            "hours": round(int(row[2] or 0) / (1000 * 60 * 60), 2),
+            "source": source,
+        }
+        for row in app_rows_raw
+        if int(row[2] or 0) > 0
+    ]
+    domain_rows = [
+        {
+            "domain": str(row[0] or ""),
+            "total_active_ms": int(row[1] or 0),
+            "total_events": int(row[2] or 0),
+            "days_used": int(row[3] or 0),
+            "hours": round(int(row[1] or 0) / (1000 * 60 * 60), 2),
+            "minutes": round(int(row[1] or 0) / (1000 * 60), 1),
+            "source": source,
+        }
+        for row in domain_rows_raw
+        if row[0] and int(row[1] or 0) > 0
+    ]
+
+    total_active_ms = sum(int(row["active_ms"]) for row in daily_rows)
+    total_afk_ms = sum(int(row["afk_ms"]) for row in daily_rows)
+    total_events = sum(int(row["events_count"]) for row in daily_rows)
+    days_tracked = sum(1 for row in daily_rows if int(row["active_ms"]) > 0)
+    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+
+    return {
+        "summary": {
+            "total_active_ms": total_active_ms,
+            "total_hours": total_hours,
+            "total_events": total_events,
+            "days_tracked": days_tracked,
+            "unique_apps": len({row["app_bundle_id"] for row in app_rows}),
+            "unique_domains": len({row["domain"] for row in domain_rows}),
+            "total_afk_ms": total_afk_ms,
+            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
+            "source": source,
+        },
+        "daily": daily_rows,
+        "apps": app_rows,
+        "domains": domain_rows,
+        "source": source,
+        "state": "ready",
+        "sync_pending": False,
+    }
+
+
+async def _fetch_remote_activity_sql_aggregate_snapshot_impl(
+    *,
+    user_id: str,
+    activity_user_ids: List[str],
+    start_ms: int,
+    end_ms: int,
+    limit: int,
+    device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+    device_clause = ""
+    base_filter_params: List[Any] = [end_ms, start_ms, *activity_user_ids]
+    if device_id:
+        device_clause = " AND device_id = ?"
+        base_filter_params.append(device_id)
+    source_clause, source_params = _activity_source_sql_clause(source_filter)
+    base_filter_params.extend(source_params)
+
+    cte = f"""
+        WITH base AS (
+            SELECT
+                strftime('%Y-%m-%d', ts_start / 1000, 'unixepoch') AS day,
+                MAX(ts_start, ?) AS start_ms,
+                MIN(
+                    CASE
+                        WHEN (ts_end - ts_start) > ? THEN ts_start + ?
+                        ELSE ts_end
+                    END,
+                    ?
+                ) AS end_ms,
+                COALESCE(is_afk, 0) AS is_afk,
+                COALESCE(app_bundle_id, '') AS app_bundle_id,
+                COALESCE(app_name, '') AS app_name,
+                COALESCE(browser_domain, '') AS browser_domain
+            FROM activity_events
+            WHERE ts_start < ?
+              AND ts_end > ?
+              AND user_id IN ({user_placeholders})
+              AND ts_end > ts_start
+              {device_clause}
+              {source_clause}
+        ),
+        clipped AS (
+            SELECT *
+            FROM base
+            WHERE end_ms > start_ms
+        ),
+        active_intervals AS (
+            SELECT day, start_ms, end_ms, app_bundle_id, app_name, browser_domain
+            FROM clipped
+            WHERE is_afk = 0
+        ),
+        afk_intervals AS (
+            SELECT day, start_ms, end_ms
+            FROM clipped
+            WHERE is_afk = 1
+        )
+    """
+    params_prefix = [start_ms, MAX_SINGLE_EVENT_MS, MAX_SINGLE_EVENT_MS, end_ms, *base_filter_params]
+
+    daily_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        , active_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+        ),
+        active_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM active_ordered
+        ),
+        active_islands AS (
+            SELECT day, island_id, MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
+            FROM active_grouped
+            GROUP BY day, island_id
+        ),
+        active_by_day AS (
+            SELECT day, SUM(island_end - island_start) AS active_ms
+            FROM active_islands
+            GROUP BY day
+        ),
+        afk_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM afk_intervals
+        ),
+        afk_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM afk_ordered
+        ),
+        afk_islands AS (
+            SELECT day, island_id, MIN(start_ms) AS island_start, MAX(end_ms) AS island_end
+            FROM afk_grouped
+            GROUP BY day, island_id
+        ),
+        afk_by_day AS (
+            SELECT day, SUM(island_end - island_start) AS afk_ms
+            FROM afk_islands
+            GROUP BY day
+        ),
+        day_keys AS (
+            SELECT day FROM active_by_day
+            UNION
+            SELECT day FROM afk_by_day
+        ),
+        event_counts AS (
+            SELECT
+                day,
+                COUNT(*) AS events_count,
+                COUNT(DISTINCT CASE WHEN app_bundle_id != '' THEN app_bundle_id ELSE NULL END) AS apps_count,
+                COUNT(DISTINCT CASE WHEN browser_domain != '' THEN browser_domain ELSE NULL END) AS domains_count
+            FROM active_intervals
+            GROUP BY day
+        )
+        SELECT
+            day_keys.day,
+            COALESCE(active_by_day.active_ms, 0) AS active_ms,
+            COALESCE(afk_by_day.afk_ms, 0) AS afk_ms,
+            COALESCE(event_counts.events_count, 0) AS events_count,
+            COALESCE(event_counts.apps_count, 0) AS apps_count,
+            COALESCE(event_counts.domains_count, 0) AS domains_count
+        FROM day_keys
+        LEFT JOIN active_by_day ON active_by_day.day = day_keys.day
+        LEFT JOIN afk_by_day ON afk_by_day.day = day_keys.day
+        LEFT JOIN event_counts ON event_counts.day = day_keys.day
+        ORDER BY day_keys.day ASC
+        """,
+        params_prefix,
+    )
+    if daily_result.error or not daily_result.rows:
+        if daily_result.error:
+            logger.info("Remote SQL aggregate daily read unavailable: %s", daily_result.error)
+        return None
+
+    app_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        , app_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day, app_bundle_id
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+            WHERE app_bundle_id != ''
+        ),
+        app_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day, app_bundle_id
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM app_ordered
+        ),
+        app_islands AS (
+            SELECT
+                day,
+                app_bundle_id,
+                MAX(app_name) AS app_name,
+                island_id,
+                MIN(start_ms) AS island_start,
+                MAX(end_ms) AS island_end,
+                COUNT(*) AS event_count
+            FROM app_grouped
+            GROUP BY day, app_bundle_id, island_id
+        )
+        SELECT app_bundle_id, MAX(app_name) AS app_name, SUM(island_end - island_start) AS total_active_ms,
+               SUM(event_count) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM app_islands
+        GROUP BY app_bundle_id
+        ORDER BY total_active_ms DESC
+        LIMIT ?
+        """,
+        [*params_prefix, max(1, min(int(limit or 10), 100))],
+    )
+    domain_result = await fetch_remote_activity_rows(
+        user_id,
+        cte
+        + """
+        , domain_ordered AS (
+            SELECT *, MAX(end_ms) OVER (
+                PARTITION BY day, browser_domain
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+            ) AS prev_max_end
+            FROM active_intervals
+            WHERE browser_domain != ''
+        ),
+        domain_grouped AS (
+            SELECT *, SUM(
+                CASE WHEN prev_max_end IS NULL OR start_ms > prev_max_end THEN 1 ELSE 0 END
+            ) OVER (
+                PARTITION BY day, browser_domain
+                ORDER BY start_ms, end_ms
+                ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+            ) AS island_id
+            FROM domain_ordered
+        ),
+        domain_islands AS (
+            SELECT
+                day,
+                browser_domain,
+                island_id,
+                MIN(start_ms) AS island_start,
+                MAX(end_ms) AS island_end,
+                COUNT(*) AS event_count
+            FROM domain_grouped
+            GROUP BY day, browser_domain, island_id
+        )
+        SELECT browser_domain, SUM(island_end - island_start) AS total_active_ms,
+               SUM(event_count) AS total_events, COUNT(DISTINCT day) AS days_used
+        FROM domain_islands
+        GROUP BY browser_domain
+        ORDER BY total_active_ms DESC
+        LIMIT ?
+        """,
+        [*params_prefix, max(1, min(int(limit or 10), 100))],
+    )
+
+    return _build_snapshot_from_sql_aggregate_rows_impl(
+        daily_rows_raw=daily_result.rows,
+        app_rows_raw=[] if app_result.error else app_result.rows,
+        domain_rows_raw=[] if domain_result.error else domain_result.rows,
+        source="turso_remote_sql_deoverlap",
+    )
+
+
 async def _build_computer_activity_snapshot_impl(
     service,
     user_id: str,
@@ -697,11 +1077,13 @@ async def _build_computer_activity_snapshot_impl(
     *,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
     start_ms = int(start_date_obj.timestamp() * 1000)
     end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+    range_days = max(1, (end_date_obj - start_date_obj).days + 1)
     activity_user_ids = _resolve_activity_user_ids(user_id)
     user_placeholders = ", ".join(["?"] * len(activity_user_ids))
     params: List[Any] = [end_ms, start_ms, *activity_user_ids]
@@ -709,33 +1091,113 @@ async def _build_computer_activity_snapshot_impl(
     if device_id:
         device_clause = " AND device_id = ?"
         params.append(device_id)
+    source_clause, source_params = _activity_source_sql_clause(source_filter)
+    params.extend(source_params)
 
-    remote_result = await fetch_remote_activity_rows(
-        user_id,
-        f"""
-        SELECT
-            ts_start,
-            ts_end,
-            COALESCE(is_afk, 0) AS is_afk,
-            COALESCE(app_bundle_id, '') AS app_bundle_id,
-            COALESCE(app_name, '') AS app_name,
-            COALESCE(browser_domain, '') AS browser_domain
-        FROM activity_events
-        WHERE ts_start < ? AND ts_end > ?
-          AND user_id IN ({user_placeholders})
-          AND ts_end > ts_start
-          {device_clause}
-        ORDER BY ts_start ASC
-        """,
-        params,
-    )
-    if remote_result.rows:
-        return _build_snapshot_from_event_rows_impl(
-            remote_result.rows,
+    aggregate_timed_out = False
+    try:
+        aggregate_snapshot = await asyncio.wait_for(
+            _fetch_remote_activity_sql_aggregate_snapshot_impl(
+                user_id=user_id,
+                activity_user_ids=activity_user_ids,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                limit=limit,
+                device_id=device_id,
+                source_filter=source_filter,
+            ),
+            timeout=REMOTE_AGGREGATE_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        aggregate_timed_out = True
+        aggregate_snapshot = None
+        logger.warning(
+            "Remote computer activity aggregate timed out after %.1fs for user=%s range=%s..%s",
+            REMOTE_AGGREGATE_TIMEOUT_SECONDS,
+            user_id,
+            start_date,
+            end_date,
+        )
+    if aggregate_snapshot:
+        return aggregate_snapshot
+
+    if aggregate_timed_out:
+        local_rows = _fetch_local_activity_event_rows_impl(
             start_ms=start_ms,
             end_ms=end_ms,
-            source="turso_remote",
-            limit=limit,
+            user_ids=activity_user_ids,
+            device_id=device_id,
+            source_filter=source_filter,
+        )
+        if local_rows:
+            snapshot = _build_snapshot_from_event_rows_impl(
+                local_rows,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source="legacy_fallback",
+                limit=limit,
+            )
+            snapshot["state"] = "legacy_fallback"
+            return snapshot
+
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="remote_activity_aggregate_timeout",
+            )
+
+    remote_result = None
+    raw_timed_out = False
+    if range_days <= RAW_EVENT_FALLBACK_MAX_DAYS:
+        try:
+            remote_result = await asyncio.wait_for(
+                fetch_remote_activity_rows(
+                    user_id,
+                    f"""
+                    SELECT
+                        ts_start,
+                        ts_end,
+                        COALESCE(is_afk, 0) AS is_afk,
+                        COALESCE(app_bundle_id, '') AS app_bundle_id,
+                        COALESCE(app_name, '') AS app_name,
+                        COALESCE(browser_domain, '') AS browser_domain
+                    FROM activity_events
+                    WHERE ts_start < ? AND ts_end > ?
+                      AND user_id IN ({user_placeholders})
+                      AND ts_end > ts_start
+                      {device_clause}
+                      {source_clause}
+                    ORDER BY ts_start ASC
+                    """,
+                    params,
+                ),
+                timeout=REMOTE_RAW_READ_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            raw_timed_out = True
+            logger.warning(
+                "Remote computer activity raw fallback timed out after %.1fs for user=%s range=%s..%s",
+                REMOTE_RAW_READ_TIMEOUT_SECONDS,
+                user_id,
+                start_date,
+                end_date,
+            )
+        if remote_result is not None and remote_result.rows:
+            return _build_snapshot_from_event_rows_impl(
+                remote_result.rows,
+                start_ms=start_ms,
+                end_ms=end_ms,
+                source="turso_remote",
+                limit=limit,
+            )
+    else:
+        logger.info(
+            "Skipping raw activity row fallback for %s-day computer snapshot; compact aggregate unavailable",
+            range_days,
         )
 
     local_rows = _fetch_local_activity_event_rows_impl(
@@ -743,6 +1205,7 @@ async def _build_computer_activity_snapshot_impl(
         end_ms=end_ms,
         user_ids=activity_user_ids,
         device_id=device_id,
+        source_filter=source_filter,
     )
     if local_rows:
         snapshot = _build_snapshot_from_event_rows_impl(
@@ -755,11 +1218,31 @@ async def _build_computer_activity_snapshot_impl(
         snapshot["state"] = "legacy_fallback"
         return snapshot
 
-    if remote_result.expected_remote:
+    if remote_result is not None and remote_result.expected_remote:
         return _empty_computer_activity_snapshot(
             source="sync_pending",
             empty_reason=remote_result.error or "remote_activity_unhydrated",
         )
+    if raw_timed_out:
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="remote_activity_raw_timeout",
+            )
+    if remote_result is None:
+        try:
+            access = await turso_user_service.get_user_activity_access(user_id)
+        except Exception:
+            access = None
+        if getattr(access, "use_per_user_db", False):
+            return _empty_computer_activity_snapshot(
+                source="sync_pending",
+                empty_reason="compact_activity_aggregate_unavailable",
+            )
 
     return _empty_computer_activity_snapshot(
         source="legacy_fallback",
@@ -775,6 +1258,7 @@ async def get_computer_activity_snapshot_impl(
     *,
     limit: int = 10,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict[str, Any]:
     return await _build_computer_activity_snapshot_impl(
         service,
@@ -783,6 +1267,7 @@ async def get_computer_activity_snapshot_impl(
         end_date=end_date,
         limit=limit,
         device_id=device_id,
+        source_filter=source_filter,
     )
 
 
@@ -953,6 +1438,7 @@ async def get_computer_time_summary_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> Dict:
     """Get total computer time summary for a date range."""
     perf_start = time.perf_counter()
@@ -963,6 +1449,7 @@ async def get_computer_time_summary_impl(
         end_date=end_date,
         limit=10,
         device_id=device_id,
+        source_filter=source_filter,
     )
     summary = dict(snapshot["summary"])
     _log_activity_perf(
@@ -990,6 +1477,7 @@ async def get_daily_computer_time_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict]:
     """Get daily computer time for charting."""
     perf_start = time.perf_counter()
@@ -1000,6 +1488,7 @@ async def get_daily_computer_time_impl(
         end_date=end_date,
         limit=10,
         device_id=device_id,
+        source_filter=source_filter,
     )
     daily_rows = list(snapshot.get("daily") or [])
     _log_activity_perf(
@@ -1027,12 +1516,14 @@ async def get_usage_daily_breakdown_impl(
     start_date: str,
     end_date: str,
     device_id: Optional[str] = None,
+    source_filter: Optional[str] = None,
 ) -> List[Dict]:
     """Get daily usage breakdown for a specific app or website."""
     local_daily_rows = service._get_computer_activity_daily_rows_from_local_db(
         start_date=start_date,
         end_date=end_date,
         user_id=user_id,
+        source_filter=source_filter,
     )
     if local_daily_rows:
         target_key = str(key or "").strip().lower()
@@ -1103,6 +1594,93 @@ async def get_usage_daily_breakdown_impl(
                 for day, bucket in sorted(buckets.items(), key=lambda item: item[0])
             ]
 
+    try:
+        start_date_obj = datetime.strptime(start_date, "%Y-%m-%d")
+        end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
+        start_ms = int(start_date_obj.timestamp() * 1000)
+        end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+        activity_user_ids = _resolve_activity_user_ids(user_id)
+        user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
+        target_key = str(key or "").strip()
+        kind_clause = (
+            "AND (app_bundle_id = ? OR app_name = ?)"
+            if kind == "app"
+            else "AND browser_domain = ?"
+        )
+        kind_params: List[Any] = [target_key, target_key] if kind == "app" else [target_key]
+        remote_result = await asyncio.wait_for(
+            fetch_remote_activity_rows(
+                user_id,
+                f"""
+                SELECT ts_start, ts_end
+                FROM activity_events
+                WHERE ts_start < ?
+                  AND ts_end > ?
+                  AND user_id IN ({user_placeholders})
+                  AND ts_end > ts_start
+                  AND COALESCE(is_afk, 0) = 0
+                  {source_clause}
+                  {kind_clause}
+                ORDER BY ts_start ASC
+                """,
+                [end_ms, start_ms, *activity_user_ids, *source_params, *kind_params],
+            ),
+            timeout=REMOTE_RAW_READ_TIMEOUT_SECONDS,
+        )
+        if remote_result.rows:
+            buckets: Dict[str, Dict[str, Any]] = defaultdict(
+                lambda: {
+                    "intervals": [],
+                    "events_count": 0,
+                    "first_start_ms": None,
+                    "last_end_ms": None,
+                }
+            )
+            for ts_start, ts_end in remote_result.rows:
+                bounded_start, bounded_end = _clamp_single_event_span_impl(int(ts_start or 0), int(ts_end or 0))
+                clipped_start = max(bounded_start, start_ms)
+                clipped_end = min(bounded_end, end_ms)
+                if clipped_end <= clipped_start:
+                    continue
+                for day, seg_start, seg_end in _split_interval_by_local_day(clipped_start, clipped_end):
+                    bucket = buckets[day]
+                    bucket["intervals"].append((seg_start, seg_end))
+                    bucket["events_count"] += 1
+                    bucket["first_start_ms"] = (
+                        seg_start
+                        if bucket["first_start_ms"] is None
+                        else min(int(bucket["first_start_ms"]), seg_start)
+                    )
+                    bucket["last_end_ms"] = (
+                        seg_end
+                        if bucket["last_end_ms"] is None
+                        else max(int(bucket["last_end_ms"]), seg_end)
+                    )
+            if buckets:
+                output: List[Dict[str, Any]] = []
+                for day, bucket in sorted(buckets.items(), key=lambda item: item[0]):
+                    merged = merge_time_intervals_impl(bucket["intervals"])
+                    active_ms = int(sum(end - start for start, end in merged))
+                    if active_ms <= 0:
+                        continue
+                    output.append(
+                        {
+                            "day": day,
+                            "active_ms": active_ms,
+                            "events_count": int(bucket["events_count"]),
+                            "first_start_ms": int(bucket["first_start_ms"]) if bucket["first_start_ms"] is not None else None,
+                            "last_end_ms": int(bucket["last_end_ms"]) if bucket["last_end_ms"] is not None else None,
+                            "source": remote_result.source or "turso_remote",
+                        }
+                    )
+                if output:
+                    return output
+    except asyncio.TimeoutError:
+        logger.info("Remote watcher breakdown timed out for user=%s kind=%s key=%s", user_id, kind, key)
+    except Exception as exc:
+        logger.info("Remote watcher breakdown unavailable for user=%s kind=%s key=%s: %s", user_id, kind, key, exc)
+
     tinybird_rows = await service._get_computer_activity_pipe_rows(
         user_id=user_id,
         start_date=start_date,
@@ -1144,6 +1722,7 @@ async def get_usage_daily_breakdown_impl(
         end_date_obj = datetime.strptime(end_date, "%Y-%m-%d")
         start_ms = int(start_date_obj.timestamp() * 1000)
         end_ms = int((end_date_obj + timedelta(days=1)).timestamp() * 1000)
+        source_clause, source_params = _activity_source_sql_clause(source_filter)
 
         if kind == "app":
             cursor.execute(
@@ -1151,9 +1730,10 @@ async def get_usage_daily_breakdown_impl(
                 SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
+                  {source_clause}
                   AND (app_bundle_id = ? OR app_name = ?)
-                """,
-                (start_ms, end_ms, key, key),
+                """.format(source_clause=source_clause),
+                (start_ms, end_ms, *source_params, key, key),
             )
         else:
             cursor.execute(
@@ -1161,9 +1741,10 @@ async def get_usage_daily_breakdown_impl(
                 SELECT ts_start, ts_end, COALESCE(is_afk, 0) as is_afk
                 FROM activity_events
                 WHERE ts_start >= ? AND ts_start < ?
+                  {source_clause}
                   AND browser_domain = ?
-                """,
-                (start_ms, end_ms, key),
+                """.format(source_clause=source_clause),
+                (start_ms, end_ms, *source_params, key),
             )
 
         rows = cursor.fetchall()

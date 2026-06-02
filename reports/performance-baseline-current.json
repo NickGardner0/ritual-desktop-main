@@ -1,0 +1,116 @@
+{
+  "collected_at": "2026-05-25T05:15:59.538Z",
+  "source_metrics": {
+    "dashboard_api_routes": 39,
+    "dashboard_source_files": 375,
+    "dashboard_source_bytes": 2785191,
+    "backend_python_files": 220,
+    "backend_python_bytes": 2401078,
+    "largest_dashboard_files": [
+      {
+        "file": "apps/dashboard/components/ai-habit-chat.tsx",
+        "lines": 1530,
+        "bytes": 54609
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/reports/reports-client.tsx",
+        "lines": 1432,
+        "bytes": 74631
+      },
+      {
+        "file": "apps/dashboard/components/analytics/overview-view.tsx",
+        "lines": 1403,
+        "bytes": 52184
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/calendar/calendar-client.tsx",
+        "lines": 1361,
+        "bytes": 48548
+      },
+      {
+        "file": "apps/dashboard/components/habit-selection-modal.tsx",
+        "lines": 1357,
+        "bytes": 57547
+      },
+      {
+        "file": "apps/dashboard/components/tables/habit-logs/data-table.tsx",
+        "lines": 1355,
+        "bytes": 46182
+      },
+      {
+        "file": "apps/dashboard/components/apple-watch-settings.tsx",
+        "lines": 1226,
+        "bytes": 49854
+      },
+      {
+        "file": "apps/dashboard/components/data-import-modal.tsx",
+        "lines": 1223,
+        "bytes": 52173
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/chat/chat-client.impl.tsx",
+        "lines": 1196,
+        "bytes": 40664
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/integrations/integrations-client.details.tsx",
+        "lines": 1112,
+        "bytes": 57137
+      },
+      {
+        "file": "apps/dashboard/lib/computerActivity/client.ts",
+        "lines": 1095,
+        "bytes": 37378
+      },
+      {
+        "file": "apps/dashboard/components/habit-logs-search-filter.tsx",
+        "lines": 1037,
+        "bytes": 35109
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/integrations/integrations-client.impl.tsx",
+        "lines": 991,
+        "bytes": 31520
+      },
+      {
+        "file": "apps/dashboard/components/analytics/metrics-view.impl.tsx",
+        "lines": 984,
+        "bytes": 35754
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/activity/logs-client.tsx",
+        "lines": 917,
+        "bytes": 30299
+      },
+      {
+        "file": "apps/dashboard/components/chat/habit-canvas.tsx",
+        "lines": 917,
+        "bytes": 34409
+      },
+      {
+        "file": "apps/dashboard/app/(dashboard)/chat/chat-client.layout.tsx",
+        "lines": 913,
+        "bytes": 41606
+      },
+      {
+        "file": "apps/dashboard/app/api/chat/habits/route.ts",
+        "lines": 859,
+        "bytes": 27920
+      },
+      {
+        "file": "apps/dashboard/components/analytics/use-metrics-data-effects.ts",
+        "lines": 843,
+        "bytes": 29529
+      },
+      {
+        "file": "apps/dashboard/lib/computerActivity/derive.ts",
+        "lines": 792,
+        "bytes": 22913
+      }
+    ]
+  },
+  "notes": [
+    "This is a source-level baseline. For release performance, run after `npm run build` and compare Next build output plus app startup timings.",
+    "Use this file before and after large refactors to catch source-size and route-count regressions."
+  ]
+}

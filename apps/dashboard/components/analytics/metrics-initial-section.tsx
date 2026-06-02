@@ -6,8 +6,10 @@ import { ComputerTimeBarList } from '@/components/analytics/computer-time-bar-li
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import {
   HabitMiniChartsSection,
+  DEFAULT_MINI_CHART_RANGE_OPTIONS,
   type HabitSparkSource,
 } from '@/components/analytics/habit-mini-charts-section';
+import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
 
 interface MetricsInitialSectionProps {
   cardGrid: React.ReactNode;
@@ -19,6 +21,8 @@ interface MetricsInitialSectionProps {
   onBarListRangeChange: (range: BarListRange) => void;
   habitSparkSources?: HabitSparkSource[];
   miniChartEmptyHint?: string;
+  miniChartDefaultRange?: RangeKey;
+  onRemoveHabitSpark?: (habitId: string) => void;
 }
 
 export function MetricsInitialSection({
@@ -31,6 +35,8 @@ export function MetricsInitialSection({
   onBarListRangeChange,
   habitSparkSources = [],
   miniChartEmptyHint,
+  miniChartDefaultRange = '1M',
+  onRemoveHabitSpark,
 }: MetricsInitialSectionProps) {
   return (
     <>
@@ -63,6 +69,9 @@ export function MetricsInitialSection({
           <HabitMiniChartsSection
             sources={habitSparkSources}
             emptyHint={miniChartEmptyHint}
+            defaultRange={miniChartDefaultRange}
+            rangeOptions={DEFAULT_MINI_CHART_RANGE_OPTIONS}
+            onRemoveSource={onRemoveHabitSpark}
           />
         </div>
       ) : null}

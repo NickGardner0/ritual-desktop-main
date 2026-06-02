@@ -8,7 +8,7 @@ use tauri::{AppHandle, Runtime};
 use tracing::{debug, info, warn};
 
 const CLOUD_SYNC_INTERVAL_SECS: u64 = 60;
-const CLOUD_SYNC_BATCH_SIZE: i64 = 500;
+const CLOUD_SYNC_BATCH_SIZE: i64 = 2000;
 const CLOUD_SYNC_STARTUP_DELAY_SECS: u64 = 5;
 
 static CLOUD_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
@@ -76,7 +76,7 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
         return Ok(());
     }
 
-    let guard = ritual_database::get_activity_db().await?;
+    let guard = ritual_database::get_or_initialize_activity_db("cloud_sync:outbox").await?;
     let db = guard
         .as_ref()
         .ok_or_else(|| "Activity database is not initialized".to_string())?;
@@ -99,15 +99,14 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
     let (_remote_db, remote_conn) = open_remote_connection(&config).await?;
 
     let mut uploaded = 0usize;
+    let mut uploaded_ids: Vec<i64> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut auth_failure = false;
 
     for item in pending {
         match upload_outbox_item(&remote_conn, &item).await {
             Ok(()) => {
-                db.mark_synced(item.id).await.map_err(|error| {
-                    format!("Failed to ack uploaded cloud sync row {}: {error}", item.id)
-                })?;
+                uploaded_ids.push(item.id);
                 uploaded += 1;
             }
             Err(error) => {
@@ -139,6 +138,12 @@ async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> R
                 }
             }
         }
+    }
+
+    if !uploaded_ids.is_empty() {
+        db.mark_synced_many(&uploaded_ids)
+            .await
+            .map_err(|error| format!("Failed to ack uploaded cloud sync rows: {error}"))?;
     }
 
     let refreshed_metrics = read_local_cloud_sync_metrics().await?;
@@ -385,7 +390,11 @@ async fn upsert_project_time_session(conn: &Connection, payload: &Value) -> Resu
             string_or_empty(payload, "apps_json"),
             string_or_empty(payload, "domains_json"),
             string_or_empty(payload, "artifacts_json"),
-            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
+            optional_string(payload, "summary_text")
+                .unwrap_or_default()
+                .chars()
+                .take(500)
+                .collect::<String>(),
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
         ],
@@ -395,7 +404,10 @@ async fn upsert_project_time_session(conn: &Connection, payload: &Value) -> Resu
     Ok(())
 }
 
-async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_time_daily_rollup(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<(), String> {
     ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
@@ -443,7 +455,11 @@ async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) ->
             required_f64(payload, "confidence_avg")?,
             string_or_empty(payload, "top_apps_json"),
             string_or_empty(payload, "top_domains_json"),
-            optional_string(payload, "summary_text").unwrap_or_default().chars().take(500).collect::<String>(),
+            optional_string(payload, "summary_text")
+                .unwrap_or_default()
+                .chars()
+                .take(500)
+                .collect::<String>(),
             required_string(payload, "source_version")?,
             required_i64(payload, "created_at")?,
             required_i64(payload, "updated_at")?,
@@ -454,7 +470,10 @@ async fn upsert_project_time_daily_rollup(conn: &Connection, payload: &Value) ->
     Ok(())
 }
 
-async fn upsert_project_classification_rule(conn: &Connection, payload: &Value) -> Result<(), String> {
+async fn upsert_project_classification_rule(
+    conn: &Connection,
+    payload: &Value,
+) -> Result<(), String> {
     ensure_no_raw_memory_fields(payload)?;
     conn.execute(
         r#"
@@ -560,7 +579,9 @@ fn ensure_no_raw_memory_fields(payload: &Value) -> Result<(), String> {
     }
 
     if let Some(key) = visit(payload, FORBIDDEN_KEYS) {
-        Err(format!("Project-time cloud payload contains forbidden raw memory field '{key}'"))
+        Err(format!(
+            "Project-time cloud payload contains forbidden raw memory field '{key}'"
+        ))
     } else {
         Ok(())
     }
@@ -573,7 +594,7 @@ struct LocalCloudSyncMetrics {
 }
 
 async fn read_local_cloud_sync_metrics() -> Result<LocalCloudSyncMetrics, String> {
-    let guard = ritual_database::get_activity_db().await?;
+    let guard = ritual_database::get_or_initialize_activity_db("cloud_sync:metrics").await?;
     let db = guard
         .as_ref()
         .ok_or_else(|| "Activity database is not initialized".to_string())?;

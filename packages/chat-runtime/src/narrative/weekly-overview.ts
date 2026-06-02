@@ -113,13 +113,6 @@ const NARRATIVE_SYSTEM_PROMPT = [
 // Private formatting helpers
 // ---------------------------------------------------------------------------
 
-function formatWeeklyDate(dateInput?: string): string {
-  if (!dateInput) return 'Unknown';
-  const date = new Date(`${dateInput}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return dateInput;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
 function formatWeeklyShortDate(dateInput?: string): string {
   if (!dateInput) return 'Unknown';
   const date = new Date(`${dateInput}T00:00:00`);

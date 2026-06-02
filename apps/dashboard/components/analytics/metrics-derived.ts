@@ -34,6 +34,7 @@ export type MetricDailyRow = {
   completed_at?: string | null;
   metadata?: Record<string, unknown> | string | null;
   active_hours?: number;
+  active_ms?: number;
   events_count?: number;
   apps_count?: number;
 };
@@ -487,16 +488,14 @@ export function buildMetricsBarData({
         const date = parseISO(log.date);
         return date >= rangeFrom && date <= rangeTo;
       });
-      if (rangeLogs.length === 0) return null;
 
       const values = rangeLogs
         .map((log) => Number(log.daily_value ?? log.value ?? log.total_amount ?? 0))
         .filter((value) => value > 0);
-      if (values.length === 0) return null;
 
       const useAverage = shouldAverageMetricDisplay(habit, unit);
       const total = values.reduce((sum, value) => sum + value, 0);
-      const displayVal = useAverage ? total / values.length : total;
+      const displayVal = useAverage ? (values.length > 0 ? total / values.length : 0) : total;
 
       // Compare the visible window against the immediately-prior equivalent
       // window. Use per-day averages so partial day-counts on either side do
@@ -617,6 +616,9 @@ export function formatMetricBarValue(value: number, unit: string): string {
     : (lowerUnit === 'percentage' || lowerUnit === 'percent' || lowerUnit === '%')
       ? '%'
       : unit;
+  if (value === 0) {
+    return shortUnit === '%' ? '0%' : `0 ${shortUnit}`.trim();
+  }
   const formatted = value >= 1000
     ? Math.round(value).toLocaleString()
     : value >= 10

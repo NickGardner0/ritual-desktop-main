@@ -39,7 +39,7 @@
     },
     {
       "id": "h2",
-      "name": "Caffeine Consumption",
+      "name": "Caffeine",
       "unit": "mg",
       "total": 453,
       "average": 225,
@@ -66,7 +66,7 @@
     },
     {
       "id": "h3",
-      "name": "Nicotine Consumption",
+      "name": "Nicotine",
       "unit": "mg",
       "total": 65,
       "average": 16.25,

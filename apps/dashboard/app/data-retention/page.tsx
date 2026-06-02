@@ -51,7 +51,7 @@ const sections = [
   {
     title: 'Local Data and Configured Retention Windows',
     paragraphs: [
-      'Some local recorder and memory features use product-configured cleanup behavior and retention windows. For example, certain local recorder configurations apply a default retention window for thumbnails and OCR-related data stored on the user\'s device.',
+      'Local memory and activity-capture features use product-configured cleanup behavior and retention windows for data stored on the user\'s device.',
     ],
   },
   {

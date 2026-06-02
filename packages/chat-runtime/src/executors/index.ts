@@ -41,7 +41,7 @@ export {
 // Project-time activity summary executor
 export {
   executeGetActivitySummary,
-} from './context-memory.js';
+} from './project-time.js';
 
 // Computer time executor
 export {

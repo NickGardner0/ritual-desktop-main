@@ -38,7 +38,7 @@ class WebSocketManager:
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
         
-        logger.error(f"❌ WebSocket disconnected for user: {user_id}")
+        logger.info("WebSocket disconnected for user: %s", user_id)
     
     async def send_personal_message(self, message: str, user_id: str):
         """Send a message to a specific user"""

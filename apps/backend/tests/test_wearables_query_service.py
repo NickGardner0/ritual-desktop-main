@@ -24,6 +24,17 @@ class WearableQueryServiceTests(unittest.TestCase):
         self.assertEqual(value, 2000)
         self.assertEqual(aggregation, "daily_total")
 
+    def test_sleep_metric_aliases_canonicalize_to_sleep_total(self):
+        self.assertEqual(self.service._canonical_metric_type("sleep_session"), "sleep_total")
+        self.assertEqual(self.service._canonical_metric_type("sleep_duration"), "sleep_total")
+        self.assertEqual(self.service._canonical_metric_type("sleep"), "sleep_total")
+
+    def test_metric_filter_dedupes_sleep_aliases(self):
+        self.assertEqual(
+            self.service._normalize_metric_filter(["sleep_session", "sleep_total", "steps"]),
+            ["sleep_total", "steps"],
+        )
+
     def test_aggregate_metric_values_averages_non_cumulative_metrics(self):
         value, aggregation = self.service._aggregate_metric_values("heart_rate", [80, 90, 100])
         self.assertEqual(value, 90)
@@ -65,6 +76,30 @@ class WearableQueryServiceTests(unittest.TestCase):
         preferred = self.service._select_rows_for_daily_totals("heart_rate", rows)
 
         self.assertEqual([row.id for row in preferred], ["daily"])
+
+    def test_aggregate_preaggregated_rows_sums_compact_cumulative_rows(self):
+        rows = [
+            SimpleNamespace(unit="count", rollup_level="bucket_1h", aggregation_kind="bucket_1h", sum_value=1200, avg_value=1200, min_value=1200, value_count=1),
+            SimpleNamespace(unit="count", rollup_level="bucket_1h", aggregation_kind="bucket_1h", sum_value=800, avg_value=800, min_value=800, value_count=1),
+        ]
+
+        value, aggregation, unit = self.service._aggregate_preaggregated_rows("steps", rows)
+
+        self.assertEqual(value, 2000)
+        self.assertEqual(aggregation, "daily_total")
+        self.assertEqual(unit, "count")
+
+    def test_aggregate_preaggregated_rows_uses_weighted_average_for_compact_average_rows(self):
+        rows = [
+            SimpleNamespace(unit="bpm", rollup_level="daily", aggregation_kind="daily", sum_value=800, avg_value=80, min_value=70, value_count=10),
+            SimpleNamespace(unit="bpm", rollup_level="daily", aggregation_kind="daily", sum_value=1800, avg_value=90, min_value=75, value_count=20),
+        ]
+
+        value, aggregation, unit = self.service._aggregate_preaggregated_rows("heart_rate", rows)
+
+        self.assertAlmostEqual(value, 86.6666666667)
+        self.assertEqual(aggregation, "daily_average")
+        self.assertEqual(unit, "bpm")
 
     def test_select_provider_rows_prefers_matching_provider(self):
         grouped_rows = {

@@ -164,6 +164,51 @@ class HabitsService:
             "summary": f"{habit.name}: {total:.2f} total across {len(finite_values)} days",
         }
 
+    async def _refresh_metric_facts_for_logs(
+        self,
+        *,
+        user_id: str,
+        logs: List[HabitLogDB],
+    ) -> Dict[str, Any]:
+        dates = sorted({str(log.date) for log in logs if getattr(log, "date", None)})
+        habit_ids = sorted({str(log.habit_id) for log in logs if getattr(log, "habit_id", None)})
+        if not dates or not habit_ids:
+            return {"success": True, "skipped": True, "reason": "no_fact_dates_or_habits"}
+
+        try:
+            from services.metric_facts_service import metric_fact_service
+
+            return await metric_fact_service.rebuild_facts(
+                user_id=user_id,
+                start_date=dates[0],
+                end_date=dates[-1],
+                habit_ids=habit_ids,
+                include_legacy_fallback=True,
+                apply=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Metric fact refresh failed after habit log write user=%s habits=%s dates=%s: %s",
+                user_id,
+                habit_ids,
+                dates,
+                exc,
+            )
+            return {"success": False, "error": str(exc), "habit_ids": habit_ids, "dates": dates}
+
+    async def _build_post_write_overview_snapshot(self, *, user_id: str) -> Optional[Dict[str, Any]]:
+        try:
+            from services.metric_facts_service import metric_fact_service
+
+            return await metric_fact_service.get_overview_snapshot(user_id=user_id, days_back=3650)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Metric fact overview snapshot failed after habit log write: %s", exc)
+            try:
+                return await self.get_overview_snapshot(user_id)
+            except Exception as fallback_exc:  # noqa: BLE001
+                logger.warning("Raw overview snapshot failed after habit log write: %s", fallback_exc)
+                return None
+
     async def get_overview_snapshot(
         self,
         user_id: str,
@@ -571,12 +616,23 @@ class HabitsService:
                     status=log_data.status,
                     notes=log_data.notes
                 )
-                
+
+                # Location enrichment (Phase: Location Tracking)
+                # Server-side: looks up freshest user_location signal for the
+                # log's completed_at timestamp and attaches lat/lon/place_label.
+                # Best-effort — failures don't block the log creation.
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped for habit log: %s", _loc_exc)
+
                 session.add(log_db)
                 await session.commit()
                 await session.refresh(log_db)
                 
                 habit_log = habit_log_db_to_pydantic(log_db)
+                await self._refresh_metric_facts_for_logs(user_id=user_id, logs=[log_db])
 
                 # Fire-and-forget: Tinybird + Typesense + WebSocket (background)
                 self._fire_habit_log_side_effects(habit_log, habit, user_id)
@@ -642,6 +698,14 @@ class HabitsService:
                     json.dumps(log_metadata) if isinstance(log_metadata, dict) else log_metadata
                 )
 
+                # Location enrichment (Phase: Location Tracking) — best-effort
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    if log_db.location_lat is None:
+                        await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (rollup): %s", _loc_exc)
+
                 await session.commit()
                 await session.refresh(log_db)
 
@@ -677,13 +741,43 @@ class HabitsService:
                     existing_logs = existing.scalars().all()
                     if existing_logs:
                         logger.warning(f"⚠️ Duplicate client_event_id detected: {client_event_id}")
+                        affected_habit_ids = sorted({
+                            str(log.habit_id)
+                            for log in existing_logs
+                            if getattr(log, "habit_id", None)
+                        })
+                        affected_dates = sorted({
+                            str(log.date)
+                            for log in existing_logs
+                            if getattr(log, "date", None)
+                        })
                         return {
                             "success": True,
                             "duplicate": True,
                             "results": [
-                                {"index": i, "success": True, "log_id": log.id, "duplicate": True}
+                                {
+                                    "index": i,
+                                    "success": True,
+                                    "log_id": log.id,
+                                    "habit_id": log.habit_id,
+                                    "habit_name": log.habit_name,
+                                    "value": log.amount if log.amount is not None else log.duration,
+                                    "date": log.date,
+                                    "duplicate": True,
+                                }
                                 for i, log in enumerate(existing_logs)
-                            ]
+                            ],
+                            "logged_count": len(existing_logs),
+                            "affectedHabitIds": affected_habit_ids,
+                            "affectedDates": affected_dates,
+                            "metric_facts": {
+                                "success": True,
+                                "skipped": True,
+                                "reason": "duplicate_client_event_id",
+                                "habit_ids": affected_habit_ids,
+                                "dates": affected_dates,
+                            },
+                            "overview_snapshot": await self._build_post_write_overview_snapshot(user_id=user_id),
                         }
                 
                 # Pre-fetch all user habits for validation in this transaction.
@@ -739,19 +833,57 @@ class HabitsService:
                         "logged_count": 0
                     }
 
+                # Location enrichment (Phase: Location Tracking) — best-effort,
+                # runs once per prepared log before the atomic batch commit.
+                try:
+                    from services.location.enrichment import enrich_habit_log
+                    for _, log_db, _ in prepared_logs:
+                        if log_db.location_lat is None:
+                            await enrich_habit_log(log_db, user_id=user_id)
+                except Exception as _loc_exc:  # noqa: BLE001
+                    logger.debug("Location enrichment skipped (batch): %s", _loc_exc)
+
                 for _, log_db, _ in prepared_logs:
                     session.add(log_db)
 
                 # Commit all logs as a single atomic transaction.
                 await session.commit()
 
+                metric_facts_result = await self._refresh_metric_facts_for_logs(
+                    user_id=user_id,
+                    logs=[log_db for _, log_db, _ in prepared_logs],
+                )
+                overview_snapshot = await self._build_post_write_overview_snapshot(user_id=user_id)
+                affected_habit_ids = sorted({
+                    str(log_db.habit_id)
+                    for _, log_db, _ in prepared_logs
+                    if getattr(log_db, "habit_id", None)
+                })
+                affected_dates = sorted({
+                    str(log_db.date)
+                    for _, log_db, _ in prepared_logs
+                    if getattr(log_db, "date", None)
+                })
+
                 for index, log_db, habit in prepared_logs:
+                    unit = habit.unit_type or "count"
+                    value = log_db.amount
+                    if value is None:
+                        value = log_db.duration
+                        unit_lower = str(unit).lower()
+                        if value is not None and unit_lower in {"hour", "hours", "hr", "hrs"}:
+                            value = value / 3600
+                        elif value is not None and unit_lower in {"minute", "minutes", "min", "mins"}:
+                            value = value / 60
                     results.append({
                         "index": index,
                         "success": True,
                         "log_id": log_db.id,
                         "habit_id": log_db.habit_id,
-                        "habit_name": habit.name
+                        "habit_name": habit.name,
+                        "value": value,
+                        "unit": unit,
+                        "date": log_db.date,
                     })
 
                 # Fire-and-forget background side effects for each log.
@@ -805,7 +937,11 @@ class HabitsService:
                 return {
                     "success": True,
                     "results": results,
-                    "logged_count": sum(1 for r in results if r.get("success"))
+                    "logged_count": sum(1 for r in results if r.get("success")),
+                    "affectedHabitIds": affected_habit_ids,
+                    "affectedDates": affected_dates,
+                    "metric_facts": metric_facts_result,
+                    "overview_snapshot": overview_snapshot,
                 }
                 
             except SQLAlchemyError as e:
@@ -817,7 +953,15 @@ class HabitsService:
                     "logged_count": 0
                 }
     
-    async def get_habit_logs(self, habit_id: Optional[str], user_id: str) -> List[HabitLog]:
+    async def get_habit_logs(
+        self,
+        habit_id: Optional[str],
+        user_id: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[HabitLog]:
         """
         Get habit logs - mirrors habitsService.getHabitLogs()
         """
@@ -831,8 +975,14 @@ class HabitsService:
                 
                 if habit_id:
                     query = query.where(HabitLogDB.habit_id == habit_id)
+                if start_date:
+                    query = query.where(HabitLogDB.date >= start_date)
+                if end_date:
+                    query = query.where(HabitLogDB.date <= end_date)
                 
                 query = query.order_by(HabitLogDB.date.desc())
+                if limit is not None:
+                    query = query.limit(max(1, min(int(limit), 10000))).offset(max(0, int(offset or 0)))
                 
                 result = await session.execute(query)
                 rows = result.all()

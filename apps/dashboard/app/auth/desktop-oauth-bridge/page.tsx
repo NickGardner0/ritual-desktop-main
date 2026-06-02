@@ -10,7 +10,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 function buildDeepLink(ticket: string): string {
   const params = new URLSearchParams();
   params.set('ticket', ticket);
-  return `ritual://auth/callback?${params.toString()}`;
+  return `com.ritual.desktop://auth/callback?${params.toString()}`;
 }
 
 async function createDesktopSignInTicket(): Promise<string> {

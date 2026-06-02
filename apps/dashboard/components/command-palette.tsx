@@ -230,7 +230,7 @@ export default function CommandPalette({
   // FALLBACK RESULTS
   // ================================
   
-  const getFallbackResults = (q: string): SearchResults => {
+  const getLocalQuickActions = (q: string): QuickAction[] => {
     const actions: QuickAction[] = [
       { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
       { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
@@ -241,6 +241,7 @@ export default function CommandPalette({
       { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
       { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
       { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+      { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
     ];
     
     let filteredActions = actions;
@@ -251,6 +252,12 @@ export default function CommandPalette({
         a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
       );
     }
+
+    return filteredActions;
+  };
+
+  const getFallbackResults = (q: string): SearchResults => {
+    const filteredActions = getLocalQuickActions(q);
     
     return {
       query: q,
@@ -268,7 +275,10 @@ export default function CommandPalette({
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();
-    const actions: QuickAction[] = [...(results?.quick_actions || [])];
+    const actions: QuickAction[] = [
+      ...getLocalQuickActions(trimmedQuery),
+      ...(results?.quick_actions || []),
+    ];
     const topHabit = results?.habits?.hits?.[0];
 
     if (trimmedQuery) {

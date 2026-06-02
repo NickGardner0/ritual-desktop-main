@@ -2,7 +2,7 @@
 SQLAlchemy database models
 """
 
-from sqlalchemy import Column, String, Boolean, Integer, Float, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, String, Boolean, Integer, BigInteger, Float, DateTime, Text, ForeignKey, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship as orm_relationship
 from datetime import datetime, timezone
@@ -87,7 +87,18 @@ class HabitLogDB(Base):
     source_id = Column(String, nullable=True)  # Original record ID from wearable/source if available
     dedupe_key = Column(String, nullable=True, index=True)  # SHA256 hash for deduplication
     # Note: updated_at column removed - not synced to Turso Cloud. Use completed_at for now.
-    
+
+    # ── Location enrichment (Phase: Location Tracking) ──────────────────
+    # Populated server-side at habit log creation by services.location.enrichment
+    location_lat = Column(Float, nullable=True)
+    location_lon = Column(Float, nullable=True)
+    location_accuracy_m = Column(Float, nullable=True)
+    location_source = Column(String, nullable=True)  # ios_scls, mac_one_shot, etc.
+    location_place_label = Column(String, nullable=True)  # reverse-geocoded label
+    location_confidence = Column(Float, nullable=True)  # 0.0-1.0
+    location_resolved_at = Column(BigInteger, nullable=True)  # ms since epoch when resolver ran
+    location_signal_age_ms = Column(BigInteger, nullable=True)  # how stale the signal was
+
     # Relationships
     habit = orm_relationship("HabitDB", back_populates="logs")
     import_run = orm_relationship("ImportRunDB", back_populates="logs")
@@ -95,6 +106,69 @@ class HabitLogDB(Base):
     __table_args__ = (
         Index("idx_habit_logs_habit_date", "habit_id", "date"),
         Index("idx_habit_logs_habit_status_date", "habit_id", "status", "date"),
+    )
+
+
+class MetricFactRebuildRunDB(Base):
+    """Audit record for derived metric fact rebuilds and reconciliation runs."""
+    __tablename__ = "metric_fact_rebuild_runs"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    mode = Column(String, nullable=False, default="dry_run")  # dry_run, apply, reconcile
+    status = Column(String, nullable=False, default="running")  # running, success, failed
+    start_date = Column(String, nullable=True)
+    end_date = Column(String, nullable=True)
+    source_families_json = Column(Text, nullable=True)
+    habit_ids_json = Column(Text, nullable=True)
+    facts_seen = Column(Integer, nullable=False, default=0)
+    facts_written = Column(Integer, nullable=False, default=0)
+    facts_unchanged = Column(Integer, nullable=False, default=0)
+    legacy_fallback_count = Column(Integer, nullable=False, default=0)
+    summary_json = Column(Text, nullable=True)
+    error_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    started_at = Column(DateTime, default=_utcnow_naive)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = orm_relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_metric_fact_runs_user_created", "user_id", "created_at"),
+        Index("idx_metric_fact_runs_user_status", "user_id", "status"),
+    )
+
+
+class MetricDailyFactDB(Base):
+    """Derived daily metric value used by product-facing analytics surfaces."""
+    __tablename__ = "metric_daily_facts"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    habit_id = Column(String, ForeignKey("habits.id", ondelete="CASCADE"), nullable=False)
+    habit_name = Column(String, nullable=True)
+    metric_key = Column(String, nullable=False)
+    date = Column(String, nullable=False)
+    value = Column(Float, nullable=False, default=0)
+    unit = Column(String, nullable=False, default="count")
+    source_family = Column(String, nullable=False)  # manual, wearable, plaid, watcher, legacy_habit_log
+    provider = Column(String, nullable=True)
+    record_count = Column(Integer, nullable=False, default=0)
+    provenance_json = Column(Text, nullable=True)
+    rebuild_run_id = Column(String, ForeignKey("metric_fact_rebuild_runs.id"), nullable=True)
+    status = Column(String, nullable=False, default="complete")
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    habit = orm_relationship("HabitDB")
+    rebuild_run = orm_relationship("MetricFactRebuildRunDB")
+
+    __table_args__ = (
+        Index("idx_metric_daily_facts_unique", "user_id", "habit_id", "metric_key", "date", unique=True),
+        Index("idx_metric_daily_facts_user_date", "user_id", "date"),
+        Index("idx_metric_daily_facts_user_habit_date", "user_id", "habit_id", "date"),
+        Index("idx_metric_daily_facts_user_metric_date", "user_id", "metric_key", "date"),
     )
 
 
@@ -1124,6 +1198,7 @@ class ActivityEventDB(Base):
     __tablename__ = "activity_events"
     
     id = Column(Integer, primary_key=True, autoincrement=True)
+    event_uid = Column(String, nullable=False, default="")
     device_id = Column(String, ForeignKey("watcher_devices.device_id", ondelete="CASCADE"), nullable=False)
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     ts_start = Column(Integer, nullable=False)  # Unix ms
@@ -1138,6 +1213,20 @@ class ActivityEventDB(Base):
     browser_url = Column(String, nullable=True)  # Full URL (if url_mode = full)
     browser_domain = Column(String, nullable=True)  # Domain only (e.g., "github.com")
     is_incognito = Column(Integer, nullable=False, default=0)  # 0 = normal, 1 = incognito/private
+    device_platform = Column(String, nullable=True)
+    app_version = Column(String, nullable=True)
+    app_build = Column(String, nullable=True)
+    transition_reason = Column(String, nullable=True)
+    biome_source_file = Column(String, nullable=True)
+    biome_is_provisional = Column(Integer, nullable=False, default=0)
+    location_lat = Column(Float, nullable=True)
+    location_lon = Column(Float, nullable=True)
+    location_accuracy_m = Column(Float, nullable=True)
+    location_source = Column(String, nullable=True)
+    location_place_label = Column(String, nullable=True)
+    location_confidence = Column(Float, nullable=True)
+    location_resolved_at = Column(BigInteger, nullable=True)
+    location_signal_age_ms = Column(BigInteger, nullable=True)
     source = Column(String, nullable=False, default="ritual_watcher_v2")
     created_at = Column(Integer, nullable=False)  # Unix ms
     
@@ -1592,3 +1681,51 @@ class ReportNotificationDB(Base):
 
     report_run = orm_relationship("ReportRunDB")
     user = orm_relationship("UserDB")
+
+
+# ───────────────────────────────────────────────────────────────────────────
+# Location Tracking (Phase: Location Tracking)
+# ───────────────────────────────────────────────────────────────────────────
+
+
+class UserLocationPingDB(Base):
+    """Append-only event log of every position report from any client.
+
+    Sources: ios_scls (iPhone Significant-Change Location Service),
+    ios_one_shot, mac_one_shot, mac_bssid_trigger, garmin_workout, manual.
+    """
+    __tablename__ = "user_location_pings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    lat = Column(Float, nullable=True)  # WGS84 latitude; null for BSSID-only Mac pings
+    lon = Column(Float, nullable=True)  # WGS84 longitude; null for BSSID-only Mac pings
+    horizontal_accuracy_m = Column(Float, nullable=True)
+    source = Column(String, nullable=False)  # ios_scls, mac_one_shot, etc.
+    device_id = Column(String, nullable=True)
+    bssid = Column(String, nullable=True)  # Mac-only Wi-Fi fingerprint
+    ssid = Column(String, nullable=True)   # Mac-only Wi-Fi network name
+    client_ts = Column(BigInteger, nullable=False)  # ms since epoch when client captured
+    server_ts = Column(BigInteger, nullable=False)  # ms since epoch when backend received
+    client_event_id = Column(String, unique=True, nullable=True)  # idempotency key
+    raw_payload = Column(Text, nullable=True)  # full client JSON for debugging
+
+    __table_args__ = (
+        Index("ix_loc_pings_user_ts", "user_id", "client_ts"),
+        Index("ix_loc_pings_user_source_ts", "user_id", "source", "client_ts"),
+    )
+
+
+class UserLocationStateDB(Base):
+    """Materialized current location per user. One row per user, updated by ingest endpoint."""
+    __tablename__ = "user_location_state"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    lat = Column(Float, nullable=False)
+    lon = Column(Float, nullable=False)
+    horizontal_accuracy_m = Column(Float, nullable=True)
+    source = Column(String, nullable=False)
+    ping_client_ts = Column(BigInteger, nullable=False)  # when client captured (freshness signal)
+    updated_at = Column(BigInteger, nullable=False)  # when this row was last written
+    place_label = Column(String, nullable=True)  # reverse-geocoded, e.g. "Home", "Equinox Brooklyn"
+    place_confidence = Column(Float, nullable=True)  # 0.0-1.0

@@ -25,7 +25,7 @@ import {
   formatHabitLogDisplayTime,
 } from '@/lib/habit-log-time';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import type { HabitLog } from '@/app/(dashboard)/activity/logs-client';
+import type { HabitLog } from '@/components/habit-logs/types';
 
 interface LogDetailPanelProps {
   log: HabitLog | null;

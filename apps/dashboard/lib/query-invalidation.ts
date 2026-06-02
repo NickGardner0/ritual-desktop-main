@@ -1,127 +1,149 @@
 'use client';
 
 import type { QueryClient } from '@tanstack/react-query';
-import type { DateRange } from 'react-day-picker';
-import type { Habit, HabitLog } from '@/lib/habit-types';
+import type { Habit } from '@/lib/habit-types';
 import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
-import { buildDashboardSnapshot, dashboardSnapshotKeys } from '@/lib/dashboard/dashboard-snapshot';
+import type { HabitStats } from '@/lib/services/analytics-api';
+import { dashboardSnapshotKeys } from '@/lib/dashboard/dashboard-snapshot';
+import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
+import { mergeOverviewStatsPreservingKnownValues } from '@/lib/dashboard/overview-snapshot-merge';
 import { clearComputerActivityClientCaches } from '@/lib/computerActivity/client';
 
-const ANALYTICS_SUMMARY_KEY = 'analytics-summary';
-const USAGE_BREAKDOWN_KEY = 'usage-breakdown';
-const COMPUTER_ACTIVITY_KEY = 'computer-activity';
-const OVERVIEW_ACTIVITY_KEY = 'overview-activity';
+export const ritualQueryKeys = dashboardQueryKeys;
 
-export const ritualQueryKeys = {
-  habitsList: (userId: string) => ['habits', 'list', userId] as const,
-  habitLogsList: (userId: string) => ['habit-logs', 'list', userId] as const,
-  analyticsSummary: (userId: string) => [ANALYTICS_SUMMARY_KEY, userId] as const,
-  computerSnapshotsByUser: (userId: string) => ['computer-snapshot', userId] as const,
-  computerActivityAll: () => [COMPUTER_ACTIVITY_KEY] as const,
-  usageBreakdownAll: () => [USAGE_BREAKDOWN_KEY] as const,
-  overviewActivityByUser: (userId: string) => [OVERVIEW_ACTIVITY_KEY, userId] as const,
-};
-
-type HabitLogCacheRollback = {
-  previousHabits?: Habit[];
-  previousLogs?: HabitLog[];
-  previousSnapshots: Array<[readonly unknown[], DashboardSnapshot | undefined]>;
-};
-
-function parseSnapshotRangeKey(snapshotKey: string): DateRange | undefined {
-  if (!snapshotKey || snapshotKey === 'all-time' || !snapshotKey.includes(':')) {
-    return undefined;
-  }
-
-  const [fromRaw, toRaw] = snapshotKey.split(':');
-  if (!fromRaw || !toRaw) return undefined;
-
-  const from = new Date(`${fromRaw}T12:00:00`);
-  const to = new Date(`${toRaw}T12:00:00`);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-    return undefined;
-  }
-
-  return { from, to };
-}
-
-function rebuildDashboardSnapshotCaches(
+export function applyCanonicalOverviewSnapshot(
   queryClient: QueryClient,
   userId: string,
-  habits: Habit[],
-  habitLogs: HabitLog[],
-): Array<[readonly unknown[], DashboardSnapshot | undefined]> {
-  const snapshotEntries = queryClient.getQueriesData<DashboardSnapshot>({
-    queryKey: dashboardSnapshotKeys.byUser(userId),
-  });
+  snapshot: {
+    habits?: unknown[];
+    overviewStats?: DashboardSnapshot['overviewStats'];
+    meta?: { generatedAt?: number };
+  },
+  rangeKey = 'all-time',
+): void {
+  if (Array.isArray(snapshot.habits) && snapshot.habits.length > 0) {
+    queryClient.setQueryData(ritualQueryKeys.habits.list(userId), snapshot.habits as Habit[]);
+  }
 
-  snapshotEntries.forEach(([queryKey, snapshot]) => {
-    const snapshotKey = snapshot?.meta?.snapshotKey || 'all-time';
-    const nextSnapshot = buildDashboardSnapshot(habits, habitLogs, {
-      userId,
-      hydratedFrom: 'client-derived',
-      dateRange: parseSnapshotRangeKey(snapshotKey),
-      snapshotKey,
-    });
-    queryClient.setQueryData(queryKey, nextSnapshot);
-  });
-
-  return snapshotEntries;
+  queryClient.setQueryData<DashboardSnapshot>(
+    dashboardSnapshotKeys.detail(userId, rangeKey),
+    (previous) => ({
+      ...(previous || {
+        metricsAnalyticsData: {},
+        metricsSummaryMetrics: {},
+        metricsBarListAnalyticsData: {},
+        metricsBarListSummaryMetrics: {},
+      }),
+      overviewStats: mergeOverviewStatsPreservingKnownValues(
+        previous?.overviewStats,
+        snapshot.overviewStats,
+      ),
+      meta: {
+        ...(previous?.meta || {}),
+        userId,
+        snapshotKey: rangeKey,
+        generatedAt: snapshot.meta?.generatedAt ?? Date.now(),
+        hydratedFrom: 'server',
+      },
+    }),
+  );
 }
 
-export function applyOptimisticHabitLogUpdate(
-  queryClient: QueryClient,
-  userId: string,
-  optimisticLog: HabitLog,
-): HabitLogCacheRollback {
-  const habitsKey = ritualQueryKeys.habitsList(userId);
-  const logsKey = ritualQueryKeys.habitLogsList(userId);
-  const previousHabits = queryClient.getQueryData<Habit[]>(habitsKey);
-  const previousLogs = queryClient.getQueryData<HabitLog[]>(logsKey);
-  const previousSnapshots = queryClient.getQueriesData<DashboardSnapshot>({
-    queryKey: dashboardSnapshotKeys.byUser(userId),
-  });
+function snapshotRangeIncludesDate(snapshot: DashboardSnapshot | undefined, date: string): boolean {
+  const rangeKey = snapshot?.meta?.snapshotKey;
+  if (!rangeKey || rangeKey === 'all-time') return true;
+  const [startDate, endDate] = String(rangeKey).split(':');
+  if (!startDate || !endDate) return false;
+  return date >= startDate && date <= endDate;
+}
 
-  const touchedAtIso = new Date().toISOString();
-  const nextHabits = previousHabits
-    ? previousHabits.map((habit) =>
-        habit.id === optimisticLog.habit_id
-          ? { ...habit, updated_at: touchedAtIso }
-          : habit,
-      )
-    : previousHabits;
-
-  if (nextHabits) {
-    queryClient.setQueryData(habitsKey, nextHabits);
-  }
-
-  const nextLogs = [...(previousLogs || []), optimisticLog];
-  queryClient.setQueryData(logsKey, nextLogs);
-
-  if (nextHabits) {
-    rebuildDashboardSnapshotCaches(queryClient, userId, nextHabits, nextLogs);
-  }
+function buildOptimisticStat({
+  previous,
+  habitId,
+  habitName,
+  unit,
+  delta,
+}: {
+  previous?: HabitStats;
+  habitId: string;
+  habitName: string;
+  unit: string;
+  delta: number;
+}): HabitStats {
+  const previousTotal = Number.isFinite(previous?.total) ? Number(previous?.total) : 0;
+  const nextTotal = Math.max(0, previousTotal + delta);
+  const previousEntries = Number.isFinite(previous?.total_entries) ? Number(previous?.total_entries) : 0;
+  const totalEntries = Math.max(1, previousEntries + 1);
+  const previousDays = Number.isFinite(previous?.days_with_data) ? Number(previous?.days_with_data) : 0;
+  const daysWithData = Math.max(1, previousDays);
+  const average = daysWithData > 0 ? nextTotal / daysWithData : nextTotal;
 
   return {
-    previousHabits,
-    previousLogs,
-    previousSnapshots,
+    id: previous?.id || habitId,
+    name: previous?.name || habitName,
+    category: previous?.category || '',
+    unit: previous?.unit || unit,
+    total: nextTotal,
+    average,
+    min: previous ? Math.min(previous.min ?? delta, delta) : delta,
+    max: previous ? Math.max(previous.max ?? delta, delta) : delta,
+    variance: previous?.variance ?? 0,
+    std_dev: previous?.std_dev ?? 0,
+    days_with_data: daysWithData,
+    total_entries: totalEntries,
+    summary: `${previous?.name || habitName}: ${nextTotal.toFixed(2)} total`,
   };
 }
 
-export function rollbackOptimisticHabitLogUpdate(
+export function applyOptimisticOverviewStatDelta(
   queryClient: QueryClient,
   userId: string,
-  rollback: HabitLogCacheRollback | undefined,
-): void {
-  if (!rollback) return;
+  {
+    habitId,
+    habitName,
+    unit,
+    delta,
+    date,
+  }: {
+    habitId: string;
+    habitName: string;
+    unit: string;
+    delta: number;
+    date: string;
+  },
+): () => void {
+  const queryKey = dashboardSnapshotKeys.byUser(userId);
+  const previousEntries = queryClient.getQueriesData<DashboardSnapshot>({ queryKey });
 
-  queryClient.setQueryData(ritualQueryKeys.habitsList(userId), rollback.previousHabits);
-  queryClient.setQueryData(ritualQueryKeys.habitLogsList(userId), rollback.previousLogs);
+  queryClient.setQueriesData<DashboardSnapshot>({ queryKey }, (previous) => {
+    if (!previous || !snapshotRangeIncludesDate(previous, date)) return previous;
+    const previousStats = previous.overviewStats || {};
+    const previousStat = previousStats[habitId];
 
-  rollback.previousSnapshots.forEach(([queryKey, snapshot]) => {
-    queryClient.setQueryData(queryKey, snapshot);
+    return {
+      ...previous,
+      overviewStats: {
+        ...previousStats,
+        [habitId]: buildOptimisticStat({
+          previous: previousStat,
+          habitId,
+          habitName,
+          unit,
+          delta,
+        }),
+      },
+      meta: {
+        ...previous.meta,
+        generatedAt: Date.now(),
+      },
+    };
   });
+
+  return () => {
+    for (const [entryKey, data] of previousEntries) {
+      queryClient.setQueryData(entryKey, data);
+    }
+  };
 }
 
 export async function invalidateHabitData(
@@ -130,10 +152,14 @@ export async function invalidateHabitData(
 ): Promise<void> {
   const queryUserId = userId ?? 'anonymous';
   await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.habitsList(queryUserId) }),
-    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.habitLogsList(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.habits.list(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.habitLogs.list(queryUserId) }),
     queryClient.invalidateQueries({ queryKey: ritualQueryKeys.analyticsSummary(queryUserId) }),
     queryClient.invalidateQueries({ queryKey: dashboardSnapshotKeys.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.overviewSnapshot.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.metricsSnapshot.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.logsReadModel.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.calendarReadModel.byUser(queryUserId) }),
   ]);
 }
 
@@ -148,6 +174,9 @@ export async function invalidateComputerData(
     queryClient.invalidateQueries({ queryKey: ritualQueryKeys.computerActivityAll() }),
     queryClient.invalidateQueries({ queryKey: ritualQueryKeys.usageBreakdownAll() }),
     queryClient.invalidateQueries({ queryKey: ritualQueryKeys.overviewActivityByUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.overviewSnapshot.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.metricsSnapshot.byUser(queryUserId) }),
+    queryClient.invalidateQueries({ queryKey: ritualQueryKeys.calendarReadModel.byUser(queryUserId) }),
   ]);
 }
 
@@ -159,4 +188,32 @@ export async function invalidateAfterComputerSync(
     invalidateHabitData(queryClient, userId),
     invalidateComputerData(queryClient, userId),
   ]);
+}
+
+export async function invalidateAfterHabitWrite(
+  queryClient: QueryClient,
+  userId?: string | null,
+): Promise<void> {
+  await invalidateHabitData(queryClient, userId);
+}
+
+export async function invalidateAfterWearableSync(
+  queryClient: QueryClient,
+  userId?: string | null,
+): Promise<void> {
+  await invalidateHabitData(queryClient, userId);
+}
+
+export async function invalidateAfterActivitySync(
+  queryClient: QueryClient,
+  userId?: string | null,
+): Promise<void> {
+  await invalidateAfterComputerSync(queryClient, userId);
+}
+
+export async function invalidateAfterImport(
+  queryClient: QueryClient,
+  userId?: string | null,
+): Promise<void> {
+  await invalidateHabitData(queryClient, userId);
 }

@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
-from libsql_client import Client, create_client
+from libsql_client import Client, Statement, create_client
 
 from services.turso_user_service import turso_user_service
 
@@ -131,3 +131,37 @@ async def fetch_remote_activity_rows(
             rows=[],
             error=str(exc),
         )
+
+
+async def execute_remote_activity_batch(
+    user_id: str,
+    statements: Sequence[Statement],
+) -> bool:
+    """Execute a write batch against the user's canonical activity database.
+
+    Returns ``False`` when the user is still on the legacy/local fallback path.
+    Any remote write failure is raised so callers can preserve local outboxes
+    and retry later instead of silently dropping activity events.
+    """
+    if not statements:
+        return True
+
+    user = await turso_user_service.ensure_user_activity_database(user_id)
+    if user is not None and user.turso_db_name and user.turso_db_url:
+        await turso_user_service._ensure_remote_schema_once(  # noqa: SLF001 - shared internal schema gate
+            user_id,
+            user.turso_db_url,
+            user.turso_db_name,
+        )
+
+    access = await turso_user_service.get_user_activity_access(user_id)
+    if not access.use_per_user_db:
+        return False
+
+    bundle = await _get_or_create_bundle(user_id)
+    if bundle is None:
+        raise RuntimeError("per-user Turso activity bundle unavailable")
+
+    for index in range(0, len(statements), 100):
+        await bundle.client.batch(list(statements[index:index + 100]))
+    return True
