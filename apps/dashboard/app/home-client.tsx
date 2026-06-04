@@ -10,17 +10,11 @@ import { ArrowRight } from 'lucide-react';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
-  clearBackendOnboardingCompleted,
   clearFromWelcomeFlow,
-  getPostOnboardingRoute,
-  hasCompletedBackendOnboarding,
-  hasCompletedOnboarding,
   hasDeviceAuthenticated,
   hasPendingSignUpIntent,
   markDeviceAuthenticated,
   markFromWelcomeFlow,
-  markOnboardingCompleted,
-  markPermissionsOnboardingRequired,
 } from '@/lib/onboarding-flow';
 
 const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
@@ -161,17 +155,6 @@ export function HomeClient() {
       return;
     }
 
-    const hasCompletedWelcomeFlow = hasCompletedOnboarding(user.id);
-    const hasCompletedBackendStep = hasCompletedBackendOnboarding(user.id);
-
-    if (desktopApp && !hasExplicitWelcomeIntent && (hasCompletedWelcomeFlow || hasCompletedBackendStep)) {
-      lastCheckedUserIdRef.current = user.id;
-      setIsNewUser(false);
-      setIsChecking(false);
-      router.replace(getPostOnboardingRoute('/dashboard', user.id));
-      return;
-    }
-
     lastCheckedUserIdRef.current = user.id;
     setIsChecking(true);
 
@@ -185,55 +168,36 @@ export function HomeClient() {
         });
 
         if (!token) {
-          router.replace('/onboarding');
+          router.replace('/sign-in');
           return;
         }
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
+        const response = await fetch('/api/user/bootstrap', {
+          cache: 'no-store',
           headers: {
             'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-Ritual-Force-Fresh': '1',
           },
           signal: controller.signal
         }).catch((err) => {
-          console.error('Profile fetch error:', err);
+          console.error('Bootstrap fetch error:', err);
           return null;
         }).finally(() => clearTimeout(timeoutId));
 
         if (response && response.ok) {
-          const profile = await response.json();
-          const localOnboardingCompleted = hasCompletedBackendOnboarding(user.id);
-
-          if (profile.onboarding_completed || localOnboardingCompleted) {
-            markOnboardingCompleted(user.id);
-            router.replace(getPostOnboardingRoute('/dashboard', user.id));
-          } else {
-            try {
-              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              if (habitsResponse.ok) {
-                const habits = await habitsResponse.json();
-                if (habits && habits.length > 0) {
-                  markOnboardingCompleted(user.id);
-                  router.replace(getPostOnboardingRoute('/dashboard', user.id));
-                  return;
-                }
-              }
-            } catch (e) {
-              console.log('Could not check habits, proceeding with onboarding check');
-            }
-            router.replace('/onboarding');
-          }
+          const bootstrap = await response.json();
+          const nextRoute = typeof bootstrap?.nextRoute === 'string' ? bootstrap.nextRoute : '/dashboard';
+          router.replace(nextRoute);
         } else {
-          router.replace(getPostOnboardingRoute('/dashboard', user.id));
+          router.replace('/sign-in');
         }
       } catch (error) {
-        console.error('Error checking profile:', error);
-        router.replace(getPostOnboardingRoute('/dashboard', user.id));
+        console.error('Error checking bootstrap:', error);
+        router.replace('/sign-in');
       }
     };
 
@@ -243,20 +207,9 @@ export function HomeClient() {
   // Handle signed in users during welcome flow
   useEffect(() => {
     if (isLoaded && isSignedIn && isNewUser) {
-      const hasCompletedWelcomeFlow = hasCompletedOnboarding(user?.id);
-      const hasCompletedBackendStep = hasCompletedBackendOnboarding(user?.id);
-
-      // If returning from backend onboarding, continue to page 4
-      if (hasCompletedBackendStep && pageParam === '4') {
-        return;
-      }
-
-      // If fully completed, go to dashboard
-      if (hasCompletedWelcomeFlow) {
-        router.replace(getPostOnboardingRoute('/dashboard', user?.id));
-      }
+      router.replace('/dashboard');
     }
-  }, [isSignedIn, isLoaded, isNewUser, router, pageParam, user?.id]);
+  }, [isSignedIn, isLoaded, isNewUser, router]);
 
   // Set flag when user reaches page 3 (auth page)
   useEffect(() => {
@@ -267,11 +220,8 @@ export function HomeClient() {
 
   const handleNext = () => {
     if (currentPage === TOTAL_PAGES) {
-      markOnboardingCompleted(user?.id);
       clearFromWelcomeFlow();
-      clearBackendOnboardingCompleted(user?.id);
-      markPermissionsOnboardingRequired(user?.id);
-      router.push(getPostOnboardingRoute('/dashboard', user?.id));
+      router.push('/dashboard');
       return;
     }
     setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES));

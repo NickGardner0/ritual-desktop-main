@@ -160,6 +160,92 @@
         "title": "ActionProfileUpdate",
         "type": "object"
       },
+      "ActivationChecklistItem": {
+        "properties": {
+          "key": {
+            "enum": [
+              "mac_activity",
+              "apple_health",
+              "oura",
+              "whoop",
+              "garmin",
+              "ai_voice",
+              "reminders"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "ActivationChecklistItem",
+        "type": "object"
+      },
+      "ActivationState": {
+        "properties": {
+          "activationCompleted": {
+            "default": false,
+            "title": "Activationcompleted",
+            "type": "boolean"
+          },
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/ActivationChecklistItem"
+            },
+            "title": "Checklist",
+            "type": "array"
+          },
+          "firstHabitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firsthabitid"
+          },
+          "firstLogId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firstlogid"
+          }
+        },
+        "title": "ActivationState",
+        "type": "object"
+      },
       "ActivityEventCreate": {
         "properties": {
           "app_bundle_id": {
@@ -2621,6 +2707,109 @@
         "title": "Body_preview_screenshot_analysis_api_screenshot_preview_post",
         "type": "object"
       },
+      "BootstrapProfileUpdate": {
+        "properties": {
+          "fullName": {
+            "title": "Fullname",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fullName",
+          "timezone"
+        ],
+        "title": "BootstrapProfileUpdate",
+        "type": "object"
+      },
+      "BootstrapUser": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fullname"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "BootstrapUser",
+        "type": "object"
+      },
+      "ChecklistUpdateRequest": {
+        "properties": {
+          "key": {
+            "enum": [
+              "mac_activity",
+              "apple_health",
+              "oura",
+              "whoop",
+              "garmin",
+              "ai_voice",
+              "reminders"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "status": {
+            "enum": [
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "ChecklistUpdateRequest",
+        "type": "object"
+      },
       "ColumnMapping": {
         "description": "Mapping configuration for a single column in CSV import",
         "properties": {
@@ -3532,6 +3721,85 @@
           "auto_sync_enabled"
         ],
         "title": "FinancialSyncSettingsUpdateRequest",
+        "type": "object"
+      },
+      "FirstBehaviorRequest": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "clientEventId": {
+            "title": "Clienteventid",
+            "type": "string"
+          },
+          "completedAt": {
+            "title": "Completedat",
+            "type": "string"
+          },
+          "customName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customname"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "templateKey": {
+            "enum": [
+              "sleep",
+              "exercise",
+              "focus",
+              "mood",
+              "custom"
+            ],
+            "title": "Templatekey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateKey",
+          "date",
+          "completedAt",
+          "clientEventId"
+        ],
+        "title": "FirstBehaviorRequest",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -5805,6 +6073,24 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "IntegrationActivationStatus": {
+        "properties": {
+          "status": {
+            "default": "not_started",
+            "enum": [
+              "not_started",
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "IntegrationActivationStatus",
+        "type": "object"
+      },
       "LiveBiometricsOut": {
         "properties": {
           "connection_state": {
@@ -7880,6 +8166,55 @@
         "title": "Unit",
         "type": "string"
       },
+      "UserBootstrapResponse": {
+        "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/ActivationState"
+          },
+          "firstBehaviorLogged": {
+            "title": "Firstbehaviorlogged",
+            "type": "boolean"
+          },
+          "integrations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/IntegrationActivationStatus"
+            },
+            "title": "Integrations",
+            "type": "object"
+          },
+          "nextRoute": {
+            "title": "Nextroute",
+            "type": "string"
+          },
+          "permissionsSeen": {
+            "title": "Permissionsseen",
+            "type": "boolean"
+          },
+          "profileComplete": {
+            "title": "Profilecomplete",
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/BootstrapUser"
+          },
+          "userExists": {
+            "default": true,
+            "title": "Userexists",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profileComplete",
+          "firstBehaviorLogged",
+          "permissionsSeen",
+          "user",
+          "activation",
+          "integrations",
+          "nextRoute"
+        ],
+        "title": "UserBootstrapResponse",
+        "type": "object"
+      },
       "UserProfile": {
         "description": "User profile response",
         "properties": {
@@ -7962,6 +8297,17 @@
               }
             ],
             "title": "Phone Number"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           },
           "tracking_interests": {
             "anyOf": [
@@ -18112,6 +18458,168 @@
           }
         ],
         "summary": "Update Ui Preferences"
+      }
+    },
+    "/api/user/activation/checklist": {
+      "patch": {
+        "operationId": "update_activation_checklist_api_user_activation_checklist_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecklistUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Activation Checklist",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/activation/first-behavior": {
+      "post": {
+        "operationId": "create_first_behavior_api_user_activation_first_behavior_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirstBehaviorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create First Behavior",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/bootstrap": {
+      "get": {
+        "operationId": "get_user_bootstrap_api_user_bootstrap_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Bootstrap",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/bootstrap/profile": {
+      "patch": {
+        "operationId": "update_user_bootstrap_profile_api_user_bootstrap_profile_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Bootstrap Profile",
+        "tags": [
+          "core"
+        ]
       }
     },
     "/api/user/location-pings": {

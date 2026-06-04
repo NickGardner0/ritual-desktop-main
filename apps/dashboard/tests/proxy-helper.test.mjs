@@ -41,10 +41,11 @@ try {
   realImport = true;
 } catch {
   // Fallback: replicate the logic
-  buildBackendAuthHeaders = ({ userId, token, contentType = "application/json" }) => {
+  buildBackendAuthHeaders = ({ userId, token, contentType = "application/json", forceFresh = false }) => {
     const headers = {};
     if (contentType) headers["Content-Type"] = contentType;
     if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (forceFresh) headers["X-Ritual-Force-Fresh"] = "1";
     return headers;
   };
   matchBackendOpenApiPath = (path) => {
@@ -104,6 +105,11 @@ describe(`buildBackendAuthHeaders (real=${realImport})`, () => {
         process.env.INTERNAL_API_KEY = origKey;
       }
     }
+  });
+
+  test("forceFresh produces X-Ritual-Force-Fresh header", () => {
+    const h = buildBackendAuthHeaders({ userId: "u1", token: "jwt-abc", forceFresh: true });
+    assert.equal(h["X-Ritual-Force-Fresh"], "1");
   });
 });
 

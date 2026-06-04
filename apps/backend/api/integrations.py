@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from database.connection import get_db_session
 from database.models import WearableEventDB, WhoopIntegrationDB
 from services.unified_wearables_service import wearable_connection_service
+from services.activation_service import activation_service
 from services.wearable_provider_sync_registry import (
     WearableProviderSyncServices,
     sync_wearable_provider_account,
@@ -64,6 +65,8 @@ def create_whoop_router(
             force_full_sync=force_full_sync,
             full_history=full_history,
         )
+        if result.status in {"retryable_failed", "terminal_failed"}:
+            raise RuntimeError((result.error or {}).get("message") or result.message)
         return result.data
 
     async def _whoop_sleep_status(user_id: str, canonical: Any = None) -> dict[str, Any]:
@@ -142,6 +145,11 @@ def create_whoop_router(
                 expires_in=token_data.get("expires_in", 3600),
                 whoop_user_id=str(user_info["user_id"]),
                 scope=token_data.get("scope"),
+            )
+            await activation_service.mark_checklist_completed(
+                user_id=user_id,
+                key="whoop",
+                metadata={"source": "whoop_callback"},
             )
             logger.info("Whoop integration saved for user %s", user_id)
 

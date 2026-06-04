@@ -34,6 +34,7 @@ def user_db_to_profile(user: UserDB) -> UserProfile:
         email=user.email,
         full_name=user.full_name or "",
         phone_number=user.phone_number,
+        timezone=user.timezone,
         age_bracket=user.age_bracket,
         gender=user.gender,
         country=user.country,
@@ -78,4 +79,3 @@ def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
         source=log.source,
         log_metadata=log.log_metadata,
     )
-

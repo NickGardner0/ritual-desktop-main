@@ -2,7 +2,7 @@
 SQLAlchemy database models
 """
 
-from sqlalchemy import Column, String, Boolean, Integer, BigInteger, Float, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, String, Boolean, Integer, BigInteger, Float, DateTime, Text, ForeignKey, Index, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship as orm_relationship
 from datetime import datetime, timezone
@@ -106,6 +106,52 @@ class HabitLogDB(Base):
     __table_args__ = (
         Index("idx_habit_logs_habit_date", "habit_id", "date"),
         Index("idx_habit_logs_habit_status_date", "habit_id", "status", "date"),
+        Index(
+            "idx_habit_logs_first_run_client_event",
+            "client_event_id",
+            unique=True,
+            sqlite_where=text("client_event_id IS NOT NULL AND source = 'first_run'"),
+        ),
+    )
+
+
+class UserActivationStateDB(Base):
+    """Durable first-run activation state for a user's personal setup."""
+    __tablename__ = "user_activation_state"
+
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    profile_completed_at = Column(DateTime, nullable=True)
+    first_habit_id = Column(String, ForeignKey("habits.id", ondelete="SET NULL"), nullable=True)
+    first_log_id = Column(String, ForeignKey("habit_logs.id", ondelete="SET NULL"), nullable=True)
+    first_behavior_logged_at = Column(DateTime, nullable=True)
+    permissions_seen_at = Column(DateTime, nullable=True)
+    activation_completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+    first_habit = orm_relationship("HabitDB")
+    first_log = orm_relationship("HabitLogDB")
+
+
+class UserActivationChecklistItemDB(Base):
+    """Persisted activation checklist status for optional integrations and permissions."""
+    __tablename__ = "user_activation_checklist_items"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    key = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="not_started")
+    metadata_json = Column(Text, nullable=True)
+    seen_at = Column(DateTime, nullable=True)
+    skipped_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+
+    user = orm_relationship("UserDB")
+
+    __table_args__ = (
+        Index("idx_activation_checklist_user_key", "user_id", "key", unique=True),
     )
 
 
