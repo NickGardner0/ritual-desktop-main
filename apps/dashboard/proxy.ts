@@ -11,6 +11,7 @@ const isPublicRoute = createRouteMatcher([
   '/data-retention(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/auth/callback(.*)',
   '/auth/sso-callback(.*)',
   '/auth/desktop-start-oauth(.*)',
   '/auth/desktop-oauth-bridge(.*)',
