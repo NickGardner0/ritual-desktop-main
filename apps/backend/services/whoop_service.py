@@ -18,10 +18,14 @@ from database.connection import get_db_session
 from services.tinybird_service import TinybirdService
 from services.token_crypto import token_crypto
 from services.whoop_api_client import WhoopApiClient
-from services.whoop_tinybird_sink import ingest_whoop_tinybird
+from services.whoop_sync_payload import (
+    affected_metric_fact_dates,
+    fetch_whoop_sync_payload as fetch_whoop_sync_payload_impl,
+    latest_sleep_record_metadata,
+    write_whoop_sync_payload as write_whoop_sync_payload_impl,
+)
 from services.unified_wearables_service import (
     wearable_connection_service,
-    wearable_sync_service,
 )
 
 logger = logging.getLogger(__name__)
@@ -64,49 +68,7 @@ class WhoopService:
 
     @staticmethod
     def _latest_sleep_record_metadata(sleep_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-        records = list((sleep_data or {}).get("records") or [])
-        candidates: List[tuple[str, Dict[str, Any]]] = []
-        for record in records:
-            if not isinstance(record, dict):
-                continue
-            sort_key = str(record.get("end") or record.get("start") or "")
-            if sort_key:
-                candidates.append((sort_key, record))
-
-        if not candidates:
-            return {
-                "latest_upstream_sleep_date": None,
-                "latest_upstream_sleep_start": None,
-                "latest_upstream_sleep_end": None,
-                "latest_upstream_sleep_score_state": None,
-                "latest_upstream_sleep_id": None,
-                "latest_upstream_sleep_cycle_id": None,
-            }
-
-        _, latest = max(candidates, key=lambda item: item[0])
-        sleep_end = str(latest.get("end") or "")
-        sleep_start = str(latest.get("start") or "")
-        date_value = (sleep_end or sleep_start)[:10] or None
-        return {
-            "latest_upstream_sleep_date": date_value,
-            "latest_upstream_sleep_start": sleep_start or None,
-            "latest_upstream_sleep_end": sleep_end or None,
-            "latest_upstream_sleep_score_state": latest.get("score_state"),
-            "latest_upstream_sleep_id": latest.get("id"),
-            "latest_upstream_sleep_cycle_id": latest.get("cycle_id"),
-        }
-
-    @staticmethod
-    def _record_date(record: Dict[str, Any], *keys: str) -> Optional[str]:
-        for key in keys:
-            value = record.get(key)
-            if isinstance(value, datetime):
-                return value.date().isoformat()
-            if value:
-                date_value = str(value)[:10]
-                if len(date_value) == 10:
-                    return date_value
-        return None
+        return latest_sleep_record_metadata(sleep_data)
 
     @classmethod
     def _affected_metric_fact_dates(
@@ -117,33 +79,12 @@ class WhoopService:
         workout_data: Optional[Dict[str, Any]],
         cycle_data: Optional[Dict[str, Any]],
     ) -> List[str]:
-        dates: set[str] = set()
-
-        for record in (sleep_data or {}).get("records") or []:
-            if isinstance(record, dict):
-                date_value = cls._record_date(record, "end", "start", "updated_at", "created_at")
-                if date_value:
-                    dates.add(date_value)
-
-        for record in (workout_data or {}).get("records") or []:
-            if isinstance(record, dict):
-                date_value = cls._record_date(record, "start", "end", "updated_at", "created_at")
-                if date_value:
-                    dates.add(date_value)
-
-        for record in (recovery_data or {}).get("records") or []:
-            if isinstance(record, dict):
-                date_value = cls._record_date(record, "created_at", "updated_at", "start", "end")
-                if date_value:
-                    dates.add(date_value)
-
-        for record in (cycle_data or {}).get("records") or []:
-            if isinstance(record, dict):
-                date_value = cls._record_date(record, "start", "end", "updated_at", "created_at")
-                if date_value:
-                    dates.add(date_value)
-
-        return sorted(dates)
+        return affected_metric_fact_dates(
+            recovery_data=recovery_data,
+            sleep_data=sleep_data,
+            workout_data=workout_data,
+            cycle_data=cycle_data,
+        )
 
     async def _request_with_retry(
         self,
@@ -570,273 +511,20 @@ class WhoopService:
         force_full_sync: bool = False,
         full_history: bool = False,
     ) -> Dict[str, Any]:
-        """
-        Sync data from Whoop API with smart incremental syncing.
-        
-        - First sync: fetches a configurable historical window (default 30 days)
-        - Same-user reconnects: resume from prior checkpoint with a short safety overlap
-        - Subsequent syncs: only fetches data since last sync (with safety overlap)
-        - force_full_sync=True: always fetches the default historical window
-        - full_history=True: fetches the extended historical window for deep backfills
-        - days_back override: manual control over sync range (up to MAX_MANUAL_SYNC_DAYS)
-        """
-        access_token = await self.get_valid_access_token(user_id)
-        
-        if not access_token:
-            raise Exception("Whoop integration not found or token invalid")
-        
-        # Get integration to check last sync time
-        integration = await self.get_integration(user_id)
-        enabled_metrics = await self._get_enabled_whoop_sync_metrics(user_id)
-        logger.info(f"📋 Whoop metric mappings enabled: {enabled_metrics}")
-        
-        synced_data = {
-            "recovery": 0,
-            "sleep": 0,
-            "workouts": 0,
-            "cycles": 0  # Daily metrics including steps
-        }
-        
-        # Smart date range calculation
-        end_date = datetime.utcnow()
-        default_initial_sync_days = max(self.DEFAULT_INITIAL_SYNC_DAYS, 1)
-        overlap_days = max(self.DEFAULT_RECONNECT_OVERLAP_DAYS, 1)
-        
-        if full_history:
-            full_history_days = max(self.DEFAULT_FULL_HISTORY_SYNC_DAYS, default_initial_sync_days)
-            start_date = end_date - timedelta(days=full_history_days)
-            logger.info(
-                f"📅 Full history sync requested: fetching last {full_history_days} days"
-            )
-        elif days_back is not None:
-            # Manual override - use the requested window, clamped to a safe upper bound.
-            requested_days = max(int(days_back), 1)
-            sync_days = min(requested_days, self.MAX_MANUAL_SYNC_DAYS)
-            start_date = end_date - timedelta(days=sync_days)
-            if sync_days != requested_days:
-                logger.info(
-                    f"📅 Manual sync request clamped from {requested_days} to {sync_days} days"
-                )
-            else:
-                logger.info(f"📅 Manual sync: fetching last {sync_days} days")
-        elif force_full_sync:
-            # Force a historical refresh using the default first-sync window.
-            start_date = end_date - timedelta(days=default_initial_sync_days)
-            logger.info(
-                f"📅 Full sync requested: fetching last {default_initial_sync_days} days"
-            )
-        elif integration and integration.last_sync_at:
-            # Incremental sync - fetch since last sync with a short overlap for safety
-            # The overlap ensures we don't miss any data due to timezone issues or partial syncs
-            last_sync = integration.last_sync_at
-            days_since_sync = (end_date - last_sync).days
-            
-            # Add the safety overlap, but minimum 1 day, maximum manual window cap
-            sync_days = min(max(days_since_sync + overlap_days, 1), self.MAX_MANUAL_SYNC_DAYS)
-            start_date = end_date - timedelta(days=sync_days)
-            
-            logger.info(
-                f"📅 Incremental sync: last sync was {days_since_sync} days ago, "
-                f"fetching last {sync_days} days"
-            )
-        else:
-            inferred_last_sync = await self._infer_last_sync_from_stored_data(user_id)
-            if inferred_last_sync:
-                days_since_sync = (end_date - inferred_last_sync).days
-                sync_days = min(max(days_since_sync + overlap_days, 1), self.MAX_MANUAL_SYNC_DAYS)
-                start_date = end_date - timedelta(days=sync_days)
-                logger.info(
-                    f"📅 Recovered incremental sync: inferred checkpoint was {days_since_sync} days ago, "
-                    f"fetching last {sync_days} days"
-                )
-            else:
-                # First sync - fetch the default historical window.
-                start_date = end_date - timedelta(days=default_initial_sync_days)
-                logger.info(
-                    f"📅 First sync: fetching last {default_initial_sync_days} days of historical data"
-                )
-        
-        try:
-            fetched = await self.api_client.fetch_enabled_data(
-                access_token=access_token,
-                start_date=start_date,
-                end_date=end_date,
-                enabled_metrics=enabled_metrics,
-            )
-        except Exception as e:
-            logger.warning(f"⚠️  Error fetching Whoop data: {str(e)}")
-            raise
-
-        if not fetched.any_api_success:
-            total_records = sum(fetched.synced_data.values())
-            if total_records == 0:
-                raise Exception(
-                    "Whoop API authentication failed - all requests returned 401. "
-                    "Please disconnect and reconnect your Whoop integration to get fresh tokens."
-                )
-
-        return {
-            "user_id": user_id,
-            "access_token": access_token,
-            "integration": {
-                "id": integration.id if integration else user_id,
-                "whoop_user_id": integration.whoop_user_id if integration else user_id,
-                "refresh_token": integration.refresh_token if integration else None,
-                "token_expires_at": integration.token_expires_at if integration else None,
-                "whoop_sync_hour": integration.whoop_sync_hour if integration else 9,
-            },
-            "start_date": start_date,
-            "end_date": end_date,
-            "recovery_data": fetched.recovery_data,
-            "sleep_data": fetched.sleep_data,
-            "workout_data": fetched.workout_data,
-            "cycle_data": fetched.cycle_data,
-            "synced_data": fetched.synced_data,
-            "any_api_success": fetched.any_api_success,
-        }
+        return await fetch_whoop_sync_payload_impl(
+            self,
+            user_id,
+            days_back=days_back,
+            force_full_sync=force_full_sync,
+            full_history=full_history,
+        )
 
     async def write_whoop_sync_payload(
         self,
         user_id: str,
         payload: Dict[str, Any],
     ) -> Dict[str, Any]:
-        integration = payload["integration"]
-        access_token = payload["access_token"]
-        start_date = payload["start_date"]
-        end_date = payload["end_date"]
-        recovery_data = payload.get("recovery_data")
-        sleep_data: Dict[str, Any] = payload.get("sleep_data") or {"records": []}
-        workout_data = payload.get("workout_data")
-        cycle_data = payload.get("cycle_data")
-        synced_data = payload.get("synced_data") or {"recovery": 0, "sleep": 0, "workouts": 0, "cycles": 0}
-        canonical_sync_succeeded = False
-        metric_facts_result: Optional[Dict[str, Any]] = None
-        metric_facts_error: Optional[str] = None
-        canonical_sync_error: Optional[str] = None
-
-        if self.tinybird_enabled:
-            try:
-                await ingest_whoop_tinybird(
-                    self.tinybird,
-                    user_id=user_id,
-                    whoop_connection_id=integration["id"],
-                    recovery_data=recovery_data,
-                    sleep_data=sleep_data,
-                    workout_data=workout_data,
-                    cycle_data=cycle_data,
-                )
-                logger.info("✅ Whoop data synced to Tinybird for analytics")
-            except Exception as tb_error:
-                logger.warning(f"⚠️  Tinybird ingestion failed (non-fatal): {str(tb_error)}")
-
-        try:
-            canonical_result = await wearable_sync_service.ingest_whoop_data(
-                user_id=user_id,
-                provider_user_id=integration["whoop_user_id"],
-                recovery_data=recovery_data,
-                sleep_data=sleep_data,
-                workout_data=workout_data,
-                cycle_data=cycle_data,
-                access_token=access_token,
-                refresh_token=integration["refresh_token"],
-                token_expires_at=integration["token_expires_at"],
-            )
-            canonical_sync_succeeded = bool(canonical_result.get("post_ingest_success", True))
-            metric_facts_result = canonical_result.get("metric_facts")
-            metric_facts_error = canonical_result.get("metric_facts_error")
-            canonical_sync_error = metric_facts_error
-            if canonical_sync_succeeded:
-                logger.info("✅ Whoop data synced through canonical wearable storage and post-ingest")
-            else:
-                logger.warning(
-                    "⚠️  Whoop canonical wearable sync completed but post-ingest failed: %s",
-                    canonical_sync_error,
-                )
-        except Exception as db_error:
-            canonical_sync_error = str(db_error)
-            metric_facts_error = canonical_sync_error
-            logger.warning(f"⚠️  Canonical wearable sync failed (non-fatal): {canonical_sync_error}")
-
-        if canonical_sync_succeeded:
-            try:
-                latest_cycle_date = None
-                if cycle_data and cycle_data.get("records"):
-                    latest_cycle_date = max(
-                        (
-                            str(record.get("start", ""))[:10]
-                            for record in cycle_data["records"]
-                            if record.get("start")
-                        ),
-                        default=None,
-                    )
-                latest_sleep_metadata = self._latest_sleep_record_metadata(sleep_data)
-
-                await wearable_connection_service.get_or_create_connection(
-                    user_id=user_id,
-                    provider="whoop",
-                    auth_method="oauth",
-                    provider_user_id=integration["whoop_user_id"],
-                    access_token=access_token,
-                    refresh_token=integration["refresh_token"],
-                    token_expires_at=integration["token_expires_at"],
-                    settings={
-                        "whoop_sync_hour": integration["whoop_sync_hour"] or 9,
-                        "sync_hour": integration["whoop_sync_hour"] or 9,
-                        "auto_sync_enabled": True,
-                        "latest_upstream_cycle_date": latest_cycle_date,
-                        **latest_sleep_metadata,
-                    },
-                    status="active",
-                )
-            except Exception as connection_error:
-                logger.warning(f"⚠️  Failed to persist Whoop upstream sync metadata: {str(connection_error)}")
-        else:
-            logger.warning(
-                "⚠️  Skipping Whoop sync metadata/checkpoint update because canonical post-ingest did not succeed"
-            )
-
-        if canonical_sync_succeeded:
-            async with get_db_session() as session:
-                try:
-                    synced_at = datetime.utcnow()
-
-                    # Route the write through the sync bridge to avoid libsql async
-                    # cursor cleanup bugs that surface after an otherwise successful sync.
-                    def _mark_synced(sync_session):
-                        sync_session.execute(
-                            update(WhoopIntegrationDB)
-                            .where(WhoopIntegrationDB.user_id == user_id)
-                            .where(WhoopIntegrationDB.is_active == True)
-                            .values(last_sync_at=synced_at)
-                        )
-
-                    await session.run_sync(_mark_synced)
-                    await session.commit()
-                except SQLAlchemyError as e:
-                    logger.warning(f"⚠️  Error updating last_sync_at: {str(e)}")
-        else:
-            logger.warning(
-                "⚠️  Preserving Whoop last_sync_at because canonical ingest/post-ingest failed: %s",
-                canonical_sync_error or metric_facts_error or "unknown error",
-            )
-        
-        # Calculate days synced for the response
-        days_synced = (end_date - start_date).days
-        
-        return {
-            "status": "success" if canonical_sync_succeeded else "partial",
-            "synced_at": datetime.utcnow().isoformat(),
-            "sync_period": {
-                "start_date": start_date.strftime('%Y-%m-%d'),
-                "end_date": end_date.strftime('%Y-%m-%d'),
-                "days": days_synced
-            },
-            "data": synced_data,
-            "data_freshness": self._latest_sleep_record_metadata(sleep_data),
-            "metric_facts": metric_facts_result,
-            "metric_facts_error": metric_facts_error,
-            "canonical_sync_error": canonical_sync_error,
-        }
+        return await write_whoop_sync_payload_impl(self, user_id, payload)
 
     async def sync_whoop_data(
         self,

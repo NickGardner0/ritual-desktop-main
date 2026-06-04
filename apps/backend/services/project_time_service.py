@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from services.turso_activity_schema import apply_project_time_schema
 from services.watcher_service_local_db import open_activity_connection_for_user
 
 logger = logging.getLogger(__name__)
@@ -22,83 +23,6 @@ logger = logging.getLogger(__name__)
 ATTRIBUTION_VERSION = "project_time_v1"
 SESSION_GAP_MS = 5 * 60 * 1000
 MIN_CONFIDENCE = 0.45
-
-
-PROJECT_TIME_SCHEMA = (
-    """
-    CREATE TABLE IF NOT EXISTS project_time_sessions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        session_uid TEXT NOT NULL UNIQUE,
-        user_id TEXT NOT NULL,
-        device_id TEXT NOT NULL,
-        date TEXT NOT NULL,
-        timezone TEXT NOT NULL DEFAULT 'local',
-        start_ts INTEGER NOT NULL,
-        end_ts INTEGER NOT NULL,
-        active_ms INTEGER NOT NULL DEFAULT 0,
-        afk_ms INTEGER NOT NULL DEFAULT 0,
-        project_key TEXT NOT NULL,
-        project_name TEXT NOT NULL,
-        task_key TEXT NOT NULL,
-        task_name TEXT NOT NULL,
-        classification_source TEXT NOT NULL DEFAULT 'rules',
-        confidence REAL NOT NULL DEFAULT 0.0,
-        status TEXT NOT NULL DEFAULT 'active',
-        apps_json TEXT NOT NULL DEFAULT '[]',
-        domains_json TEXT NOT NULL DEFAULT '[]',
-        artifacts_json TEXT NOT NULL DEFAULT '[]',
-        summary_text TEXT NOT NULL DEFAULT '',
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS project_time_daily_rollups (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        rollup_uid TEXT NOT NULL UNIQUE,
-        user_id TEXT NOT NULL,
-        device_id TEXT NOT NULL,
-        date TEXT NOT NULL,
-        timezone TEXT NOT NULL DEFAULT 'local',
-        project_key TEXT NOT NULL,
-        project_name TEXT NOT NULL,
-        task_key TEXT NOT NULL,
-        task_name TEXT NOT NULL,
-        active_ms INTEGER NOT NULL DEFAULT 0,
-        session_count INTEGER NOT NULL DEFAULT 0,
-        confidence_avg REAL NOT NULL DEFAULT 0.0,
-        top_apps_json TEXT NOT NULL DEFAULT '[]',
-        top_domains_json TEXT NOT NULL DEFAULT '[]',
-        summary_text TEXT NOT NULL DEFAULT '',
-        source_version TEXT NOT NULL DEFAULT 'project_time_v1',
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS project_classification_rules (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        rule_uid TEXT NOT NULL UNIQUE,
-        user_id TEXT NOT NULL,
-        matcher_app_bundle_id TEXT,
-        matcher_domain TEXT,
-        matcher_title_pattern TEXT,
-        matcher_artifact_pattern TEXT,
-        matcher_keyword_pattern TEXT,
-        project_key TEXT NOT NULL,
-        project_name TEXT NOT NULL,
-        task_key TEXT NOT NULL,
-        task_name TEXT NOT NULL,
-        priority INTEGER NOT NULL DEFAULT 100,
-        enabled INTEGER NOT NULL DEFAULT 1,
-        created_at INTEGER NOT NULL,
-        updated_at INTEGER NOT NULL
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_user_date ON project_time_sessions(user_id, date, start_ts)",
-    "CREATE INDEX IF NOT EXISTS idx_project_time_daily_rollups_user_date ON project_time_daily_rollups(user_id, date, project_key, task_key)",
-    "CREATE INDEX IF NOT EXISTS idx_project_classification_rules_user_enabled ON project_classification_rules(user_id, enabled, priority)",
-)
 
 
 @dataclass
@@ -138,8 +62,7 @@ def _clean(value: str, fallback: str = "General") -> str:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    for statement in PROJECT_TIME_SCHEMA:
-        conn.execute(statement)
+    apply_project_time_schema(conn)
     conn.commit()
 
 

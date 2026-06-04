@@ -39,6 +39,16 @@ class FakeWhoopService:
         }
 
 
+class TimeoutWhoopService(FakeWhoopService):
+    async def fetch_whoop_sync_payload(self, user_id, days_back=None, force_full_sync=False, full_history=False):
+        raise TimeoutError("Provider request timed out")
+
+
+class AuthWhoopService(FakeWhoopService):
+    async def fetch_whoop_sync_payload(self, user_id, days_back=None, force_full_sync=False, full_history=False):
+        raise ValueError("Unauthorized: invalid token")
+
+
 class FakeOuraService:
     def __init__(self):
         self.fetch_calls = []
@@ -112,6 +122,42 @@ class WearableProviderSyncRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.data["full_history"])
         self.assertTrue(self.services.whoop_service.fetch_calls[-1]["full_history"])
 
+    async def test_provider_retryable_failure_is_typed_not_thrown(self):
+        services = WearableProviderSyncServices(
+            whoop_service=TimeoutWhoopService(),
+            oura_service=FakeOuraService(),
+            garmin_service=FakeGarminService(),
+        )
+
+        result = await sync_wearable_provider_account(
+            provider="whoop",
+            user_id="user-1",
+            services=services,
+        )
+
+        self.assertEqual(result.status, "retryable_failed")
+        self.assertEqual(result.items_seen, 0)
+        self.assertEqual(result.items_written, 0)
+        self.assertTrue(result.error["retryable"])
+        self.assertIn("timed out", result.error["message"])
+
+    async def test_provider_terminal_failure_is_typed_not_thrown(self):
+        services = WearableProviderSyncServices(
+            whoop_service=AuthWhoopService(),
+            oura_service=FakeOuraService(),
+            garmin_service=FakeGarminService(),
+        )
+
+        result = await sync_wearable_provider_account(
+            provider="whoop",
+            user_id="user-1",
+            services=services,
+        )
+
+        self.assertEqual(result.status, "terminal_failed")
+        self.assertFalse(result.error["retryable"])
+        self.assertIn("invalid token", result.error["message"])
+
     async def test_cloud_provider_adapters_are_registered_explicitly(self):
         self.assertEqual(list_provider_sync_adapters(), ["garmin", "oura", "whoop"])
 
@@ -126,6 +172,7 @@ class WearableProviderSyncRegistryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.message, "Oura sync completed.")
         self.assertEqual(self.services.oura_service.fetch_calls[0]["user_id"], "user-1")
         self.assertEqual(self.services.oura_service.write_calls[0]["payload"]["records"], ["sample"])
+        self.assertEqual(self.services.oura_service.write_calls[0]["payload"]["provider"], "oura")
 
     async def test_garmin_sync_models_webhook_driven_ingest(self):
         result = await sync_wearable_provider_account(
@@ -141,6 +188,7 @@ class WearableProviderSyncRegistryTests(unittest.IsolatedAsyncioTestCase):
             self.services.garmin_service.write_calls[0]["payload"]["provider_user_id"],
             "garmin-user",
         )
+        self.assertEqual(self.services.garmin_service.write_calls[0]["payload"]["provider"], "garmin")
 
     async def test_apple_health_sync_is_device_managed(self):
         result = await sync_wearable_provider_account(

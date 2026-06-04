@@ -7,25 +7,36 @@ rebuilds and connection success metadata should be owned here.
 
 from .common import *
 
+from typing import Literal
+
+
+WearablePostIngestStatus = Literal["success", "retryable_failed"]
+
 
 @dataclass(frozen=True)
 class WearablePostIngestResult:
     provider: str
     user_id: str
     affected_dates: List[str]
+    status: WearablePostIngestStatus = "success"
     projected_records: int = 0
     metric_facts: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
     @property
     def success(self) -> bool:
-        return self.error is None
+        return self.status == "success" and self.error is None
+
+    def __post_init__(self) -> None:
+        if self.error is not None and self.status == "success":
+            object.__setattr__(self, "status", "retryable_failed")
 
     def as_dict(self) -> Dict[str, Any]:
         return {
             "provider": self.provider,
             "user_id": self.user_id,
             "affected_dates": self.affected_dates,
+            "status": self.status,
             "projected_records": self.projected_records,
             "metric_facts": self.metric_facts,
             "error": self.error,
@@ -89,7 +100,7 @@ class WearablePostIngestService:
                 provider=provider,
                 user_id=user_id,
                 affected_dates=dates,
+                status="retryable_failed",
                 projected_records=projected_records,
                 error=error,
             )
-

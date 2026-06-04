@@ -32,6 +32,7 @@ class WearablePostIngestTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result.success)
+        self.assertEqual(result.status, "success")
         self.assertEqual(result.affected_dates, [])
         self.assertEqual(result.metric_facts, {"success": True, "reason": "no_affected_dates"})
         rebuild.assert_not_awaited()
@@ -56,6 +57,7 @@ class WearablePostIngestTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertTrue(result.success)
+        self.assertEqual(result.as_dict()["status"], "success")
         self.assertEqual(result.affected_dates, ["2026-06-01", "2026-06-02"])
         self.assertEqual(result.projected_records, 3)
         self.assertEqual(result.metric_facts, {"success": True, "facts_written": 2})
@@ -81,6 +83,8 @@ class WearablePostIngestTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(result.success)
+        self.assertEqual(result.status, "retryable_failed")
+        self.assertEqual(result.as_dict()["status"], "retryable_failed")
         self.assertEqual(result.error, "fact rebuild failed")
         self.assertIsNone(result.metric_facts)
 

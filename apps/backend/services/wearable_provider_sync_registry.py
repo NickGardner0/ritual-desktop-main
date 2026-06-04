@@ -16,7 +16,7 @@ from services.wearable_provider_strategies import (
 )
 
 
-SyncStatus = Literal["success", "partial"]
+SyncStatus = Literal["success", "partial", "retryable_failed", "terminal_failed"]
 
 
 @dataclass(frozen=True)
@@ -70,14 +70,9 @@ async def sync_wearable_provider_account(
             force_full_sync=force_full_sync,
             full_history=full_history,
         )
-        if provider_result.status in {"retryable_failed", "terminal_failed"}:
-            raise RuntimeError(
-                (provider_result.error or {}).get("message")
-                or f"{normalized_provider} sync failed"
-            )
 
         return WearableProviderSyncResult(
-            status="success" if provider_result.status == "success" else "partial",
+            status=provider_result.status,
             items_seen=provider_result.items_seen,
             items_written=provider_result.items_written,
             data=provider_result.data,

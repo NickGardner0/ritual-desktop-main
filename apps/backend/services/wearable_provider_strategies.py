@@ -8,9 +8,27 @@ the sync registry should talk to explicit strategies instead of fake
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, Protocol
 
+from services.wearable_provider_canonical_ingest import (
+    persist_garmin_payload,
+    persist_oura_payload,
+    persist_whoop_payload,
+)
+from services.wearable_provider_clients import (
+    GarminProviderClient,
+    GarminProviderTransformer,
+    OuraProviderClient,
+    OuraProviderTransformer,
+    ProviderFetchRequest,
+    WhoopProviderClient,
+    WhoopProviderTransformer,
+)
+
+
+logger = logging.getLogger(__name__)
 
 StrategyStatus = Literal["success", "partial", "retryable_failed", "terminal_failed"]
 
@@ -93,6 +111,62 @@ def _partial_error(provider: str, result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _classify_provider_exception(provider: str, exc: Exception) -> ProviderStrategyResult:
+    message = str(exc) or exc.__class__.__name__
+    lowered = message.lower()
+    retryable_markers = (
+        "timeout",
+        "timed out",
+        "temporarily",
+        "temporary",
+        "rate limit",
+        "rate_limit",
+        "too many requests",
+        "connection reset",
+        "connection refused",
+        "service unavailable",
+        "bad gateway",
+        "gateway timeout",
+    )
+    terminal_markers = (
+        "auth",
+        "authorization",
+        "unauthorized",
+        "forbidden",
+        "invalid token",
+        "refresh token",
+        "not found",
+        "configuration missing",
+        "connection not found",
+    )
+    if any(marker in lowered for marker in retryable_markers):
+        status: StrategyStatus = "retryable_failed"
+    elif any(marker in lowered for marker in terminal_markers):
+        status = "terminal_failed"
+    else:
+        status = "retryable_failed"
+
+    logger.warning(
+        "Wearable provider strategy failed provider=%s status=%s error=%s",
+        provider,
+        status,
+        message,
+    )
+    return ProviderStrategyResult(
+        provider=provider,
+        status=status,
+        items_seen=0,
+        items_written=0,
+        message=f"{provider.title()} sync failed.",
+        data={},
+        error={
+            "message": message,
+            "type": exc.__class__.__name__,
+            "retryable": status == "retryable_failed",
+        },
+    )
+
+
 class WhoopProviderStrategy:
     capabilities = WearableProviderCapabilities(
         provider="whoop",
@@ -113,27 +187,37 @@ class WhoopProviderStrategy:
     )
 
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
-        payload = await context.services.whoop_service.fetch_whoop_sync_payload(
-            context.user_id,
-            days_back=context.days_back,
-            force_full_sync=context.force_full_sync,
-            full_history=context.full_history,
-        )
-        result = _dict_result(
-            await context.services.whoop_service.write_whoop_sync_payload(context.user_id, payload)
-        )
-        data = result.get("data", {}) if isinstance(result.get("data", {}), dict) else {}
-        items_seen = _sum_numeric_values(data)
-        status: StrategyStatus = "success" if result.get("status", "success") == "success" else "partial"
-        return ProviderStrategyResult(
-            provider="whoop",
-            status=status,
-            items_seen=items_seen,
-            items_written=items_seen,
-            data=result,
-            message="Whoop sync completed." if status == "success" else "Whoop sync completed partially.",
-            error=None if status == "success" else _partial_error("Whoop", result),
-        )
+        try:
+            fetched = await WhoopProviderClient(context.services.whoop_service).fetch(
+                ProviderFetchRequest(
+                    user_id=context.user_id,
+                    days_back=context.days_back,
+                    force_full_sync=context.force_full_sync,
+                    full_history=context.full_history,
+                )
+            )
+            payload = WhoopProviderTransformer().to_canonical_payload(fetched)
+            result = _dict_result(
+                await persist_whoop_payload(
+                    context.services.whoop_service,
+                    context.user_id,
+                    payload,
+                )
+            )
+            data = result.get("data", {}) if isinstance(result.get("data", {}), dict) else {}
+            items_seen = _sum_numeric_values(data)
+            status: StrategyStatus = "success" if result.get("status", "success") == "success" else "partial"
+            return ProviderStrategyResult(
+                provider="whoop",
+                status=status,
+                items_seen=items_seen,
+                items_written=items_seen,
+                data=result,
+                message="Whoop sync completed." if status == "success" else "Whoop sync completed partially.",
+                error=None if status == "success" else _partial_error("Whoop", result),
+            )
+        except Exception as exc:
+            return _classify_provider_exception("whoop", exc)
 
 
 class OuraProviderStrategy:
@@ -157,35 +241,42 @@ class OuraProviderStrategy:
     )
 
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
-        payload = await context.services.oura_service.fetch_oura_sync_payload(
-            context.user_id,
-            days_back=context.days_back,
-            force_full_sync=context.force_full_sync,
-        )
-        counts = await context.services.oura_service.write_oura_sync_payload(
-            context.user_id,
-            payload,
-        )
-        counts = counts if isinstance(counts, dict) else {}
-        items_seen = _int_value(counts, "samples") + _int_value(counts, "events")
-        post_ingest_success = bool(counts.get("post_ingest_success", True))
-        status: StrategyStatus = "success" if post_ingest_success else "partial"
-        return ProviderStrategyResult(
-            provider="oura",
-            status=status,
-            items_seen=items_seen,
-            items_written=items_seen,
-            data={
-                "status": "success" if status == "success" else "partial",
-                "sync_period": {
-                    "start_date": str(payload.get("start_date")),
-                    "end_date": str(payload.get("end_date")),
+        try:
+            fetched = await OuraProviderClient(context.services.oura_service).fetch(
+                ProviderFetchRequest(
+                    user_id=context.user_id,
+                    days_back=context.days_back,
+                    force_full_sync=context.force_full_sync,
+                )
+            )
+            payload = OuraProviderTransformer().to_canonical_payload(fetched)
+            counts = await persist_oura_payload(
+                context.services.oura_service,
+                context.user_id,
+                payload,
+            )
+            counts = counts if isinstance(counts, dict) else {}
+            items_seen = _int_value(counts, "samples") + _int_value(counts, "events")
+            post_ingest_success = bool(counts.get("post_ingest_success", True))
+            status: StrategyStatus = "success" if post_ingest_success else "partial"
+            return ProviderStrategyResult(
+                provider="oura",
+                status=status,
+                items_seen=items_seen,
+                items_written=items_seen,
+                data={
+                    "status": "success" if status == "success" else "partial",
+                    "sync_period": {
+                        "start_date": str(payload.get("start_date")),
+                        "end_date": str(payload.get("end_date")),
+                    },
+                    "data": counts,
                 },
-                "data": counts,
-            },
-            message="Oura sync completed." if status == "success" else "Oura sync completed partially.",
-            error=None if status == "success" else _partial_error("Oura", counts),
-        )
+                message="Oura sync completed." if status == "success" else "Oura sync completed partially.",
+                error=None if status == "success" else _partial_error("Oura", counts),
+            )
+        except Exception as exc:
+            return _classify_provider_exception("oura", exc)
 
 
 class GarminProviderStrategy:
@@ -202,28 +293,33 @@ class GarminProviderStrategy:
     )
 
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
-        payload = await context.services.garmin_service.fetch_garmin_account_payload(
-            context.user_id
-        )
-        await context.services.garmin_service.write_garmin_account_payload(
-            context.user_id,
-            payload,
-        )
-        data = {
-            "status": "success",
-            "data": {
-                "permissions_loaded": bool(payload.get("permissions")),
-                "webhook_driven": True,
-            },
-        }
-        return ProviderStrategyResult(
-            provider="garmin",
-            status="success",
-            items_seen=1 if payload.get("permissions") else 0,
-            items_written=1 if payload.get("permissions") else 0,
-            data=data,
-            message="Garmin account refreshed. Data ingestion is webhook-driven.",
-        )
+        try:
+            fetched = await GarminProviderClient(context.services.garmin_service).fetch(
+                ProviderFetchRequest(user_id=context.user_id)
+            )
+            payload = GarminProviderTransformer().to_canonical_payload(fetched)
+            await persist_garmin_payload(
+                context.services.garmin_service,
+                context.user_id,
+                payload,
+            )
+            data = {
+                "status": "success",
+                "data": {
+                    "permissions_loaded": bool(payload.get("permissions")),
+                    "webhook_driven": True,
+                },
+            }
+            return ProviderStrategyResult(
+                provider="garmin",
+                status="success",
+                items_seen=1 if payload.get("permissions") else 0,
+                items_written=1 if payload.get("permissions") else 0,
+                data=data,
+                message="Garmin account refreshed. Data ingestion is webhook-driven.",
+            )
+        except Exception as exc:
+            return _classify_provider_exception("garmin", exc)
 
 
 PROVIDER_STRATEGIES: dict[str, WearableProviderStrategy] = {

@@ -78,7 +78,10 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.status, "success")
         self.assertEqual(result.items_seen, 5)
         self.assertEqual(result.items_written, 5)
-        self.assertEqual(fake_oura.writes, [("user_1", fake_oura.payload)])
+        self.assertEqual(
+            fake_oura.writes,
+            [("user_1", {**fake_oura.payload, "provider": "oura"})],
+        )
 
     async def test_garmin_strategy_refreshes_account_and_marks_webhook_driven(self):
         class FakeGarmin:
@@ -103,6 +106,56 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.items_seen, 1)
         self.assertTrue(result.data["data"]["webhook_driven"])
         self.assertEqual(fake_garmin.writes[0][1]["provider_user_id"], "garmin-user")
+        self.assertEqual(fake_garmin.writes[0][1]["provider"], "garmin")
+
+    async def test_whoop_strategy_returns_retryable_failure_for_timeout(self):
+        class TimeoutWhoop:
+            async def fetch_whoop_sync_payload(self, *_args, **_kwargs):
+                raise TimeoutError("Provider request timed out")
+
+        result = await PROVIDER_STRATEGIES["whoop"].sync(
+            ProviderStrategyContext(
+                user_id="user_1",
+                services=SimpleNamespace(whoop_service=TimeoutWhoop()),
+            )
+        )
+
+        self.assertEqual(result.status, "retryable_failed")
+        self.assertEqual(result.items_seen, 0)
+        self.assertEqual(result.items_written, 0)
+        self.assertTrue(result.error["retryable"])
+        self.assertIn("timed out", result.error["message"])
+
+    async def test_oura_strategy_returns_terminal_failure_for_auth_error(self):
+        class AuthOura:
+            async def fetch_oura_sync_payload(self, *_args, **_kwargs):
+                raise ValueError("Unauthorized: invalid token")
+
+        result = await PROVIDER_STRATEGIES["oura"].sync(
+            ProviderStrategyContext(
+                user_id="user_1",
+                services=SimpleNamespace(oura_service=AuthOura()),
+            )
+        )
+
+        self.assertEqual(result.status, "terminal_failed")
+        self.assertFalse(result.error["retryable"])
+        self.assertIn("invalid token", result.error["message"])
+
+    async def test_garmin_strategy_returns_retryable_failure_for_5xx(self):
+        class UnavailableGarmin:
+            async def fetch_garmin_account_payload(self, *_args, **_kwargs):
+                raise RuntimeError("service unavailable")
+
+        result = await PROVIDER_STRATEGIES["garmin"].sync(
+            ProviderStrategyContext(
+                user_id="user_1",
+                services=SimpleNamespace(garmin_service=UnavailableGarmin()),
+            )
+        )
+
+        self.assertEqual(result.status, "retryable_failed")
+        self.assertTrue(result.error["retryable"])
 
     async def test_unknown_strategy_is_rejected(self):
         with self.assertRaises(ValueError):
