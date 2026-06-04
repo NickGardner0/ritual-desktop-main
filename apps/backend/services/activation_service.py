@@ -501,8 +501,6 @@ class ActivationService:
             next_route = "/onboarding?s=profile"
         elif not first_behavior_logged:
             next_route = "/onboarding?s=first-behavior"
-        elif not state.permissions_seen_at:
-            next_route = "/onboarding?s=connect"
         else:
             next_route = "/dashboard"
 

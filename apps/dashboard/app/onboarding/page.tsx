@@ -48,6 +48,7 @@ type ChecklistItem = {
 
 type BootstrapResponse = {
   nextRoute: string
+  firstBehaviorLogged?: boolean
   permissionsSeen?: boolean
   activation?: {
     checklist?: ChecklistItem[]
@@ -288,6 +289,11 @@ export default function OnboardingPage() {
         setChecking(true)
         const nextBootstrap = await fetchBootstrap()
         setBootstrap(nextBootstrap)
+        if (requestedStep === "connect" && nextBootstrap.firstBehaviorLogged && !nextBootstrap.permissionsSeen) {
+          setName(nextBootstrap.user?.fullName || user.fullName || user.firstName || "")
+          setTimezone(nextBootstrap.user?.timezone || getBrowserTimezone())
+          return
+        }
         if (nextBootstrap.nextRoute === "/dashboard") {
           router.replace("/dashboard")
           return
@@ -486,8 +492,8 @@ export default function OnboardingPage() {
       if (!response.ok) {
         throw new Error("Failed to log first behavior")
       }
-      const payload = await response.json()
-      router.replace(payload?.bootstrap?.nextRoute || "/onboarding?s=connect")
+      await response.json()
+      router.replace("/onboarding?s=connect")
     } catch (submitError) {
       console.error("Failed logging first behavior:", submitError)
       setError("Unable to log your first behavior. Please try again.")

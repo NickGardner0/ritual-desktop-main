@@ -53,12 +53,13 @@ class ActivationServiceTests(unittest.TestCase):
         self.assertFalse(bootstrap.firstBehaviorLogged)
         self.assertEqual(bootstrap.nextRoute, "/onboarding?s=first-behavior")
 
-    def test_bootstrap_routes_first_behavior_to_connect_step_until_setup_seen(self):
+    def test_bootstrap_routes_first_behavior_to_dashboard_without_global_setup_gate(self):
         bootstrap = self._bootstrap(first_logged=True)
 
         self.assertTrue(bootstrap.firstBehaviorLogged)
         self.assertTrue(bootstrap.activation.activationCompleted)
-        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=connect")
+        self.assertFalse(bootstrap.permissionsSeen)
+        self.assertEqual(bootstrap.nextRoute, "/dashboard")
 
     def test_bootstrap_routes_activated_user_to_dashboard_after_setup_seen(self):
         bootstrap = self._bootstrap(first_logged=True, permissions_seen=True)
