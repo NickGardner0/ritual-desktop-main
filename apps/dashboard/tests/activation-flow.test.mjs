@@ -12,6 +12,7 @@ describe("activation flow route helpers", () => {
   test("SSO callback redirects only from backend nextRoute", () => {
     assert.equal(resolveSsoRedirectRoute("/onboarding?s=profile"), "/onboarding?s=profile");
     assert.equal(resolveSsoRedirectRoute("/onboarding?s=first-behavior"), "/onboarding?s=first-behavior");
+    assert.equal(resolveSsoRedirectRoute("/onboarding?s=connect"), "/onboarding?s=connect");
     assert.equal(resolveSsoRedirectRoute("/dashboard"), "/dashboard");
   });
 
@@ -39,11 +40,13 @@ describe("activation flow route helpers", () => {
       resolveDashboardActivationRedirect("/onboarding?s=first-behavior"),
       "/onboarding?s=first-behavior",
     );
+    assert.equal(resolveDashboardActivationRedirect("/onboarding?s=connect"), "/onboarding?s=connect");
     assert.equal(resolveDashboardActivationRedirect("/not-real"), null);
   });
 
-  test("onboarding step parsing supports only profile and first-behavior", () => {
+  test("onboarding step parsing supports profile, first-behavior, and connect", () => {
     assert.equal(readOnboardingStep("first-behavior"), "first-behavior");
+    assert.equal(readOnboardingStep("connect"), "connect");
     assert.equal(readOnboardingStep("profile"), "profile");
     assert.equal(readOnboardingStep("permissions"), "profile");
     assert.equal(readOnboardingStep(null), "profile");

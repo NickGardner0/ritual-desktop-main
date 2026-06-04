@@ -18550,6 +18550,32 @@
         ]
       }
     },
+    "/api/user/activation/permissions-seen": {
+      "patch": {
+        "operationId": "mark_activation_permissions_seen_api_user_activation_permissions_seen_patch",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mark Activation Permissions Seen",
+        "tags": [
+          "core"
+        ]
+      }
+    },
     "/api/user/bootstrap": {
       "get": {
         "operationId": "get_user_bootstrap_api_user_bootstrap_get",

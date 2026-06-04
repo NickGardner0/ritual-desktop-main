@@ -143,6 +143,7 @@ function shouldSetForceFreshCookie(method: string, backendPath: string): boolean
   return (
     backendPath === "/api/user/bootstrap/profile"
     || backendPath === "/api/user/activation/first-behavior"
+    || backendPath === "/api/user/activation/permissions-seen"
     || backendPath.startsWith("/api/habits")
     || backendPath === "/api/logs/batch"
   );

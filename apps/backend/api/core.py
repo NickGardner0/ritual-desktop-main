@@ -237,6 +237,22 @@ def create_core_router(
             logger.exception("Error updating activation checklist")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
+    @router.patch("/api/user/activation/permissions-seen", response_model=UserBootstrapResponse)
+    async def mark_activation_permissions_seen(current_user=Depends(get_current_user)):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            return await activation_service.mark_permissions_seen(user_id=current_user["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            logger.exception("Error marking activation setup seen")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
     @router.get("/api/user/turso-sync-config", response_model=TursoSyncConfigResponse)
     async def get_turso_sync_config(current_user=Depends(get_current_user)):
         try:

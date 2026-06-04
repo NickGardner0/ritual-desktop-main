@@ -21,7 +21,7 @@ class ActivationServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = ActivationService()
 
-    def _bootstrap(self, *, full_name="Nick", timezone="America/New_York", first_logged=False):
+    def _bootstrap(self, *, full_name="Nick", timezone="America/New_York", first_logged=False, permissions_seen=False):
         return self.service._build_response(
             user=SimpleNamespace(
                 id="user-1",
@@ -34,7 +34,7 @@ class ActivationServiceTests(unittest.TestCase):
                 first_log_id="log-1" if first_logged else None,
                 first_behavior_logged_at="2026-06-04T14:00:00Z" if first_logged else None,
                 activation_completed_at="2026-06-04T14:00:00Z" if first_logged else None,
-                permissions_seen_at=None,
+                permissions_seen_at="2026-06-04T14:05:00Z" if permissions_seen else None,
             ),
             checklist_rows=[],
             connected_providers=set(),
@@ -53,11 +53,19 @@ class ActivationServiceTests(unittest.TestCase):
         self.assertFalse(bootstrap.firstBehaviorLogged)
         self.assertEqual(bootstrap.nextRoute, "/onboarding?s=first-behavior")
 
-    def test_bootstrap_routes_activated_user_to_dashboard(self):
+    def test_bootstrap_routes_first_behavior_to_connect_step_until_setup_seen(self):
         bootstrap = self._bootstrap(first_logged=True)
 
         self.assertTrue(bootstrap.firstBehaviorLogged)
         self.assertTrue(bootstrap.activation.activationCompleted)
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=connect")
+
+    def test_bootstrap_routes_activated_user_to_dashboard_after_setup_seen(self):
+        bootstrap = self._bootstrap(first_logged=True, permissions_seen=True)
+
+        self.assertTrue(bootstrap.firstBehaviorLogged)
+        self.assertTrue(bootstrap.activation.activationCompleted)
+        self.assertTrue(bootstrap.permissionsSeen)
         self.assertEqual(bootstrap.nextRoute, "/dashboard")
 
     def test_connected_provider_marks_checklist_completed(self):
@@ -73,7 +81,7 @@ class ActivationServiceTests(unittest.TestCase):
                 first_log_id="log-1",
                 first_behavior_logged_at="2026-06-04T14:00:00Z",
                 activation_completed_at="2026-06-04T14:00:00Z",
-                permissions_seen_at=None,
+                permissions_seen_at="2026-06-04T14:05:00Z",
             ),
             checklist_rows=[
                 SimpleNamespace(key="whoop", status="seen", metadata_json=None),

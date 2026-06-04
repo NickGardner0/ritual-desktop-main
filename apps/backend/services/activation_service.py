@@ -315,6 +315,28 @@ class ActivationService:
                 connected_providers=connected_providers,
             )
 
+    async def mark_permissions_seen(self, *, user_id: str) -> UserBootstrapResponse:
+        async with get_db_session() as session:
+            user = await session.get(UserDB, user_id)
+            if not user:
+                raise ValueError("User must exist before setup completion")
+
+            now = _utcnow()
+            state = await self._ensure_activation_state(session, user)
+            state.permissions_seen_at = state.permissions_seen_at or now
+            state.updated_at = now
+
+            checklist_rows = await self._get_checklist_rows(session, user_id)
+            connected_providers = await self._get_connected_providers(session, user_id)
+            await session.commit()
+
+            return self._build_response(
+                user=user,
+                state=state,
+                checklist_rows=checklist_rows,
+                connected_providers=connected_providers,
+            )
+
     async def _ensure_activation_state(self, session, user: UserDB) -> UserActivationStateDB:
         state = await session.get(UserActivationStateDB, user.id)
         now = _utcnow()
@@ -479,6 +501,8 @@ class ActivationService:
             next_route = "/onboarding?s=profile"
         elif not first_behavior_logged:
             next_route = "/onboarding?s=first-behavior"
+        elif not state.permissions_seen_at:
+            next_route = "/onboarding?s=connect"
         else:
             next_route = "/dashboard"
 

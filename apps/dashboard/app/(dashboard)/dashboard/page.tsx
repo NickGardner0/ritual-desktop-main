@@ -15,7 +15,6 @@ import type { Metadata } from 'next';
 import { HydrationBoundary } from '@tanstack/react-query';
 import { ClientDashboard } from './client-dashboard';
 import { loadDashboardInitialData } from './dashboard-server-data';
-import { ActivationChecklist } from '@/components/activation-checklist';
 
 export const metadata: Metadata = {
   title: 'Dashboard | Ritual',
@@ -33,7 +32,6 @@ export default async function DashboardPage({
     <div className="flex-1 overflow-auto bg-[var(--content-bg)] relative">
       <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-7 pb-72">
         <HydrationBoundary state={initialData.dehydratedState}>
-          <ActivationChecklist />
           <ClientDashboard
             initialViewMode={initialData.initialViewMode}
             initialUserId={initialData.initialUserId}
