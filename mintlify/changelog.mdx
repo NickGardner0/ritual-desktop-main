@@ -4,19 +4,63 @@ description: "Release notes and product updates for Ritual."
 rss: true
 ---
 
-Follow what’s new in Ritual: features, fixes, and improvements. Subscribe via RSS at [this page’s RSS feed](/changelog/rss.xml).
+Release notes for Ritual. Subscribe via RSS at [this page’s RSS feed](/changelog/rss.xml).
 
-<Update label="April 2026" description="Public beta" tags={["App", "Docs"]}>
+<Update label="June 2026" description="Desktop activity, iPhone Time, location, canonical metrics" tags={["Desktop", "Metrics", "Integrations"]}>
 
+### New
 
+- **iPhone Time** — Ingest Apple Biome `App.InFocus` data and project it into daily iPhone Time metrics. Includes integration onboarding.
+- **Location context** — Optional location pings enrich habit logs and activity events, with bounded backfill for late signals.
+- **Canonical read models** — Overview, Metrics, Logs, and Calendar read from backend-owned models, so totals match across views.
+- **Native desktop updater** — Desktop updates run through the Tauri updater with notarized macOS artifacts.
 
-### For developers
+### Fixes
 
-- Documentation now lives on Mintlify for search, navigation, and future API references.
+- Computer Time now has a local fallback path and watcher crash protection.
+- Corrected Whoop sleep metric facts.
+- Overview stats hold across empty refetches instead of resetting to zero.
 
 </Update>
 
-<Update label="March 2026" description="Early access" tags={["App"]}>
+<Update label="May 2026" description="Project Time, iPhone Time in Logs, canonical metrics" tags={["Desktop", "Metrics", "Integrations"]}>
 
+### New
+
+- **Project Time** — Computer activity rolls up into project-level time attribution, replacing screen-memory search.
+- **iPhone Time in Logs** — Biome-based iPhone usage appears as rollups in Logs, with setup diagnostics.
+- **Sidebar capture** — Log a habit from the sidebar without switching views.
+- **Canonical metric facts** — A repair path and canonical screen read models keep metric totals consistent across views.
+
+### Fixes
+
+- Fixed all-time computer activity recovery.
+- Hardened desktop updater recovery.
+- Faster Whoop freshness checks and fewer watcher timeouts.
+- Reduced Sentry noise and payload prefetching.
+
+</Update>
+
+<Update label="April 2026" description="Public beta — SMS copilot, voice, wearables, reports" tags={["App", "iOS", "Voice", "Integrations"]}>
+
+### New
+
+- **SMS / iMessage copilot** — Log habits, query data, and receive proactive messages by text. Supports image understanding, streaks, and habit creation.
+- **Voice logging** — Log habits by speaking, with streaming transcription.
+- **Apple Watch metrics** — Added 21 Apple Watch metrics to habit selection.
+- **Reports** — Reporting pipeline for recurring summaries.
+- **Integrations** — Added iMessage, Raycast, and Obsidian.
+- **iOS Screen Time** — Enabled the iOS Screen Time report extension.
+
+### Fixes
+
+- Improved Apple Health sync reliability and permission handling.
+- Fixed calendar daily summaries for metric-only days.
+- Prevented duplicate welcome SMS sends.
+
+### For developers
+
+- Replaced Trigger.dev with an internal scheduler for hourly tasks.
+- Wired multi-project Sentry observability across web, desktop, and backend.
 
 </Update>
