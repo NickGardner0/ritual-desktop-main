@@ -64,6 +64,7 @@ import {
   type MetricCardData,
   type MetricDailyRow,
   type MetricHabitLike,
+  type MetricSummaryLike,
 } from '@/components/analytics/metrics-derived';
 import {
   buildWearableDailyRows,
@@ -121,13 +122,17 @@ export type HabitData = {
   category: string;
   icon?: string;
   unit_type?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type ChartDataPoint = {
   value: number;
-  [key: string]: any;
+  [key: string]: unknown;
 };
+
+export type MetricsRowsByHabit = Record<string, MetricDailyRow[]>;
+export type MetricsSummaryByHabit = Record<string, MetricSummaryLike>;
+export type MetricsSyncContext = Record<string, unknown>;
 
 export const COMPUTER_ACTIVITY_CARD_ID = '__computer_activity__';
 export const CARD_ORDER_KEY = 'ritual-metric-card-order';
@@ -494,7 +499,7 @@ export function buildWearableMetricSeriesRows(
   }));
 }
 
-export function hasUsableMetricSummary(summary?: Record<string, any> | null): boolean {
+export function hasUsableMetricSummary(summary?: MetricSummaryLike | null): boolean {
   if (!summary) return false;
 
   const totalValue = Number(summary.total_value ?? 0);
@@ -524,10 +529,10 @@ export interface MetricsViewProps {
   externalDateRange?: DateRange | undefined;
   onDateRangeChange?: (range: DateRange | undefined) => void;
   hideControls?: boolean;
-  initialAnalyticsData?: Record<string, any[]>;
-  initialSummaryMetrics?: Record<string, any>;
-  initialBarListAnalyticsData?: Record<string, any[]>;
-  initialBarListSummaryMetrics?: Record<string, any>;
+  initialAnalyticsData?: MetricsRowsByHabit;
+  initialSummaryMetrics?: MetricsSummaryByHabit;
+  initialBarListAnalyticsData?: MetricsRowsByHabit;
+  initialBarListSummaryMetrics?: MetricsSummaryByHabit;
 }
 
 

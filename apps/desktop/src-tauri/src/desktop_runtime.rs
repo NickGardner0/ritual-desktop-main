@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
 #[cfg(target_os = "macos")]
@@ -18,6 +18,11 @@ use tauri_plugin_updater::UpdaterExt;
 use tracing::{info, instrument, warn};
 
 use crate::desktop_observability::redact_sensitive_url_for_log;
+use crate::desktop_runtime_types::{
+    BiomeDeviceDiagnostics, BiomeDrainSnapshot, BiomeIngestResponse, BiomeIphoneDiagnostics,
+    BiomeOutboxDiagnostics, DesktopBiomeActivityEvent, DesktopLocationPing,
+    LocationIngestResponse, TursoSyncConfigResponse, UpdateStatusPayload,
+};
 
 #[cfg(target_os = "macos")]
 extern "C" {
@@ -127,145 +132,6 @@ enum UpdateCheckOrigin {
     Startup,
     Frontend,
     Tray,
-}
-
-#[derive(Debug, Deserialize)]
-struct TursoSyncConfigResponse {
-    sync_url: String,
-    auth_token: String,
-    expires_at: String,
-    database_name: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct DesktopLocationPing {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lat: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    lon: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    horizontal_accuracy_m: Option<f64>,
-    source: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    device_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    bssid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ssid: Option<String>,
-    client_ts: i64,
-    client_event_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct LocationIngestResponse {
-    accepted: i64,
-    rejected: i64,
-    duplicates: i64,
-    #[serde(default)]
-    accepted_ids: Vec<String>,
-    #[serde(default)]
-    duplicate_ids: Vec<String>,
-    #[serde(default)]
-    rejected_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-struct DesktopBiomeActivityEvent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    event_uid: Option<String>,
-    device_id: String,
-    app_bundle_id: String,
-    app_name: String,
-    ts_start: i64,
-    ts_end: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    window_title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    browser_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    browser_domain: Option<String>,
-    #[serde(default)]
-    is_incognito: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source_file: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    app_version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    app_build: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    transition_reason: Option<String>,
-    #[serde(default)]
-    biome_is_provisional: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct BiomeIngestResponse {
-    accepted: i64,
-    rejected: i64,
-    duplicates: i64,
-    #[serde(default)]
-    accepted_event_uids: Vec<String>,
-    #[serde(default)]
-    duplicate_event_uids: Vec<String>,
-    #[serde(default)]
-    rejected_event_uids: Vec<String>,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BiomeDrainSnapshot {
-    pub last_checked_at_ms: Option<i64>,
-    pub last_status: Option<String>,
-    pub last_processed_count: Option<usize>,
-    pub last_error: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BiomeDeviceDiagnostics {
-    pub device_id: String,
-    pub path: String,
-    pub path_exists: bool,
-    pub source_file_count: usize,
-    pub newest_source_file_mtime_ms: Option<i64>,
-    pub oldest_source_file_mtime_ms: Option<i64>,
-    pub source_file_bytes: u64,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BiomeOutboxDiagnostics {
-    pub path: Option<String>,
-    pub exists: bool,
-    pub event_count: usize,
-    pub malformed_line_count: usize,
-    pub bytes: u64,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BiomeIphoneDiagnostics {
-    pub sync_db_path: Option<String>,
-    pub sync_db_exists: bool,
-    pub sync_db_error: Option<String>,
-    pub ios_device_peer_count: usize,
-    pub app_in_focus_remote_path: Option<String>,
-    pub app_in_focus_remote_exists: bool,
-    pub device_folder_count: usize,
-    pub source_file_count: usize,
-    pub devices: Vec<BiomeDeviceDiagnostics>,
-    pub outbox: BiomeOutboxDiagnostics,
-    pub committed_cursors_path: Option<String>,
-    pub committed_cursors: HashMap<String, i64>,
-    pub last_drain: BiomeDrainSnapshot,
-    pub notes: Vec<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UpdateStatusPayload {
-    error: Option<String>,
-    status: Option<String>,
 }
 
 fn read_nonempty_env(name: &str) -> Option<String> {

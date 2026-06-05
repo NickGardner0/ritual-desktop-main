@@ -122,6 +122,9 @@ import type {
   HeartRateSeriesRow,
   HeartRateSummaryRow,
   LocalMetricSummaryRow,
+  MetricsRowsByHabit,
+  MetricsSummaryByHabit,
+  MetricsSyncContext,
   MetricsViewProps,
   BarListItem,
   BarListRange,
@@ -194,15 +197,15 @@ export function MetricsView({
   const skippedInitialBarListFetchRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
-  const [analyticsData, setAnalyticsData] = useState<any>(initialAnalyticsData ?? {});
+  const [analyticsData, setAnalyticsData] = useState<MetricsRowsByHabit>(initialAnalyticsData ?? {});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
-  const [expandedLogs, setExpandedLogs] = useState<any[]>([]);
-  const [expandedSyncContext, setExpandedSyncContext] = useState<any>(null);
+  const [expandedLogs, setExpandedLogs] = useState<MetricDailyRow[]>([]);
+  const [expandedSyncContext, setExpandedSyncContext] = useState<MetricsSyncContext | null>(null);
   const [loadingExpandedLogs, setLoadingExpandedLogs] = useState(false);
 
-  const [summaryMetrics, setSummaryMetrics] = useState<Record<string, any>>(initialSummaryMetrics ?? {});
-  const [barListAnalyticsData, setBarListAnalyticsData] = useState<Record<string, any[]>>(initialBarListAnalyticsData ?? {});
-  const [barListSummaryMetrics, setBarListSummaryMetrics] = useState<Record<string, any>>(initialBarListSummaryMetrics ?? {});
+  const [summaryMetrics, setSummaryMetrics] = useState<MetricsSummaryByHabit>(initialSummaryMetrics ?? {});
+  const [barListAnalyticsData, setBarListAnalyticsData] = useState<MetricsRowsByHabit>(initialBarListAnalyticsData ?? {});
+  const [barListSummaryMetrics, setBarListSummaryMetrics] = useState<MetricsSummaryByHabit>(initialBarListSummaryMetrics ?? {});
 
   const [expandedTimeRange, setExpandedTimeRange] = useState<RangeKey>('1M');
   const [barListRange, setBarListRange] = useState<BarListRange>(() => dateRangeToBarListRange(dateRange));
@@ -239,14 +242,14 @@ export function MetricsView({
     setPinnedHabitIds((prev) => prev.filter((id) => id !== habitId));
   }, []);
   const [compareHabitId, setCompareHabitId] = useState<string | null>(null);
-  const [comparisonLogs, setComparisonLogs] = useState<any[]>([]);
+  const [comparisonLogs, setComparisonLogs] = useState<MetricDailyRow[]>([]);
   const [loadingComparison, setLoadingComparison] = useState(false);
   const [activeCategoryTab, setActiveCategoryTab] = useState<string | null>(null);
   const [cardPage, setCardPage] = useState(0);
   const [totalCardPages, setTotalCardPages] = useState(1);
   const clampedCardPage = Math.min(cardPage, Math.max(totalCardPages - 1, 0));
 
-  const [correlationData, setCorrelationData] = useState<any>(null);
+  const [correlationData, setCorrelationData] = useState<unknown>(null);
   const [loadingCorrelation, setLoadingCorrelation] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
   const [realtimeRefreshTick, setRealtimeRefreshTick] = useState(0);

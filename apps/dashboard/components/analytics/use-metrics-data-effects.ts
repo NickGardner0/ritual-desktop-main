@@ -1,23 +1,25 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, type MutableRefObject } from 'react';
 import { format, subDays } from 'date-fns';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
 import { analyticsApi } from '@/lib/services/analytics-api';
 import {
-  buildLocalMetricDailyRows,
   buildLocalMetricSummary,
   buildWearableMetricDailyRowsForHabit,
   getRangeDates,
-  hasUsableMetricSummary,
   isSleepLikeHabit,
 } from './metrics-view.shared';
-import type { HabitData, LocalMetricSummaryRow } from './metrics-view.shared';
-import type { MetricDailyRow } from '@/components/analytics/metrics-derived';
-import { mapDailyBreakdownRows } from '@/components/analytics/metrics-derived';
+import type { HabitData } from './metrics-view.shared';
+import {
+  mapDailyBreakdownRows,
+  type MetricDailyRow,
+  type MetricSummaryLike,
+} from '@/components/analytics/metrics-derived';
 import {
   getWearableProviderForHabit,
   isWearableBackedHabit,
+  type WearableDailyTotal,
 } from '@/lib/wearables-dashboard';
 import {
   DEFAULT_METRICS_SPARKLINE_DAYS,
@@ -25,7 +27,112 @@ import {
 } from './metrics-view.shared';
 import { perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
 
-export function useMetricsDataEffects(ctx: Record<string, any>) {
+type MetricRow = MetricDailyRow & {
+  habit_id?: string;
+  habit_name?: string;
+  total_value?: number;
+  current_value?: number;
+};
+
+type HabitStatsRow = {
+  id?: string;
+  name?: string;
+  unit?: string;
+  total?: number;
+  average?: number;
+  days_with_data?: number;
+};
+
+type MetricsRowsByHabit = Record<string, MetricRow[]>;
+type MetricsSummaryByHabit = Record<string, MetricSummaryLike>;
+
+type MetricsDataEffectsContext = {
+  analyticsData: MetricsRowsByHabit;
+  availableHabits: HabitData[];
+  backfillAttempted: MutableRefObject<boolean>;
+  barListAnalyticsData: MetricsRowsByHabit;
+  barListRange: string;
+  barListSummaryMetrics: MetricsSummaryByHabit;
+  computerActivityDaily: unknown[];
+  dateRange?: { from?: Date | null; to?: Date | null } | null;
+  dateRangeSyncKey: string;
+  fetchWearableDailyTotalsForHabits: (
+    habitIds: string[],
+    startDate: string,
+    endDate: string,
+  ) => Promise<Record<string, WearableDailyTotal[]>>;
+  filteredHabitIds: string[];
+  filteredHabits?: HabitData[];
+  getToken: () => Promise<string | null>;
+  habitById: Map<string, HabitData>;
+  habitLogsByHabitId?: unknown;
+  hasInitialBarListAnalytics: boolean;
+  hasInitialBarListSummary: boolean;
+  hasInitialMetricsAnalytics: boolean;
+  hasInitialMetricsSummary: boolean;
+  initialAnalyticsData?: MetricsRowsByHabit;
+  initialSummaryMetrics?: MetricsSummaryByHabit;
+  isUserLoaded: boolean;
+  lastBarListFetchKeyRef: MutableRefObject<string | null>;
+  lastCanonicalFetchKeyRef: MutableRefObject<string | null>;
+  lastHydratedCanonicalRangeKeyRef: MutableRefObject<string | null>;
+  loading: boolean;
+  metricsFirstUsablePaintLoggedRef: MutableRefObject<boolean>;
+  metricsMountTimeRef: MutableRefObject<number>;
+  queryLoading: boolean;
+  realtimeRefreshTick: number;
+  selectedHabits: string[];
+  setAnalyticsData: (value: MetricsRowsByHabit) => void;
+  setAnalyticsError: (value: string | null) => void;
+  setBarListAnalyticsData: (value: MetricsRowsByHabit) => void;
+  setBarListSummaryMetrics: (value: MetricsSummaryByHabit) => void;
+  setLoading: (value: boolean) => void;
+  setSelectedHabits: (value: string[]) => void;
+  setSummaryMetrics: (value: MetricsSummaryByHabit) => void;
+  skippedInitialBarListFetchRef: MutableRefObject<boolean>;
+  summaryMetrics: MetricsSummaryByHabit;
+  user?: { id?: string | null } | null;
+  visibleMetricHabitIds: string[];
+};
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isMetricRow(value: unknown): value is MetricRow {
+  return isObject(value);
+}
+
+function getPayloadRows(payload: unknown): MetricRow[] {
+  if (!isObject(payload) || !Array.isArray(payload.data)) {
+    return [];
+  }
+  return payload.data.filter(isMetricRow);
+}
+
+function getResponseRows(response: unknown): MetricRow[] {
+  if (!isObject(response)) {
+    return [];
+  }
+  const rows = Array.isArray(response.data) ? response.data : response.daily_data;
+  return Array.isArray(rows) ? rows.filter(isMetricRow) : [];
+}
+
+function getStatsRows(result: unknown): HabitStatsRow[] {
+  if (!isObject(result) || !Array.isArray(result.habits)) {
+    return [];
+  }
+  return result.habits.filter(isObject).map((row) => ({
+    id: typeof row.id === 'string' ? row.id : undefined,
+    name: typeof row.name === 'string' ? row.name : undefined,
+    unit: typeof row.unit === 'string' ? row.unit : undefined,
+    total: typeof row.total === 'number' ? row.total : undefined,
+    average: typeof row.average === 'number' ? row.average : undefined,
+    days_with_data: typeof row.days_with_data === 'number' ? row.days_with_data : undefined,
+  }));
+}
+
+export function useMetricsDataEffects(ctx: MetricsDataEffectsContext) {
   const {
     analyticsData,
     availableHabits,
@@ -38,10 +145,8 @@ export function useMetricsDataEffects(ctx: Record<string, any>) {
     dateRangeSyncKey,
     fetchWearableDailyTotalsForHabits,
     filteredHabitIds,
-    filteredHabits,
     getToken,
     habitById,
-    habitLogsByHabitId,
     hasInitialBarListAnalytics,
     hasInitialBarListSummary,
     hasInitialMetricsAnalytics,
@@ -81,151 +186,6 @@ useEffect(() => {
   }
 }, [availableHabits, selectedHabits.length, setSelectedHabits]);
 
-const localCardFallbackData = useMemo(() => {
-  const now = new Date();
-  const hasExplicitRange = Boolean(dateRange?.from && dateRange?.to);
-  const selectedFrom = hasExplicitRange ? dateRange!.from! : subDays(now, DEFAULT_METRICS_SUMMARY_DAYS);
-  const selectedTo = hasExplicitRange ? dateRange!.to! : now;
-  const comparisonWindowMs = hasExplicitRange ? selectedTo.getTime() - selectedFrom.getTime() : 0;
-  const dailyFrom = hasExplicitRange
-    ? new Date(selectedFrom.getTime() - comparisonWindowMs)
-    : subDays(now, DEFAULT_METRICS_SPARKLINE_DAYS);
-  const dailyFromDate = format(dailyFrom, 'yyyy-MM-dd');
-  const summaryFromDate = format(selectedFrom, 'yyyy-MM-dd');
-  const summaryToDate = format(selectedTo, 'yyyy-MM-dd');
-
-  const analyticsDataByHabit: Record<string, MetricDailyRow[]> = {};
-  const summaryByHabit: Record<string, LocalMetricSummaryRow> = {};
-
-  for (const habit of filteredHabits) {
-    const logs = habitLogsByHabitId.get(habit.habit_id) || [];
-    const dailyRows = buildLocalMetricDailyRows(
-      habit,
-      logs,
-      dailyFromDate,
-      summaryToDate,
-    );
-    const summaryRows = buildLocalMetricDailyRows(
-      habit,
-      logs,
-      summaryFromDate,
-      summaryToDate,
-    );
-    const summary = buildLocalMetricSummary(habit, summaryRows);
-
-    if (dailyRows.length > 0) {
-      analyticsDataByHabit[habit.habit_id] = dailyRows;
-    }
-    if (summary) {
-      summaryByHabit[habit.habit_id] = summary;
-    }
-  }
-
-  return {
-    analyticsDataByHabit,
-    summaryByHabit,
-  };
-}, [
-  dateRange?.from?.toISOString(),
-  dateRange?.to?.toISOString(),
-  filteredHabits,
-  habitLogsByHabitId,
-]);
-
-const localBarListFallbackData = useMemo(() => {
-  const { from, to } = getRangeDates(barListRange as RangeKey);
-  const isAllRange = (barListRange as RangeKey) === 'ALL';
-  const windowMs = to.getTime() - from.getTime();
-  const fetchFrom = isAllRange ? from : new Date(from.getTime() - windowMs);
-  const dailyFromDate = format(fetchFrom, 'yyyy-MM-dd');
-  const summaryFromDate = format(from, 'yyyy-MM-dd');
-  const summaryToDate = format(to, 'yyyy-MM-dd');
-
-  const analyticsDataByHabit: Record<string, MetricDailyRow[]> = {};
-  const summaryByHabit: Record<string, LocalMetricSummaryRow> = {};
-
-  for (const habit of filteredHabits) {
-    const logs = habitLogsByHabitId.get(habit.habit_id) || [];
-    const dailyRows = buildLocalMetricDailyRows(
-      habit,
-      logs,
-      dailyFromDate,
-      summaryToDate,
-    );
-    const summaryRows = buildLocalMetricDailyRows(
-      habit,
-      logs,
-      summaryFromDate,
-      summaryToDate,
-    );
-    const summary = buildLocalMetricSummary(habit, summaryRows);
-
-    if (dailyRows.length > 0) {
-      analyticsDataByHabit[habit.habit_id] = dailyRows;
-    }
-    if (summary) {
-      summaryByHabit[habit.habit_id] = summary;
-    }
-  }
-
-  return {
-    analyticsDataByHabit,
-    summaryByHabit,
-  };
-}, [barListRange, filteredHabits, habitLogsByHabitId]);
-
-const mergedCardAnalyticsData = useMemo(() => {
-  const merged: Record<string, MetricDailyRow[]> = { ...analyticsData };
-  for (const habit of filteredHabits) {
-    if (!merged[habit.habit_id]?.length) {
-      const fallbackRows = localCardFallbackData.analyticsDataByHabit[habit.habit_id];
-      if (fallbackRows?.length) {
-        merged[habit.habit_id] = fallbackRows;
-      }
-    }
-  }
-  return merged;
-}, [analyticsData, filteredHabits, localCardFallbackData.analyticsDataByHabit]);
-
-const mergedCardSummaryMetrics = useMemo(() => {
-  const merged: Record<string, any> = { ...summaryMetrics };
-  for (const habit of filteredHabits) {
-    if (!hasUsableMetricSummary(merged[habit.habit_id])) {
-      const fallbackSummary = localCardFallbackData.summaryByHabit[habit.habit_id];
-      if (fallbackSummary) {
-        merged[habit.habit_id] = fallbackSummary;
-      }
-    }
-  }
-  return merged;
-}, [filteredHabits, localCardFallbackData.summaryByHabit, summaryMetrics]);
-
-const mergedBarListAnalyticsData = useMemo(() => {
-  const merged: Record<string, MetricDailyRow[]> = { ...barListAnalyticsData };
-  for (const habit of filteredHabits) {
-    if (!merged[habit.habit_id]?.length) {
-      const fallbackRows = localBarListFallbackData.analyticsDataByHabit[habit.habit_id];
-      if (fallbackRows?.length) {
-        merged[habit.habit_id] = fallbackRows;
-      }
-    }
-  }
-  return merged;
-}, [barListAnalyticsData, filteredHabits, localBarListFallbackData.analyticsDataByHabit]);
-
-const mergedBarListSummaryMetrics = useMemo(() => {
-  const merged: Record<string, any> = { ...barListSummaryMetrics };
-  for (const habit of filteredHabits) {
-    if (!hasUsableMetricSummary(merged[habit.habit_id])) {
-      const fallbackSummary = localBarListFallbackData.summaryByHabit[habit.habit_id];
-      if (fallbackSummary) {
-        merged[habit.habit_id] = fallbackSummary;
-      }
-    }
-  }
-  return merged;
-}, [barListSummaryMetrics, filteredHabits, localBarListFallbackData.summaryByHabit]);
-
 // Fetch canonical daily values + summary (Tinybird first, Python fallback only on failure)
 useEffect(() => {
   if (!isUserLoaded || !user?.id) return;
@@ -236,8 +196,6 @@ useEffect(() => {
     Object.keys(initialSummaryMetrics ?? {}).length > 0;
 
   if (habitsToFetch.length === 0) {
-    setAnalyticsData({});
-    setSummaryMetrics({});
     setLoading(false);
     return;
   }
@@ -330,20 +288,22 @@ useEffect(() => {
       ]);
       if (cancelled) return;
 
-      const dataByHabit: Record<string, any[]> = {};
+      const dataByHabit: MetricsRowsByHabit = {};
       habitsToFetch.forEach((habitId: string) => {
         dataByHabit[habitId] = [];
       });
 
-      (dailyPayload.data || []).forEach((row: any) => {
-        if (habitsToFetch.includes(row.habit_id)) {
+      getPayloadRows(dailyPayload).forEach((row) => {
+        if (row.habit_id && habitsToFetch.includes(row.habit_id)) {
           dataByHabit[row.habit_id].push(row);
         }
       });
 
-      const summaryMap: Record<string, any> = {};
-      (summaryPayload.data || []).forEach((row: any) => {
-        summaryMap[row.habit_id] = row;
+      const summaryMap: MetricsSummaryByHabit = {};
+      getPayloadRows(summaryPayload).forEach((row) => {
+        if (row.habit_id) {
+          summaryMap[row.habit_id] = row;
+        }
       });
 
       const totalDailyRows = Object.values(dataByHabit).reduce((sum, rows) => sum + rows.length, 0);
@@ -390,7 +350,9 @@ useEffect(() => {
           ]);
 
           const statsById = new Map(
-            (statsResult.habits || []).map((stat: any) => [stat.id, stat])
+            getStatsRows(statsResult)
+              .filter((stat): stat is HabitStatsRow & { id: string } => Boolean(stat.id))
+              .map((stat) => [stat.id, stat])
           );
 
         sleepHabitIds.forEach((habitId: string, index: number) => {
@@ -408,7 +370,7 @@ useEffect(() => {
             }
 
             const response = dailyResults[index];
-            const rows = response?.data || response?.daily_data || [];
+            const rows = getResponseRows(response);
             if (rows.length > 0) {
               dataByHabit[habitId] = mapDailyBreakdownRows(habitId, rows);
             }
@@ -496,8 +458,9 @@ useEffect(() => {
         ]);
         if (cancelled) return;
 
-        const fallbackSummaryMap: Record<string, any> = {};
-        (statsResult.habits || []).forEach((stat: any) => {
+        const fallbackSummaryMap: MetricsSummaryByHabit = {};
+        getStatsRows(statsResult).forEach((stat) => {
+          if (!stat.id) return;
           fallbackSummaryMap[stat.id] = {
             habit_id: stat.id,
             habit_name: stat.name,
@@ -511,10 +474,10 @@ useEffect(() => {
           };
         });
 
-        const fallbackDailyByHabit: Record<string, any[]> = {};
+        const fallbackDailyByHabit: MetricsRowsByHabit = {};
         habitsToFetch.forEach((habitId: string, index: number) => {
           const response = dailyResults[index];
-          const rows = response?.data || response?.daily_data || [];
+          const rows = getResponseRows(response);
           fallbackDailyByHabit[habitId] = mapDailyBreakdownRows(habitId, rows);
         });
 
@@ -578,8 +541,6 @@ useEffect(() => {
         perfError('metrics-view', 'fetch-canonical-analytics-fallback-failed', {
           error: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
         });
-        setAnalyticsData({});
-        setSummaryMetrics({});
         setAnalyticsError(
           fallbackError instanceof Error
             ? fallbackError.message
@@ -640,8 +601,6 @@ useEffect(() => {
     : filteredHabitIds;
 
   if (habitsToFetch.length === 0) {
-    setBarListAnalyticsData({});
-    setBarListSummaryMetrics({});
     return;
   }
 
@@ -709,19 +668,19 @@ useEffect(() => {
 
       if (controller.signal.aborted) return;
 
-      const nextDailyByHabit: Record<string, any[]> = {};
+      const nextDailyByHabit: MetricsRowsByHabit = {};
       habitsToFetch.forEach((habitId: string) => {
         nextDailyByHabit[habitId] = [];
       });
 
-      for (const row of Array.isArray(dailyPayload?.data) ? dailyPayload.data : []) {
+      for (const row of getPayloadRows(dailyPayload)) {
         if (row?.habit_id && nextDailyByHabit[row.habit_id]) {
           nextDailyByHabit[row.habit_id].push(row);
         }
       }
 
-      const nextSummaryByHabit: Record<string, any> = {};
-      for (const row of Array.isArray(summaryPayload?.data) ? summaryPayload.data : []) {
+      const nextSummaryByHabit: MetricsSummaryByHabit = {};
+      for (const row of getPayloadRows(summaryPayload)) {
         if (row?.habit_id && habitsToFetch.includes(row.habit_id)) {
           nextSummaryByHabit[row.habit_id] = row;
         }
@@ -770,8 +729,6 @@ useEffect(() => {
       perfError('metrics-view', 'fetch-bar-list-analytics-failed', {
         error: error instanceof Error ? error.message : String(error),
       });
-      setBarListAnalyticsData({});
-      setBarListSummaryMetrics({});
       stopTimer({
         success: false,
         error: error instanceof Error ? error.message : String(error),
@@ -834,9 +791,9 @@ useEffect(() => {
 
 
   return {
-    mergedBarListAnalyticsData,
-    mergedBarListSummaryMetrics,
-    mergedCardAnalyticsData,
-    mergedCardSummaryMetrics,
+    mergedBarListAnalyticsData: barListAnalyticsData,
+    mergedBarListSummaryMetrics: barListSummaryMetrics,
+    mergedCardAnalyticsData: analyticsData,
+    mergedCardSummaryMetrics: summaryMetrics,
   };
 }

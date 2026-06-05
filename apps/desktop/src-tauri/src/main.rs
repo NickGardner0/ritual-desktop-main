@@ -5,9 +5,11 @@
 mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
+mod desktop_runtime_types;
 mod native_widget;
 mod ritual_database;
 mod watcher;
+mod watcher_activity;
 
 use std::collections::HashMap;
 use std::env;
