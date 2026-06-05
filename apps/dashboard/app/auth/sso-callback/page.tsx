@@ -13,6 +13,7 @@ import {
 import { resolveSsoRedirectRoute } from '@/lib/activation-flow.mjs'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
+const BOOTSTRAP_TIMEOUT_MS = 10_000
 
 type BootstrapResponse = {
   nextRoute?: string
@@ -60,14 +61,21 @@ export default function SSOCallback() {
           return
         }
 
-        const response = await fetch('/api/user/bootstrap', {
-          cache: 'no-store',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'X-Ritual-Force-Fresh': '1',
-          },
-        })
+        const controller = new AbortController()
+        const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_TIMEOUT_MS)
+        let response: Response
+        try {
+          response = await fetch('/api/user/bootstrap', {
+            cache: 'no-store',
+            signal: controller.signal,
+            headers: {
+              Authorization: `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          })
+        } finally {
+          window.clearTimeout(timeoutId)
+        }
 
         if (response.status === 401 || response.status === 403) {
           router.replace('/sign-in')
@@ -83,8 +91,8 @@ export default function SSOCallback() {
         router.replace(resolveSsoRedirectRoute(bootstrap.nextRoute, readDashboardReturnUrl()))
       } catch (error) {
         console.error('Error completing sign-in:', error)
-        setStatus('Unable to complete sign-in. Please try again.')
-        router.replace('/sign-in')
+        setStatus('Taking you to Ritual...')
+        router.replace(readDashboardReturnUrl() ?? '/dashboard')
       }
     }
 

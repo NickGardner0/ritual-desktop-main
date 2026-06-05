@@ -3,6 +3,7 @@ Database connection and session management
 Turso Cloud with embedded replica
 """
 
+import asyncio
 import os
 import logging
 import shutil
@@ -161,7 +162,7 @@ async def get_db_session():
             await session.rollback()
             raise
 
-async def force_local_replica_sync() -> bool:
+async def force_local_replica_sync(*, timeout_seconds: float = 2.5) -> bool:
     """Best-effort immediate sync for read-after-write consistency-sensitive reads."""
     if LOCAL_ONLY_MODE:
         return False
@@ -195,12 +196,16 @@ async def force_local_replica_sync() -> bool:
                     pass
 
     try:
-        import asyncio
-
-        synced = await asyncio.to_thread(_sync_once)
+        synced = await asyncio.wait_for(asyncio.to_thread(_sync_once), timeout=timeout_seconds)
         if synced:
             logger.info("🔄 Forced local replica sync before consistency-sensitive read")
         return synced
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Timed out forcing local replica sync after %.1fs; continuing with current replica",
+            timeout_seconds,
+        )
+        return False
     except Exception as exc:
         logger.warning("Failed forcing local replica sync: %s", exc)
         return False

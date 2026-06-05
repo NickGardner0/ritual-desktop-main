@@ -1,5 +1,6 @@
 """Core API router extracted from main.py (user, habits, calendar, batch logging)."""
 
+import asyncio
 import logging
 import os
 import uuid
@@ -26,6 +27,8 @@ from services.activation_service import activation_service
 from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
+
+BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS = 2.5
 
 
 def _env_flag(name: str) -> bool:
@@ -106,6 +109,38 @@ async def _maybe_force_fresh_read(request: Request):
         await force_local_replica_sync()
 
 
+async def _ensure_activity_metadata_for_bootstrap(user_id: str) -> None:
+    """Best-effort provisioning guard for login/bootstrap.
+
+    Per-user activity databases are useful for local watcher sync, but a slow
+    Turso platform call should never trap an authenticated user on the desktop
+    setup spinner.
+    """
+    try:
+        await asyncio.wait_for(
+            turso_user_service.ensure_user_activity_metadata(user_id),
+            timeout=BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Timed out provisioning per-user activity metadata during bootstrap for user %s after %.1fs",
+            user_id,
+            BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
+        )
+    except TursoProvisioningError:
+        logger.warning(
+            "Failed provisioning per-user activity metadata during bootstrap for user %s",
+            user_id,
+            exc_info=True,
+        )
+    except Exception:
+        logger.warning(
+            "Unexpected error provisioning per-user activity metadata during bootstrap for user %s",
+            user_id,
+            exc_info=True,
+        )
+
+
 def create_core_router(
     *,
     limiter: Any,
@@ -154,11 +189,7 @@ def create_core_router(
                 full_name=current_user.get("name"),
                 phone_number=current_user.get("phone"),
             )
-            try:
-                await turso_user_service.ensure_user_activity_metadata(user.id)
-            except TursoProvisioningError:
-                if turso_user_service.is_platform_configured():
-                    raise
+            await _ensure_activity_metadata_for_bootstrap(user.id)
             return await activation_service.get_bootstrap(current_user["id"])
         except TursoProvisioningError as exc:
             logger.exception("Error provisioning per-user Turso database during bootstrap")
