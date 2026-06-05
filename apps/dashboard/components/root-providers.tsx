@@ -36,6 +36,15 @@ export function RootProviders({ children }: { children: ReactNode }) {
     const storageValue = window.sessionStorage.getItem('ritual_main_glass');
     return isTauri() || queryValue === '1' || storageValue === '1';
   });
+  const [isGlassChromeEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    const queryValue = params.get('ritual_glass_chrome');
+    const storageValue = window.sessionStorage.getItem('ritual_glass_chrome');
+    if (queryValue === '0') return false;
+    if (queryValue === '1' || storageValue === '1') return true;
+    return params.get('ritual_main_glass') === '1' || window.sessionStorage.getItem('ritual_main_glass') === '1';
+  });
   const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_capture_sidebar');
@@ -109,6 +118,35 @@ export function RootProviders({ children }: { children: ReactNode }) {
       delete document.documentElement.dataset.mainGlass;
     }
   }, [isMainGlassEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (isGlassChromeEnabled) {
+      window.sessionStorage.setItem('ritual_glass_chrome', '1');
+      document.documentElement.dataset.glassChrome = '1';
+    } else {
+      window.sessionStorage.removeItem('ritual_glass_chrome');
+      delete document.documentElement.dataset.glassChrome;
+    }
+  }, [isGlassChromeEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const setWindowActive = () => {
+      document.documentElement.dataset.windowActive = document.hasFocus() ? '1' : '0';
+    };
+
+    setWindowActive();
+    window.addEventListener('focus', setWindowActive);
+    window.addEventListener('blur', setWindowActive);
+    return () => {
+      window.removeEventListener('focus', setWindowActive);
+      window.removeEventListener('blur', setWindowActive);
+      delete document.documentElement.dataset.windowActive;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

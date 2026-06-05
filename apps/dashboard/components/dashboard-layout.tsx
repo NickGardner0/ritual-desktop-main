@@ -137,15 +137,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
 
       {/* Main Content Area */}
-      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
+      <div className="content-shell flex-1 flex flex-col overflow-hidden border-0">
         {/* Top Header — the header itself is the draggable toolbar chrome.
             Interactive controls opt out via no-drag so blank space still drags
             like a native macOS titlebar. */}
         {!isFullScreenChat && (
         <header
           data-tauri-drag-region
-          className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
+          className="titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
         >
+          <div
+            data-tauri-drag-region
+            aria-hidden="true"
+            className="titlebar-glass-layer pointer-events-none absolute inset-0"
+          />
           {isChatRoute && (
             <div
               data-tauri-drag-region
