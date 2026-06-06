@@ -35,7 +35,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
   return (
     <div
       className={cn(
-        "inline-flex items-center gap-0.5 rounded-md bg-[#F0F0F0]/60 p-[3px]",
+        "inline-flex h-7 items-center gap-0.5 rounded-[9px] bg-black/[0.035] p-[2px] backdrop-blur-md",
         className
       )}
       role="tablist"
@@ -49,11 +49,11 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
           aria-controls={`${tab.value}-panel`}
           onClick={() => onViewChange(tab.value)}
           className={cn(
-            "h-7 rounded-[5px] px-3.5 text-[13px] transition-all duration-200",
-            "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
+            "h-[24px] rounded-[7px] px-3 text-[13px] leading-none transition-colors duration-150",
+            "focus:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-offset-0",
             currentView === tab.value
-              ? "bg-white text-[#27251E] font-medium shadow-[0_1px_3px_rgba(0,0,0,0.08)]"
-              : "bg-transparent text-[rgba(39,37,30,0.75)] font-normal hover:text-[#27251E]"
+              ? "bg-white/75 text-[#27251E] font-medium shadow-[0_1px_2px_rgba(15,23,42,0.08)]"
+              : "bg-transparent text-[rgba(39,37,30,0.72)] font-normal hover:bg-white/35 hover:text-[#27251E]"
           )}
         >
           {tab.label}

@@ -417,7 +417,7 @@ export function DateRangePicker({
             id="date"
             variant={"outline"}
             className={cn(
-              "w-[120px] justify-between text-left font-normal text-[13px] px-3 py-1.5 h-8 border-gray-300 bg-white text-black hover:bg-[#F3F3F3] hover:border-gray-300 rounded-sm",
+              "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
               !date && "text-black",
               className
             )}

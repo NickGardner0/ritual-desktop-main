@@ -432,7 +432,7 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
+                  className="h-7 w-7 border border-black/[0.07] shadow-[0_1px_2px_rgba(15,23,42,0.07)] bg-white/60 text-gray-500 hover:text-gray-900 hover:bg-white/75 transition-colors flex items-center justify-center rounded-[8px] focus:outline-none backdrop-blur-md"
                   aria-label="Overview menu"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -465,7 +465,7 @@ function UnifiedAnalyticsContent({
             </DropdownMenu>
           )}
           <DateRangePicker
-            className="w-auto"
+            className="w-[116px]"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />

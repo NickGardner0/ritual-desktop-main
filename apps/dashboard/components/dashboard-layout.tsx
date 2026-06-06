@@ -144,7 +144,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
         <header
           data-tauri-drag-region
-          className="titlebar-region tauri-drag-region relative px-5 h-[44px] flex items-center bg-[var(--content-bg)] overflow-hidden"
+          className="titlebar-region tauri-drag-region relative h-[38px] px-4 flex items-center bg-transparent overflow-hidden"
         >
           <div
             data-tauri-drag-region
@@ -154,26 +154,26 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {isChatRoute && (
             <div
               data-tauri-drag-region
-              className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]"
+              className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
             />
           )}
           <div
             data-tauri-drag-region
-            className="relative flex h-full items-center w-full"
+            className="relative flex h-full w-full items-center gap-2"
           >
             {/* Left zone — Search + page-specific left actions */}
             <div
-              className="no-drag flex items-center space-x-2.5 min-w-0"
+              className="no-drag flex min-w-0 items-center space-x-2"
             >
               {!isChatRoute && (
                 <div>
                   <CommandPalette
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
+                    className="h-7 w-auto px-2.5 py-1 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-black/[0.07] bg-white/60 shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 rounded-[8px] backdrop-blur-md"
                     initialOpen={shouldOpenWhoopModal}
                   />
                 </div>
               )}
-              <div id="header-left-slot" className="flex items-center space-x-2.5" />
+              <div id="header-left-slot" className="flex items-center space-x-2" />
             </div>
 
             {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
@@ -182,7 +182,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
 
             {/* Right zone — Date picker, + button, etc. */}
-            <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
+            <div id="header-right-slot" className="no-drag ml-auto flex min-w-0 items-center gap-1.5" />
           </div>
         </header>
         )}
