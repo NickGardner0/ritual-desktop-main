@@ -235,11 +235,11 @@
   --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
   --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
-  --titlebar-glass-bg: rgba(255, 255, 255, 0.58);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.72);
-  --titlebar-glass-border: rgba(15, 23, 42, 0.055);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.62);
-  --titlebar-glass-filter: saturate(1.08) blur(22px);
+  --titlebar-glass-bg: rgba(255, 255, 255, 0.44);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.6);
+  --titlebar-glass-border: rgba(15, 23, 42, 0.045);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.72);
+  --titlebar-glass-filter: saturate(1.18) blur(26px);
   --content-bg: #fefefe;
 }
 
@@ -556,8 +556,8 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-glass-layer {
     display: block;
     background:
-      linear-gradient(180deg, var(--titlebar-glass-bg-strong) 0%, var(--titlebar-glass-bg) 58%, rgba(255, 255, 255, 0.48) 100%),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.30) 52%, rgba(255, 255, 255, 0.40) 100%);
+      linear-gradient(180deg, var(--titlebar-glass-bg-strong) 0%, var(--titlebar-glass-bg) 58%, rgba(255, 255, 255, 0.36) 100%),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.46) 0%, rgba(255, 255, 255, 0.24) 52%, rgba(255, 255, 255, 0.34) 100%);
     backdrop-filter: var(--titlebar-glass-filter);
     -webkit-backdrop-filter: var(--titlebar-glass-filter);
   }

@@ -220,6 +220,7 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
 
     if main_glass_enabled {
         bootstrap_url = with_query_param(&bootstrap_url, "ritual_main_glass=1");
+        bootstrap_url = with_query_param(&bootstrap_url, "ritual_glass_chrome=1");
     }
 
     if transparency_probe {
@@ -589,7 +590,15 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
 
+            let current_style_mask: u64 = msg_send![ns_win, styleMask];
+            // NSWindowStyleMaskFullSizeContentView lets the webview render under
+            // the titlebar, which is required for the thin Atlas-style glass chrome.
+            let _: () = msg_send![
+                ns_win,
+                setStyleMask: current_style_mask | (1_u64 << 15)
+            ];
             let _: () = msg_send![ns_win, setHasShadow: YES];
+            let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
@@ -1441,6 +1450,7 @@ fn main() {
                 transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
             if main_glass_enabled {
                 app_url = with_query_param(&app_url, "ritual_main_glass=1");
+                app_url = with_query_param(&app_url, "ritual_glass_chrome=1");
             }
             if transparency_probe {
                 info!("Transparency probe mode enabled");

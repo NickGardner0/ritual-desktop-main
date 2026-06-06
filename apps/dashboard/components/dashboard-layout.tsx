@@ -144,7 +144,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
         <header
           data-tauri-drag-region
-          className="titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
+          className="titlebar-region tauri-drag-region relative px-5 h-[44px] flex items-center bg-[var(--content-bg)] overflow-hidden"
         >
           <div
             data-tauri-drag-region
@@ -159,7 +159,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           )}
           <div
             data-tauri-drag-region
-            className="relative flex items-center w-full translate-y-[4px]"
+            className="relative flex h-full items-center w-full"
           >
             {/* Left zone — Search + page-specific left actions */}
             <div
