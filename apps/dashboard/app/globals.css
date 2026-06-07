@@ -235,11 +235,18 @@
   --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
   --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
-  --titlebar-glass-bg: rgba(255, 255, 255, 0.3);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.5);
-  --titlebar-glass-border: rgba(15, 23, 42, 0.028);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.56);
-  --titlebar-glass-filter: saturate(1.22) blur(30px);
+  --titlebar-glass-bg: rgba(35, 35, 30, 0.58);
+  --titlebar-glass-bg-strong: rgba(18, 18, 16, 0.62);
+  --titlebar-glass-control-bg: rgba(21, 21, 19, 0.38);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.12);
+  --titlebar-glass-control-active-bg: rgba(15, 15, 14, 0.58);
+  --titlebar-glass-control-border: rgba(255, 255, 255, 0.13);
+  --titlebar-glass-control-text: rgba(244, 243, 236, 0.82);
+  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.6);
+  --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
+  --titlebar-glass-border: rgba(255, 255, 255, 0.08);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.16);
+  --titlebar-glass-filter: saturate(1.2) blur(24px);
   --content-bg: #fefefe;
 }
 
@@ -268,6 +275,18 @@
   --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.15);
   --sidebar-vibrancy-border: rgba(255, 255, 255, 0.10);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.06);
+  --titlebar-glass-bg: rgba(30, 30, 28, 0.62);
+  --titlebar-glass-bg-strong: rgba(14, 14, 13, 0.68);
+  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.08);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.14);
+  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.18);
+  --titlebar-glass-control-border: rgba(255, 255, 255, 0.12);
+  --titlebar-glass-control-text: rgba(244, 243, 236, 0.8);
+  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.58);
+  --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
+  --titlebar-glass-border: rgba(255, 255, 255, 0.08);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.12);
+  --titlebar-glass-filter: saturate(1.2) blur(22px);
   --content-bg: #0b0b0c;
 }
 
@@ -374,6 +393,68 @@
     background: rgba(246, 247, 248, 0.82);
     color: rgba(17, 24, 39, 0.48);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control {
+    border-color: var(--titlebar-glass-control-border) !important;
+    background: var(--titlebar-glass-control-bg) !important;
+    color: var(--titlebar-glass-control-text) !important;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.18),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+    backdrop-filter: var(--titlebar-glass-filter);
+    -webkit-backdrop-filter: var(--titlebar-glass-filter);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control:hover {
+    border-color: color-mix(in srgb, var(--titlebar-glass-control-border) 80%, white) !important;
+    background: var(--titlebar-glass-control-hover-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control:active,
+  html.desktop[data-glass-chrome="1"] .titlebar-control[data-state="open"] {
+    background: var(--titlebar-glass-control-active-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-control svg,
+  html.desktop[data-glass-chrome="1"] .titlebar-control span {
+    color: inherit !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-search-control kbd {
+    border-color: var(--titlebar-glass-control-border);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--titlebar-glass-control-text-muted);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control {
+    border-color: var(--titlebar-glass-control-border);
+    background: color-mix(in srgb, var(--titlebar-glass-control-bg) 86%, transparent);
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.16),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    backdrop-filter: var(--titlebar-glass-filter);
+    -webkit-backdrop-filter: var(--titlebar-glass-filter);
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"] {
+    color: var(--titlebar-glass-control-text-muted) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"]:hover {
+    background: var(--titlebar-glass-control-hover-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+  }
+
+  html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"][aria-selected="true"] {
+    background: var(--titlebar-glass-control-active-bg) !important;
+    color: var(--titlebar-glass-control-text-active) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 1px 2px rgba(0, 0, 0, 0.14) !important;
   }
 
   /* Remove all borders and outlines from the root elements */
@@ -583,16 +664,16 @@
     background-color: transparent !important;
   }
 
-html.desktop[data-platform="macos"][data-glass-chrome="1"] .content-shell,
-html.desktop:not([data-platform])[data-glass-chrome="1"] .content-shell {
-  background: var(--content-bg) !important;
-  background-color: var(--content-bg) !important;
-}
+  html.desktop[data-platform="macos"][data-main-glass="1"] .content-shell,
+  html.desktop:not([data-platform])[data-main-glass="1"] .content-shell {
+    background: transparent !important;
+    background-color: transparent !important;
+  }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-region,
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
-    background: transparent !important;
-    background-color: transparent !important;
+    background: var(--titlebar-glass-bg) !important;
+    background-color: var(--titlebar-glass-bg) !important;
     border-bottom: 0;
     box-shadow:
       inset 0 1px 0 var(--titlebar-glass-highlight),
@@ -603,18 +684,29 @@ html.desktop:not([data-platform])[data-glass-chrome="1"] .content-shell {
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-glass-layer {
     display: block;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.54) 0%, rgba(255, 255, 255, 0.34) 52%, rgba(255, 255, 255, 0.22) 100%),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.1) 42%, rgba(255, 255, 255, 0.2) 100%);
+      linear-gradient(180deg, var(--titlebar-glass-bg-strong) 0%, var(--titlebar-glass-bg) 100%),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(255, 255, 255, 0.08) 100%);
+    backdrop-filter: var(--titlebar-glass-filter);
+    -webkit-backdrop-filter: var(--titlebar-glass-filter);
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header {
+    background: var(--titlebar-glass-bg) !important;
+    background-color: var(--titlebar-glass-bg) !important;
+    box-shadow:
+      inset 0 1px 0 var(--titlebar-glass-highlight),
+      inset 0 -1px 0 var(--titlebar-glass-border);
     backdrop-filter: var(--titlebar-glass-filter);
     -webkit-backdrop-filter: var(--titlebar-glass-filter);
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .chat-header-sidebar-strip,
   html.desktop:not([data-platform])[data-glass-chrome="1"] .chat-header-sidebar-strip {
-    background: rgba(255, 255, 255, 0.16) !important;
-    background-color: rgba(255, 255, 255, 0.16) !important;
-    border-color: rgba(15, 23, 42, 0.028) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38);
+    background: var(--titlebar-glass-bg) !important;
+    background-color: var(--titlebar-glass-bg) !important;
+    border-color: var(--titlebar-glass-border) !important;
+    box-shadow: inset 0 1px 0 var(--titlebar-glass-highlight);
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-window-active="0"] .titlebar-glass-layer,

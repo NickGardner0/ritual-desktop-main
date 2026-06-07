@@ -825,11 +825,11 @@ fn apply_vibrancy_fallback(window: &tauri::WebviewWindow) {
 
     match apply_vibrancy(
         window,
-        NSVisualEffectMaterial::Sidebar,
+        NSVisualEffectMaterial::Menu,
         Some(NSVisualEffectState::Active),
         None,
     ) {
-        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
+        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Menu material)"),
         Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
     }
 }

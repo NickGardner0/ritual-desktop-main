@@ -42,6 +42,7 @@ export function RootProviders({ children }: { children: ReactNode }) {
     const queryValue = params.get('ritual_glass_chrome');
     const storageValue = window.sessionStorage.getItem('ritual_glass_chrome');
     if (queryValue === '0') return false;
+    if (isTauri()) return true;
     if (queryValue === '1' || storageValue === '1') return true;
     return params.get('ritual_main_glass') === '1' || window.sessionStorage.getItem('ritual_main_glass') === '1';
   });
