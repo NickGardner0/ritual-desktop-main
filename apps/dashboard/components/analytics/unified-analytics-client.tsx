@@ -432,8 +432,9 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="h-7 w-7 border border-black/[0.07] shadow-[0_1px_2px_rgba(15,23,42,0.07)] bg-white/60 text-gray-500 hover:text-gray-900 hover:bg-white/75 transition-colors flex items-center justify-center rounded-[8px] focus:outline-none backdrop-blur-md"
-                  aria-label="Overview menu"
+                  className="titlebar-control titlebar-icon-button flex h-8 w-8 items-center justify-center rounded-[9px] text-[rgba(17,24,39,0.62)] transition-colors hover:text-[rgba(17,24,39,0.92)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.22)]"
+                  aria-label="Add habit"
+                  title="Add habit"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -465,7 +466,8 @@ function UnifiedAnalyticsContent({
             </DropdownMenu>
           )}
           <DateRangePicker
-            className="w-[116px]"
+            className="w-[128px]"
+            variant="titlebar"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />

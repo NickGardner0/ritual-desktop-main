@@ -331,6 +331,51 @@
     cursor: text !important;
   }
 
+  .titlebar-control {
+    border: 1px solid rgba(15, 23, 42, 0.07) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)) !important;
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.055),
+      inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+    backdrop-filter: saturate(1.18) blur(18px);
+    -webkit-backdrop-filter: saturate(1.18) blur(18px);
+  }
+
+  .titlebar-control:hover {
+    border-color: rgba(15, 23, 42, 0.105) !important;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 255, 255, 0.64)) !important;
+  }
+
+  .titlebar-control:active,
+  .titlebar-control[data-state="open"] {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.7)) !important;
+    box-shadow:
+      0 1px 1px rgba(15, 23, 42, 0.04),
+      inset 0 1px 1px rgba(15, 23, 42, 0.055) !important;
+  }
+
+  .titlebar-segmented-control {
+    border: 1px solid rgba(15, 23, 42, 0.055);
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.038), rgba(15, 23, 42, 0.024));
+    box-shadow:
+      inset 0 1px 1px rgba(15, 23, 42, 0.045),
+      0 1px 0 rgba(255, 255, 255, 0.55);
+    backdrop-filter: saturate(1.16) blur(18px);
+    -webkit-backdrop-filter: saturate(1.16) blur(18px);
+  }
+
+  .titlebar-search-control kbd {
+    border-radius: 5px;
+    border-color: rgba(15, 23, 42, 0.08);
+    background: rgba(246, 247, 248, 0.82);
+    color: rgba(17, 24, 39, 0.48);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
+  }
+
   /* Remove all borders and outlines from the root elements */
   #__next,
   #root,
@@ -538,11 +583,11 @@
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"][data-glass-chrome="1"] .content-shell,
-  html.desktop:not([data-platform])[data-glass-chrome="1"] .content-shell {
-    background: transparent !important;
-    background-color: transparent !important;
-  }
+html.desktop[data-platform="macos"][data-glass-chrome="1"] .content-shell,
+html.desktop:not([data-platform])[data-glass-chrome="1"] .content-shell {
+  background: var(--content-bg) !important;
+  background-color: var(--content-bg) !important;
+}
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-region,
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
@@ -624,9 +669,11 @@
     display: none;
   }
 
-  /* Opaque main content — covers the glass so only sidebar is glassy */
+  /* Opaque app surfaces cover native blur so only sidebar/chrome stay glassy. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque,
-  html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque {
+  html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque,
+  html.desktop[data-platform="macos"][data-main-glass="1"] .glass-opaque-screen,
+  html.desktop:not([data-platform])[data-main-glass="1"] .glass-opaque-screen {
     background: var(--content-bg) !important;
     background-color: var(--content-bg) !important;
   }

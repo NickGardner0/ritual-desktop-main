@@ -15,6 +15,7 @@ interface DateRangePickerProps {
   className?: string
   onDateRangeChange?: (dateRange: DateRange | undefined) => void
   initialDateRange?: DateRange
+  variant?: "default" | "titlebar"
 }
 
 interface PresetRange {
@@ -106,7 +107,8 @@ const presetRanges: PresetRange[] = [
 export function DateRangePicker({
   className,
   onDateRangeChange,
-  initialDateRange
+  initialDateRange,
+  variant = "default"
 }: DateRangePickerProps) {
   const [date, setDate] = React.useState<DateRange | undefined>(initialDateRange)
   const [selectedPreset, setSelectedPreset] = React.useState<string>(initialDateRange ? "custom" : "alltime")
@@ -409,6 +411,8 @@ export function DateRangePicker({
     return "All time"
   }
 
+  const isTitlebar = variant === "titlebar"
+
   return (
     <div className={cn("grid gap-2", className)}>
       <Popover open={isOpen} onOpenChange={setIsOpen}>
@@ -416,15 +420,18 @@ export function DateRangePicker({
           <Button
             id="date"
             variant={"outline"}
+            aria-label={`Date range: ${formatDateRange()}`}
             className={cn(
-              "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
-              !date && "text-black",
+              isTitlebar
+                ? "titlebar-control h-8 w-[128px] justify-between rounded-[9px] px-2.5 py-1 text-left text-[13px] font-normal text-[rgba(17,24,39,0.82)] hover:text-[rgba(17,24,39,0.94)] focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.22)] focus-visible:ring-offset-0"
+                : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
+              !date && (isTitlebar ? "text-[rgba(17,24,39,0.82)]" : "text-black"),
               className
             )}
           >
-            <CalendarIcon className="w-3.5 h-3.5 mr-2" />
-            {formatDateRange()}
-            <ChevronDown className="w-3.5 h-3.5 ml-auto" />
+            <CalendarIcon className={cn("mr-2 h-3.5 w-3.5", isTitlebar && "text-[rgba(17,24,39,0.58)]")} />
+            <span className="min-w-0 truncate">{formatDateRange()}</span>
+            <ChevronDown className={cn("ml-auto h-3.5 w-3.5", isTitlebar && "text-[rgba(17,24,39,0.48)]")} />
           </Button>
         </PopoverTrigger>
         <PopoverContent
