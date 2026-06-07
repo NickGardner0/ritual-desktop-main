@@ -145,7 +145,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
           <header
             data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-12 items-center overflow-hidden bg-transparent px-3.5"
+            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-11 items-center overflow-hidden bg-transparent px-3"
           >
             <div
               data-tauri-drag-region
@@ -160,12 +160,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             )}
             <div
               data-tauri-drag-region
-              className="dashboard-top-chrome-row relative grid h-full w-full grid-cols-[minmax(190px,1fr)_auto_minmax(190px,1fr)] items-center gap-3"
+              className="dashboard-top-chrome-row relative grid h-full w-full grid-cols-[minmax(176px,1fr)_auto_minmax(176px,1fr)] items-center gap-3"
             >
               <div className="no-drag flex min-w-0 items-center gap-2">
                 {!isChatRoute && (
                   <CommandPalette
-                    className="titlebar-control titlebar-search-control flex h-8 w-auto min-w-[116px] items-center gap-2 px-3 text-[13px] text-[rgba(17,24,39,0.78)] focus-visible:outline-none focus-visible:ring-0"
+                    className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[108px] items-center gap-2 px-2.5 text-[13px] text-[rgba(17,24,39,0.72)] focus-visible:outline-none focus-visible:ring-0"
                     initialOpen={shouldOpenWhoopModal}
                   />
                 )}

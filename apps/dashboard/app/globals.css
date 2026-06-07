@@ -235,18 +235,18 @@
   --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
   --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
-  --titlebar-glass-bg: rgba(35, 35, 30, 0.58);
-  --titlebar-glass-bg-strong: rgba(18, 18, 16, 0.62);
-  --titlebar-glass-control-bg: rgba(21, 21, 19, 0.38);
-  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.12);
-  --titlebar-glass-control-active-bg: rgba(15, 15, 14, 0.58);
-  --titlebar-glass-control-border: rgba(255, 255, 255, 0.13);
-  --titlebar-glass-control-text: rgba(244, 243, 236, 0.82);
-  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.6);
-  --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
-  --titlebar-glass-border: rgba(255, 255, 255, 0.08);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.16);
-  --titlebar-glass-filter: saturate(1.2) blur(24px);
+  --titlebar-glass-bg: rgba(247, 250, 252, 0.42);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.58);
+  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.38);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.62);
+  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.78);
+  --titlebar-glass-control-border: rgba(15, 23, 42, 0.085);
+  --titlebar-glass-control-text: rgba(17, 24, 39, 0.68);
+  --titlebar-glass-control-text-muted: rgba(17, 24, 39, 0.48);
+  --titlebar-glass-control-text-active: rgba(17, 24, 39, 0.92);
+  --titlebar-glass-border: rgba(15, 23, 42, 0.07);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.72);
+  --titlebar-glass-filter: saturate(1.2) blur(22px);
   --content-bg: #fefefe;
 }
 
@@ -275,17 +275,17 @@
   --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.15);
   --sidebar-vibrancy-border: rgba(255, 255, 255, 0.10);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.06);
-  --titlebar-glass-bg: rgba(30, 30, 28, 0.62);
-  --titlebar-glass-bg-strong: rgba(14, 14, 13, 0.68);
-  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.08);
-  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.14);
-  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.18);
-  --titlebar-glass-control-border: rgba(255, 255, 255, 0.12);
-  --titlebar-glass-control-text: rgba(244, 243, 236, 0.8);
-  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.58);
+  --titlebar-glass-bg: rgba(31, 32, 34, 0.44);
+  --titlebar-glass-bg-strong: rgba(45, 46, 48, 0.5);
+  --titlebar-glass-control-bg: rgba(255, 255, 255, 0.1);
+  --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.16);
+  --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.22);
+  --titlebar-glass-control-border: rgba(255, 255, 255, 0.13);
+  --titlebar-glass-control-text: rgba(244, 243, 236, 0.78);
+  --titlebar-glass-control-text-muted: rgba(244, 243, 236, 0.56);
   --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
   --titlebar-glass-border: rgba(255, 255, 255, 0.08);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.12);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.18);
   --titlebar-glass-filter: saturate(1.2) blur(22px);
   --content-bg: #0b0b0c;
 }
@@ -400,14 +400,14 @@
     background: var(--titlebar-glass-control-bg) !important;
     color: var(--titlebar-glass-control-text) !important;
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.18),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+      0 1px 2px rgba(15, 23, 42, 0.055),
+      inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
     backdrop-filter: var(--titlebar-glass-filter);
     -webkit-backdrop-filter: var(--titlebar-glass-filter);
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-control:hover {
-    border-color: color-mix(in srgb, var(--titlebar-glass-control-border) 80%, white) !important;
+    border-color: rgba(15, 23, 42, 0.11) !important;
     background: var(--titlebar-glass-control-hover-bg) !important;
     color: var(--titlebar-glass-control-text-active) !important;
   }
@@ -425,17 +425,17 @@
 
   html.desktop[data-glass-chrome="1"] .titlebar-search-control kbd {
     border-color: var(--titlebar-glass-control-border);
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.42);
     color: var(--titlebar-glass-control-text-muted);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-segmented-control {
     border-color: var(--titlebar-glass-control-border);
-    background: color-mix(in srgb, var(--titlebar-glass-control-bg) 86%, transparent);
+    background: rgba(255, 255, 255, 0.34);
     box-shadow:
-      0 1px 2px rgba(0, 0, 0, 0.16),
-      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      0 1px 2px rgba(15, 23, 42, 0.055),
+      inset 0 1px 0 rgba(255, 255, 255, 0.6);
     backdrop-filter: var(--titlebar-glass-filter);
     -webkit-backdrop-filter: var(--titlebar-glass-filter);
   }
@@ -453,8 +453,8 @@
     background: var(--titlebar-glass-control-active-bg) !important;
     color: var(--titlebar-glass-control-text-active) !important;
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.1),
-      0 1px 2px rgba(0, 0, 0, 0.14) !important;
+      inset 0 1px 0 rgba(255, 255, 255, 0.72),
+      0 1px 2px rgba(15, 23, 42, 0.07) !important;
   }
 
   /* Remove all borders and outlines from the root elements */
@@ -685,7 +685,7 @@
     display: block;
     background:
       linear-gradient(180deg, var(--titlebar-glass-bg-strong) 0%, var(--titlebar-glass-bg) 100%),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 48%, rgba(255, 255, 255, 0.08) 100%);
+      linear-gradient(90deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 48%, rgba(255, 255, 255, 0.22) 100%);
     backdrop-filter: var(--titlebar-glass-filter);
     -webkit-backdrop-filter: var(--titlebar-glass-filter);
   }
