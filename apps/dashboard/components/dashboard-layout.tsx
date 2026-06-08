@@ -145,7 +145,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
           <header
             data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-11 items-center overflow-hidden bg-transparent px-3"
+            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-8 items-center overflow-hidden bg-transparent px-2"
           >
             <div
               data-tauri-drag-region
@@ -160,16 +160,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             )}
             <div
               data-tauri-drag-region
-              className="dashboard-top-chrome-row relative grid h-full w-full grid-cols-[minmax(176px,1fr)_auto_minmax(176px,1fr)] items-center gap-3"
+              className="dashboard-top-chrome-row relative grid h-full w-full grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
             >
-              <div className="no-drag flex min-w-0 items-center gap-2">
+              <div className="no-drag flex min-w-0 items-center gap-1">
                 {!isChatRoute && (
                   <CommandPalette
-                    className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[108px] items-center gap-2 rounded-[8px] px-2.5 text-[13px] font-medium leading-none text-[rgba(17,24,39,0.72)] focus-visible:outline-none focus-visible:ring-0"
+                    className="titlebar-control titlebar-search-control flex h-6 w-auto min-w-[100px] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
                     initialOpen={shouldOpenWhoopModal}
+                    density="tight"
                   />
                 )}
-                <div id="header-left-slot" className="flex items-center gap-2" />
+                <div id="header-left-slot" className="flex items-center gap-1" />
               </div>
 
               <div
@@ -177,10 +178,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 className="no-drag flex min-w-0 items-center justify-center"
               />
 
-              <div className="no-drag flex min-w-0 items-center justify-end gap-2">
+              <div className="no-drag flex min-w-0 items-center justify-end gap-1">
                 <div
                   id="header-right-slot"
-                  className="flex min-w-0 items-center gap-2"
+                  className="flex min-w-0 items-center gap-1"
                 />
                 <TeamDropdown isExpanded={false} placement="header" />
               </div>

@@ -114,11 +114,11 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="titlebar-control titlebar-icon-button relative h-7 w-7 rounded-[8px] p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
+            className="titlebar-control titlebar-icon-button relative h-6 w-7 rounded-md p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
             aria-label="Account menu"
           >
-            <Avatar className="h-5 w-5 rounded-[6px] border border-white/70">
-              <AvatarFallback className="rounded-[6px] bg-[rgba(17,24,39,0.07)] text-[11px] font-medium text-[rgba(17,24,39,0.62)]">
+            <Avatar className="h-[18px] w-[18px] rounded-[5px] border border-white/70">
+              <AvatarFallback className="rounded-[5px] bg-[rgba(17,24,39,0.07)] text-[10px] font-medium text-[rgba(17,24,39,0.62)]">
                 {getUserInitial()}
               </AvatarFallback>
             </Avatar>

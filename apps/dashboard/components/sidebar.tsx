@@ -60,7 +60,7 @@ export function Sidebar() {
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = showExpandedChrome ? 44 : 80;
+  const headerHeight = showExpandedChrome ? 32 : 80;
   const navTopPadding = showExpandedChrome ? 78 : 84;
 
   const handleChromeToggle = useCallback(() => {
@@ -104,7 +104,7 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="titlebar-icon-button mr-[22px] flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+              className="titlebar-icon-button mr-[22px] flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
@@ -120,7 +120,7 @@ export function Sidebar() {
                     router.back();
                   }
                 }}
-                className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                className="titlebar-icon-button flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                 aria-label="Go back"
                 title="Go back"
               >
@@ -133,7 +133,7 @@ export function Sidebar() {
                   event.stopPropagation();
                   router.forward();
                 }}
-                className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                className="titlebar-icon-button flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                 aria-label="Go forward"
                 title="Go forward"
               >
