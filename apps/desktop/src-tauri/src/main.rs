@@ -625,6 +625,8 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
 
     println!("🔧 Configuring macOS window transparency + liquid glass…");
 
+    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+
     match window.ns_window() {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
@@ -1469,6 +1471,7 @@ fn main() {
                         .resizable(true)
                         .decorations(true)
                         .transparent(main_glass_enabled)
+                        .shadow(true)
                         .visible(true);
 
                 #[cfg(target_os = "macos")]
