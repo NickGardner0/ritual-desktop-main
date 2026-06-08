@@ -150,7 +150,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
           <header
             data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-8 items-center overflow-hidden bg-transparent px-2"
+            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
           >
             <div
               data-tauri-drag-region

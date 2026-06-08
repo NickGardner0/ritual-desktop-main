@@ -351,6 +351,7 @@
   }
 
   .titlebar-control {
+    border-radius: 0.125rem !important;
     border: 1px solid rgba(15, 23, 42, 0.06) !important;
     background: rgba(255, 255, 255, 0.42) !important;
     box-shadow:
@@ -378,6 +379,7 @@
   }
 
   .titlebar-segmented-control {
+    border-radius: 0.125rem !important;
     border: 1px solid rgba(15, 23, 42, 0.055);
     background: rgba(255, 255, 255, 0.34);
     box-shadow:
@@ -387,8 +389,12 @@
     -webkit-backdrop-filter: saturate(1.08) blur(24px);
   }
 
+  .titlebar-segmented-control [role="tab"] {
+    border-radius: 0.125rem !important;
+  }
+
   .titlebar-search-control kbd {
-    border-radius: 5px;
+    border-radius: 0.125rem !important;
     border-color: rgba(15, 23, 42, 0.08);
     background: rgba(246, 247, 248, 0.82);
     color: rgba(17, 24, 39, 0.48);
@@ -396,6 +402,7 @@
   }
 
   .titlebar-icon-button {
+    border-radius: 0.125rem !important;
     border: 1px solid transparent !important;
     background: transparent !important;
     box-shadow: none !important;
@@ -483,6 +490,7 @@
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-segmented-control [role="tab"] {
+    border-radius: 0.125rem !important;
     color: var(--titlebar-glass-control-text-muted) !important;
   }
 
