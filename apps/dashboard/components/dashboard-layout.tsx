@@ -237,7 +237,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {/* Main Content Area */}
           <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
             {!isFullScreenChat && (
-              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-[72px] shrink-0 items-start bg-[var(--content-bg)] px-6 pt-4">
+              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-14 shrink-0 items-start bg-[var(--content-bg)] px-6 pt-3">
                 <div className="dashboard-app-toolbar-row grid h-8 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
                   <div className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
