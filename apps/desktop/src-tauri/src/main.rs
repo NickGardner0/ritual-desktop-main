@@ -11,9 +11,8 @@ mod ritual_database;
 mod watcher;
 mod watcher_activity;
 
-use std::collections::HashMap;
 use std::env;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -691,133 +690,6 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
         },
         Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
     }
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct TrafficLightBaseline {
-    close_y: f64,
-    step: f64,
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baselines() -> &'static Mutex<HashMap<String, TrafficLightBaseline>> {
-    static TRAFFIC_LIGHT_BASELINES: OnceLock<Mutex<HashMap<String, TrafficLightBaseline>>> =
-        OnceLock::new();
-    TRAFFIC_LIGHT_BASELINES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baseline_key(window: &tauri::WebviewWindow) -> String {
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-    format!("{}@{scale_factor:.2}", window.label())
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_traffic_light_baseline(
-    window: &tauri::WebviewWindow,
-    close_frame: cocoa::foundation::NSRect,
-    minimize_frame: cocoa::foundation::NSRect,
-    zoom_frame: cocoa::foundation::NSRect,
-) -> TrafficLightBaseline {
-    let native_step_a = minimize_frame.origin.x - close_frame.origin.x;
-    let native_step_b = zoom_frame.origin.x - minimize_frame.origin.x;
-    let native_step = if native_step_a > 0.0 && native_step_b > 0.0 {
-        (native_step_a + native_step_b) / 2.0
-    } else {
-        close_frame.size.width + 6.0
-    };
-
-    let key = traffic_light_baseline_key(window);
-    let default_baseline = TrafficLightBaseline {
-        close_y: close_frame.origin.y,
-        step: native_step,
-    };
-
-    let baselines = traffic_light_baselines();
-    let mut guard = match baselines.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    *guard.entry(key).or_insert(default_baseline)
-}
-
-/// Reposition macOS traffic lights (close/minimize/zoom) into the sidebar region.
-/// Called after window creation and on every resize, since macOS resets button
-/// positions when the window frame changes.
-#[cfg(target_os = "macos")]
-fn reposition_traffic_lights(window: &tauri::WebviewWindow) {
-    use cocoa::base::id;
-    use objc::{msg_send, sel, sel_impl};
-
-    let Ok(raw) = window.ns_window() else { return };
-    unsafe {
-        let ns_win: id = raw as id;
-        // Button constants: Close=0, Miniaturize=1, Zoom=2
-        let close: id = msg_send![ns_win, standardWindowButton: 0_u64];
-        let minimize: id = msg_send![ns_win, standardWindowButton: 1_u64];
-        let zoom: id = msg_send![ns_win, standardWindowButton: 2_u64];
-
-        if close.is_null() || minimize.is_null() || zoom.is_null() {
-            return;
-        }
-
-        let close_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
-        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
-        let baseline =
-            resolve_traffic_light_baseline(window, close_frame, minimize_frame, zoom_frame);
-
-        // Reuse the first clean native AppKit layout as the stable baseline and
-        // only reapply frame origins from it. Re-deriving target geometry from
-        // mutable container frames caused vertical drift after repeated resizes.
-        let left_inset: f64 = 14.0;
-        let vertical_nudge: f64 = 1.0;
-        let target_y = (baseline.close_y + vertical_nudge).max(0.0);
-
-        let _: () = msg_send![
-            close,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset, target_y)
-        ];
-        let _: () = msg_send![
-            minimize,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset + baseline.step, target_y)
-        ];
-        let _: () = msg_send![
-            zoom,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(
-                left_inset + baseline.step * 2.0,
-                target_y
-            )
-        ];
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn schedule_reposition_traffic_lights(window: tauri::WebviewWindow) {
-    let immediate_window = window.clone();
-    let immediate_target = immediate_window.clone();
-    let _ = immediate_window.run_on_main_thread(move || {
-        reposition_traffic_lights(&immediate_target);
-    });
-
-    let short_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(40));
-        let delayed_target = short_delay_window.clone();
-        let _ = short_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
-
-    let long_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(140));
-        let delayed_target = long_delay_window.clone();
-        let _ = long_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
 }
 
 /// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
@@ -1505,9 +1377,6 @@ fn main() {
                         info!("Main window glass disabled for stable production rendering");
                     }
 
-                    // Position traffic lights into the sidebar region (macOS native feel).
-                    schedule_reposition_traffic_lights(window.clone());
-
                     let detached_sidebar_enabled = !transparency_probe
                         && env::var("RITUAL_DETACHED_SIDEBAR")
                             .map(|v| {
@@ -1529,16 +1398,11 @@ fn main() {
                         let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
                         let app_handle_for_sync = app.handle().clone();
-                        let traffic_light_window = window.clone();
                         window.on_window_event(move |event| {
                             match event {
                                 tauri::WindowEvent::Moved(_)
                                 | tauri::WindowEvent::Resized(_)
                                 | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                                    // Re-position traffic lights after native relayout settles.
-                                    schedule_reposition_traffic_lights(
-                                        traffic_light_window.clone(),
-                                    );
                                     let state = app_handle_for_sync.state::<SidebarWindowState>();
                                     let width = state.get_width();
                                     let _ =
@@ -1564,18 +1428,6 @@ fn main() {
                         if let Some(sidebar_window) = app.get_webview_window("sidebar") {
                             let _ = sidebar_window.close();
                         }
-                        // Non-detached mode: still re-position traffic lights on resize or
-                        // display scale changes (moving between monitors can reset them).
-                        let traffic_light_window = window.clone();
-                        window.on_window_event(move |event| {
-                            if matches!(
-                                event,
-                                tauri::WindowEvent::Resized(_)
-                                    | tauri::WindowEvent::ScaleFactorChanged { .. }
-                            ) {
-                                schedule_reposition_traffic_lights(traffic_light_window.clone());
-                            }
-                        });
                     }
                 }
 
