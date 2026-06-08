@@ -144,109 +144,140 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       ) : null}
       
       <div className="app-window-shell flex h-full min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Top Header — the header itself is the draggable toolbar chrome.
-            Interactive controls opt out via no-drag so blank space still drags
-            like a native macOS titlebar. */}
+        {/* Native window chrome. Keep this row focused on window/navigation controls. */}
         {!isFullScreenChat && (
-          <header
-            data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
-          >
-            <div
+          <>
+            <header
               data-tauri-drag-region
-              aria-hidden="true"
-              className="titlebar-glass-layer pointer-events-none absolute inset-0"
-            />
-            {isChatRoute && (
+              className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
+            >
               <div
                 data-tauri-drag-region
-                className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
+                aria-hidden="true"
+                className="titlebar-glass-layer pointer-events-none absolute inset-0"
               />
-            )}
-            <div data-tauri-drag-region className="dashboard-top-chrome-row relative flex h-full w-full translate-y-[-1px] items-center gap-2">
-              <div
-                data-tauri-drag-region
-                className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
-              >
-                {shouldShowTitlebarSidebarControls ? (
-                  <div className="no-drag flex h-full items-center pl-[82px]">
-                    <button
-                      type="button"
-                      onMouseDown={(event) => event.stopPropagation()}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleChromeToggle();
-                      }}
-                      className="titlebar-icon-button mr-[22px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
-                      aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
-                      title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
-                    >
-                      <PanelLeft className="h-[16px] w-[16px] stroke-[2.05]" />
-                    </button>
-                    <div className="flex items-center gap-1">
+              {isChatRoute && (
+                <div
+                  data-tauri-drag-region
+                  className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
+                />
+              )}
+              <div data-tauri-drag-region className="dashboard-top-chrome-row relative flex h-full w-full translate-y-[-1px] items-center gap-2">
+                <div
+                  data-tauri-drag-region
+                  className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
+                >
+                  {shouldShowTitlebarSidebarControls ? (
+                    <div className="no-drag flex h-full items-center pl-[82px]">
                       <button
                         type="button"
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (window.history.length > 1) {
-                            router.back();
-                          }
+                          handleChromeToggle();
                         }}
-                        className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
-                        aria-label="Go back"
-                        title="Go back"
+                        className="titlebar-icon-button mr-[22px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                        aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
+                        title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
-                        <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+                        <PanelLeft className="h-[16px] w-[16px] stroke-[2.05]" />
                       </button>
-                      <button
-                        type="button"
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          router.forward();
-                        }}
-                        className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
-                        aria-label="Go forward"
-                        title="Go forward"
-                      >
-                        <ChevronRight className="h-4 w-4 stroke-[2.05]" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (window.history.length > 1) {
+                              router.back();
+                            }
+                          }}
+                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          aria-label="Go back"
+                          title="Go back"
+                        >
+                          <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+                        </button>
+                        <button
+                          type="button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            router.forward();
+                          }}
+                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          aria-label="Go forward"
+                          title="Go forward"
+                        >
+                          <ChevronRight className="h-4 w-4 stroke-[2.05]" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div
-                data-tauri-drag-region
-                className="grid h-full min-w-0 flex-1 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
-              >
-                <div className="no-drag flex min-w-0 items-center gap-1">
-                  {!isChatRoute && (
-                    <CommandPalette
-                      className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[112px] items-center gap-1.5 rounded-sm px-2.5 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
-                      initialOpen={shouldOpenWhoopModal}
-                      density="tight"
-                    />
-                  )}
-                  <div id="header-left-slot" className="flex items-center gap-1" />
+                  ) : null}
                 </div>
 
                 <div
-                  id="header-center-slot"
-                  className="no-drag flex min-w-0 items-center justify-center"
+                  data-tauri-drag-region
+                  className="flex h-full min-w-0 flex-1 items-center justify-end"
+                >
+                  <div className="no-drag flex items-center gap-1">
+                    <TeamDropdown isExpanded={false} placement="header" />
+                  </div>
+                </div>
+              </div>
+            </header>
+
+            <div
+              data-tauri-drag-region
+              className="dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 items-center overflow-hidden bg-transparent px-2"
+            >
+              <div
+                data-tauri-drag-region
+                aria-hidden="true"
+                className="titlebar-glass-layer pointer-events-none absolute inset-0"
+              />
+              {isChatRoute && (
+                <div
+                  data-tauri-drag-region
+                  className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
+                />
+              )}
+              <div data-tauri-drag-region className="dashboard-app-toolbar-row relative flex h-full w-full items-center gap-2">
+                <div
+                  data-tauri-drag-region
+                  className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} h-full shrink-0`}
                 />
 
-                <div className="no-drag flex min-w-0 items-center justify-end gap-1">
+                <div
+                  data-tauri-drag-region
+                  className="grid h-full min-w-0 flex-1 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
+                >
+                  <div className="no-drag flex min-w-0 items-center gap-1">
+                    {!isChatRoute && (
+                      <CommandPalette
+                        className="titlebar-control titlebar-search-control flex h-8 w-auto min-w-[112px] items-center gap-1.5 rounded-sm px-2.5 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
+                        initialOpen={shouldOpenWhoopModal}
+                        density="tight"
+                      />
+                    )}
+                    <div id="header-left-slot" className="flex items-center gap-1" />
+                  </div>
+
                   <div
-                    id="header-right-slot"
-                    className="flex min-w-0 items-center gap-1"
+                    id="header-center-slot"
+                    className="no-drag flex min-w-0 items-center justify-center"
                   />
-                  <TeamDropdown isExpanded={false} placement="header" />
+
+                  <div className="no-drag flex min-w-0 items-center justify-end gap-1">
+                    <div
+                      id="header-right-slot"
+                      className="flex min-w-0 items-center gap-1"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
-          </header>
+          </>
         )}
 
         <div className="app-body flex min-h-0 flex-1 overflow-hidden">

@@ -423,7 +423,7 @@ export function DateRangePicker({
             aria-label={`Date range: ${formatDateRange()}`}
             className={cn(
               isTitlebar
-                ? "titlebar-control h-7 w-[148px] justify-between rounded-sm px-2.5 py-0 text-left text-[12px] font-normal text-[rgba(17,24,39,0.68)] hover:text-[rgba(17,24,39,0.94)] focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
+                ? "titlebar-control h-8 w-[156px] justify-between rounded-sm px-2.5 py-0 text-left text-[12px] font-normal text-[rgba(17,24,39,0.68)] hover:text-[rgba(17,24,39,0.94)] focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
                 : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
               !date && (isTitlebar ? "text-[rgba(17,24,39,0.82)]" : "text-black"),
               className
