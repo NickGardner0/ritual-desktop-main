@@ -1297,7 +1297,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
         handleConfirmScreenshot={handleConfirmScreenshot}
       />
 
-      <div className="relative border border-gray-200/80 bg-[#F9F9F9] shadow-sm rounded-sm transition-all duration-300 hover:shadow-md hover:border-gray-300 focus-within:shadow-md focus-within:border-gray-300">
+      <div className="relative border border-gray-200/80 bg-[#FEFEFE] shadow-sm rounded-sm transition-all duration-300 hover:shadow-md hover:border-gray-300 focus-within:shadow-md focus-within:border-gray-300">
         <form onSubmit={handleFormSubmit}>
           <div className="px-5 pt-3 pb-3">
             {/* Input Area */}

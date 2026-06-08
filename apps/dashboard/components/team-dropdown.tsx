@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { useUser, useClerk } from "@clerk/nextjs";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -114,11 +114,18 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="titlebar-control titlebar-icon-button relative h-7 w-8 rounded-sm p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
+            className="relative h-8 w-8 rounded-full p-0 text-gray-600 hover:bg-white/45 focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
             aria-label="Account menu"
           >
-            <Avatar className="h-5 w-5 rounded-sm border border-white/70">
-              <AvatarFallback className="rounded-sm bg-[rgba(17,24,39,0.07)] text-[10px] font-medium text-[rgba(17,24,39,0.62)]">
+            <Avatar className="h-6 w-6 rounded-full border border-white/70 shadow-[0_1px_2px_rgba(15,23,42,0.08)]">
+              {user?.imageUrl ? (
+                <AvatarImage
+                  src={user.imageUrl}
+                  alt={getUserName()}
+                  className="rounded-full"
+                />
+              ) : null}
+              <AvatarFallback className="rounded-full bg-[#6366F1] text-[11px] font-medium text-white">
                 {getUserInitial()}
               </AvatarFallback>
             </Avatar>

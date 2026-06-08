@@ -432,7 +432,7 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="titlebar-control titlebar-icon-button flex h-8 w-9 items-center justify-center rounded-sm text-[rgba(17,24,39,0.58)] transition-colors hover:text-[rgba(17,24,39,0.9)] focus:outline-none focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)]"
+                  className="flex h-8 w-8 items-center justify-center rounded-sm border border-gray-300 bg-white text-gray-500 shadow-sm transition-colors hover:bg-[#F5F5F5] hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1"
                   aria-label="Add habit"
                   title="Add habit"
                 >
