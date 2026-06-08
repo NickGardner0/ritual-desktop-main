@@ -150,7 +150,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
           <header
             data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
+            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-10 items-center overflow-hidden bg-transparent px-2"
           >
             <div
               data-tauri-drag-region
@@ -177,7 +177,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                         event.stopPropagation();
                         handleChromeToggle();
                       }}
-                      className="titlebar-icon-button mr-[22px] flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                      className="titlebar-icon-button mr-[22px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
                       aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                     >
@@ -193,7 +193,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             router.back();
                           }
                         }}
-                        className="titlebar-icon-button flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                        className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                         aria-label="Go back"
                         title="Go back"
                       >
@@ -206,7 +206,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           event.stopPropagation();
                           router.forward();
                         }}
-                        className="titlebar-icon-button flex h-6 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                        className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                         aria-label="Go forward"
                         title="Go forward"
                       >
@@ -224,7 +224,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 <div className="no-drag flex min-w-0 items-center gap-1">
                   {!isChatRoute && (
                     <CommandPalette
-                      className="titlebar-control titlebar-search-control flex h-6 w-auto min-w-[100px] items-center gap-1.5 rounded-md px-2 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
+                      className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[112px] items-center gap-1.5 rounded-sm px-2.5 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
                       initialOpen={shouldOpenWhoopModal}
                       density="tight"
                     />
