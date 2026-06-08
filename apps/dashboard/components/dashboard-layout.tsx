@@ -150,7 +150,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {!isFullScreenChat && (
           <header
             data-tauri-drag-region
-            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-10 items-center overflow-hidden bg-transparent px-2"
+            className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
           >
             <div
               data-tauri-drag-region
@@ -163,7 +163,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
               />
             )}
-            <div data-tauri-drag-region className="dashboard-top-chrome-row relative flex h-full w-full items-center gap-2">
+            <div data-tauri-drag-region className="dashboard-top-chrome-row relative flex h-full w-full translate-y-[-1px] items-center gap-2">
               <div
                 data-tauri-drag-region
                 className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
