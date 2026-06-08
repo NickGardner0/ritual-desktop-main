@@ -466,7 +466,7 @@ function UnifiedAnalyticsContent({
             </DropdownMenu>
           )}
           <DateRangePicker
-            className="w-[122px]"
+            className="w-[148px]"
             variant="titlebar"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}

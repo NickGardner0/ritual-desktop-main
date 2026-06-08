@@ -165,7 +165,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <div className="no-drag flex min-w-0 items-center gap-2">
                 {!isChatRoute && (
                   <CommandPalette
-                    className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[108px] items-center gap-2 px-2.5 text-[13px] text-[rgba(17,24,39,0.72)] focus-visible:outline-none focus-visible:ring-0"
+                    className="titlebar-control titlebar-search-control flex h-7 w-auto min-w-[108px] items-center gap-2 rounded-[8px] px-2.5 text-[13px] font-medium leading-none text-[rgba(17,24,39,0.72)] focus-visible:outline-none focus-visible:ring-0"
                     initialOpen={shouldOpenWhoopModal}
                   />
                 )}

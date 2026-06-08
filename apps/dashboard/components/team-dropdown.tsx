@@ -114,7 +114,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
-            className="titlebar-control relative h-7 w-7 rounded-[8px] p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
+            className="titlebar-control titlebar-icon-button relative h-7 w-7 rounded-[8px] p-0 hover:bg-transparent focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)] focus-visible:ring-offset-0"
             aria-label="Account menu"
           >
             <Avatar className="h-5 w-5 rounded-[6px] border border-white/70">

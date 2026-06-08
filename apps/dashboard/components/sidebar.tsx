@@ -60,7 +60,7 @@ export function Sidebar() {
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = showExpandedChrome ? 52 : 80;
+  const headerHeight = showExpandedChrome ? 44 : 80;
   const navTopPadding = showExpandedChrome ? 78 : 84;
 
   const handleChromeToggle = useCallback(() => {
@@ -92,11 +92,11 @@ export function Sidebar() {
           below the macOS traffic lights without overlap. */}
       <div
         data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] flex items-start"
+        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] flex items-center"
         style={{ width: headerWidth, height: headerHeight }}
       >
         {showExpandedChrome ? (
-          <div className="no-drag absolute left-[82px] top-[3px] z-10 flex items-center">
+          <div className="no-drag absolute inset-y-0 left-[82px] z-10 flex items-center">
             <button
               type="button"
               onMouseDown={(event) => event.stopPropagation()}
@@ -104,13 +104,13 @@ export function Sidebar() {
                 event.stopPropagation();
                 handleChromeToggle();
               }}
-              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(143,146,151)] transition-colors hover:text-[#666a70]"
+              className="titlebar-icon-button mr-[22px] flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
               aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
               title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
             >
               <SidebarChromeToggleIcon className="h-[16px] w-[16px]" />
             </button>
-            <div className="flex items-center gap-[10px]">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onMouseDown={(event) => event.stopPropagation()}
@@ -120,11 +120,11 @@ export function Sidebar() {
                     router.back();
                   }
                 }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
+                className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                 aria-label="Go back"
                 title="Go back"
               >
-                <ChevronLeft className="h-[14px] w-[14px] stroke-[2.15]" />
+                <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
               </button>
               <button
                 type="button"
@@ -133,11 +133,11 @@ export function Sidebar() {
                   event.stopPropagation();
                   router.forward();
                 }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
+                className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-md text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                 aria-label="Go forward"
                 title="Go forward"
               >
-                <ChevronRight className="h-[14px] w-[14px] stroke-[2.15]" />
+                <ChevronRight className="h-4 w-4 stroke-[2.05]" />
               </button>
             </div>
           </div>
