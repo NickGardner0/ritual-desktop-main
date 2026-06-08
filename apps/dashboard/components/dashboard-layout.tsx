@@ -227,32 +227,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
             </header>
 
-            <div
-              data-tauri-drag-region
-              className="dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 items-center overflow-hidden bg-transparent px-2"
-            >
-              <div
-                data-tauri-drag-region
-                aria-hidden="true"
-                className="titlebar-glass-layer pointer-events-none absolute inset-0"
-              />
-              {isChatRoute && (
-                <div
-                  data-tauri-drag-region
-                  className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
-                />
-              )}
-              <div data-tauri-drag-region className="dashboard-app-toolbar-row relative flex h-full w-full items-center gap-2">
-                <div
-                  data-tauri-drag-region
-                  className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} h-full shrink-0`}
-                />
+          </>
+        )}
 
-                <div
-                  data-tauri-drag-region
-                  className="grid h-full min-w-0 flex-1 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
-                >
-                  <div className="no-drag flex min-w-0 items-center gap-1">
+        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
+          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
+
+          {/* Main Content Area */}
+          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
+            {!isFullScreenChat && (
+              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-[72px] shrink-0 items-start bg-[var(--content-bg)] px-6 pt-4">
+                <div className="dashboard-app-toolbar-row grid h-8 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
                       <CommandPalette
                         className="titlebar-control titlebar-search-control flex h-8 w-auto min-w-[112px] items-center gap-1.5 rounded-sm px-2.5 text-[12px] font-medium leading-none text-[rgba(17,24,39,0.68)] focus-visible:outline-none focus-visible:ring-0"
@@ -265,10 +252,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                   <div
                     id="header-center-slot"
-                    className="no-drag flex min-w-0 items-center justify-center"
+                    className="flex min-w-0 items-center justify-center"
                   />
 
-                  <div className="no-drag flex min-w-0 items-center justify-end gap-1">
+                  <div className="flex min-w-0 items-center justify-end gap-1">
                     <div
                       id="header-right-slot"
                       className="flex min-w-0 items-center gap-1"
@@ -276,16 +263,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
-
-        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
-          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
-
-          {/* Main Content Area */}
-          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
+            )}
             {/* Main Content */}
             <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
               {children}

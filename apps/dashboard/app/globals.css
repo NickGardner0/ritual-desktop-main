@@ -379,13 +379,9 @@
   }
 
   .app-toolbar-region {
-    border-bottom: 1px solid rgba(15, 23, 42, 0.055);
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.54), rgba(251, 251, 249, 0.42)),
-      rgba(255, 255, 255, 0.4);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.48),
-      inset 0 -1px 0 rgba(15, 23, 42, 0.035);
+    border-bottom: 0;
+    background: var(--content-bg);
+    box-shadow: none;
   }
 
   .titlebar-segmented-control {
@@ -731,9 +727,7 @@
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-region,
-  html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region,
-  html.desktop[data-platform="macos"][data-glass-chrome="1"] .app-toolbar-region,
-  html.desktop:not([data-platform])[data-glass-chrome="1"] .app-toolbar-region {
+  html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
     background: linear-gradient(
       180deg,
       rgba(255, 255, 255, 0.48) 0%,
@@ -749,15 +743,8 @@
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .app-toolbar-region,
   html.desktop:not([data-platform])[data-glass-chrome="1"] .app-toolbar-region {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.54) 0%,
-      rgba(252, 252, 250, 0.42) 54%,
-      rgba(249, 249, 247, 0.34) 100%
-    ) !important;
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.42),
-      inset 0 -1px 0 var(--titlebar-glass-border);
+    background: var(--content-bg) !important;
+    box-shadow: none;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"] .titlebar-glass-layer,
