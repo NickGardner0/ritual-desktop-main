@@ -95,10 +95,10 @@ function OnboardingButton({
     <Button
       {...props}
       className={cn(
-        "h-[45px] rounded-sm px-7 py-[13px] text-[15px] font-medium shadow-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
+        "h-8 rounded-sm px-4 text-sm font-normal shadow-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
         variant === "primary"
-          ? "bg-black text-white hover:bg-black/90"
-          : "border border-gray-300 bg-white text-gray-900 hover:bg-[#EBEAE8]",
+          ? "bg-black text-white hover:bg-[#27251E]"
+          : "border border-gray-300 bg-white text-gray-900 hover:bg-[#F3F3F3]",
         className,
       )}
     >
@@ -132,7 +132,7 @@ function Footer({
   return (
     <div className="flex items-center justify-between">
       <div>{onBack ? <BackButton onClick={onBack} disabled={busy} /> : null}</div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         {onSkip ? (
           <OnboardingButton variant="secondary" onClick={onSkip} disabled={busy}>
             Skip
@@ -165,13 +165,13 @@ function TrustRow() {
 
 function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
   return (
-    <div className="min-h-screen overflow-y-auto bg-[#e9e9e7] px-4 py-10">
-      <div className="mx-auto w-full max-w-[520px]">
+    <div className="flex h-screen justify-center overflow-hidden bg-[#e9e9e7] px-4 py-6">
+      <div className="ritual-signup-stage mx-auto h-full w-full max-w-[470px] overflow-y-auto overscroll-contain pr-1">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
           <ClerkLoading>
-            <div className="flex h-[620px] w-full items-center justify-center rounded-sm bg-white">
+            <div className="flex h-[540px] w-full items-center justify-center rounded-sm bg-white">
               <BrailleSpinner className="text-2xl text-gray-900" />
             </div>
           </ClerkLoading>
@@ -201,6 +201,24 @@ function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
           </ClerkLoaded>
         </div>
       </div>
+      <style jsx global>{`
+        .ritual-signup-stage {
+          scrollbar-width: thin;
+          scrollbar-color: rgba(20, 23, 29, 0.24) transparent;
+        }
+
+        .ritual-signup-stage .cl-rootBox,
+        .ritual-signup-stage .cl-cardBox,
+        .ritual-signup-stage .cl-card {
+          width: 100%;
+          max-width: 470px;
+        }
+
+        .ritual-signup-stage .cl-card {
+          border-radius: 2px;
+          box-shadow: 0 16px 42px rgba(18, 20, 28, 0.14);
+        }
+      `}</style>
     </div>
   )
 }

@@ -59,7 +59,7 @@ const DEFAULT_WINDOW_HEIGHT = 800;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_WELCOME_WINDOW_HEIGHT = 612;
-export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 860;
+export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 640;
 
 /**
  * Show the main Tauri window (called after React app is ready)
