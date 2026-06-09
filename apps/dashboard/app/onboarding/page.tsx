@@ -8,7 +8,7 @@ import { Check, ChevronLeft } from "lucide-react"
 
 import { AuthFlowIntent } from "@/components/auth-flow-intent"
 import { ClerkOAuthHandler } from "@/components/clerk-oauth-handler"
-import { DashboardPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
+import { DashboardPreviewWindow, LandingHeroPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
 import LegacyActivationOnboarding from "@/components/onboarding/legacy-activation-onboarding"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
 import { PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
@@ -477,7 +477,7 @@ export default function OnboardingPage() {
     return <SignUpStep desktopMode={desktopMode} />
   }
 
-  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[460px] max-w-[680px]"
+  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[420px] max-w-[640px]"
   const pageClassName = desktopMode
     ? "min-h-screen bg-white"
     : "min-h-screen bg-[#e9e9e7]"
@@ -527,11 +527,7 @@ export default function OnboardingPage() {
         <OnboardingWindow
           className={windowClassName}
           title="Your way to track anything"
-          banner={
-            <div className="absolute left-1/2 top-[18px] w-[360px] -translate-x-1/2">
-              <DashboardPreviewWindow />
-            </div>
-          }
+          banner={<LandingHeroPreviewWindow />}
           body="Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior. It connects the data from your wearables, your computer, and your phone, quietly logging in the background while you live your life."
           footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => goToStep(nextStep(step))} />}
         />

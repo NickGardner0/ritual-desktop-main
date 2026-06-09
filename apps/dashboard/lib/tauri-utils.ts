@@ -60,8 +60,8 @@ export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_WELCOME_WINDOW_HEIGHT = 612;
 export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 640;
-export const ONBOARDING_CARD_WINDOW_WIDTH = 680;
-export const ONBOARDING_CARD_WINDOW_HEIGHT = 460;
+export const ONBOARDING_CARD_WINDOW_WIDTH = 640;
+export const ONBOARDING_CARD_WINDOW_HEIGHT = 420;
 
 /**
  * Show the main Tauri window (called after React app is ready)

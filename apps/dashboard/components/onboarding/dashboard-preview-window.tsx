@@ -1,6 +1,7 @@
 "use client";
 
 import { GeistSans } from "geist/font/sans";
+import Image from "next/image";
 import {
   ArrowUp,
   AudioLines,
@@ -484,6 +485,25 @@ export function DashboardPreviewWindow({ compact = false }: { compact?: boolean 
   }
 
   return <DashboardPreviewScaled />;
+}
+
+export function LandingHeroPreviewWindow() {
+  return (
+    <div className="relative h-full w-full overflow-hidden bg-[#fafaf9]">
+      <Image
+        src="/images/river-hero-1300x720.jpg"
+        alt=""
+        fill
+        sizes="640px"
+        className="object-cover object-center"
+        draggable={false}
+      />
+      <div className="absolute inset-0 bg-white/15" aria-hidden="true" />
+      <div className="absolute left-1/2 top-[18px] w-[380px] -translate-x-1/2">
+        <DashboardPreviewWindow />
+      </div>
+    </div>
+  );
 }
 
 function DashboardPreviewScaled() {
