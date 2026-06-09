@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ButtonHTMLAttributes } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ClerkLoaded, ClerkLoading, SignIn, useAuth, useUser } from "@clerk/nextjs"
+import { ClerkLoaded, ClerkLoading, SignUp, useAuth, useUser } from "@clerk/nextjs"
 import { Check, ChevronLeft } from "lucide-react"
 
 import { AuthFlowIntent } from "@/components/auth-flow-intent"
@@ -16,6 +16,7 @@ import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import {
   isTauri,
+  ONBOARDING_SIGNUP_WINDOW_HEIGHT,
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
   ONBOARDING_WINDOW_HEIGHT,
   setOnboardingWindowSize,
@@ -23,7 +24,7 @@ import {
 import { cn } from "@/lib/utils"
 
 type LegacyStep = "profile" | "first-behavior" | "connect"
-type V3Step = "welcome" | "signin" | "meet" | "permissions" | "privacy"
+type V3Step = "welcome" | "signup" | "meet" | "permissions" | "privacy"
 
 type BootstrapResponse = {
   nextRoute?: string
@@ -33,7 +34,7 @@ type BootstrapResponse = {
 
 type ChecklistStatus = "seen" | "skipped" | "completed" | "needs_attention"
 
-const V3_STEPS: V3Step[] = ["welcome", "signin", "meet", "permissions", "privacy"]
+const V3_STEPS: V3Step[] = ["welcome", "signup", "meet", "permissions", "privacy"]
 const LEGACY_STEPS = new Set(["profile", "first-behavior", "connect"])
 const ONBOARDING_V3_STEP_KEY = "ritual:onboarding-v3-step"
 
@@ -162,20 +163,20 @@ function TrustRow() {
   )
 }
 
-function SignInStep({ desktopMode }: { desktopMode: boolean }) {
+function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#e9e9e7] px-4 py-8">
-      <div className="w-full max-w-md">
-        <AuthFlowIntent mode="sign_in" />
-        {desktopMode ? <ClerkOAuthHandler mode="sign_in" desktopMode /> : null}
+    <div className="min-h-screen overflow-y-auto bg-[#e9e9e7] px-4 py-10">
+      <div className="mx-auto w-full max-w-[520px]">
+        <AuthFlowIntent mode="sign_up" />
+        {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
           <ClerkLoading>
-            <div className="flex h-[420px] w-full items-center justify-center rounded-sm bg-white">
+            <div className="flex h-[620px] w-full items-center justify-center rounded-sm bg-white">
               <BrailleSpinner className="text-2xl text-gray-900" />
             </div>
           </ClerkLoading>
           <ClerkLoaded>
-            <SignIn
+            <SignUp
               appearance={{
                 variables: {
                   borderRadius: "0.125rem",
@@ -187,11 +188,13 @@ function SignInStep({ desktopMode }: { desktopMode: boolean }) {
                   socialButtonsBlockButton: "rounded-sm",
                   dividerRow: "",
                   formFieldInput: "rounded-sm",
+                  footerActionText: "text-gray-600",
+                  footerActionLink: "text-blue-600 hover:text-blue-500",
                 },
               }}
-              signUpUrl="/?page=1&mode=signup"
-              forceRedirectUrl="/onboarding?s=meet"
-              fallbackRedirectUrl="/onboarding?s=meet"
+              signInUrl="/sign-in"
+              forceRedirectUrl="/auth/sso-callback"
+              fallbackRedirectUrl="/auth/sso-callback"
               oauthFlow={desktopMode ? "redirect" : "auto"}
               oidcPrompt={desktopMode ? "select_account" : undefined}
             />
@@ -244,18 +247,24 @@ export default function OnboardingPage() {
     if (isLegacyStep(rawStep)) return
     const nextDesktopMode = isTauri()
     setDesktopMode(nextDesktopMode)
-    void setOnboardingWindowSize(step === "welcome" ? ONBOARDING_WELCOME_WINDOW_HEIGHT : ONBOARDING_WINDOW_HEIGHT)
+    void setOnboardingWindowSize(
+      step === "welcome"
+        ? ONBOARDING_WELCOME_WINDOW_HEIGHT
+        : step === "signup"
+          ? ONBOARDING_SIGNUP_WINDOW_HEIGHT
+          : ONBOARDING_WINDOW_HEIGHT,
+    )
   }, [rawStep, step])
 
   useEffect(() => {
     if (isLegacyStep(rawStep) || !isLoaded) return
 
-    if (!user && step !== "welcome" && step !== "signin") {
-      goToStep("signin")
+    if (!user && step !== "welcome" && step !== "signup") {
+      goToStep("signup")
       return
     }
 
-    if (user && step === "signin") {
+    if (user && step === "signup") {
       goToStep("meet")
     }
   }, [goToStep, isLoaded, rawStep, step, user])
@@ -388,9 +397,9 @@ export default function OnboardingPage() {
     setBusy(true)
     setError(null)
     try {
-      const bootstrap = await markSetupSeen()
+      await markSetupSeen()
       clearPersistedStep()
-      router.replace(bootstrap?.nextRoute || "/dashboard")
+      router.replace("/dashboard")
     } catch (finishError) {
       console.error("Failed finishing onboarding:", finishError)
       setError("Unable to finish setup. Please try again.")
@@ -425,8 +434,8 @@ export default function OnboardingPage() {
     )
   }
 
-  if (step === "signin") {
-    return <SignInStep desktopMode={desktopMode} />
+  if (step === "signup") {
+    return <SignUpStep desktopMode={desktopMode} />
   }
 
   const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[530px] max-w-[800px]"
@@ -468,7 +477,7 @@ export default function OnboardingPage() {
           }
           footer={
             <Footer
-              onContinue={() => goToStep(user ? "meet" : "signin")}
+              onContinue={() => goToStep(user ? "meet" : "signup")}
               continueLabel="Get Started"
             />
           }
