@@ -1211,6 +1211,7 @@ fn main() {
             watcher::stop_watcher,
             watcher::get_watcher_status,
             watcher::open_accessibility_settings,
+            watcher::open_full_disk_access_settings,
             // Local activity queries (for detailed view with full URLs/titles)
             watcher::get_detailed_activity,
             watcher::get_daily_summaries,

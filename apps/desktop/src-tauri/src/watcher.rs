@@ -1078,6 +1078,24 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
 }
 
+/// Open System Settings to Full Disk Access. macOS does not provide a programmatic
+/// grant prompt for this permission, so onboarding can only deep-link the pane.
+#[tauri::command]
+pub fn open_full_disk_access_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            .spawn()
+            .map_err(|e| format!("Failed to open settings: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("Not supported on this platform".to_string())
+    }
+}
+
 /// Query detailed activity from local activity storage.
 /// Returns events, app/domain summaries, and active/afk totals
 #[tauri::command]

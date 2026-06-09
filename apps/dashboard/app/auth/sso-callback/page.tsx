@@ -13,6 +13,7 @@ import {
 import { resolveSsoRedirectRoute } from '@/lib/activation-flow.mjs'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
+const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
 const BOOTSTRAP_TIMEOUT_MS = 10_000
 
 type BootstrapResponse = {
@@ -30,6 +31,13 @@ function readDashboardReturnUrl(): string | null {
   }
 
   return value
+}
+
+function readOnboardingV3ReturnUrl(): string | null {
+  if (typeof window === 'undefined') return null
+
+  const value = window.localStorage.getItem(ONBOARDING_V3_STEP_KEY)
+  return value ? '/onboarding?s=meet' : null
 }
 
 export default function SSOCallback() {
@@ -88,11 +96,11 @@ export default function SSOCallback() {
 
         const bootstrap = await response.json() as BootstrapResponse
         setStatus('Taking you to Ritual...')
-        router.replace(resolveSsoRedirectRoute(bootstrap.nextRoute, readDashboardReturnUrl()))
+        router.replace(readOnboardingV3ReturnUrl() ?? resolveSsoRedirectRoute(bootstrap.nextRoute, readDashboardReturnUrl()))
       } catch (error) {
         console.error('Error completing sign-in:', error)
         setStatus('Taking you to Ritual...')
-        router.replace(readDashboardReturnUrl() ?? '/dashboard')
+        router.replace(readOnboardingV3ReturnUrl() ?? readDashboardReturnUrl() ?? '/dashboard')
       }
     }
 
