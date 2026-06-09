@@ -168,7 +168,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
                 >
                   {shouldShowTitlebarSidebarControls ? (
-                    <div className="no-drag flex h-full items-center pl-[54px]">
+                    <div className="no-drag flex h-full items-center pl-9">
                       <button
                         type="button"
                         onMouseDown={(event) => event.stopPropagation()}
@@ -176,13 +176,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           event.stopPropagation();
                           handleChromeToggle();
                         }}
-                        className="titlebar-icon-button mr-[18px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                        className="titlebar-icon-button mr-2.5 flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
                         aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                         title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
                         <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
                       </button>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-0">
                         <button
                           type="button"
                           onMouseDown={(event) => event.stopPropagation()}
@@ -192,7 +192,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                               router.back();
                             }
                           }}
-                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go back"
                           title="Go back"
                         >
@@ -205,7 +205,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             event.stopPropagation();
                             router.forward();
                           }}
-                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go forward"
                           title="Go forward"
                         >
