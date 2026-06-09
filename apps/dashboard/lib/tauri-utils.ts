@@ -60,6 +60,8 @@ export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_WELCOME_WINDOW_HEIGHT = 612;
 export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 640;
+export const ONBOARDING_CARD_WINDOW_WIDTH = 680;
+export const ONBOARDING_CARD_WINDOW_HEIGHT = 460;
 
 /**
  * Show the main Tauri window (called after React app is ready)
@@ -147,8 +149,8 @@ export async function setStandardWindowSize(): Promise<void> {
 /**
  * Set window to compact size for onboarding
  */
-export async function setOnboardingWindowSize(height = ONBOARDING_WINDOW_HEIGHT): Promise<void> {
-  await resizeWindow(ONBOARDING_WINDOW_WIDTH, height);
+export async function setOnboardingWindowSize(height = ONBOARDING_WINDOW_HEIGHT, width = ONBOARDING_WINDOW_WIDTH): Promise<void> {
+  await resizeWindow(width, height);
 }
 
 /**

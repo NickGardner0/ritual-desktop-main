@@ -1078,22 +1078,55 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
 }
 
-/// Open System Settings to Full Disk Access. macOS does not provide a programmatic
-/// grant prompt for this permission, so onboarding can only deep-link the pane.
-#[tauri::command]
-pub fn open_full_disk_access_settings() -> Result<(), String> {
+fn open_macos_privacy_pane(pane: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            .arg(format!(
+                "x-apple.systempreferences:com.apple.preference.security?{}",
+                pane
+            ))
             .spawn()
             .map_err(|e| format!("Failed to open settings: {}", e))?;
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = pane;
         Err("Not supported on this platform".to_string())
     }
+}
+
+/// Open System Settings to Full Disk Access. macOS does not provide a programmatic
+/// grant prompt for this permission, so onboarding can only deep-link the pane.
+#[tauri::command]
+pub fn open_full_disk_access_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_AllFiles")
+}
+
+#[tauri::command]
+pub fn open_microphone_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_Microphone")
+}
+
+#[tauri::command]
+pub fn open_speech_recognition_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_SpeechRecognition")
+}
+
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_ScreenCapture")
+}
+
+#[tauri::command]
+pub fn open_input_monitoring_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_ListenEvent")
+}
+
+#[tauri::command]
+pub fn open_location_settings() -> Result<(), String> {
+    open_macos_privacy_pane("Privacy_LocationServices")
 }
 
 /// Query detailed activity from local activity storage.

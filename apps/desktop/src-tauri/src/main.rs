@@ -1212,6 +1212,11 @@ fn main() {
             watcher::get_watcher_status,
             watcher::open_accessibility_settings,
             watcher::open_full_disk_access_settings,
+            watcher::open_microphone_settings,
+            watcher::open_speech_recognition_settings,
+            watcher::open_screen_recording_settings,
+            watcher::open_input_monitoring_settings,
+            watcher::open_location_settings,
             // Local activity queries (for detailed view with full URLs/titles)
             watcher::get_detailed_activity,
             watcher::get_daily_summaries,

@@ -30,7 +30,7 @@ export function OnboardingWindow({
   return (
     <section
       className={cn(
-        "flex w-full flex-col overflow-hidden rounded-xl bg-white text-[#14171d] shadow-[0_22px_70px_rgba(18,20,28,0.18)]",
+        "flex w-full flex-col overflow-hidden rounded-xl bg-white text-[#14171d] shadow-[0_18px_54px_rgba(18,20,28,0.16)]",
         className,
       )}
       style={{ fontFamily: "var(--ritual-selected-font-family)" }}
@@ -38,21 +38,21 @@ export function OnboardingWindow({
       <div
         className={cn(
           "relative flex shrink-0 justify-center overflow-hidden",
-          bannerSize === "welcome" ? "h-[360px]" : "h-[262px]",
+          bannerSize === "welcome" ? "h-[360px]" : "h-[200px]",
         )}
         style={{ backgroundImage: ONBOARDING_TEXTURE_BACKGROUND }}
       >
         {banner}
       </div>
-      <div className={cn("flex flex-1 flex-col bg-white px-[34px] pb-[30px]", bannerSize === "welcome" ? "pt-[32px]" : "pt-[31px]")}>
-        <h1 className="text-[28px] font-medium leading-[1.2] tracking-[-0.01em] text-[#14171d]">
+      <div className={cn("flex flex-1 flex-col bg-white px-7 pb-6", bannerSize === "welcome" ? "pt-[32px]" : "pt-6")}>
+        <h1 className={cn("font-medium leading-[1.18] tracking-[-0.01em] text-[#14171d]", bannerSize === "welcome" ? "text-[28px]" : "text-[23px]")}>
           {title}
         </h1>
-        <div className="mt-[18px] max-w-[706px] text-[15px] leading-[1.5] text-[#737373]">
+        <div className="mt-3 max-w-[610px] text-[13.5px] leading-[1.45] text-[#737373]">
           {body}
         </div>
         {afterBody}
-        <div className="mt-auto pt-[28px]">{footer}</div>
+        <div className="mt-auto pt-5">{footer}</div>
       </div>
     </section>
   )
@@ -68,7 +68,7 @@ export function FrostedPreviewPanel({
   return (
     <div
       className={cn(
-        "absolute left-1/2 top-[36px] h-[255px] w-[550px] -translate-x-1/2 rounded-[14px] border border-[rgba(18,20,28,0.06)] bg-[rgba(255,255,255,0.55)] px-[52px] py-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_18px_40px_rgba(20,24,40,0.16)] backdrop-blur-[14px]",
+        "absolute left-1/2 top-5 h-[178px] w-[430px] -translate-x-1/2 rounded-[12px] border border-[#e8e8e6] bg-white px-8 py-7 shadow-[0_14px_36px_rgba(20,24,40,0.10)]",
         className,
       )}
     >

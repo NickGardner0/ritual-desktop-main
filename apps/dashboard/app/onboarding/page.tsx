@@ -16,9 +16,12 @@ import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import {
   isTauri,
+  ONBOARDING_CARD_WINDOW_HEIGHT,
+  ONBOARDING_CARD_WINDOW_WIDTH,
   ONBOARDING_SIGNUP_WINDOW_HEIGHT,
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
   ONBOARDING_WINDOW_HEIGHT,
+  ONBOARDING_WINDOW_WIDTH,
   setOnboardingWindowSize,
 } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
@@ -265,13 +268,13 @@ export default function OnboardingPage() {
     if (isLegacyStep(rawStep)) return
     const nextDesktopMode = isTauri()
     setDesktopMode(nextDesktopMode)
-    void setOnboardingWindowSize(
-      step === "welcome"
-        ? ONBOARDING_WELCOME_WINDOW_HEIGHT
-        : step === "signup"
-          ? ONBOARDING_SIGNUP_WINDOW_HEIGHT
-          : ONBOARDING_WINDOW_HEIGHT,
-    )
+    const nextHeight = step === "welcome"
+      ? ONBOARDING_WELCOME_WINDOW_HEIGHT
+      : step === "signup"
+        ? ONBOARDING_SIGNUP_WINDOW_HEIGHT
+        : ONBOARDING_CARD_WINDOW_HEIGHT
+    const nextWidth = step === "welcome" || step === "signup" ? ONBOARDING_WINDOW_WIDTH : ONBOARDING_CARD_WINDOW_WIDTH
+    void setOnboardingWindowSize(nextHeight, nextWidth)
   }, [rawStep, step])
 
   useEffect(() => {
@@ -390,24 +393,42 @@ export default function OnboardingPage() {
     return response.json()
   }
 
+  async function openPrivacyPane(invoke: NonNullable<Awaited<ReturnType<typeof getInvoke>>>, command: string) {
+    await invoke(command).catch((settingsError) => {
+      console.warn(`Unable to open ${command}:`, settingsError)
+    })
+  }
+
   async function requestDesktopPermissions() {
     const invoke = await getInvoke()
     if (!invoke || !user?.id) {
       return
     }
 
-    const macActivity = await bootstrapMacActivityWatcher()
+    const macActivity = await bootstrapMacActivityWatcher().catch(async (watcherError) => {
+      console.warn("Unable to fully bootstrap macOS activity watcher:", watcherError)
+      await openPrivacyPane(invoke, "open_accessibility_settings")
+      return { completed: false, metadata: { permission: "accessibility", granted: false, error: String(watcherError) } }
+    })
     await updateChecklist("mac_activity", macActivity.completed ? "completed" : "seen", macActivity.metadata).catch(() => undefined)
 
     const microphone = await invoke<boolean>("show_native_microphone_permission_dialog").catch(() => false)
     const speech = await invoke<boolean>("show_native_speech_recognition_permission_dialog").catch(() => false)
+    if (!microphone) {
+      await openPrivacyPane(invoke, "open_microphone_settings")
+    }
+    if (!speech) {
+      await openPrivacyPane(invoke, "open_speech_recognition_settings")
+    }
     await updateChecklist("ai_voice", microphone && speech ? "completed" : "needs_attention", {
       microphone,
       speech,
     }).catch(() => undefined)
 
-    // TODO: macOS does not expose a real Full Disk Access prompt API. This opens the pane so the user can grant it manually.
-    await invoke("open_full_disk_access_settings").catch(() => undefined)
+    await openPrivacyPane(invoke, "open_screen_recording_settings")
+    await openPrivacyPane(invoke, "open_input_monitoring_settings")
+    await openPrivacyPane(invoke, "open_location_settings")
+    await openPrivacyPane(invoke, "open_full_disk_access_settings")
   }
 
   async function finishV3Flow() {
@@ -456,7 +477,7 @@ export default function OnboardingPage() {
     return <SignUpStep desktopMode={desktopMode} />
   }
 
-  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[530px] max-w-[800px]"
+  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[460px] max-w-[680px]"
   const pageClassName = desktopMode
     ? "min-h-screen bg-white"
     : "min-h-screen bg-[#e9e9e7]"
@@ -507,7 +528,7 @@ export default function OnboardingPage() {
           className={windowClassName}
           title="Your way to track anything"
           banner={
-            <div className="absolute left-1/2 top-[24px] w-[460px] -translate-x-1/2">
+            <div className="absolute left-1/2 top-[18px] w-[360px] -translate-x-1/2">
               <DashboardPreviewWindow />
             </div>
           }
@@ -519,9 +540,9 @@ export default function OnboardingPage() {
       {step === "permissions" ? (
         <OnboardingWindow
           className={windowClassName}
-          title="Grant a few permissions"
+          title="Grant permissions"
           banner={<PermissionsPanel />}
-          body="Ritual needs a little macOS access — disk, activity, microphone, and location — to observe what you do and build your context. Everything stays on your device, and you can change this anytime in Settings."
+          body="Allow Ritual to read local activity, files, microphone, and screen context so it can track your day in the background. You can change these permissions anytime in macOS Settings."
           footer={
             <Footer
               onBack={() => goToStep(previousStep(step))}
