@@ -71,8 +71,8 @@ export function PermissionsPanel() {
   ]
 
   return (
-    <div className="absolute left-1/2 top-4 flex h-[160px] w-[460px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-[#e6e6e4] bg-[#f6f6f5] text-[#1d1d1f] shadow-[0_14px_36px_rgba(20,24,40,0.10)]">
-      <div className="w-[136px] shrink-0 border-r border-[#e5e5e3] bg-[#f2f2f1] px-3 py-3">
+    <div className="absolute left-1/2 top-4 flex h-[180px] w-[520px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-[#e6e6e4] bg-[#f6f6f5] text-[#1d1d1f] shadow-[0_14px_36px_rgba(20,24,40,0.10)]">
+      <div className="w-[150px] shrink-0 border-r border-[#e5e5e3] bg-[#f2f2f1] px-3 py-3">
         <div className="flex h-7 items-center gap-2 rounded-[7px] bg-[#dededc] px-2 text-[11px] text-[#3f3f42]">
           <Search className="h-3.5 w-3.5 text-[#767676]" strokeWidth={2} />
           privacy
@@ -83,7 +83,7 @@ export function PermissionsPanel() {
           </span>
           Privacy & Security
         </div>
-        <div className="mt-3 space-y-1.5 pl-9 text-[9.5px] leading-[1.12] text-[#8a8a8d]">
+        <div className="mt-3 space-y-1.5 pl-9 text-[10px] leading-[1.12] text-[#8a8a8d]">
           <p>Allow applications to access your microphone</p>
           <p>Allow applications to record your screen</p>
         </div>
@@ -97,7 +97,7 @@ export function PermissionsPanel() {
           {permissionRows.map((row) => {
             const Icon = row.icon
             return (
-              <div key={row.label} className="flex h-[25px] items-center gap-2 border-b border-[#eeeeec] px-2 last:border-b-0">
+              <div key={row.label} className="flex h-[28px] items-center gap-2 border-b border-[#eeeeec] px-2 last:border-b-0">
                 <span className={cn("flex h-5 w-5 items-center justify-center rounded-[5px] text-white", row.color)}>
                   <Icon className="h-3.5 w-3.5" strokeWidth={2} />
                 </span>

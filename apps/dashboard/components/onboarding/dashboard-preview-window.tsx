@@ -499,7 +499,7 @@ export function LandingHeroPreviewWindow() {
         draggable={false}
       />
       <div className="absolute inset-0 bg-white/15" aria-hidden="true" />
-      <div className="absolute left-1/2 top-[18px] w-[380px] -translate-x-1/2">
+      <div className="absolute left-1/2 top-[20px] w-[560px] -translate-x-1/2">
         <DashboardPreviewWindow />
       </div>
     </div>
