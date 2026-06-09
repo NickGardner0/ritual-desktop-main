@@ -11,7 +11,7 @@ import { ClerkOAuthHandler } from "@/components/clerk-oauth-handler"
 import { DashboardPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
 import LegacyActivationOnboarding from "@/components/onboarding/legacy-activation-onboarding"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
-import { MorningBriefPanel, PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
+import { PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import {
@@ -481,7 +481,7 @@ export default function OnboardingPage() {
             </>
           }
           afterBody={
-            <p className="mt-[17px] text-[14px] leading-[1.45] text-[#9ca3af]">
+            <p className="mt-[17px] text-[14px] leading-[1.45] text-[#737373]">
               By signing in you agree to our{" "}
               <Link className="underline underline-offset-2" href="/terms">
                 Terms of service
@@ -505,9 +505,13 @@ export default function OnboardingPage() {
       {step === "meet" ? (
         <OnboardingWindow
           className={windowClassName}
-          title="Meet Ritual"
-          banner={<MorningBriefPanel />}
-          body="Ritual is your private context engine. It quietly learns from your apps, files, and wearables to build a living memory of your work and life — entirely on your Mac. Get a morning brief, surface what matters, and let the tools you already use finally understand you."
+          title="Your way to track anything"
+          banner={
+            <div className="absolute left-1/2 top-[24px] w-[460px] -translate-x-1/2">
+              <DashboardPreviewWindow />
+            </div>
+          }
+          body="Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior. It connects the data from your wearables, your computer, and your phone, quietly logging in the background while you live your life."
           footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => goToStep(nextStep(step))} />}
         />
       ) : null}

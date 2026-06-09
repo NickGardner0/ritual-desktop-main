@@ -388,13 +388,13 @@ export function HomeClient() {
         </div>
 
         <footer className="py-8 text-center">
-          <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
+          <p className="text-sm text-[#737373]" style={{ fontWeight: 400 }}>
             By signing in you agree to our{' '}
-            <a href="/terms" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
+            <a href="/terms" className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200">
               Terms of service
             </a>
             {' '}&{' '}
-            <a href="/privacy" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
+            <a href="/privacy" className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200">
               Privacy policy
             </a>
           </p>
@@ -463,18 +463,18 @@ export function HomeClient() {
 
       {/* Terms of Service - Fixed at bottom */}
       <footer className="py-8 text-center">
-        <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
+        <p className="text-sm text-[#737373]" style={{ fontWeight: 400 }}>
           By signing in you agree to our{' '}
           <a
             href="/terms"
-            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
           >
             Terms of service
           </a>
           {' '}&{' '}
           <a
             href="/privacy"
-            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
           >
             Privacy policy
           </a>

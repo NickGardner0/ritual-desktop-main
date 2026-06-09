@@ -5,13 +5,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 export const ONBOARDING_TEXTURE_BACKGROUND = `
-  radial-gradient(58% 52% at 20% 24%, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0) 62%),
-  radial-gradient(50% 46% at 73% 32%, rgba(255,255,255,0.64) 0%, rgba(255,255,255,0) 60%),
-  radial-gradient(62% 56% at 50% 86%, rgba(255,255,255,0.54) 0%, rgba(255,255,255,0) 64%),
-  radial-gradient(46% 50% at 90% 70%, rgba(92,95,103,0.50) 0%, rgba(92,95,103,0) 62%),
-  radial-gradient(46% 46% at 9% 76%,  rgba(92,95,103,0.44) 0%, rgba(92,95,103,0) 62%),
-  radial-gradient(42% 42% at 37% 56%, rgba(255,255,255,0.44) 0%, rgba(255,255,255,0) 58%),
-  linear-gradient(140deg, #b4b6bc 0%, #a2a4ab 100%)
+  linear-gradient(#fafaf9, #fafaf9)
 `
 
 type OnboardingWindowProps = {
@@ -54,7 +48,7 @@ export function OnboardingWindow({
         <h1 className="text-[28px] font-medium leading-[1.2] tracking-[-0.01em] text-[#14171d]">
           {title}
         </h1>
-        <div className="mt-[18px] max-w-[706px] text-[15px] leading-[1.5] text-[#6b7280]">
+        <div className="mt-[18px] max-w-[706px] text-[15px] leading-[1.5] text-[#737373]">
           {body}
         </div>
         {afterBody}
