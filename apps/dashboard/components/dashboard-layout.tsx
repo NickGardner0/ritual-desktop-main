@@ -149,7 +149,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           <>
             <header
               data-tauri-drag-region
-              className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-10 items-center overflow-hidden bg-transparent px-2"
+              className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
             >
               <div
                 data-tauri-drag-region
@@ -176,11 +176,11 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           event.stopPropagation();
                           handleChromeToggle();
                         }}
-                        className="titlebar-icon-button mr-[22px] flex h-8 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                        className="titlebar-icon-button mr-[22px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
                         aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                         title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
-                        <PanelLeft className="h-[16px] w-[16px] stroke-[2.05]" />
+                        <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
                       </button>
                       <div className="flex items-center gap-1">
                         <button
@@ -192,7 +192,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                               router.back();
                             }
                           }}
-                          className="titlebar-icon-button flex h-8 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go back"
                           title="Go back"
                         >
@@ -205,7 +205,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             event.stopPropagation();
                             router.forward();
                           }}
-                          className="titlebar-icon-button flex h-8 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go forward"
                           title="Go forward"
                         >

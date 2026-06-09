@@ -232,11 +232,11 @@
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.12);
-  --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.25);
-  --titlebar-glass-bg: rgba(252, 252, 250, 0.34);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.48);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.34);
+  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.06);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.38);
+  --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
   --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.58);
   --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.74);
@@ -244,8 +244,8 @@
   --titlebar-glass-control-text: rgba(17, 24, 39, 0.66);
   --titlebar-glass-control-text-muted: rgba(17, 24, 39, 0.46);
   --titlebar-glass-control-text-active: rgba(17, 24, 39, 0.92);
-  --titlebar-glass-border: rgba(15, 23, 42, 0.045);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.16);
+  --titlebar-glass-border: rgba(15, 23, 42, 0.052);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
 }
@@ -737,9 +737,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.48) 0%,
-      rgba(252, 252, 250, 0.36) 46%,
-      rgba(249, 249, 247, 0.30) 100%
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     border-bottom: 0;
@@ -758,9 +758,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-glass-layer {
     display: block;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.78;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.9;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -769,9 +769,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.48) 0%,
-      rgba(252, 252, 250, 0.36) 46%,
-      rgba(249, 249, 247, 0.30) 100%
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     box-shadow: inset 0 -1px 0 var(--titlebar-glass-border);
@@ -783,9 +783,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .chat-header-sidebar-strip {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.48) 0%,
-      rgba(252, 252, 250, 0.36) 46%,
-      rgba(249, 249, 247, 0.30) 100%
+      rgba(255, 255, 255, 0.64) 0%,
+      rgba(255, 255, 255, 0.52) 48%,
+      rgba(252, 252, 250, 0.44) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     border-color: var(--titlebar-glass-border) !important;
@@ -804,12 +804,12 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.48) 0%,
-      rgba(252, 252, 250, 0.36) 46%,
-      rgba(249, 249, 247, 0.30) 100%
+      rgba(255, 255, 255, 0.56) 0%,
+      rgba(255, 255, 255, 0.40) 48%,
+      rgba(252, 252, 250, 0.32) 100%
     ) !important;
-    background-color: rgba(252, 252, 250, 0.34) !important;
-    border-right: 1px solid rgba(15, 23, 42, 0.045) !important;
+    background-color: rgba(255, 255, 255, 0.36) !important;
+    border-right: 1px solid rgba(15, 23, 42, 0.052) !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -834,9 +834,9 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.035) 38%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.0) 40%);
-    opacity: 0.78;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.9;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
