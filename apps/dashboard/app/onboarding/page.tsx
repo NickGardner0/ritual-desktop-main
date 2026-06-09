@@ -477,7 +477,7 @@ export default function OnboardingPage() {
     return <SignUpStep desktopMode={desktopMode} />
   }
 
-  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[420px] max-w-[640px]"
+  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[500px] max-w-[720px]"
   const pageClassName = desktopMode
     ? "min-h-screen bg-white"
     : "min-h-screen bg-[#e9e9e7]"

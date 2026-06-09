@@ -494,12 +494,12 @@ export function LandingHeroPreviewWindow() {
         src="/images/river-hero-1300x720.jpg"
         alt=""
         fill
-        sizes="640px"
+        sizes="720px"
         className="object-cover object-center"
         draggable={false}
       />
       <div className="absolute inset-0 bg-white/15" aria-hidden="true" />
-      <div className="absolute left-1/2 top-[20px] w-[560px] -translate-x-1/2">
+      <div className="absolute left-1/2 top-2 w-[480px] -translate-x-1/2">
         <DashboardPreviewWindow />
       </div>
     </div>

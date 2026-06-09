@@ -40,7 +40,7 @@ export function OnboardingWindow({
       <div
         className={cn(
           "relative flex shrink-0 justify-center overflow-hidden",
-          isWelcome ? "h-[360px]" : "h-[196px]",
+          isWelcome ? "h-[360px]" : "h-[276px]",
         )}
         style={{ backgroundImage: ONBOARDING_TEXTURE_BACKGROUND }}
       >
