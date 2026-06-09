@@ -168,7 +168,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
                 >
                   {shouldShowTitlebarSidebarControls ? (
-                    <div className="no-drag flex h-full items-center pl-9">
+                    <div className="no-drag flex h-full items-center pl-[72px]">
                       <button
                         type="button"
                         onMouseDown={(event) => event.stopPropagation()}
@@ -176,7 +176,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           event.stopPropagation();
                           handleChromeToggle();
                         }}
-                        className="titlebar-icon-button mr-2.5 flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                        className="titlebar-icon-button mr-3 flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:text-[rgba(17,24,39,0.78)]"
                         aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                         title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
@@ -192,7 +192,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                               router.back();
                             }
                           }}
-                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go back"
                           title="Go back"
                         >
@@ -205,7 +205,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             event.stopPropagation();
                             router.forward();
                           }}
-                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:text-[rgba(17,24,39,0.76)]"
                           aria-label="Go forward"
                           title="Go forward"
                         >
@@ -237,12 +237,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {/* Main Content Area */}
           <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
             {!isFullScreenChat && (
-              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-14 shrink-0 items-start bg-[var(--content-bg)] px-6 pt-3">
-                <div className="dashboard-app-toolbar-row grid h-8 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
+              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] px-6 pt-2.5">
+                <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
                   <div className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
                       <CommandPalette
-                        className="app-toolbar-control flex h-8 w-auto min-w-[112px] items-center gap-2 rounded-sm border border-gray-200/90 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-0"
+                        className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-0"
                         initialOpen={shouldOpenWhoopModal}
                         density="tight"
                       />

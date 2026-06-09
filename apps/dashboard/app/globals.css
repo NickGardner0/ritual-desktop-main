@@ -424,15 +424,15 @@
   }
 
   .titlebar-icon-button:hover {
-    border-color: rgba(15, 23, 42, 0.055) !important;
-    background: rgba(255, 255, 255, 0.46) !important;
+    border-color: transparent !important;
+    background: transparent !important;
     color: rgba(17, 24, 39, 0.78) !important;
   }
 
   .titlebar-icon-button:active,
   .titlebar-icon-button[data-state="open"] {
-    border-color: rgba(15, 23, 42, 0.07) !important;
-    background: rgba(255, 255, 255, 0.62) !important;
+    border-color: transparent !important;
+    background: transparent !important;
     color: rgba(17, 24, 39, 0.86) !important;
   }
 
@@ -468,15 +468,15 @@
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-icon-button:hover {
-    border-color: rgba(15, 23, 42, 0.055) !important;
-    background: rgba(255, 255, 255, 0.42) !important;
+    border-color: transparent !important;
+    background: transparent !important;
     color: var(--titlebar-glass-control-text-active) !important;
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-icon-button:active,
   html.desktop[data-glass-chrome="1"] .titlebar-icon-button[data-state="open"] {
-    border-color: var(--titlebar-glass-control-border) !important;
-    background: rgba(255, 255, 255, 0.58) !important;
+    border-color: transparent !important;
+    background: transparent !important;
     color: var(--titlebar-glass-control-text-active) !important;
   }
 

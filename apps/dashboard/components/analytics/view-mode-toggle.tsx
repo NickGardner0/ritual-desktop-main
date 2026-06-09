@@ -35,7 +35,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
   return (
     <div
       className={cn(
-        "app-toolbar-segmented-control inline-flex items-center gap-0.5 rounded-sm bg-[#F3F3F3]/70 p-[3px]",
+        "app-toolbar-segmented-control inline-flex items-center gap-0.5 rounded-sm bg-[#F3F3F3]/70 p-0.5",
         className
       )}
       role="tablist"
@@ -49,7 +49,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
           aria-controls={`${tab.value}-panel`}
           onClick={() => onViewChange(tab.value)}
           className={cn(
-            "h-7 rounded-sm px-3.5 text-[13px] transition-all duration-200",
+            "h-6 rounded-sm px-3 text-[12.5px] transition-all duration-200",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
             currentView === tab.value
               ? "bg-white text-[#27251E] font-medium shadow-[0_1px_3px_rgba(15,23,42,0.08)]"
