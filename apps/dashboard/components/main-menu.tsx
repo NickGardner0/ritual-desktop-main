@@ -2,11 +2,10 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   FlaskConical,
-  Settings,
   Plug2,
   ChevronDown,
   TableProperties,
@@ -15,12 +14,6 @@ import {
 } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
-import dynamic from 'next/dynamic';
-
-const SettingsModal = dynamic(
-  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
-  { ssr: false }
-);
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -74,7 +67,6 @@ const icons = {
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
-  "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
 } as const;
 
 const items = [
@@ -108,15 +100,6 @@ const items = [
     children: [
       { path: "/integrations?tab=available", name: "Available" },
       { path: "/integrations?tab=connected", name: "Connected" },
-    ],
-  },
-  {
-    path: "/settings",
-    name: "Settings",
-    children: [
-      { path: "/settings", name: "General" },
-      { path: "/settings/account", name: "Account" },
-      { path: "/settings/notifications", name: "Notifications" },
     ],
   },
 ];
@@ -198,8 +181,7 @@ const Item = ({
   isItemExpanded,
   onToggle,
   onSelect,
-  onSettingsClick,
-}: ItemProps & { onSettingsClick?: () => void }) => {
+}: ItemProps) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
@@ -228,10 +210,7 @@ const Item = ({
   };
 
   const handleItemClick = (e: React.MouseEvent) => {
-    if (item.path === "/settings") {
-      e.preventDefault();
-      onSettingsClick?.();
-    } else if (item.path === "/experiments") {
+    if (item.path === "/experiments") {
       e.preventDefault();
       onSelect?.();
     } else {
@@ -244,7 +223,7 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" || item.path === "/experiments" ? "#" : item.path}
+        href={item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
         className="group"
         prefetch={true}
@@ -330,33 +309,11 @@ const Item = ({
 type Props = {
   onSelect?: () => void;
   isExpanded?: boolean;
-  onCloseSidebar?: () => void;
 };
 
-export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props) {
+export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | undefined>(undefined);
-
-  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
-  useEffect(() => {
-    const view = searchParams.get('openSettings');
-    if (
-      view === 'account' ||
-      view === 'computer-tracking' ||
-      view === 'apple-health'
-    ) {
-      setSettingsInitialView(view);
-      setShowSettingsModal(true);
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('openSettings');
-      const qs = params.toString();
-      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
-    }
-  }, [searchParams, pathname, router]);
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
@@ -385,26 +342,11 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
                   setExpandedItem(expandedItem === path ? null : path);
                 }}
                 onSelect={onSelect}
-                onSettingsClick={() => setShowSettingsModal(true)}
               />
             );
           })}
         </div>
       </nav>
-      
-      {/* Settings Modal */}
-      {showSettingsModal && (
-        <SettingsModal 
-          isOpen={showSettingsModal} 
-          onClose={() => {
-            setShowSettingsModal(false);
-            setSettingsInitialView(undefined);
-            onCloseSidebar?.();
-          }}
-          onOpen={onCloseSidebar}
-          initialView={settingsInitialView}
-        />
-      )}
     </div>
   );
 }

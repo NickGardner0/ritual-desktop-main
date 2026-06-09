@@ -4,15 +4,27 @@ import { cn } from "@/lib/utils";
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { MainMenu } from "./main-menu";
-import { TeamDropdown } from "./team-dropdown";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { Settings } from "lucide-react";
+
+const SettingsModal = dynamic(
+  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
+  { ssr: false }
+);
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
 export function Sidebar() {
   const { mode } = useSidebarMode();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [isHovered, setIsHovered] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | undefined>(undefined);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = useCallback(() => {
@@ -47,6 +59,27 @@ export function Sidebar() {
     };
   }, [width]);
 
+  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
+  useEffect(() => {
+    const view = searchParams.get('openSettings');
+    if (
+      view === 'account' ||
+      view === 'computer-tracking' ||
+      view === 'apple-health'
+    ) {
+      setSettingsInitialView(view);
+      setShowSettingsModal(true);
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('openSettings');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
+    }
+  }, [searchParams, pathname, router]);
+
+  const handleSettingsClick = () => {
+    setShowSettingsModal(true);
+  };
+
   return (
     <aside
       className={cn(
@@ -62,14 +95,51 @@ export function Sidebar() {
       <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
-          onCloseSidebar={() => setIsHovered(false)}
         />
       </div>
 
-      {/* Bottom: User Avatar */}
-      <div className="flex flex-col items-center w-full gap-2 px-[15px]">
-        <TeamDropdown isExpanded={isExpanded} placement="sidebar" />
+      {/* Bottom: Settings */}
+      <div className="flex w-full flex-col items-stretch px-[15px]">
+        <button
+          type="button"
+          onClick={handleSettingsClick}
+          className={cn(
+            "group relative h-[40px] transition-colors duration-200",
+            isExpanded
+              ? "w-full"
+              : "w-[40px]"
+          )}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <span
+            className={cn(
+              "absolute top-1/2 left-0 flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center text-[#0f0f0f] transition-colors duration-200",
+              "group-hover:text-[#111111]"
+            )}
+          >
+            <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.2} />
+          </span>
+          {isExpanded && (
+            <span className="absolute top-1/2 left-[40px] right-[4px] flex h-[40px] -translate-y-1/2 items-center text-sm font-[450] leading-none text-[#666] transition-colors duration-200 group-hover:text-[#111111]">
+              Settings
+            </span>
+          )}
+        </button>
       </div>
+
+      {showSettingsModal && (
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => {
+            setShowSettingsModal(false);
+            setSettingsInitialView(undefined);
+            setIsHovered(false);
+          }}
+          onOpen={() => setIsHovered(false)}
+          initialView={settingsInitialView}
+        />
+      )}
     </aside>
   );
 }
