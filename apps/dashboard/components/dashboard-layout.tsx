@@ -168,7 +168,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
                 >
                   {shouldShowTitlebarSidebarControls ? (
-                    <div className="no-drag flex h-full items-center pl-[82px]">
+                    <div className="no-drag flex h-full items-center pl-[54px]">
                       <button
                         type="button"
                         onMouseDown={(event) => event.stopPropagation()}
@@ -176,7 +176,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           event.stopPropagation();
                           handleChromeToggle();
                         }}
-                        className="titlebar-icon-button mr-[22px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
+                        className="titlebar-icon-button mr-[18px] flex h-7 w-8 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:bg-[rgba(255,255,255,0.48)] hover:text-[rgba(17,24,39,0.78)]"
                         aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                         title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
