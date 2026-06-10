@@ -7,7 +7,7 @@ import {
 
 const RETRY_COPY = {
   idle: 'Preparing Ritual…',
-  checking: 'Checking the hosted desktop app…',
+  checking: 'Opening Ritual…',
   offline: 'Ritual needs an internet connection to load the hosted app.',
   failed: 'The hosted Ritual app did not respond. You can retry or open it in your browser.',
 };
@@ -64,19 +64,6 @@ export function DesktopShellApp() {
       if (navigator.onLine === false) {
         setState('offline');
         void recordDesktopShellEvent('desktop.shell.offline', 'warn', {
-          bootstrapUrl: config.bootstrapUrl,
-        });
-        void revealFallbackUi();
-        return;
-      }
-
-      const reachable = await invokeDesktopShellCommand('check_desktop_hosted_app_reachable', {
-        url: config.bootstrapUrl,
-      });
-
-      if (!reachable) {
-        setState('failed');
-        void recordDesktopShellEvent('desktop.shell.hosted_unreachable', 'warn', {
           bootstrapUrl: config.bootstrapUrl,
         });
         void revealFallbackUi();

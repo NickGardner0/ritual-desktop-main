@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
 import { isTauri, showMainWindow } from '@/lib/tauri-utils';
 
@@ -56,6 +56,7 @@ export function DesktopBootstrapClient({
   const [backendMessage, setBackendMessage] = useState<string>('Checking backend readiness...');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const navigationStartedRef = useRef(false);
 
   const targetPath = useMemo(
     () => buildDesktopTarget(searchParams),
@@ -118,25 +119,27 @@ export function DesktopBootstrapClient({
   }, []);
 
   useEffect(() => {
-    if (!isTauri() || backendStatus !== 'ready' || isNavigating) {
+    if (!isTauri() || navigationStartedRef.current) {
       return;
     }
 
+    navigationStartedRef.current = true;
     setIsNavigating(true);
     const timer = window.setTimeout(() => {
       const nextTarget = new URL(targetPath, window.location.origin);
-      void recordDesktopShellEvent('desktop.bootstrap.redirect_home', 'info', {
+      void recordDesktopShellEvent('desktop.bootstrap.redirect_dashboard', 'info', {
         targetPath,
         redirectUrl: `${nextTarget.pathname}${nextTarget.search}`,
+        backendStatus: 'not_waited',
       });
       window.location.replace(`${nextTarget.pathname}${nextTarget.search}`);
-    }, 150);
+    }, 25);
 
     return () => window.clearTimeout(timer);
-  }, [backendStatus, isNavigating, targetPath]);
+  }, [targetPath]);
 
   useEffect(() => {
-    if (backendStatus === 'ready' || isNavigating) {
+    if (backendStatus === 'ready') {
       setShowDiagnostics(false);
       return;
     }
@@ -152,7 +155,7 @@ export function DesktopBootstrapClient({
     }, 8000);
 
     return () => window.clearTimeout(timer);
-  }, [backendStatus, isNavigating]);
+  }, [backendMessage, backendStatus, targetPath]);
 
   if (!showDiagnostics) {
     return <main className="min-h-screen bg-transparent" aria-hidden="true" />;
@@ -180,6 +183,10 @@ export function DesktopBootstrapClient({
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Auth handoff</dt>
             <dd>Bootstrap no longer waits on Clerk before redirecting.</dd>
+          </div>
+          <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
+            <dt className="min-w-[170px] font-medium text-[#8a6f47]">Dashboard redirect</dt>
+            <dd>Bootstrap redirects immediately; backend readiness is diagnostics-only.</dd>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Backend readiness</dt>
