@@ -56,50 +56,12 @@ let windowShown = false;
 
 const DEFAULT_WINDOW_WIDTH = 1150;
 const DEFAULT_WINDOW_HEIGHT = 800;
-const DASHBOARD_WINDOW_SIZE_STORAGE_KEY = 'ritual:dashboard-window-size';
-const MIN_DASHBOARD_WINDOW_WIDTH = 800;
-const MIN_DASHBOARD_WINDOW_HEIGHT = 450;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_WELCOME_WINDOW_HEIGHT = 612;
 export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 640;
 export const ONBOARDING_CARD_WINDOW_WIDTH = 720;
 export const ONBOARDING_CARD_WINDOW_HEIGHT = 500;
-
-type StoredWindowSize = {
-  width: number;
-  height: number;
-};
-
-function readStoredDashboardWindowSize(): StoredWindowSize | null {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = window.localStorage.getItem(DASHBOARD_WINDOW_SIZE_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StoredWindowSize>;
-    const width = Number(parsed.width);
-    const height = Number(parsed.height);
-    if (!Number.isFinite(width) || !Number.isFinite(height)) return null;
-    if (width < MIN_DASHBOARD_WINDOW_WIDTH || height < MIN_DASHBOARD_WINDOW_HEIGHT) return null;
-    return { width, height };
-  } catch {
-    return null;
-  }
-}
-
-function storeDashboardWindowSize(size: StoredWindowSize): void {
-  if (typeof window === 'undefined') return;
-  if (size.width < MIN_DASHBOARD_WINDOW_WIDTH || size.height < MIN_DASHBOARD_WINDOW_HEIGHT) return;
-
-  window.localStorage.setItem(
-    DASHBOARD_WINDOW_SIZE_STORAGE_KEY,
-    JSON.stringify({
-      width: Math.round(size.width),
-      height: Math.round(size.height),
-    }),
-  );
-}
 
 /**
  * Show the main Tauri window (called after React app is ready)
@@ -185,69 +147,10 @@ export async function restoreDashboardWindowSize(): Promise<void> {
   try {
     const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
     const appWindow = getCurrentWindow();
-    const stored = readStoredDashboardWindowSize();
-
-    if (stored) {
-      await appWindow.setSize(new LogicalSize(stored.width, stored.height));
-      return;
-    }
-
-    const scaleFactor = await appWindow.scaleFactor().catch(() => 1);
-    const currentPhysicalSize = await appWindow.innerSize();
-    const currentLogicalSize = currentPhysicalSize.toLogical(scaleFactor);
-    const shouldRestoreDefault =
-      currentLogicalSize.width < DEFAULT_WINDOW_WIDTH ||
-      currentLogicalSize.height < DEFAULT_WINDOW_HEIGHT;
-
-    if (shouldRestoreDefault) {
-      await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
-      await appWindow.center();
-    }
+    await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+    await appWindow.center();
   } catch (error) {
     console.error('Failed to restore dashboard window size:', error);
-  }
-}
-
-export async function watchDashboardWindowSize(): Promise<() => void> {
-  if (!isTauri()) {
-    return () => undefined;
-  }
-
-  try {
-    const { getCurrentWindow } = await import('@tauri-apps/api/window');
-    const appWindow = getCurrentWindow();
-    let persistTimer: number | null = null;
-
-    const unlisten = await appWindow.onResized(({ payload }) => {
-      if (persistTimer !== null) {
-        window.clearTimeout(persistTimer);
-      }
-
-      persistTimer = window.setTimeout(async () => {
-        try {
-          const scaleFactor = await appWindow.scaleFactor().catch(() => 1);
-          const logicalSize = typeof payload.toLogical === 'function'
-            ? payload.toLogical(scaleFactor)
-            : {
-                width: payload.width / scaleFactor,
-                height: payload.height / scaleFactor,
-              };
-          storeDashboardWindowSize(logicalSize);
-        } catch (error) {
-          console.error('Failed to persist dashboard window size:', error);
-        }
-      }, 250);
-    });
-
-    return () => {
-      if (persistTimer !== null) {
-        window.clearTimeout(persistTimer);
-      }
-      unlisten();
-    };
-  } catch (error) {
-    console.error('Failed to watch dashboard window size:', error);
-    return () => undefined;
   }
 }
 

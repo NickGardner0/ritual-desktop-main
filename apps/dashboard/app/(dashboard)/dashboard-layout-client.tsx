@@ -17,7 +17,7 @@ import { FontProvider } from '@/contexts/FontContext';
 import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { restoreDashboardWindowSize, watchDashboardWindowSize } from '@/lib/tauri-utils';
+import { restoreDashboardWindowSize } from '@/lib/tauri-utils';
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -32,25 +32,9 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     router.prefetch('/integrations');
   }, [router]);
 
-  // Preserve user-resized dashboard windows instead of snapping to a fixed size.
+  // Start each desktop dashboard session from the standard launch size.
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-    let cancelled = false;
-
-    void (async () => {
-      await restoreDashboardWindowSize();
-      const unwatch = await watchDashboardWindowSize();
-      if (cancelled) {
-        unwatch();
-        return;
-      }
-      cleanup = unwatch;
-    })();
-
-    return () => {
-      cancelled = true;
-      cleanup?.();
-    };
+    void restoreDashboardWindowSize();
   }, []);
   
   return (

@@ -93,7 +93,19 @@ gh release upload "${TAG}" \
   "${ARTIFACTS[@]}"
 
 echo "Validating published updater feed..."
-node scripts/validate-updater-artifacts.mjs --latest "${LATEST_URL}" --check-urls
+for attempt in {1..6}; do
+  if node scripts/validate-updater-artifacts.mjs --latest "${LATEST_URL}" --check-urls; then
+    break
+  fi
+
+  if [[ "${attempt}" == "6" ]]; then
+    echo "Published updater feed validation failed after ${attempt} attempts." >&2
+    exit 1
+  fi
+
+  echo "Published updater feed not ready yet; retrying in 5 seconds (${attempt}/6)..."
+  sleep 5
+done
 
 echo
 echo "Published ${TAG} to https://github.com/${RELEASE_REPO}/releases/tag/${TAG}"
