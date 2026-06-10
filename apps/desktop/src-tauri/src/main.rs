@@ -1366,11 +1366,6 @@ fn main() {
 
             // Configure window after creation
             {
-                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 1150.0,
-                    height: 800.0,
-                }));
-                let _ = window.center();
                 #[cfg(target_os = "macos")]
                 {
                     configure_macos_native_window_chrome(&window);

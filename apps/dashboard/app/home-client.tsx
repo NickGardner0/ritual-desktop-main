@@ -4,7 +4,7 @@ import { useUser, useAuth } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ONBOARDING_WINDOW_HEIGHT, setOnboardingWindowSize, setStandardWindowSize } from '@/lib/tauri-utils';
+import { ONBOARDING_WINDOW_HEIGHT, setOnboardingWindowSize } from '@/lib/tauri-utils';
 import { isTauri } from '@/lib/tauri-utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
@@ -103,14 +103,12 @@ export function HomeClient() {
     return () => logo.removeEventListener('click', handleLogoClick, true);
   }, []);
 
-  // Set window size based on current state
+  // Only the guided onboarding flow owns window sizing. Returning users keep
+  // whatever dashboard size they chose.
   useEffect(() => {
     if (isNewUser) {
       void setOnboardingWindowSize(ONBOARDING_WINDOW_HEIGHT);
-      return;
     }
-
-    void setStandardWindowSize();
   }, [isNewUser]);
 
   // Determine if new user or returning user
