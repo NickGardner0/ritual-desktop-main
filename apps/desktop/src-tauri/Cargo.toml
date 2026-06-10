@@ -7,7 +7,7 @@ members = [
 
 [package]
 name = "app"
-version = "0.1.72"
+version = "0.1.73"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
