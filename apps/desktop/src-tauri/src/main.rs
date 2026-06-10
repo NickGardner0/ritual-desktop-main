@@ -590,11 +590,26 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
             let ns_win: id = raw_window as id;
 
             let current_style_mask: u64 = msg_send![ns_win, styleMask];
+            // Preserve normal document-window behavior after Tauri's overlay
+            // titlebar customization. In production builds the overlay/full-size
+            // content style can be applied after the builder's `resizable(true)`,
+            // so make the AppKit resizable bit explicit here.
+            let titled_mask = 1_u64 << 0; // NSWindowStyleMaskTitled
+            let closable_mask = 1_u64 << 1; // NSWindowStyleMaskClosable
+            let miniaturizable_mask = 1_u64 << 2; // NSWindowStyleMaskMiniaturizable
+            let resizable_mask = 1_u64 << 3; // NSWindowStyleMaskResizable
+            let full_size_content_view_mask = 1_u64 << 15; // NSWindowStyleMaskFullSizeContentView
             // NSWindowStyleMaskFullSizeContentView lets the webview render under
             // the titlebar, which is required for the thin Atlas-style glass chrome.
+            let desired_style_mask = current_style_mask
+                | titled_mask
+                | closable_mask
+                | miniaturizable_mask
+                | resizable_mask
+                | full_size_content_view_mask;
             let _: () = msg_send![
                 ns_win,
-                setStyleMask: current_style_mask | (1_u64 << 15)
+                setStyleMask: desired_style_mask
             ];
             let _: () = msg_send![ns_win, setHasShadow: YES];
             let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
@@ -609,7 +624,9 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
             }
 
-            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar)");
+            println!(
+                "✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)"
+            );
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
@@ -1376,6 +1393,10 @@ fn main() {
                         configure_macos_webview_transparency(&window);
                     } else {
                         info!("Main window glass disabled for stable production rendering");
+                    }
+
+                    if let Err(error) = window.set_resizable(true) {
+                        warn!(error = %error, "Failed to force main window resizable");
                     }
 
                     let detached_sidebar_enabled = !transparency_probe
