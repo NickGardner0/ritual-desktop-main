@@ -107,6 +107,14 @@ export interface HabitLog {
   status: 'completed' | 'skipped' | 'pending';
   notes?: string;
   unit?: string;
+  location_lat?: number | null;
+  location_lon?: number | null;
+  location_accuracy_m?: number | null;
+  location_source?: string | null;
+  location_place_label?: string | null;
+  location_confidence?: number | null;
+  location_resolved_at?: number | null;
+  location_signal_age_ms?: number | null;
 }
 
 /**

@@ -14,6 +14,7 @@ import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
 import { PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
+import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import {
   isTauri,
   ONBOARDING_CARD_WINDOW_HEIGHT,
@@ -290,7 +291,7 @@ export default function OnboardingPage() {
     }
   }, [goToStep, isLoaded, rawStep, step, user])
 
-  async function updateChecklist(key: "mac_activity" | "ai_voice", status: ChecklistStatus, metadata?: Record<string, unknown>) {
+  async function updateChecklist(key: "mac_activity" | "ai_voice" | "place_tagging", status: ChecklistStatus, metadata?: Record<string, unknown>) {
     const response = await fetch("/api/user/activation/checklist", {
       method: "PATCH",
       headers: await authHeaders(),
@@ -399,6 +400,38 @@ export default function OnboardingPage() {
     })
   }
 
+  async function requestPlaceTaggingPermission(): Promise<{ completed: boolean; metadata: Record<string, unknown> }> {
+    const token = await getToken({ skipCache: true })
+    const result = await submitCurrentLocationPing({
+      authToken: token,
+      reason: "onboarding_place_tagging",
+      maxRecentAgeMs: 0,
+      timeoutMs: 8000,
+    })
+
+    if (result.status === "submitted") {
+      return {
+        completed: true,
+        metadata: {
+          permission: "location",
+          granted: true,
+          source: result.source,
+          accuracyM: result.accuracyM,
+        },
+      }
+    }
+
+    return {
+      completed: false,
+      metadata: {
+        permission: "location",
+        granted: false,
+        status: result.status,
+        reason: result.reason,
+      },
+    }
+  }
+
   async function requestDesktopPermissions() {
     const invoke = await getInvoke()
     if (!invoke || !user?.id) {
@@ -425,9 +458,25 @@ export default function OnboardingPage() {
       speech,
     }).catch(() => undefined)
 
+    const placeTagging = await requestPlaceTaggingPermission().catch(async (locationError) => {
+      console.warn("Unable to request place tagging permission:", locationError)
+      await openLocationServicesSettings()
+      return {
+        completed: false,
+        metadata: { permission: "location", granted: false, error: String(locationError) },
+      }
+    })
+    if (!placeTagging.completed) {
+      await openLocationServicesSettings()
+    }
+    await updateChecklist(
+      "place_tagging",
+      placeTagging.completed ? "completed" : "needs_attention",
+      placeTagging.metadata,
+    ).catch(() => undefined)
+
     await openPrivacyPane(invoke, "open_screen_recording_settings")
     await openPrivacyPane(invoke, "open_input_monitoring_settings")
-    await openPrivacyPane(invoke, "open_location_settings")
     await openPrivacyPane(invoke, "open_full_disk_access_settings")
   }
 
@@ -538,7 +587,7 @@ export default function OnboardingPage() {
           className={windowClassName}
           title="Grant permissions"
           banner={<PermissionsPanel />}
-          body="Allow Ritual to read local activity, files, microphone, and screen context so it can track your day in the background. You can change these permissions anytime in macOS Settings."
+          body="Allow Ritual to read local activity, files, microphone, screen context, and place context so it can track your day in the background. You can change these permissions anytime in macOS Settings."
           footer={
             <Footer
               onBack={() => goToStep(previousStep(step))}

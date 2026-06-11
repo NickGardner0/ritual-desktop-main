@@ -12,6 +12,7 @@ import {
   Dumbbell,
   Focus,
   HeartPulse,
+  MapPin,
   Mic,
   Monitor,
   Moon,
@@ -25,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
+import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import { isTauri, setStandardWindowSize } from "@/lib/tauri-utils"
 import { readOnboardingStep } from "@/lib/activation-flow.mjs"
 
@@ -37,6 +39,7 @@ type ChecklistKey =
   | "whoop"
   | "garmin"
   | "ai_voice"
+  | "place_tagging"
   | "reminders"
 type ChecklistStatus = "not_started" | "seen" | "skipped" | "completed" | "needs_attention"
 
@@ -157,6 +160,13 @@ const setupItems: Array<{
     description: "Allow microphone and speech recognition for spoken logs.",
     action: "Enable",
     Icon: Mic,
+  },
+  {
+    key: "place_tagging",
+    title: "Enable place tagging",
+    description: "Attach place context to habit logs from Mac and iMessage.",
+    action: "Enable",
+    Icon: MapPin,
   },
   {
     key: "reminders",
@@ -523,6 +533,29 @@ export default function OnboardingPage() {
           microphone,
           speech,
         })
+        return
+      }
+
+      if (key === "place_tagging") {
+        const token = await getToken({ skipCache: true })
+        const result = await submitCurrentLocationPing({
+          authToken: token,
+          reason: "legacy_onboarding_place_tagging",
+          maxRecentAgeMs: 0,
+          timeoutMs: 8000,
+        })
+        if (result.status === "submitted") {
+          await updateChecklist(key, "completed", {
+            source: result.source,
+            accuracyM: result.accuracyM,
+          })
+        } else {
+          await openLocationServicesSettings()
+          await updateChecklist(key, "needs_attention", {
+            status: result.status,
+            reason: result.reason,
+          })
+        }
         return
       }
 

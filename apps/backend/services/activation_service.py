@@ -39,6 +39,7 @@ CHECKLIST_KEYS = (
     "whoop",
     "garmin",
     "ai_voice",
+    "place_tagging",
     "reminders",
 )
 CHECKLIST_STATUSES = {"not_started", "seen", "skipped", "completed", "needs_attention"}
@@ -50,6 +51,7 @@ INTEGRATION_RESPONSE_KEYS = {
     "whoop": "whoop",
     "garmin": "garmin",
     "ai_voice": "aiVoice",
+    "place_tagging": "placeTagging",
     "reminders": "reminders",
 }
 

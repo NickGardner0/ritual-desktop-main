@@ -9,6 +9,7 @@ import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { useHabits } from '@/contexts/HabitsContext';
 import type { ViewMode } from '@/components/analytics/view-mode-toggle';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
+import { submitCurrentLocationPing } from '@/lib/location-ping';
 import { isTauri } from '@/lib/tauri-utils';
 import {
   getOverviewActivityBundle,
@@ -51,6 +52,13 @@ import { createChatClientLayout } from './chat-client.layout';
 import { ChatSuggestionList } from './chat-suggestion-list';
 import { useChatOverviewActivityPrefetch } from './use-chat-overview-activity-prefetch';
 import { useChatVoiceInput } from './use-chat-voice-input';
+
+const HABIT_LOG_LOCATION_PREFLIGHT_PATTERN =
+  /\b(log|logged|logging|track|tracked|record|recorded|completed|finished|walked|ran|meditated|workout|worked out|read|drank|consumed|slept)\b/i;
+
+function shouldPreflightLocationForChat(text: string): boolean {
+  return HABIT_LOG_LOCATION_PREFLIGHT_PATTERN.test(text);
+}
 
 export function ChatClient() {
   const searchParams = useSearchParams();
@@ -681,6 +689,12 @@ export function ChatClient() {
     
     try {
       const token = await getToken();
+      if (shouldPreflightLocationForChat(text)) {
+        await submitCurrentLocationPing({
+          authToken: token,
+          reason: 'chat_stream_preflight',
+        });
+      }
       
       const response = await fetch('/api/chat/stream', {
         method: 'POST',

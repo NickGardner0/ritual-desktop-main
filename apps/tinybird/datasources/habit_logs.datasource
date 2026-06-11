@@ -15,6 +15,14 @@ SCHEMA >
     `unit` LowCardinality(String) `json:$.unit`,
     `notes` String `json:$.notes`,
     `source` LowCardinality(String) `json:$.source`,
+    `location_lat` Nullable(Float64) `json:$.location_lat`,
+    `location_lon` Nullable(Float64) `json:$.location_lon`,
+    `location_accuracy_m` Nullable(Float64) `json:$.location_accuracy_m`,
+    `location_source` Nullable(String) `json:$.location_source`,
+    `location_place_label` Nullable(String) `json:$.location_place_label`,
+    `location_confidence` Nullable(Float64) `json:$.location_confidence`,
+    `location_resolved_at` Nullable(Int64) `json:$.location_resolved_at`,
+    `location_signal_age_ms` Nullable(Int64) `json:$.location_signal_age_ms`,
     `integration_id` String `json:$.integration_id`,
     `whoop_metric_type` LowCardinality(String) `json:$.whoop_metric_type`,
     `metadata` String `json:$.metadata`,
@@ -24,4 +32,3 @@ ENGINE "MergeTree"
 ENGINE_PARTITION_KEY "toYYYYMM(date)"
 ENGINE_SORTING_KEY "user_id, date, habit_id"
 ENGINE_TTL "date + INTERVAL 2 YEAR"
-

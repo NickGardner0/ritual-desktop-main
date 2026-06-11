@@ -78,4 +78,12 @@ def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
         notes=log.notes,
         source=log.source,
         log_metadata=log.log_metadata,
+        location_lat=log.location_lat,
+        location_lon=log.location_lon,
+        location_accuracy_m=log.location_accuracy_m,
+        location_source=log.location_source,
+        location_place_label=log.location_place_label,
+        location_confidence=log.location_confidence,
+        location_resolved_at=log.location_resolved_at,
+        location_signal_age_ms=log.location_signal_age_ms,
     )

@@ -170,6 +170,7 @@
               "whoop",
               "garmin",
               "ai_voice",
+              "place_tagging",
               "reminders"
             ],
             "title": "Key",
@@ -2775,6 +2776,7 @@
               "whoop",
               "garmin",
               "ai_voice",
+              "place_tagging",
               "reminders"
             ],
             "title": "Key",
@@ -4067,6 +4069,94 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "location_accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Accuracy M"
+          },
+          "location_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Confidence"
+          },
+          "location_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Lat"
+          },
+          "location_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Lon"
+          },
+          "location_place_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Place Label"
+          },
+          "location_resolved_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Resolved At"
+          },
+          "location_signal_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Signal Age Ms"
+          },
+          "location_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Source"
           },
           "log_metadata": {
             "anyOf": [

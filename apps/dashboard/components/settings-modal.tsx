@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   User2,
   Monitor,
+  MapPin,
   X,
   ChevronDown,
   AlertTriangle,
@@ -23,12 +24,13 @@ import {
 } from '@/hooks/use-ui-preferences';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
+import { PlaceTaggingSettings } from './place-tagging-settings';
 
 // ---------------------------------------------------------------------------
 // Types & constants
 // ---------------------------------------------------------------------------
 
-export type SettingsTabId = 'account' | 'computer-tracking' | 'apple-health';
+export type SettingsTabId = 'account' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 type SettingsView = SettingsTabId;
 
@@ -55,10 +57,11 @@ function AppleGlyph({ className }: { className?: string }) {
 const TABS: Record<SettingsTabId, TabConfig> = {
   account: { label: 'General', icon: User2 },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
+  'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
-const TAB_ORDER: SettingsTabId[] = ['account', 'computer-tracking', 'apple-health'];
+const TAB_ORDER: SettingsTabId[] = ['account', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -409,6 +412,13 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
             {activeTab === 'apple-health' && (
               <div className="p-5">
                 <AppleWatchSettings />
+              </div>
+            )}
+
+            {/* Place Tagging tab */}
+            {activeTab === 'place-tagging' && (
+              <div className="p-5">
+                <PlaceTaggingSettings />
               </div>
             )}
           </div>

@@ -44,6 +44,7 @@ ActivationChecklistKey = Literal[
     "whoop",
     "garmin",
     "ai_voice",
+    "place_tagging",
     "reminders",
 ]
 

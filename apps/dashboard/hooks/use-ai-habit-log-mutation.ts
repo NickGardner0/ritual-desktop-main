@@ -8,6 +8,7 @@ import {
 } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
+import { submitCurrentLocationPing } from '@/lib/location-ping';
 
 type HabitUpdateHandler = ((habitData: any) => void) | undefined;
 
@@ -137,6 +138,10 @@ export function useAiHabitLogMutation({
     },
     mutationFn: async ({ inputText, parsed, matchedHabit, displayValue }: DirectLogParams) => {
       const sessionToken = await getToken();
+      await submitCurrentLocationPing({
+        authToken: sessionToken,
+        reason: 'ai_habit_chat_direct_log',
+      });
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const response = await fetch('/api/logs/batch', {
         method: 'POST',
@@ -205,6 +210,10 @@ export function useAiHabitLogMutation({
       }
 
       const sessionToken = await getToken();
+      await submitCurrentLocationPing({
+        authToken: sessionToken,
+        reason: 'ai_habit_chat_fallback_log',
+      });
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
       const response = await fetch('/api/chat/habits', {
         method: 'POST',

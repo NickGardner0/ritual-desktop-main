@@ -69,6 +69,14 @@ class HabitLog(HabitLogBase):
     habit_name: Optional[str] = None
     source: Optional[str] = None
     log_metadata: Optional[str] = None
+    location_lat: Optional[float] = None
+    location_lon: Optional[float] = None
+    location_accuracy_m: Optional[float] = None
+    location_source: Optional[str] = None
+    location_place_label: Optional[str] = None
+    location_confidence: Optional[float] = None
+    location_resolved_at: Optional[int] = None
+    location_signal_age_ms: Optional[int] = None
     
     class Config:
         from_attributes = True
