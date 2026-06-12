@@ -70,7 +70,13 @@ export function Sidebar() {
       view === 'apple-health'
     ) {
       if (isTauri()) {
-        void openDesktopSettingsWindow(view);
+        void openDesktopSettingsWindow(view).catch((error) => {
+          console.error('Failed to open native settings window:', error);
+          startTransition(() => {
+            setSettingsInitialView(view);
+            setShowSettingsModal(true);
+          });
+        });
         startTransition(() => setIsHovered(false));
       } else {
         startTransition(() => {
@@ -88,7 +94,13 @@ export function Sidebar() {
   const handleSettingsClick = async () => {
     if (isTauri()) {
       setIsHovered(false);
-      await openDesktopSettingsWindow('account');
+      try {
+        await openDesktopSettingsWindow('account');
+      } catch (error) {
+        console.error('Failed to open native settings window:', error);
+        setSettingsInitialView('account');
+        setShowSettingsModal(true);
+      }
       return;
     }
     setShowSettingsModal(true);
