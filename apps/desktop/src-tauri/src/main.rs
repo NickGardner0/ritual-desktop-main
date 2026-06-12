@@ -1083,6 +1083,11 @@ struct SettingsWindowPayload {
     initial_view: String,
 }
 
+const SETTINGS_WINDOW_WIDTH: f64 = 760.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 500.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 680.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 420.0;
+
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
         "account" | "computer-tracking" | "place-tagging" | "apple-health" => {
@@ -1104,6 +1109,39 @@ fn build_settings_window_url(initial_view: &str) -> String {
     with_query_param(&settings_url, &format!("view={initial_view}"))
 }
 
+fn resize_settings_window(settings: &tauri::WebviewWindow) {
+    let _ = settings.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: SETTINGS_WINDOW_WIDTH,
+        height: SETTINGS_WINDOW_HEIGHT,
+    }));
+}
+
+fn center_settings_window_over_main(
+    app: &tauri::AppHandle,
+    settings: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let main_pos = main
+        .outer_position()
+        .map_err(|e| format!("Failed to read main window position: {e}"))?;
+    let main_size = main
+        .outer_size()
+        .map_err(|e| format!("Failed to read main window size: {e}"))?;
+    let settings_size = settings
+        .outer_size()
+        .map_err(|e| format!("Failed to read settings window size: {e}"))?;
+
+    let x = main_pos.x + ((main_size.width as i32 - settings_size.width as i32) / 2);
+    let y = main_pos.y + ((main_size.height as i32 - settings_size.height as i32) / 2);
+    settings
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| format!("Failed to position settings window: {e}"))?;
+
+    Ok(())
+}
+
 #[tauri::command]
 fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> Result<(), String> {
     let initial_view = normalize_settings_view(initial_view);
@@ -1112,6 +1150,10 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
     };
 
     if let Some(settings) = app.get_webview_window("settings") {
+        resize_settings_window(&settings);
+        if center_settings_window_over_main(&app, &settings).is_err() {
+            let _ = settings.center();
+        }
         let _ = settings.show();
         let _ = settings.unminimize();
         let _ = settings.set_focus();
@@ -1131,8 +1173,8 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
     )
     .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
     .title("Settings")
-    .inner_size(900.0, 560.0)
-    .min_inner_size(760.0, 480.0)
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
     .resizable(true)
     .decorations(true)
     .transparent(false)
@@ -1150,7 +1192,9 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
     let settings = builder
         .build()
         .map_err(|error| format!("Failed to create settings window: {error}"))?;
-    let _ = settings.center();
+    if center_settings_window_over_main(&app, &settings).is_err() {
+        let _ = settings.center();
+    }
 
     #[cfg(target_os = "macos")]
     {

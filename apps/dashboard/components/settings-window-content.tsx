@@ -125,8 +125,8 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
 
   return (
     <div className="settings-native-window flex h-screen w-screen overflow-hidden bg-[#fbfbfa] text-[#262626]">
-      <aside className="flex w-[220px] shrink-0 flex-col border-r border-black/[0.07] bg-[#f8f8f7] px-[18px] pb-5 pt-[54px]">
-        <nav className="flex flex-col gap-1" aria-label="Settings sections">
+      <aside className="flex w-[184px] shrink-0 flex-col border-r border-black/[0.06] bg-[#f8f8f7] px-[14px] pb-4 pt-[50px]">
+        <nav className="flex flex-col gap-0.5" aria-label="Settings sections">
           {TAB_ORDER.map((id) => {
             const { label, icon: Icon } = TABS[id];
             const selected = activeTab === id;
@@ -136,11 +136,11 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                 type="button"
                 onClick={() => handleTabSelect(id)}
                 className={cn(
-                  'flex h-9 items-center gap-3 rounded-[9px] px-3 text-left text-[14px] font-medium leading-none transition-colors',
-                  selected ? 'bg-[#0f7f86] text-white' : 'text-[#171717] hover:bg-black/[0.045]',
+                  'flex h-[30px] items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13px] font-medium leading-none transition-colors',
+                  selected ? 'bg-[#dededc] text-[#171717]' : 'text-[#171717] hover:bg-black/[0.045]',
                 )}
               >
-                <Icon className="h-[16px] w-[16px] shrink-0" strokeWidth={2.2} />
+                <Icon className="h-[15px] w-[15px] shrink-0" strokeWidth={2.1} />
                 <span className="truncate">{label}</span>
               </button>
             );
@@ -149,26 +149,26 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
       </aside>
 
       <main className="min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[650px] px-8 pb-8 pt-[50px]">
-          <h1 className="mb-7 text-[18px] font-semibold leading-none text-[#454545]">
+        <div className="mx-auto w-full max-w-[560px] px-7 pb-6 pt-[38px]">
+          <h1 className="mb-6 text-[16px] font-semibold leading-none text-[#444]">
             {activeTabConfig.label}
           </h1>
 
           {activeTab === 'account' ? (
-            <div className="space-y-7">
+            <div className="space-y-6">
               <SettingsGroup>
-                <div className="flex min-h-[58px] items-center gap-3 px-4 py-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[16px] font-semibold text-white">
+                <div className="flex min-h-[50px] items-center gap-3 px-3.5 py-2.5">
+                  <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[14px] font-semibold text-white">
                     {userInitial}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[14px] font-semibold leading-tight text-[#252525]">{userName}</p>
+                    <p className="truncate text-[13px] font-semibold leading-tight text-[#252525]">{userName}</p>
                     <button
                       type="button"
                       onClick={() => {
                         if (user) openUserProfile();
                       }}
-                      className="mt-1 text-[12px] font-medium text-[#7a7a7a] transition-colors hover:text-[#252525]"
+                      className="mt-0.5 text-[11px] font-medium text-[#777] transition-colors hover:text-[#252525]"
                     >
                       Manage account
                     </button>
@@ -356,7 +356,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-[14px] font-semibold leading-none text-[#2b2b2b]">{title}</h2>
+      <h2 className="mb-2.5 text-[13px] font-semibold leading-none text-[#2b2b2b]">{title}</h2>
       <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
@@ -364,7 +364,7 @@ function SettingsSection({ title, children }: { title: string; children: React.R
 
 function SettingsGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="divide-y divide-black/[0.07] overflow-visible rounded-[12px] bg-[#f4f4f3]">
+    <div className="divide-y divide-black/[0.07] overflow-visible rounded-[10px] bg-[#f4f4f3]">
       {children}
     </div>
   );
@@ -380,11 +380,11 @@ function SettingsRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-[50px] grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-4 py-3">
+    <div className="grid min-h-[44px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-3.5 py-2.5">
       <div className="min-w-0">
-        <p className="text-[14px] font-medium leading-tight text-[#252525]">{title}</p>
+        <p className="text-[13px] font-medium leading-tight text-[#252525]">{title}</p>
         {description ? (
-          <p className="mt-1 max-w-[390px] text-[12px] leading-snug text-[#7a7a7a]">{description}</p>
+          <p className="mt-0.5 max-w-[350px] text-[11px] leading-snug text-[#777]">{description}</p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center justify-end">{control}</div>
@@ -399,14 +399,14 @@ function NativeToggle({ checked, onClick }: { checked: boolean; onClick: () => v
       onClick={onClick}
       aria-pressed={checked}
       className={cn(
-        'relative inline-flex h-[20px] w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]',
+        'relative inline-flex h-[18px] w-[34px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]',
         checked ? 'bg-[#0f7f86]' : 'bg-[#d9d9d7]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-[16px] w-[16px] rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
-          checked ? 'translate-x-[20px]' : 'translate-x-[2px]',
+          'inline-block h-[14px] w-[14px] rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
+          checked ? 'translate-x-[18px]' : 'translate-x-[2px]',
         )}
       />
     </button>
