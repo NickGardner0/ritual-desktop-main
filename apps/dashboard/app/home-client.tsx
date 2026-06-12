@@ -207,9 +207,9 @@ export function HomeClient() {
 
   const startSignup = () => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'signup');
+      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'meet');
     }
-    router.push('/onboarding?s=signup');
+    router.push('/onboarding?s=meet');
   };
 
   // Show loading while checking auth state for signed-in users
@@ -376,7 +376,7 @@ export function HomeClient() {
             <div className="flex items-center justify-center">
               <button
                 onClick={startSignup}
-                className="px-10 py-2 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium hover:bg-[#27251E]"
+                className="h-8 px-6 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium hover:bg-[#27251E]"
                 style={{ fontWeight: 500 }}
               >
                 Get Started

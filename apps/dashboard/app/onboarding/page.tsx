@@ -38,7 +38,7 @@ type BootstrapResponse = {
 
 type ChecklistStatus = "seen" | "skipped" | "completed" | "needs_attention"
 
-const V3_STEPS: V3Step[] = ["welcome", "signup", "meet", "permissions", "privacy"]
+const V3_STEPS: V3Step[] = ["welcome", "meet", "signup", "permissions", "privacy"]
 const LEGACY_STEPS = new Set(["profile", "first-behavior", "connect"])
 const ONBOARDING_V3_STEP_KEY = "ritual:onboarding-v3-step"
 
@@ -58,6 +58,11 @@ function nextStep(step: V3Step): V3Step {
 function previousStep(step: V3Step): V3Step {
   const index = V3_STEPS.indexOf(step)
   return V3_STEPS[Math.max(index - 1, 0)]
+}
+
+function previousVisibleStep(step: V3Step): V3Step {
+  if (step === "permissions") return "meet"
+  return previousStep(step)
 }
 
 function readPersistedStep(): V3Step | null {
@@ -169,7 +174,7 @@ function TrustRow() {
 
 function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
   return (
-    <div className="flex h-screen justify-center overflow-hidden bg-[#e9e9e7] px-4 py-6">
+    <div className="flex h-screen justify-center overflow-hidden bg-white px-4 py-6">
       <div className="ritual-signup-stage mx-auto h-full w-full max-w-[470px] overflow-y-auto overscroll-contain pr-1">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
@@ -281,13 +286,13 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (isLegacyStep(rawStep) || !isLoaded) return
 
-    if (!user && step !== "welcome" && step !== "signup") {
+    if (!user && (step === "permissions" || step === "privacy")) {
       goToStep("signup")
       return
     }
 
     if (user && step === "signup") {
-      goToStep("meet")
+      goToStep("permissions")
     }
   }, [goToStep, isLoaded, rawStep, step, user])
 
@@ -565,7 +570,7 @@ export default function OnboardingPage() {
           }
           footer={
             <Footer
-              onContinue={() => goToStep(user ? "meet" : "signup")}
+              onContinue={() => goToStep("meet")}
               continueLabel="Get Started"
             />
           }
@@ -578,7 +583,7 @@ export default function OnboardingPage() {
           title="Your way to track anything"
           banner={<LandingHeroPreviewWindow />}
           body="Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior. It connects the data from your wearables, your computer, and your phone, quietly logging in the background while you live your life."
-          footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => goToStep(nextStep(step))} />}
+          footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => goToStep(user ? "permissions" : "signup")} />}
         />
       ) : null}
 
@@ -590,7 +595,7 @@ export default function OnboardingPage() {
           body="Allow Ritual to read local activity, files, microphone, screen context, and place context so it can track your day in the background. You can change these permissions anytime in macOS Settings."
           footer={
             <Footer
-              onBack={() => goToStep(previousStep(step))}
+              onBack={() => goToStep(previousVisibleStep(step))}
               onSkip={() => goToStep(nextStep(step))}
               onContinue={() => void allowAndContinue()}
               continueLabel="Allow & Continue"
@@ -607,7 +612,7 @@ export default function OnboardingPage() {
           banner={<VaultPanel />}
           body="Everything Ritual remembers lives on your Mac, encrypted with a key only you hold. No cloud sync, and your data is never used to train anyone's models."
           afterBody={<TrustRow />}
-          footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => void finishV3Flow()} busy={busy} />}
+          footer={<Footer onBack={() => goToStep(previousVisibleStep(step))} onContinue={() => void finishV3Flow()} busy={busy} />}
         />
       ) : null}
 
