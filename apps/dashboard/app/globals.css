@@ -1152,6 +1152,105 @@
     color: #111827;
   }
 
+  .settings-native-window {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  }
+
+  .settings-native-window * {
+    letter-spacing: 0;
+  }
+
+  .settings-native-window main {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+
+  .settings-native-window main::-webkit-scrollbar {
+    width: 10px;
+  }
+
+  .settings-native-window main::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.18);
+    background-clip: padding-box;
+  }
+
+  .settings-native-value-button {
+    display: inline-flex;
+    min-height: 30px;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.76);
+    padding: 0.325rem 0.65rem;
+    color: #3f3f46;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+  }
+
+  .settings-native-value-button:hover {
+    border-color: rgba(0, 0, 0, 0.16);
+    background: rgba(255, 255, 255, 0.95);
+  }
+
+  .settings-native-action-row {
+    display: flex;
+    min-height: 42px;
+    width: 100%;
+    align-items: center;
+    padding: 0 1rem;
+    color: #374151;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    text-align: left;
+    transition: background-color 140ms ease, color 140ms ease;
+  }
+
+  .settings-native-action-row:hover {
+    background: rgba(0, 0, 0, 0.035);
+    color: #111827;
+  }
+
+  .settings-native-embedded {
+    color: #2c2c2c;
+    font-size: 13px;
+  }
+
+  .settings-native-embedded > div {
+    gap: 1.5rem;
+  }
+
+  .settings-native-embedded h2,
+  .settings-native-embedded h3 {
+    color: #2b2b2b;
+    font-size: 14px;
+  }
+
+  .settings-native-embedded .rounded-sm,
+  .settings-native-embedded .rounded-lg,
+  .settings-native-embedded .rounded-xl,
+  .settings-native-embedded .rounded-\[15px\] {
+    border-radius: 12px !important;
+  }
+
+  .settings-native-embedded .px-5 {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  .settings-native-embedded .py-4,
+  .settings-native-embedded .py-3\.5 {
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+  }
+
   .settings-embedded-pane > div {
     color: #2c2c2c;
   }

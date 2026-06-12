@@ -24,6 +24,11 @@ export function RootProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
   const isDesktopShell = typeof window !== 'undefined' && isTauri();
+  const isAuxiliaryDesktopWindow = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ritual_sidebar_window') === '1' || params.get('ritual_settings_window') === '1';
+  };
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
@@ -32,12 +37,14 @@ export function RootProviders({ children }: { children: ReactNode }) {
   });
   const [isMainGlassEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
+    if (isAuxiliaryDesktopWindow()) return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
     const storageValue = window.sessionStorage.getItem('ritual_main_glass');
     return isTauri() || queryValue === '1' || storageValue === '1';
   });
   const [isGlassChromeEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
+    if (isAuxiliaryDesktopWindow()) return false;
     const params = new URLSearchParams(window.location.search);
     const queryValue = params.get('ritual_glass_chrome');
     const storageValue = window.sessionStorage.getItem('ritual_glass_chrome');
@@ -60,11 +67,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
     if (isDesktopBootstrap) {
@@ -83,11 +87,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
     void desktopFrontendReady();

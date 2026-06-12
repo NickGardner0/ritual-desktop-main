@@ -1077,6 +1077,90 @@ struct SidebarMainState {
     width: f64,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsWindowPayload {
+    initial_view: String,
+}
+
+fn normalize_settings_view(view: Option<String>) -> String {
+    match view.as_deref().unwrap_or("account") {
+        "account" | "computer-tracking" | "place-tagging" | "apple-health" => {
+            view.unwrap_or_else(|| "account".to_string())
+        }
+        _ => "account".to_string(),
+    }
+}
+
+fn build_settings_window_url(initial_view: &str) -> String {
+    let ritual_env = configured_ritual_env();
+    let app_origin = get_app_url();
+    let mut settings_url = join_url_path(&app_origin, "/settings-window");
+    settings_url = with_query_param(&settings_url, "ritual_settings_window=1");
+    settings_url = with_query_param(
+        &settings_url,
+        &format!("ritual_desktop_env={ritual_env}"),
+    );
+    with_query_param(&settings_url, &format!("view={initial_view}"))
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> Result<(), String> {
+    let initial_view = normalize_settings_view(initial_view);
+    let payload = SettingsWindowPayload {
+        initial_view: initial_view.clone(),
+    };
+
+    if let Some(settings) = app.get_webview_window("settings") {
+        let _ = settings.show();
+        let _ = settings.unminimize();
+        let _ = settings.set_focus();
+        let _ = settings.emit("settings:show", payload);
+        return Ok(());
+    }
+
+    let settings_url = build_settings_window_url(&initial_view);
+    let settings_external_url = settings_url
+        .parse()
+        .map_err(|error| format!("Invalid settings window URL: {error}"))?;
+
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::External(settings_external_url),
+    )
+    .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+    .title("Settings")
+    .inner_size(900.0, 560.0)
+    .min_inner_size(760.0, 480.0)
+    .resizable(true)
+    .decorations(true)
+    .transparent(false)
+    .shadow(true)
+    .visible(true)
+    .focused(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let settings = builder
+        .build()
+        .map_err(|error| format!("Failed to create settings window: {error}"))?;
+    let _ = settings.center();
+
+    #[cfg(target_os = "macos")]
+    {
+        configure_macos_native_window_chrome(&settings);
+    }
+
+    let _ = settings.emit("settings:show", payload);
+    Ok(())
+}
+
 #[tauri::command]
 fn sidebar_get_main_state(
     app: tauri::AppHandle,
@@ -1204,6 +1288,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             // Window management
             show_main_window,
+            open_settings_window,
             sidebar_set_width,
             sidebar_navigate,
             sidebar_get_main_state,

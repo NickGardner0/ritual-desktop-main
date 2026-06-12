@@ -2,12 +2,13 @@
 
 import { cn } from "@/lib/utils";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { startTransition, useState, useRef, useCallback, useEffect } from "react";
 import { MainMenu } from "./main-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Settings } from "lucide-react";
+import { isTauri, openDesktopSettingsWindow, type DesktopSettingsView } from "@/lib/tauri-utils";
 
 const SettingsModal = dynamic(
   () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
@@ -24,7 +25,7 @@ export function Sidebar() {
   const router = useRouter();
   const [isHovered, setIsHovered] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | undefined>(undefined);
+  const [settingsInitialView, setSettingsInitialView] = useState<DesktopSettingsView | undefined>(undefined);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = useCallback(() => {
@@ -65,10 +66,18 @@ export function Sidebar() {
     if (
       view === 'account' ||
       view === 'computer-tracking' ||
+      view === 'place-tagging' ||
       view === 'apple-health'
     ) {
-      setSettingsInitialView(view);
-      setShowSettingsModal(true);
+      if (isTauri()) {
+        void openDesktopSettingsWindow(view);
+        startTransition(() => setIsHovered(false));
+      } else {
+        startTransition(() => {
+          setSettingsInitialView(view);
+          setShowSettingsModal(true);
+        });
+      }
       const params = new URLSearchParams(searchParams.toString());
       params.delete('openSettings');
       const qs = params.toString();
@@ -76,7 +85,12 @@ export function Sidebar() {
     }
   }, [searchParams, pathname, router]);
 
-  const handleSettingsClick = () => {
+  const handleSettingsClick = async () => {
+    if (isTauri()) {
+      setIsHovered(false);
+      await openDesktopSettingsWindow('account');
+      return;
+    }
     setShowSettingsModal(true);
   };
 

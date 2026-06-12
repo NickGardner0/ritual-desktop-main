@@ -121,6 +121,12 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
+export type DesktopSettingsView = 'account' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+
+export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
+  await invokeDesktopCommand('open_settings_window', { initialView });
+}
+
 /**
  * Resize the Tauri window
  */
