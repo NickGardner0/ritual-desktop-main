@@ -2,7 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, AudioLines, BookOpen, Check, FilePenLine, ListTodo, Plus, X } from 'lucide-react';
+import { ArrowUp, AudioLines, Check, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
@@ -23,7 +23,6 @@ import {
 export function createChatClientLayout(ctx: Record<string, any>) {
   const {
     activeFacts,
-    appendToLatestNotebook,
     approveFact,
     audioStream,
     canvasData,
@@ -55,9 +54,7 @@ export function createChatClientLayout(ctx: Record<string, any>) {
     isQueueOpen,
     isResizingCanvas,
     isSidebarCollapsed,
-    latestNotebook,
     latestUserMessageRef,
-    linkedArtifacts,
     loadQueueItems,
     messages,
     openIntegrationsPage,
@@ -68,7 +65,6 @@ export function createChatClientLayout(ctx: Record<string, any>) {
     queuePrompt,
     router,
     runQueuedItem,
-    saveConversationArtifact,
     scrollRef,
     sendMessage,
     setCanvasData,
@@ -578,27 +574,6 @@ export function createChatClientLayout(ctx: Record<string, any>) {
                         ))}
                       </div>
                     )}
-                    {messageIndex === messages.length - 1 ? (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        <Button variant="outline" onClick={() => void saveConversationArtifact('notebook', message)} disabled={!conversationId}>
-                          <BookOpen className="h-3.5 w-3.5" />
-                          Save as notebook
-                        </Button>
-                        <Button variant="outline" onClick={() => void appendToLatestNotebook(message)} disabled={!conversationId}>
-                          <FilePenLine className="h-3.5 w-3.5" />
-                          {latestNotebook ? 'Append to notebook' : 'Start notebook'}
-                        </Button>
-                        <Button variant="outline" onClick={() => void saveConversationArtifact('plan', message)} disabled={!conversationId}>
-                          <ListTodo className="h-3.5 w-3.5" />
-                          Turn into plan
-                        </Button>
-                        {latestNotebook ? (
-                          <Button variant="outline" onClick={() => router.push(`/reports?artifactId=${latestNotebook.id}`)}>
-                            Open linked notebook
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : null}
                   </div>
                 )}
               </div>
@@ -798,23 +773,6 @@ export function createChatClientLayout(ctx: Record<string, any>) {
                         No queued follow-ups yet.
                       </div>
                     )}
-                  </div>
-                ) : null}
-                {linkedArtifacts.length ? (
-                  <div className="mt-3 border-t border-gray-200 pt-3">
-                    <div className="text-[11px] uppercase tracking-[0.08em] text-gray-400">Linked docs</div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {linkedArtifacts.map((artifact: any) => (
-                        <button
-                          key={artifact.id}
-                          type="button"
-                          onClick={() => router.push(`/reports?artifactId=${artifact.id}`)}
-                          className="rounded-md border border-gray-200 bg-white px-2.5 py-1.5 text-[12px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
-                        >
-                          {artifact.title}
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 ) : null}
               </div>
