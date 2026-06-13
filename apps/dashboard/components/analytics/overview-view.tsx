@@ -9,10 +9,12 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import { useRouter } from 'next/navigation';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format, startOfDay, endOfDay } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import * as Sentry from '@sentry/nextjs';
+import { ListCollapse, Plug2, Plus, Upload } from 'lucide-react';
 import { Spinner } from "@/components/ui/kibo-ui/spinner";
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -79,6 +81,49 @@ interface OverviewViewProps {
   isOverviewSnapshotFetching?: boolean;
 }
 
+function StartSectionHeader({ title }: { title: string }) {
+  return (
+    <div className="mb-2 flex items-center gap-2 px-1">
+      <span className="text-[11px] font-medium uppercase leading-none tracking-normal text-[#9a9da3]">
+        {title}
+      </span>
+      <div className="h-px flex-1 bg-[#e3e4e6]" />
+    </div>
+  );
+}
+
+function StartCommand({
+  icon: Icon,
+  label,
+  shortcut,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  shortcut?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex h-9 w-full items-center justify-between rounded-sm px-2 text-left transition-colors hover:bg-[#f3f4f5]"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0 text-[#9a9da3] transition-colors group-hover:text-[#6f737a]" />
+        <span className="truncate text-[14px] font-medium leading-none text-[#5f636a]">
+          {label}
+        </span>
+      </span>
+      {shortcut ? (
+        <span className="ml-4 shrink-0 text-[12px] font-medium leading-none text-[#9a9da3]">
+          {shortcut}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
 
 export function OverviewView({
   externalDateRange,
@@ -87,6 +132,7 @@ export function OverviewView({
   initialOverviewStats,
   isOverviewSnapshotFetching = false,
 }: OverviewViewProps) {
+  const router = useRouter();
   const isDesktopShell = typeof window !== 'undefined' && isTauri();
   const desktopPerfDebug = isDesktopShell && (
     process.env.NEXT_PUBLIC_SENTRY_DESKTOP_DEBUG_PERF === '1'
@@ -1226,6 +1272,17 @@ export function OverviewView({
     setShowImportModal(true);
   }, []);
 
+  const handleOpenCommandPalette = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true,
+      }),
+    );
+  }, []);
+
   const handleDeleteHabit = async (habitId: string | null) => {
     if (!habitId) {
       setHabitToDelete(null);
@@ -1320,22 +1377,50 @@ export function OverviewView({
       )}
 
       {!isBackendUnavailable && habits.length === 0 && !isLoading && (
-        <div className="flex flex-col items-center justify-center min-h-[40vh] mt-8">
-          <div className="text-xl mb-2 text-center" style={{ fontWeight: 500 }}>
-            Start tracking anything
+        <div className="flex min-h-[40vh] items-center justify-center px-6 pt-8">
+          <div className="w-full max-w-[420px]">
+            <div className="mb-8 flex items-center justify-center gap-3">
+              <img
+                src="/images/eclipse.svg"
+                alt=""
+                aria-hidden="true"
+                className="h-11 w-11 opacity-65 grayscale"
+              />
+              <div className="min-w-0">
+                <div className="text-[21px] font-medium leading-none tracking-normal text-[#5f636a]">
+                  Welcome to Ritual
+                </div>
+                <div className="mt-1 text-[13px] font-medium italic leading-none tracking-normal text-[#9699a0]">
+                  Track what matters
+                </div>
+              </div>
+            </div>
+
+            <StartSectionHeader title="Get started" />
+            <div className="space-y-0.5">
+              <StartCommand
+                icon={Plus}
+                label="New Tracker"
+                onClick={handleOpenSelectionModal}
+              />
+              <StartCommand
+                icon={Upload}
+                label="Import Data"
+                onClick={handleOpenImportModal}
+              />
+              <StartCommand
+                icon={Plug2}
+                label="Connect Devices"
+                onClick={() => router.push('/integrations')}
+              />
+              <StartCommand
+                icon={ListCollapse}
+                label="Open Command Palette"
+                shortcut="⌘K"
+                onClick={handleOpenCommandPalette}
+              />
+            </div>
           </div>
-          <div className="text-sm font-normal mb-2 text-center max-w-xl leading-tight" style={{ fontWeight: 400, color: '#9C9C9D' }}>
-            Ritual is your hub for personal insights, understanding
-            <br />
-            behavioral trends, and getting a quantified view of your life.
-          </div>
-          <button
-            onClick={() => setShowSelectionModal(true)}
-            className="mt-2 px-3 py-2 bg-black text-white rounded-sm text-sm font-normal shadow transition-colors duration-200 hover:bg-[#27251E]"
-            style={{ fontWeight: 400 }}
-          >
-            Start Tracking
-          </button>
         </div>
       )}
       </div>
