@@ -8,7 +8,15 @@ import { TeamDropdown } from '@/components/team-dropdown';
 import { isTauri } from '@/lib/tauri-utils';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
+import {
+  CheckCircle2,
+  Command,
+  Database,
+  HardDrive,
+  PanelLeft,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
 
 const Sidebar = dynamic(
@@ -41,6 +49,59 @@ function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolea
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
+}
+
+function StatusBarItem({
+  icon: Icon,
+  children,
+  className = '',
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`no-drag flex h-full min-w-0 items-center gap-1.5 px-2 text-[11px] font-medium leading-none text-[rgba(17,24,39,0.48)] ${className}`}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0 stroke-[1.9] text-[rgba(17,24,39,0.42)]" />
+      <span className="truncate">{children}</span>
+    </div>
+  );
+}
+
+function StatusBarDivider() {
+  return <div aria-hidden="true" className="h-3 w-px bg-black/[0.07]" />;
+}
+
+function DashboardStatusBar() {
+  return (
+    <footer
+      data-tauri-drag-region
+      className="dashboard-status-bar tauri-drag-region relative h-[26px] shrink-0 overflow-hidden border-t border-black/[0.06] bg-white/[0.66] text-[11px] text-[rgba(17,24,39,0.48)] backdrop-blur-xl backdrop-saturate-[1.18]"
+    >
+      <div
+        data-tauri-drag-region
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.34),rgba(255,255,255,0.64))]"
+      />
+      <div
+        data-tauri-drag-region
+        className="relative flex h-full min-w-0 items-center justify-between px-2"
+      >
+        <div className="flex h-full min-w-0 items-center">
+          <StatusBarItem icon={Command}>Command</StatusBarItem>
+          <StatusBarDivider />
+          <StatusBarItem icon={CheckCircle2}>Ready</StatusBarItem>
+        </div>
+        <div className="ml-auto flex h-full shrink-0 items-center">
+          <StatusBarItem icon={HardDrive}>Desktop</StatusBarItem>
+          <StatusBarDivider />
+          <StatusBarItem icon={Database}>Local</StatusBarItem>
+        </div>
+      </div>
+    </footer>
+  );
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
@@ -270,6 +331,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </main>
           </div>
         </div>
+        {!isFullScreenChat && <DashboardStatusBar />}
       </div>
     </div>
   );
