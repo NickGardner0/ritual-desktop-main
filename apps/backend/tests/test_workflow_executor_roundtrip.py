@@ -232,9 +232,11 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
         next_env.update(
             {
                 "INTERNAL_BACKEND_TOKEN": INTEGRATION_TOKEN,
+                "PYTHON_API_URL": f"http://127.0.0.1:{cls.fake_backend_port}",
                 "NEXT_PUBLIC_PYTHON_API_URL": f"http://127.0.0.1:{cls.fake_backend_port}",
                 "NEXT_TELEMETRY_DISABLED": "1",
                 "OPENAI_API_KEY": "",
+                "RITUAL_WORKFLOW_EXECUTOR_DISABLE_OPENAI": "1",
                 "PORT": str(cls.next_port),
             }
         )
@@ -247,7 +249,7 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
 
         cls.next_log_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
         cls.next_process = subprocess.Popen(
-            [str(next_binary), "dev", "-p", str(cls.next_port)],
+            [str(next_binary), "dev", "--webpack", "-p", str(cls.next_port)],
             cwd=DASHBOARD_DIR,
             env=next_env,
             stdout=cls.next_log_file,
@@ -322,19 +324,22 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
             "INTERNAL_BACKEND_TOKEN",
             INTEGRATION_TOKEN,
         ), patch.object(workflow_service_module, "WORKFLOW_EXECUTION_TIMEOUT", 60.0):
-            payload = await workflow_service._call_dashboard_executor(
-                user_id=INTEGRATION_USER_ID,
-                run_id="workflow-run-1",
-                workflow_kind="morning_brief",
-                timezone_name="America/New_York",
-                config={
-                    "include_calendar": True,
-                    "include_streaks": True,
-                    "include_biometrics": True,
-                    "include_weekly_context": True,
-                },
-                window=window,
-            )
+            try:
+                payload = await workflow_service._call_dashboard_executor(
+                    user_id=INTEGRATION_USER_ID,
+                    run_id="workflow-run-1",
+                    workflow_kind="morning_brief",
+                    timezone_name="America/New_York",
+                    config={
+                        "include_calendar": True,
+                        "include_streaks": True,
+                        "include_biometrics": True,
+                        "include_weekly_context": True,
+                    },
+                    window=window,
+                )
+            except Exception as exc:
+                raise AssertionError(f"{exc}\nNext logs:\n{self._read_next_logs()}") from exc
 
         self.assertEqual(payload["artifact"]["kind"], "morning_brief")
         self.assertEqual(payload["plan"]["title"], "Morning Brief")

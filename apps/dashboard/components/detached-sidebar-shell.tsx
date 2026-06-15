@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CalendarDays, FlaskConical, Plug2, Settings, TableProperties } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { cn } from "@/lib/utils";
-import { isTauri } from "@/lib/tauri-utils";
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 type SidebarState = {
   path: string;
@@ -37,6 +37,7 @@ const items = [
 ];
 
 export function DetachedSidebarShell() {
+  const { isDesktop } = useDesktopCapabilities();
   const [isExpanded, setIsExpanded] = useState(false);
   const [activePath, setActivePath] = useState("/dashboard");
   const collapsedWidth = 76;
@@ -44,7 +45,7 @@ export function DetachedSidebarShell() {
   const width = isExpanded ? expandedWidth : collapsedWidth;
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       try {
@@ -58,7 +59,7 @@ export function DetachedSidebarShell() {
   }, []);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     (async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       try {
@@ -70,7 +71,7 @@ export function DetachedSidebarShell() {
   }, [width]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     let unlisten: (() => void) | null = null;
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
@@ -88,7 +89,7 @@ export function DetachedSidebarShell() {
   const navigate = async (path: string) => {
     if (path === "/experiments") return;
     setActivePath(path);
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("sidebar_navigate", { path });
   };

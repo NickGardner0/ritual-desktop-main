@@ -366,7 +366,7 @@ fn join_url_path(base: &str, path: &str) -> String {
 }
 
 fn shutdown_background_helpers() {
-    if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
+    if let Err(err) = tauri::async_runtime::block_on(watcher::lifecycle::stop_watcher()) {
         eprintln!(
             "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
             err
@@ -383,7 +383,7 @@ fn spawn_watcher_watchdog() {
         interval.tick().await;
         loop {
             interval.tick().await;
-            match watcher::check_and_restart_watcher_if_hung(60).await {
+            match watcher::diagnostics::check_and_restart_watcher_if_hung(60).await {
                 Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
                 Ok(false) => {}
                 Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
@@ -402,8 +402,8 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
         "Auto-starting Ritual Watcher"
     );
 
-    if watcher::check_accessibility_permission() {
-        match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
+    if watcher::permissions::check_accessibility_permission() {
+        match tauri::async_runtime::spawn_blocking(move || watcher::lifecycle::start_watcher_sync(config))
             .await
         {
             Ok(Ok(status)) => {
@@ -1287,8 +1287,8 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     config.user_id = trimmed_user_id.to_string();
     save_watcher_config_cmd(config.clone())?;
 
-    if watcher::check_accessibility_permission() {
-        match watcher::start_watcher_sync(config) {
+    if watcher::permissions::check_accessibility_permission() {
+        match watcher::lifecycle::start_watcher_sync(config) {
             Ok(status) => {
                 info!(
                     pid = status.pid,
@@ -1351,29 +1351,29 @@ fn main() {
             native_widget::get_native_speech_state,
             native_widget::clear_native_speech_state,
             // Ritual Watcher commands for computer activity tracking
-            watcher::check_accessibility_permission,
-            watcher::request_accessibility_permission,
-            watcher::start_watcher,
-            watcher::stop_watcher,
-            watcher::get_watcher_status,
-            watcher::open_accessibility_settings,
-            watcher::open_full_disk_access_settings,
-            watcher::open_microphone_settings,
-            watcher::open_speech_recognition_settings,
-            watcher::open_screen_recording_settings,
-            watcher::open_input_monitoring_settings,
-            watcher::open_location_settings,
+            watcher::permissions::check_accessibility_permission,
+            watcher::permissions::request_accessibility_permission,
+            watcher::lifecycle::start_watcher,
+            watcher::lifecycle::stop_watcher,
+            watcher::lifecycle::get_watcher_status,
+            watcher::permissions::open_accessibility_settings,
+            watcher::permissions::open_full_disk_access_settings,
+            watcher::permissions::open_microphone_settings,
+            watcher::permissions::open_speech_recognition_settings,
+            watcher::permissions::open_screen_recording_settings,
+            watcher::permissions::open_input_monitoring_settings,
+            watcher::permissions::open_location_settings,
             // Local activity queries (for detailed view with full URLs/titles)
-            watcher::get_detailed_activity,
-            watcher::get_daily_summaries,
+            watcher::queries::get_detailed_activity,
+            watcher::queries::get_daily_summaries,
             // Real-time status
-            watcher::get_watcher_extended_status,
-            watcher::get_browser_extension_diagnostics,
+            watcher::queries::get_watcher_extended_status,
+            watcher::diagnostics::get_browser_extension_diagnostics,
             // Watchdog - auto-restart hung watcher
-            watcher::check_and_restart_watcher_if_hung,
+            watcher::diagnostics::check_and_restart_watcher_if_hung,
             // App icon extraction
-            watcher::get_app_icon,
-            watcher::get_app_icons_batch,
+            watcher::icons::get_app_icon,
+            watcher::icons::get_app_icons_batch,
             // Watcher config persistence for auto-start
             save_watcher_config_cmd,
             clear_watcher_config_cmd,
@@ -1384,12 +1384,12 @@ fn main() {
             desktop_observability::desktop_record_shell_event,
             desktop_observability::desktop_capture_sentry_smoke,
             // Desktop runtime / updater commands
-            desktop_runtime::get_desktop_runtime_info,
+            desktop_runtime::updater::get_desktop_runtime_info,
             desktop_runtime::get_desktop_runtime_state,
-            desktop_runtime::desktop_set_auth_token,
-            desktop_runtime::desktop_frontend_ready,
-            desktop_runtime::desktop_manual_update_check,
-            desktop_runtime::desktop_install_update,
+            desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::updater::desktop_frontend_ready,
+            desktop_runtime::updater::desktop_manual_update_check,
+            desktop_runtime::updater::desktop_install_update,
             desktop_runtime::get_biome_iphone_diagnostics,
             desktop_runtime::desktop_trigger_biome_iphone_sync,
             desktop_runtime::import_biome_iphone_export,

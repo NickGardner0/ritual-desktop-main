@@ -5,15 +5,16 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { ONBOARDING_WINDOW_HEIGHT, setOnboardingWindowSize } from '@/lib/tauri-utils';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
   hasDeviceAuthenticated,
   hasPendingSignUpIntent,
   markDeviceAuthenticated,
 } from '@/lib/onboarding-flow';
+import { resolveSsoRedirectRoute } from '@/lib/activation-flow.mjs';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const BFF_API_BASE = 'BFF /api';
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step';
 
 /** Shared “Welcome to Ritual” hero on Get Started + Sign In home */
@@ -27,6 +28,7 @@ const homeWelcomeHeadingStyle: CSSProperties = {
 };
 
 export function HomeClient() {
+  const { isDesktop } = useDesktopCapabilities();
   const { isSignedIn, isLoaded, user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
@@ -39,23 +41,17 @@ export function HomeClient() {
   // Welcome flow state
   const pageParam = searchParams.get('page');
   const authMode = searchParams.get('mode');
-  const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+  const [isNewUser, setIsNewUser] = useState<boolean | null>(() => (hasDeviceAuthenticated() ? null : true));
   const [showStartupDiagnostics, setShowStartupDiagnostics] = useState(false);
   const [desktopLaunchGraceExpired, setDesktopLaunchGraceExpired] = useState(false);
-  const desktopApp = typeof window !== 'undefined' && isTauri();
+  const desktopApp = typeof window !== 'undefined' && isDesktop;
   const isDesktopLaunch = desktopApp && Boolean(searchParams.get('ritual_desktop_env'));
 
   useEffect(() => {
-    if (!hasDeviceAuthenticated()) {
-      setIsNewUser(true);
-    }
-  }, []);
-
-  useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     if (isLoaded && !isChecking) {
-      setShowStartupDiagnostics(false);
+      queueMicrotask(() => setShowStartupDiagnostics(false));
       return;
     }
 
@@ -64,7 +60,7 @@ export function HomeClient() {
     }, 8000);
 
     return () => window.clearTimeout(timer);
-  }, [isLoaded, isChecking]);
+  }, [isDesktop, isLoaded, isChecking]);
 
   useEffect(() => {
     const hasExplicitWelcomeIntent = Boolean(pageParam) || authMode === 'signup' || hasPendingSignUpIntent();
@@ -77,7 +73,7 @@ export function HomeClient() {
     );
 
     if (!shouldHoldReturningDesktopHome) {
-      setDesktopLaunchGraceExpired(false);
+      queueMicrotask(() => setDesktopLaunchGraceExpired(false));
       return;
     }
 
@@ -132,11 +128,11 @@ export function HomeClient() {
     if (!isSignedIn) {
       // New user - show welcome flow
       if (!hasSeenWelcome || hasExplicitWelcomeIntent) {
-        setIsNewUser(true);
+        queueMicrotask(() => setIsNewUser(true));
         return;
       }
       // Returning user - show simple home page
-      setIsNewUser(false);
+      queueMicrotask(() => setIsNewUser(false));
       return;
     }
 
@@ -150,7 +146,7 @@ export function HomeClient() {
     }
 
     lastCheckedUserIdRef.current = user.id;
-    setIsChecking(true);
+    queueMicrotask(() => setIsChecking(true));
 
     const checkAndRedirect = async () => {
       try {
@@ -184,8 +180,7 @@ export function HomeClient() {
 
         if (response && response.ok) {
           const bootstrap = await response.json();
-          const nextRoute = typeof bootstrap?.nextRoute === 'string' ? bootstrap.nextRoute : '/dashboard';
-          router.replace(nextRoute);
+          router.replace(resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined));
         } else {
           router.replace('/sign-in');
         }
@@ -237,7 +232,7 @@ export function HomeClient() {
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Backend API</dt>
-                <dd className="break-all">{PYTHON_API_BASE}</dd>
+                <dd className="break-all">{BFF_API_BASE}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
@@ -295,7 +290,7 @@ export function HomeClient() {
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Tauri detected</dt>
-                <dd>{String(typeof window !== 'undefined' ? isTauri() : false)}</dd>
+                <dd>{String(typeof window !== 'undefined' ? isDesktop : false)}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
@@ -376,7 +371,7 @@ export function HomeClient() {
             <div className="flex items-center justify-center">
               <button
                 onClick={startSignup}
-                className="h-8 px-6 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium hover:bg-[#27251E]"
+                className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm shadow transition-colors duration-200 text-sm font-medium hover:bg-[#27251E]"
                 style={{ fontWeight: 500 }}
               >
                 Get Started

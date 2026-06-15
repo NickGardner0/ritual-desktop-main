@@ -629,8 +629,7 @@ export function cleanContentForDisplay(content: string): string {
   return cleaned;
 }
 
-// Python API base URL
-export const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+// Canvas layout constants
 export const DEFAULT_CANVAS_WIDTH = 560;
 export const MIN_CANVAS_WIDTH = 360;
 export const MAX_CANVAS_WIDTH = 860;

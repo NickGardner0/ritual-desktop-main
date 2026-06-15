@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { type TimeRangePreset } from '@/lib/computerActivity/contracts'
 import {
   getAggregatedComputerStats,
-} from '@/lib/computerActivity/client'
+} from '@/lib/computerActivity'
 import { RankedBars } from '@/components/computer-activity/RankedBars'
 import { UsageBreakdownCard } from '@/components/computer-activity/UsageBreakdownCard'
 import { useUsageBreakdown } from '@/hooks/use-usage-breakdown'

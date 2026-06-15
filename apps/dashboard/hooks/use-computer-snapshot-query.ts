@@ -10,7 +10,7 @@ import {
   type ComputerSummaryResponse,
   type TopAppResponseRow,
   type TopDomainResponseRow,
-} from '@/lib/computerActivity/client';
+} from '@/lib/computerActivity';
 import { getAnalyticsRangeKey, getAnalyticsRangeWindow } from '@/lib/dashboard/analytics-range';
 import { QUERY_POLICY } from '@/lib/query-policies';
 

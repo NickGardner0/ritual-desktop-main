@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 const WEBHOOK_PROXY_TIMEOUT_MS = Number(
   process.env.SENDBLUE_WEBHOOK_PROXY_TIMEOUT_MS || 45000,
 );
@@ -25,7 +24,7 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-webhook-secret") ||
       "";
 
-    const backendResponse = await fetch(`${BACKEND_URL}/api/sendblue/webhook`, {
+    const backendResponse = await fetch(`${getServerBackendBaseUrl()}/api/sendblue/webhook`, {
       method: "POST",
       headers: {
         "Content-Type": contentType,

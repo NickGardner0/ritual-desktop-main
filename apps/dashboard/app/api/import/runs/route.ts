@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 /**
  * GET /api/import/runs
@@ -21,7 +22,7 @@ export async function GET(request: NextRequest) {
     const limit = request.nextUrl.searchParams.get("limit") || "20";
     const offset = request.nextUrl.searchParams.get("offset") || "0";
     
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
     
     const response = await fetch(
       `${backendUrl}/api/import/runs?limit=${limit}&offset=${offset}`,
@@ -73,7 +74,7 @@ export async function POST(request: NextRequest) {
     
     const body = await request.json();
     
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
     
     const response = await fetch(`${backendUrl}/api/import/runs`, {
       method: "POST",
@@ -103,4 +104,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

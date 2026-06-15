@@ -9,7 +9,7 @@ import {
   type DesktopRuntimeInfo,
   type UpdateManifest,
 } from '@/lib/desktop-runtime';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 type UpdateStatusPayload = {
   error?: string | null;
@@ -118,6 +118,7 @@ function RecoveryNotice({
 }
 
 export function DesktopUpdater() {
+  const { isDesktop } = useDesktopCapabilities();
   const [availableUpdate, setAvailableUpdate] = useState<UpdateManifest | null>(null);
   const [checking, setChecking] = useState(false);
   const [desktopEnv, setDesktopEnv] = useState<string | null>(null);
@@ -148,7 +149,7 @@ export function DesktopUpdater() {
   }, []);
 
   const isDesktopShell =
-    isTauri() &&
+    isDesktop &&
     typeof window !== 'undefined' &&
     new URLSearchParams(window.location.search).get('ritual_sidebar_window') !== '1';
 

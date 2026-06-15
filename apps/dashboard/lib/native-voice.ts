@@ -1,7 +1,7 @@
 "use client";
 
 import { invokeDesktopCommand } from "@/lib/desktop-bridge/commands";
-import { isTauri } from "@/lib/tauri-utils";
+import { isDesktopRuntime } from "@/lib/desktop-capabilities";
 
 export type NativeSpeechState = {
   event: string;
@@ -10,7 +10,7 @@ export type NativeSpeechState = {
 };
 
 export async function startNativeDesktopSpeechRecognition(): Promise<void> {
-  if (!isTauri()) {
+  if (!isDesktopRuntime()) {
     throw new Error("Native speech recognition is only available in Ritual Desktop.");
   }
 
@@ -18,13 +18,13 @@ export async function startNativeDesktopSpeechRecognition(): Promise<void> {
 }
 
 export async function stopNativeDesktopSpeechRecognition(): Promise<void> {
-  if (!isTauri()) return;
+  if (!isDesktopRuntime()) return;
 
   await invokeDesktopCommand("stop_native_speech_recognition");
 }
 
 export async function getNativeDesktopSpeechState(): Promise<NativeSpeechState> {
-  if (!isTauri()) {
+  if (!isDesktopRuntime()) {
     return { event: "", transcript: "", timestamp: 0 };
   }
 
@@ -32,7 +32,7 @@ export async function getNativeDesktopSpeechState(): Promise<NativeSpeechState> 
 }
 
 export async function clearNativeDesktopSpeechState(): Promise<void> {
-  if (!isTauri()) return;
+  if (!isDesktopRuntime()) return;
 
   await invokeDesktopCommand("clear_native_speech_state");
 }

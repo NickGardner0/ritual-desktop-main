@@ -1,14 +1,7 @@
-// src/trigger/whoop-sync.ts
-/**
- * Whoop Daily Sync Task (now split into hourly schedules)
- * Each schedule runs at the top of the hour and syncs only users who have
- * selected that hour as their preferred sync time (whoop_sync_hour).
- */
-
 import { task, schedules } from "@trigger.dev/sdk/v3";
+import { getTriggerBackendBaseUrl, triggerBackendFetch } from "@/lib/api/trigger-client";
 
 async function runWhoopSync(payload: { userId?: string; daysBack?: number; hour?: number }) {
-  const API_BASE_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
   const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
   if (!INTERNAL_API_KEY) {
@@ -16,9 +9,9 @@ async function runWhoopSync(payload: { userId?: string; daysBack?: number; hour?
   }
 
   console.log('🔄 Starting automated Whoop sync...');
-  console.log(`📊 Config: API=${API_BASE_URL}, userId=${payload.userId || 'all'}, daysBack=${payload.daysBack || 2}, hour=${payload.hour ?? 'any'}`);
+  console.log(`📊 Config: API=${getTriggerBackendBaseUrl()}, userId=${payload.userId || 'all'}, daysBack=${payload.daysBack || 2}, hour=${payload.hour ?? 'any'}`);
 
-  const response = await fetch(`${API_BASE_URL}/api/wearables/connections/whoop/sync-all`, {
+  const response = await triggerBackendFetch('/api/wearables/connections/whoop/sync-all', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

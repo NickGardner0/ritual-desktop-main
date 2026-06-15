@@ -14,9 +14,9 @@
  */
 
 import { task, schedules } from "@trigger.dev/sdk/v3";
+import { getTriggerBackendBaseUrl, triggerBackendFetch } from "@/lib/api/trigger-client";
 
 async function runProactiveSweep() {
-  const API_BASE_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
   const INTERNAL_SMS_CHAT_SECRET = process.env.INTERNAL_SMS_CHAT_SECRET;
 
   if (!INTERNAL_SMS_CHAT_SECRET) {
@@ -24,9 +24,9 @@ async function runProactiveSweep() {
   }
 
   console.log('📬 Starting proactive SMS sweep...');
-  console.log(`📊 Config: API=${API_BASE_URL}`);
+  console.log(`📊 Config: API=${getTriggerBackendBaseUrl()}`);
 
-  const response = await fetch(`${API_BASE_URL}/api/sms/proactive/trigger`, {
+  const response = await triggerBackendFetch('/api/sms/proactive/trigger', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

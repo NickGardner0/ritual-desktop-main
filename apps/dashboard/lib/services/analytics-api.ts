@@ -5,7 +5,7 @@
  * endpoints are unavailable.
  */
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { apiFetch } from '@/lib/api/client';
 
 // ====================
 // TYPES
@@ -131,26 +131,23 @@ export interface ListHabitsResponse {
 // ====================
 
 class AnalyticsApiClient {
-  private baseUrl: string;
-
-  constructor() {
-    this.baseUrl = PYTHON_API_BASE;
-  }
-
   private async fetch<T>(endpoint: string, token: string, params?: Record<string, string | number | undefined>): Promise<T> {
-    const url = new URL(`${this.baseUrl}${endpoint}`);
-    
+    const searchParams = new URLSearchParams();
+
     if (params) {
       Object.entries(params).forEach(([key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
-          url.searchParams.append(key, String(value));
+          searchParams.append(key, String(value));
         }
       });
     }
 
-    const response = await fetch(url.toString(), {
+    const query = searchParams.toString();
+    const path = query ? `${endpoint}?${query}` : endpoint;
+
+    const response = await apiFetch(path, {
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
     });

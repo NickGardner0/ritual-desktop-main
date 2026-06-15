@@ -8,7 +8,8 @@ import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Settings } from "lucide-react";
-import { isTauri, openDesktopSettingsWindow, type DesktopSettingsView } from "@/lib/tauri-utils";
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
 
 const SettingsModal = dynamic(
   () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
@@ -19,6 +20,7 @@ const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
 export function Sidebar() {
+  const { isDesktop } = useDesktopCapabilities();
   const { mode } = useSidebarMode();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -69,7 +71,7 @@ export function Sidebar() {
       view === 'place-tagging' ||
       view === 'apple-health'
     ) {
-      if (isTauri()) {
+      if (isDesktop) {
         void openDesktopSettingsWindow(view).catch((error) => {
           console.error('Failed to open native settings window:', error);
           startTransition(() => {
@@ -92,7 +94,7 @@ export function Sidebar() {
   }, [searchParams, pathname, router]);
 
   const handleSettingsClick = async () => {
-    if (isTauri()) {
+    if (isDesktop) {
       setIsHovered(false);
       try {
         await openDesktopSettingsWindow('account');

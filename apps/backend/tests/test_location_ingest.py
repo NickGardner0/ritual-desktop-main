@@ -21,15 +21,22 @@ async def _unused_db_session():
 
 
 _fake_db_module.get_db_session = _unused_db_session
+_previous_connection_module = sys.modules.get("database.connection")
 sys.modules["database.connection"] = _fake_db_module
 
 
-from services.location.ingest import (  # noqa: E402
-    MAX_ACCURACY_M,
-    MAX_FUTURE_SKEW_MS,
-    SIGNIFICANT_MOVE_M,
-    _is_sane_ping,
-)
+try:
+    from services.location.ingest import (  # noqa: E402
+        MAX_ACCURACY_M,
+        MAX_FUTURE_SKEW_MS,
+        SIGNIFICANT_MOVE_M,
+        _is_sane_ping,
+    )
+finally:
+    if _previous_connection_module is None:
+        sys.modules.pop("database.connection", None)
+    else:
+        sys.modules["database.connection"] = _previous_connection_module
 from services.location.models import LocationPing  # noqa: E402
 
 

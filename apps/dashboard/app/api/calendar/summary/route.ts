@@ -1,13 +1,11 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
+import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
-
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 function getOpenAIClient(): OpenAI {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -81,26 +79,27 @@ export async function POST(req: NextRequest) {
       limit: '24',
     });
 
+    const backendBaseUrl = getServerBackendBaseUrl();
     const [projectRollups, projectSessions, appsData, domainsData, gitData] = await Promise.all([
       fetch(
-        `${BACKEND_URL}/api/watcher/project-time/rollups?${params}&group_by=task`,
+        `${backendBaseUrl}/api/watcher/project-time/rollups?${params}&group_by=task`,
         { headers, signal: AbortSignal.timeout(8000) }
       )
         .then(async (res) => (res.ok ? res.json() : null))
         .catch(() => null),
-      fetch(`${BACKEND_URL}/api/watcher/project-time/sessions?${sessionParams}`, {
+      fetch(`${backendBaseUrl}/api/watcher/project-time/sessions?${sessionParams}`, {
         headers,
         signal: AbortSignal.timeout(8000),
       })
         .then(async (res) => (res.ok ? res.json() : null))
         .catch(() => null),
-      fetch(`${BACKEND_URL}/api/watcher/stats/top-apps?${params}`, {
+      fetch(`${backendBaseUrl}/api/watcher/stats/top-apps?${params}`, {
         headers,
         signal: AbortSignal.timeout(5000),
       })
         .then(async (res) => (res.ok ? res.json() : null))
         .catch(() => null),
-      fetch(`${BACKEND_URL}/api/watcher/stats/top-domains?${params}`, {
+      fetch(`${backendBaseUrl}/api/watcher/stats/top-domains?${params}`, {
         headers,
         signal: AbortSignal.timeout(5000),
       })
@@ -108,7 +107,7 @@ export async function POST(req: NextRequest) {
         .catch(() => null),
       // Git commit history for the day — shows what was actually accomplished in code
       fetch(
-        `${BACKEND_URL}/api/watcher/git-commits?date=${date}`,
+        `${backendBaseUrl}/api/watcher/git-commits?date=${date}`,
         { headers, signal: AbortSignal.timeout(5000) }
       )
         .then(async (res) => (res.ok ? res.json() : null))

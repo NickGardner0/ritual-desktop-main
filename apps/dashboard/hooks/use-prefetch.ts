@@ -11,8 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { habitKeys, habitLogKeys } from './use-habits-query';
 import { QUERY_POLICY } from '@/lib/query-policies';
-
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { apiFetchWithAuth } from '@/lib/api/client';
 
 /**
  * Prefetch habits on hover
@@ -33,15 +32,9 @@ export function usePrefetchHabits() {
     await queryClient.prefetchQuery({
       queryKey: habitKeys.list(user.id),
       queryFn: async () => {
-        const token = await getToken();
         console.log('⚡ [Prefetch] Loading habits in background...');
 
-        const response = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const response = await apiFetchWithAuth('/api/habits', getToken);
 
         if (!response.ok) throw new Error('Failed to prefetch habits');
 
@@ -73,15 +66,9 @@ export function usePrefetchHabitLogs() {
     await queryClient.prefetchQuery({
       queryKey: habitLogKeys.list(user.id),
       queryFn: async () => {
-        const token = await getToken();
         console.log('⚡ [Prefetch] Loading habit logs in background...');
 
-        const response = await fetch(`${PYTHON_API_BASE}/api/habit-logs`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
+        const response = await apiFetchWithAuth('/api/habit-logs', getToken);
 
         if (!response.ok) throw new Error('Failed to prefetch logs');
 

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
-import { getAggregatedComputerStats } from '@/lib/computerActivity/client';
+import { getAggregatedComputerStats } from '@/lib/computerActivity';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
@@ -238,7 +238,9 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
   }, [activeRange]);
 
   useEffect(() => {
-    fetchData();
+    queueMicrotask(() => {
+      fetchData();
+    });
   }, [fetchData]);
 
   return (

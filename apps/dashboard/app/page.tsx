@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 // Loading state while home client initializes
 function HomeLoading() {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
       <div className="text-center space-y-4">
         <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
       </div>

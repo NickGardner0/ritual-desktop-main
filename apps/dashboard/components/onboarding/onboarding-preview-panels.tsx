@@ -8,6 +8,7 @@ import {
   Camera,
   Check,
   ChevronRight,
+  CircleUserRound,
   Eye,
   Folder,
   ImageIcon,
@@ -16,8 +17,13 @@ import {
   Mic,
   Monitor,
   Moon,
+  Palette,
   Search,
+  ShieldCheck,
+  Sparkles,
+  Sun,
   UserRound,
+  Wifi,
 } from "lucide-react"
 
 import { FrostedPreviewPanel } from "@/components/onboarding/onboarding-window"
@@ -80,84 +86,113 @@ export function MorningBriefPanel() {
 
 export function PermissionsPanel() {
   const privacyRows = [
-    { label: "Location Services", icon: MapPin, color: "bg-[#0a84ff]", iconClassName: "text-white" },
-    { label: "Contacts", icon: UserRound, color: "bg-[#b79b52]", iconClassName: "text-white" },
-    { label: "Calendars", icon: Calendar, color: "bg-white", iconClassName: "text-[#ff3b30]" },
-    { label: "Reminders", icon: Bell, color: "bg-white", iconClassName: "text-[#ff9500]" },
-    { label: "Photos", icon: ImageIcon, color: "bg-white", iconClassName: "text-[#34c759]" },
-    { label: "Bluetooth", icon: Bluetooth, color: "bg-[#0a84ff]", iconClassName: "text-white" },
-    { label: "Microphone", icon: Mic, color: "bg-[#9a9aa0]", iconClassName: "text-white" },
-    { label: "Camera", icon: Camera, color: "bg-[#9a9aa0]", iconClassName: "text-white" },
-    { label: "Screen Recording", icon: Monitor, color: "bg-[#ff453a]", iconClassName: "text-white" },
+    { label: "Location Services", meta: "5", icon: MapPin, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Calendars", meta: "3 full access", icon: Calendar, color: "bg-white", iconClassName: "text-[#ff3b30]" },
+    { label: "Contacts", meta: "None", icon: UserRound, color: "bg-[#b79b52]", iconClassName: "text-white" },
+    { label: "Files & Folders", meta: "7 apps", icon: Folder, color: "bg-[#22c8e5]", iconClassName: "text-white" },
+    { label: "Full Disk Access", meta: "2 full access", icon: Lock, color: "bg-[#8e8e93]", iconClassName: "text-white" },
+    { label: "Microphone", meta: "1", icon: Mic, color: "bg-[#8e8e93]", iconClassName: "text-white" },
+    { label: "Screen Recording", meta: "1", icon: Monitor, color: "bg-[#ff453a]", iconClassName: "text-white" },
   ]
-  const sidebarRows = ["Siri & Spotlight", "Privacy & Security", "Desktop & Dock", "Displays", "Wallpaper"]
+  const sidebarRows = [
+    { label: "Wi-Fi", icon: Wifi, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Bluetooth", icon: Bluetooth, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Privacy & Security", icon: Lock, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Desktop & Dock", icon: Monitor, color: "bg-[#2b2b2d]", iconClassName: "text-white" },
+    { label: "Displays", icon: Sun, color: "bg-[#3aa6ff]", iconClassName: "text-white" },
+    { label: "Appearance", icon: Palette, color: "bg-[#1d1d1f]", iconClassName: "text-white" },
+  ]
 
   return (
-    <div className="absolute left-1/2 top-[12px] flex h-[252px] w-[574px] -translate-x-1/2 overflow-hidden rounded-[15px] border border-[#d8d6d2] bg-[#f4f3f1] text-[#1d1d1f] shadow-[0_18px_42px_rgba(20,24,40,0.14)]">
-      <div className="w-[174px] shrink-0 border-r border-[#d8d6d2] bg-[linear-gradient(145deg,rgba(246,225,232,0.74),rgba(226,231,235,0.72))] px-3 py-4 backdrop-blur-xl">
-        <div className="mb-5 flex items-center gap-[7px]">
+    <div className="absolute left-1/2 top-[10px] flex h-[260px] w-[620px] -translate-x-1/2 overflow-hidden rounded-[20px] border border-[#d8d6d2] bg-[#f7f6f4] text-[#1d1d1f] shadow-[0_22px_50px_rgba(20,24,40,0.16)]">
+      <div className="w-[188px] shrink-0 border-r border-[#d8d6d2] bg-[linear-gradient(145deg,rgba(246,225,232,0.78),rgba(232,236,240,0.78))] px-3.5 py-4 backdrop-blur-xl">
+        <div className="mb-4 flex items-center gap-[7px]">
           {["#ff5f57", "#ffbd2e", "#28c840"].map((color) => (
             <span
               key={color}
-              className="h-[9px] w-[9px] rounded-full border border-black/10"
+              className="h-[10px] w-[10px] rounded-full border border-black/10 shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.3)]"
               style={{ backgroundColor: color }}
             />
           ))}
         </div>
-        <div className="flex h-[27px] items-center gap-2 rounded-[7px] bg-white/48 px-2 text-[11px] text-[#8d8a88] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">
-          <Search className="h-[13px] w-[13px] text-[#5f6268]" strokeWidth={2.2} />
+        <div className="flex h-[29px] items-center gap-2 rounded-[8px] bg-white/48 px-2.5 text-[11.5px] text-[#8d8a88] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">
+          <Search className="h-[14px] w-[14px] text-[#5f6268]" strokeWidth={2.2} />
           <span>Search</span>
         </div>
-        <div className="mt-3 space-y-[3px]">
-          {sidebarRows.map((label) => {
-            const selected = label === "Privacy & Security"
+        <div className="mt-3 flex items-center gap-2 px-1.5">
+          <span className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-[#9ca3af]">
+            <CircleUserRound className="h-[22px] w-[22px] text-white" strokeWidth={1.8} />
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-[11.5px] font-semibold leading-[1.05] text-[#26272b]">Nick Gardner</p>
+            <p className="mt-0.5 truncate text-[10.5px] leading-none text-[#7d7f86]">Apple Account</p>
+          </div>
+        </div>
+        <div className="mt-4 space-y-[4px]">
+          {sidebarRows.map((row) => {
+            const selected = row.label === "Privacy & Security"
+            const Icon = row.icon
             return (
               <div
-                key={label}
+                key={row.label}
                 className={cn(
-                  "flex h-[25px] items-center gap-2 rounded-[6px] px-2 text-[10.5px] font-medium",
-                  selected ? "bg-[#0a84ff] text-white" : "text-[#333438]",
+                  "flex h-[28px] items-center gap-2 rounded-[7px] px-2 text-[11px] font-medium",
+                  selected ? "bg-[#0a84ff] text-white shadow-[inset_0_0_0_0.5px_rgba(255,255,255,0.16)]" : "text-[#333438]",
                 )}
               >
                 <span
                   className={cn(
-                    "flex h-[15px] w-[15px] items-center justify-center rounded-[4px]",
-                    selected ? "bg-white/20" : "bg-white/62",
+                    "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]",
+                    selected ? "bg-white/20" : row.color,
                   )}
                 >
-                  {selected ? (
-                    <Lock className="h-[11px] w-[11px]" strokeWidth={2.2} />
-                  ) : (
-                    <span className="h-[5px] w-[5px] rounded-full bg-[#8b8c90]" />
-                  )}
+                  <Icon className={cn("h-[12px] w-[12px]", selected ? "text-white" : row.iconClassName)} strokeWidth={2.1} />
                 </span>
-                <span className="truncate">{label}</span>
+                <span className="truncate">{row.label}</span>
               </div>
             )
           })}
         </div>
       </div>
-      <div className="min-w-0 flex-1 bg-[#f6f5f4] px-6 py-4">
-        <h3 className="text-[14px] font-semibold leading-none">Privacy & Security</h3>
-        <p className="mt-[22px] text-[12px] font-semibold leading-none">Privacy</p>
-        <div className="mt-3 overflow-hidden rounded-[9px] border border-[#dedcd9] bg-[#ecebea]">
+      <div className="min-w-0 flex-1 bg-[#f7f6f4] px-6 py-4">
+        <h3 className="text-[15px] font-semibold leading-none text-[#424245]">Privacy & Security</h3>
+        <div className="mt-5 flex items-center gap-3 rounded-[13px] bg-white/42 px-3.5 py-3 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)]">
+          <span className="flex h-[28px] w-[28px] shrink-0 items-center justify-center rounded-[8px] bg-[#0a84ff] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.22)]">
+            <ShieldCheck className="h-[17px] w-[17px] text-white" strokeWidth={2.1} />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13.5px] font-medium leading-none text-[#202124]">Privacy</p>
+            <p className="mt-1 max-w-[310px] text-[11.5px] leading-[1.25] text-[#7b7b80]">
+              Control which apps can access your data, location, camera, and microphone.
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 overflow-hidden rounded-[13px] bg-white/42 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)]">
           {privacyRows.map((row) => {
             const Icon = row.icon
             return (
-              <div key={row.label} className="flex h-[30px] items-center gap-2 border-b border-[#d8d6d3] px-2.5 last:border-b-0">
+              <div key={row.label} className="flex h-[34px] items-center gap-3 border-b border-[#e3e1df] px-3 last:border-b-0">
                 <span
                   className={cn(
-                    "flex h-[18px] w-[18px] items-center justify-center rounded-[5px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]",
+                    "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]",
                     row.color,
                   )}
                 >
-                  <Icon className={cn("h-[12px] w-[12px]", row.iconClassName)} strokeWidth={2.1} />
+                  <Icon className={cn("h-[14px] w-[14px]", row.iconClassName)} strokeWidth={2.1} />
                 </span>
-                <p className="min-w-0 flex-1 truncate text-[11.5px] text-[#242528]">{row.label}</p>
-                <ChevronRight className="h-[13px] w-[13px] text-[#a8a6a4]" strokeWidth={2.4} />
+                <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-[#242528]">{row.label}</p>
+                <span className="text-[12px] leading-none text-[#8a8a8e]">{row.meta}</span>
+                <ChevronRight className="h-[14px] w-[14px] text-[#b0aeab]" strokeWidth={2.4} />
               </div>
             )
           })}
+        </div>
+        <div className="mt-3 flex items-center gap-2 rounded-[13px] bg-white/42 px-3.5 py-2.5 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.025)]">
+          <span className="flex h-[24px] w-[24px] items-center justify-center rounded-[7px] bg-[#8e8e93]">
+            <Sparkles className="h-[14px] w-[14px] text-white" strokeWidth={2.1} />
+          </span>
+          <p className="text-[12.5px] font-medium text-[#25262a]">Apple Intelligence & Siri</p>
+          <ChevronRight className="ml-auto h-[14px] w-[14px] text-[#b0aeab]" strokeWidth={2.4} />
         </div>
       </div>
     </div>

@@ -40,13 +40,13 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
             return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
 
         with patch(
-            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            "services.computer_activity.snapshot.fetch_remote_activity_rows",
             new=fake_fetch_remote_activity_rows,
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            "services.computer_activity.common.turso_user_service.resolve_migration_source_user_id",
             return_value="user-1",
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.get_user_activity_access",
+            "services.computer_activity.snapshot.turso_user_service.get_user_activity_access",
             new=AsyncMock(return_value=SimpleNamespace(use_per_user_db=True)),
         ):
             snapshot = await _build_computer_activity_snapshot_impl(
@@ -67,19 +67,19 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
             return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
 
         with patch(
-            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            "services.computer_activity.snapshot.fetch_remote_activity_rows",
             new=slow_fetch_remote_activity_rows,
         ), patch(
-            "services.watcher_service_computer_activity.REMOTE_AGGREGATE_TIMEOUT_SECONDS",
+            "services.computer_activity.snapshot.REMOTE_AGGREGATE_TIMEOUT_SECONDS",
             0.01,
         ), patch(
-            "services.watcher_service_computer_activity._fetch_local_activity_event_rows_impl",
+            "services.computer_activity.snapshot._fetch_local_activity_event_rows_impl",
             return_value=[],
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            "services.computer_activity.common.turso_user_service.resolve_migration_source_user_id",
             return_value="user-1",
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.get_user_activity_access",
+            "services.computer_activity.snapshot.turso_user_service.get_user_activity_access",
             new=AsyncMock(return_value=SimpleNamespace(use_per_user_db=True)),
         ):
             snapshot = await _build_computer_activity_snapshot_impl(
@@ -107,10 +107,10 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
             return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
 
         with patch(
-            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            "services.computer_activity.snapshot.fetch_remote_activity_rows",
             new=fake_fetch_remote_activity_rows,
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            "services.computer_activity.common.turso_user_service.resolve_migration_source_user_id",
             return_value="user-1",
         ):
             snapshot = await _build_computer_activity_snapshot_impl(
@@ -138,10 +138,10 @@ class WatcherComputerActivitySnapshotTests(unittest.IsolatedAsyncioTestCase):
             return RemoteActivityRowsResult(expected_remote=True, source="turso_remote", rows=[])
 
         with patch(
-            "services.watcher_service_computer_activity.fetch_remote_activity_rows",
+            "services.computer_activity.snapshot.fetch_remote_activity_rows",
             new=fake_fetch_remote_activity_rows,
         ), patch(
-            "services.watcher_service_computer_activity.turso_user_service.resolve_migration_source_user_id",
+            "services.computer_activity.common.turso_user_service.resolve_migration_source_user_id",
             return_value="user-1",
         ):
             snapshot = await _build_computer_activity_snapshot_impl(
