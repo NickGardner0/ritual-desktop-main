@@ -692,7 +692,7 @@ export default function OnboardingPage() {
           className={windowClassName}
           title="Your way to track anything"
           banner={<LandingHeroPreviewWindow />}
-          body="Track habits, health, computer activity, and daily context in one private desktop workspace. Ritual collects signals in the background so your patterns are ready when you are."
+          body="Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior. It connects the data from your wearables, your computer, and your phone, quietly logging in the background while you live your life."
           footer={<Footer onBack={() => goToStep(previousVisibleStep(step))} onContinue={() => goToStep(user ? "permissions" : "signup")} />}
         />
       ) : null}

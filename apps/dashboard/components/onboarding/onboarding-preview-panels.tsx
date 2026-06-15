@@ -1,7 +1,24 @@
 "use client"
 
 import Image from "next/image"
-import { Calendar, Check, ChevronRight, Eye, Folder, Keyboard, Lock, Mic, Monitor, Moon, Search, Settings } from "lucide-react"
+import {
+  Bell,
+  Bluetooth,
+  Calendar,
+  Camera,
+  Check,
+  ChevronRight,
+  Eye,
+  Folder,
+  ImageIcon,
+  Lock,
+  MapPin,
+  Mic,
+  Monitor,
+  Moon,
+  Search,
+  UserRound,
+} from "lucide-react"
 
 import { FrostedPreviewPanel } from "@/components/onboarding/onboarding-window"
 import { cn } from "@/lib/utils"
@@ -62,48 +79,82 @@ export function MorningBriefPanel() {
 }
 
 export function PermissionsPanel() {
-  const permissionRows = [
-    { label: "Full Disk Access", icon: Folder, count: "1", color: "bg-[#8e8e93]" },
-    { label: "Accessibility", icon: Settings, count: "1", color: "bg-[#007aff]" },
-    { label: "Microphone", icon: Mic, count: "1", color: "bg-[#8e8e93]" },
-    { label: "Screen & System Audio Recording", icon: Monitor, count: "1", color: "bg-[#ff453a]" },
-    { label: "Input Monitoring", icon: Keyboard, count: "0", color: "bg-[#8e8e93]" },
+  const privacyRows = [
+    { label: "Location Services", icon: MapPin, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Contacts", icon: UserRound, color: "bg-[#b79b52]", iconClassName: "text-white" },
+    { label: "Calendars", icon: Calendar, color: "bg-white", iconClassName: "text-[#ff3b30]" },
+    { label: "Reminders", icon: Bell, color: "bg-white", iconClassName: "text-[#ff9500]" },
+    { label: "Photos", icon: ImageIcon, color: "bg-white", iconClassName: "text-[#34c759]" },
+    { label: "Bluetooth", icon: Bluetooth, color: "bg-[#0a84ff]", iconClassName: "text-white" },
+    { label: "Microphone", icon: Mic, color: "bg-[#9a9aa0]", iconClassName: "text-white" },
+    { label: "Camera", icon: Camera, color: "bg-[#9a9aa0]", iconClassName: "text-white" },
+    { label: "Screen Recording", icon: Monitor, color: "bg-[#ff453a]", iconClassName: "text-white" },
   ]
+  const sidebarRows = ["Siri & Spotlight", "Privacy & Security", "Desktop & Dock", "Displays", "Wallpaper"]
 
   return (
-    <div className="absolute left-1/2 top-[18px] flex h-[240px] w-[580px] -translate-x-1/2 overflow-hidden rounded-[12px] border border-[#e6e6e4] bg-[#f6f6f5] text-[#1d1d1f] shadow-[0_14px_36px_rgba(20,24,40,0.10)]">
-      <div className="w-[168px] shrink-0 border-r border-[#e5e5e3] bg-[#f2f2f1] px-3 py-3">
-        <div className="flex h-7 items-center gap-2 rounded-[7px] bg-[#dededc] px-2 text-[11px] text-[#3f3f42]">
-          <Search className="h-3.5 w-3.5 text-[#767676]" strokeWidth={2} />
-          privacy
+    <div className="absolute left-1/2 top-[12px] flex h-[252px] w-[574px] -translate-x-1/2 overflow-hidden rounded-[15px] border border-[#d8d6d2] bg-[#f4f3f1] text-[#1d1d1f] shadow-[0_18px_42px_rgba(20,24,40,0.14)]">
+      <div className="w-[174px] shrink-0 border-r border-[#d8d6d2] bg-[linear-gradient(145deg,rgba(246,225,232,0.74),rgba(226,231,235,0.72))] px-3 py-4 backdrop-blur-xl">
+        <div className="mb-5 flex items-center gap-[7px]">
+          {["#ff5f57", "#ffbd2e", "#28c840"].map((color) => (
+            <span
+              key={color}
+              className="h-[9px] w-[9px] rounded-full border border-black/10"
+              style={{ backgroundColor: color }}
+            />
+          ))}
         </div>
-        <div className="mt-3 flex h-8 items-center gap-2 rounded-[7px] bg-[#0a84ff] px-2 text-[11px] font-medium text-white">
-          <span className="flex h-5 w-5 items-center justify-center rounded-[5px] bg-white/20">
-            <Lock className="h-3.5 w-3.5" strokeWidth={2.2} />
-          </span>
-          Privacy & Security
+        <div className="flex h-[27px] items-center gap-2 rounded-[7px] bg-white/48 px-2 text-[11px] text-[#8d8a88] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]">
+          <Search className="h-[13px] w-[13px] text-[#5f6268]" strokeWidth={2.2} />
+          <span>Search</span>
         </div>
-        <div className="mt-3 space-y-2 pl-9 text-[11px] leading-[1.14] text-[#8a8a8d]">
-          <p>Allow applications to access your microphone</p>
-          <p>Allow applications to record your screen</p>
+        <div className="mt-3 space-y-[3px]">
+          {sidebarRows.map((label) => {
+            const selected = label === "Privacy & Security"
+            return (
+              <div
+                key={label}
+                className={cn(
+                  "flex h-[25px] items-center gap-2 rounded-[6px] px-2 text-[10.5px] font-medium",
+                  selected ? "bg-[#0a84ff] text-white" : "text-[#333438]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-[15px] w-[15px] items-center justify-center rounded-[4px]",
+                    selected ? "bg-white/20" : "bg-white/62",
+                  )}
+                >
+                  {selected ? (
+                    <Lock className="h-[11px] w-[11px]" strokeWidth={2.2} />
+                  ) : (
+                    <span className="h-[5px] w-[5px] rounded-full bg-[#8b8c90]" />
+                  )}
+                </span>
+                <span className="truncate">{label}</span>
+              </div>
+            )
+          })}
         </div>
       </div>
-      <div className="min-w-0 flex-1 bg-[#fbfbfa] px-3 py-3">
-        <div className="mb-2 flex items-center gap-2 px-1">
-          <Lock className="h-3.5 w-3.5 text-[#767676]" strokeWidth={2} />
-          <p className="text-[12px] font-semibold leading-none">Privacy & Security</p>
-        </div>
-        <div className="overflow-hidden rounded-[10px] bg-white">
-          {permissionRows.map((row) => {
+      <div className="min-w-0 flex-1 bg-[#f6f5f4] px-6 py-4">
+        <h3 className="text-[14px] font-semibold leading-none">Privacy & Security</h3>
+        <p className="mt-[22px] text-[12px] font-semibold leading-none">Privacy</p>
+        <div className="mt-3 overflow-hidden rounded-[9px] border border-[#dedcd9] bg-[#ecebea]">
+          {privacyRows.map((row) => {
             const Icon = row.icon
             return (
-              <div key={row.label} className="flex h-[37px] items-center gap-2 border-b border-[#eeeeec] px-2 last:border-b-0">
-                <span className={cn("flex h-5 w-5 items-center justify-center rounded-[5px] text-white", row.color)}>
-                  <Icon className="h-3.5 w-3.5" strokeWidth={2} />
+              <div key={row.label} className="flex h-[30px] items-center gap-2 border-b border-[#d8d6d3] px-2.5 last:border-b-0">
+                <span
+                  className={cn(
+                    "flex h-[18px] w-[18px] items-center justify-center rounded-[5px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.05)]",
+                    row.color,
+                  )}
+                >
+                  <Icon className={cn("h-[12px] w-[12px]", row.iconClassName)} strokeWidth={2.1} />
                 </span>
-                <p className="min-w-0 flex-1 truncate text-[11px] text-[#252527]">{row.label}</p>
-                <span className="text-[10px] text-[#7d7d80]">{row.count}</span>
-                <ChevronRight className="h-3.5 w-3.5 text-[#b4b4b6]" strokeWidth={2.4} />
+                <p className="min-w-0 flex-1 truncate text-[11.5px] text-[#242528]">{row.label}</p>
+                <ChevronRight className="h-[13px] w-[13px] text-[#a8a6a4]" strokeWidth={2.4} />
               </div>
             )
           })}
