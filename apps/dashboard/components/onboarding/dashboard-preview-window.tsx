@@ -487,20 +487,100 @@ export function DashboardPreviewWindow({ compact = false }: { compact?: boolean 
   return <DashboardPreviewScaled />;
 }
 
+function LandingHeroMetric({
+  label,
+  value,
+  delta,
+}: {
+  label: string;
+  value: string;
+  delta: string;
+}) {
+  return (
+    <div className="rounded-[11px] border border-white/55 bg-white/68 px-3.5 py-3 shadow-[0_10px_30px_rgba(15,52,110,0.10)] backdrop-blur-md">
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-[11px] font-medium leading-none text-[#5E6A7E]">{label}</span>
+        <span className="text-[10px] font-medium leading-none text-[#246B45]">{delta}</span>
+      </div>
+      <div className="mt-2 text-[19px] font-medium leading-none tracking-[-0.02em] text-[#111827]">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function LandingHeroTimeline() {
+  const rows = [
+    ["08:12", "Morning walk"],
+    ["10:38", "Focused work"],
+    ["14:05", "Caffeine logged"],
+  ] as const;
+
+  return (
+    <div className="rounded-[14px] border border-white/55 bg-white/72 px-4 py-3.5 shadow-[0_18px_45px_rgba(15,52,110,0.12)] backdrop-blur-md">
+      <div className="mb-2.5 flex items-center justify-between">
+        <span className="text-[11px] font-medium leading-none text-[#111827]">Today</span>
+        <span className="rounded-full bg-[#EEF4FF] px-2 py-1 text-[9px] font-medium leading-none text-[#4A67A1]">
+          Live
+        </span>
+      </div>
+      <div className="space-y-2">
+        {rows.map(([time, label]) => (
+          <div key={label} className="grid grid-cols-[38px_1fr] items-center gap-2 text-[10px] leading-none">
+            <span className="font-medium tabular-nums text-[#8A94A5]">{time}</span>
+            <span className="font-medium text-[#263142]">{label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LandingHeroPreviewWindow() {
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#fafaf9]">
-      <Image
-        src="/images/river-hero-1300x720.jpg"
-        alt=""
-        fill
-        sizes="720px"
-        className="object-cover object-center"
-        draggable={false}
+    <div className="relative h-full w-full overflow-hidden bg-[#F3F8FF]">
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-[radial-gradient(circle_at_26%_18%,rgba(255,255,255,0.96)_0,rgba(232,242,255,0.92)_31%,rgba(90,153,235,0.80)_72%,rgba(31,112,222,0.82)_100%)]"
       />
-      <div className="absolute inset-0 bg-white/15" aria-hidden="true" />
-      <div className="absolute left-1/2 top-2 w-[480px] -translate-x-1/2">
-        <DashboardPreviewWindow />
+      <div
+        aria-hidden="true"
+        className="absolute -left-[120px] bottom-[-142px] h-[330px] w-[720px] -rotate-[13deg] rounded-[44px] border border-white/42 bg-white/52 shadow-[0_35px_100px_rgba(20,62,120,0.16)] backdrop-blur-sm"
+      />
+      <div
+        aria-hidden="true"
+        className="absolute right-[-120px] top-[-88px] h-[290px] w-[580px] rotate-[12deg] rounded-[42px] border border-white/30 bg-[#1F70DE]/18 blur-[0.2px]"
+      />
+
+      <div className="absolute left-1/2 top-[31px] flex w-[560px] -translate-x-1/2 items-start justify-center">
+        <div className="relative h-[190px] w-full">
+          <div className="absolute left-[22px] top-[54px] w-[184px]">
+            <LandingHeroMetric label="Focus time" value="4h 12m" delta="+18%" />
+          </div>
+          <div className="absolute right-[24px] top-[64px] w-[184px]">
+            <LandingHeroTimeline />
+          </div>
+          <div className="absolute left-1/2 top-[5px] h-[104px] w-[104px] -translate-x-1/2 rounded-[26px] bg-[#0F172A] p-3 shadow-[0_22px_50px_rgba(9,18,39,0.30)]">
+            <Image
+              src="/brand/ritual-app-icon.png"
+              alt="Ritual"
+              width={88}
+              height={88}
+              className="h-full w-full rounded-[22px]"
+              draggable={false}
+              priority
+            />
+          </div>
+          <div className="absolute left-[126px] top-[130px] w-[220px] rounded-[13px] border border-white/58 bg-white/78 px-4 py-3 shadow-[0_20px_48px_rgba(15,52,110,0.14)] backdrop-blur-md">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#1F70DE]" />
+              <span className="text-[11px] font-medium leading-none text-[#111827]">Pattern detected</span>
+            </div>
+            <p className="text-[10px] leading-[1.35] text-[#667085]">
+              Walks, coding time, sleep, and spending are ready to compare.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
