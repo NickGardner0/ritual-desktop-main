@@ -135,7 +135,7 @@ export function ConnectedDevicesBar() {
   return (
     <>
       <div
-        className="fixed bottom-[42px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pointer-events-none"
+        className="fixed bottom-[18px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pointer-events-none"
         style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
       >
         <div className="flex w-full max-w-2xl justify-end pr-[6px] pointer-events-auto">
