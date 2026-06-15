@@ -38,7 +38,7 @@ type BootstrapResponse = {
 
 type ChecklistStatus = "seen" | "skipped" | "completed" | "needs_attention"
 
-const V3_STEPS: V3Step[] = ["welcome", "meet", "signup", "permissions", "privacy"]
+const V3_STEPS: V3Step[] = ["welcome", "signup", "meet", "permissions", "privacy"]
 const LEGACY_STEPS = new Set(["profile", "first-behavior", "connect"])
 const ONBOARDING_V3_STEP_KEY = "ritual:onboarding-v3-step"
 
@@ -62,6 +62,7 @@ function previousStep(step: V3Step): V3Step {
 
 function previousVisibleStep(step: V3Step): V3Step {
   if (step === "permissions") return "meet"
+  if (step === "meet") return "welcome"
   return previousStep(step)
 }
 
@@ -104,10 +105,10 @@ function OnboardingButton({
     <Button
       {...props}
       className={cn(
-        "h-8 rounded-sm px-4 text-sm font-normal shadow-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
+        "inline-flex rounded-sm py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
         variant === "primary"
-          ? "bg-black text-white hover:bg-[#27251E]"
-          : "border border-gray-300 bg-white text-gray-900 hover:bg-[#F3F3F3]",
+          ? "bg-black px-10 text-white shadow transition-colors duration-200 hover:bg-[#27251E]"
+          : "border border-gray-300 bg-white px-4 text-gray-900 shadow-none transition-colors duration-200 hover:bg-[#F3F3F3]",
         className,
       )}
     >
@@ -174,13 +175,13 @@ function TrustRow() {
 
 function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
   return (
-    <div className="flex h-screen justify-center overflow-hidden bg-white px-4 py-6">
-      <div className="ritual-signup-stage mx-auto h-full w-full max-w-[470px] overflow-y-auto overscroll-contain pr-1">
+    <div className="flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-8">
+      <div className="ritual-signup-stage mx-auto max-h-full w-full max-w-md overflow-y-auto overscroll-contain px-1 py-3">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
           <ClerkLoading>
-            <div className="flex h-[540px] w-full items-center justify-center rounded-sm bg-white">
+            <div className="flex h-[560px] w-full items-center justify-center rounded-sm bg-white">
               <BrailleSpinner className="text-2xl text-gray-900" />
             </div>
           </ClerkLoading>
@@ -220,12 +221,121 @@ function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
         .ritual-signup-stage .cl-cardBox,
         .ritual-signup-stage .cl-card {
           width: 100%;
-          max-width: 470px;
+          max-width: 448px;
         }
 
         .ritual-signup-stage .cl-card {
           border-radius: 2px;
-          box-shadow: 0 16px 42px rgba(18, 20, 28, 0.14);
+          border: 1px solid #dedede;
+          box-shadow: 0 24px 54px rgba(18, 20, 28, 0.16);
+          overflow: hidden;
+        }
+
+        .ritual-signup-stage .cl-main {
+          padding: 28px 38px 26px;
+        }
+
+        .ritual-signup-stage .cl-header {
+          margin-bottom: 22px;
+        }
+
+        .ritual-signup-stage .cl-headerTitle {
+          font-size: 28px;
+          line-height: 1.14;
+          letter-spacing: 0;
+          font-weight: 700;
+          color: #14171d;
+        }
+
+        .ritual-signup-stage .cl-headerSubtitle {
+          margin-top: 8px;
+          font-size: 17px;
+          line-height: 1.35;
+          color: #737373;
+        }
+
+        .ritual-signup-stage .cl-socialButtonsBlockButton {
+          min-height: 44px;
+          border-color: #dedede;
+          box-shadow: 0 1px 2px rgba(18, 20, 28, 0.08);
+          font-size: 15px;
+          font-weight: 500;
+        }
+
+        .ritual-signup-stage .cl-dividerRow {
+          margin: 22px 0;
+        }
+
+        .ritual-signup-stage .cl-form {
+          gap: 16px;
+        }
+
+        .ritual-signup-stage .cl-formField {
+          gap: 7px;
+        }
+
+        .ritual-signup-stage .cl-formFieldLabel {
+          font-size: 14px;
+          line-height: 1.3;
+          font-weight: 600;
+          color: #23252b;
+        }
+
+        .ritual-signup-stage .cl-formFieldInput {
+          min-height: 44px;
+          border-color: #dedede;
+          padding: 10px 14px;
+          font-size: 15px;
+          line-height: 1.35;
+          color: #23252b;
+          box-shadow: none;
+        }
+
+        .ritual-signup-stage .cl-formFieldInput::placeholder {
+          color: #737373;
+        }
+
+        .ritual-signup-stage .cl-phoneInputBox .cl-formFieldInput {
+          padding-left: 8px;
+        }
+
+        .ritual-signup-stage .cl-formButtonPrimary {
+          min-height: 46px;
+          margin-top: 4px;
+          border: 0;
+          background: #000;
+          box-shadow: 0 2px 5px rgba(18, 20, 28, 0.18);
+          font-size: 15px;
+          font-weight: 500;
+        }
+
+        .ritual-signup-stage .cl-formButtonPrimary:hover {
+          background: #27251e;
+        }
+
+        .ritual-signup-stage .cl-footer {
+          background: #f7f7f7;
+          border-top: 1px solid #e7e7e7;
+        }
+
+        .ritual-signup-stage .cl-footerAction,
+        .ritual-signup-stage .cl-footerPages {
+          padding: 18px 24px;
+        }
+
+        .ritual-signup-stage .cl-footerActionText,
+        .ritual-signup-stage .cl-footerActionLink {
+          font-size: 15px;
+          line-height: 1.35;
+        }
+
+        .ritual-signup-stage .cl-footerActionLink {
+          color: #14171d;
+          font-weight: 600;
+        }
+
+        .ritual-signup-stage .cl-footerActionLink:hover {
+          color: #27251e;
         }
       `}</style>
     </div>
@@ -292,7 +402,7 @@ export default function OnboardingPage() {
     }
 
     if (user && step === "signup") {
-      goToStep("permissions")
+      goToStep("meet")
     }
   }, [goToStep, isLoaded, rawStep, step, user])
 
@@ -570,7 +680,7 @@ export default function OnboardingPage() {
           }
           footer={
             <Footer
-              onContinue={() => goToStep("meet")}
+              onContinue={() => goToStep(user ? "meet" : "signup")}
               continueLabel="Get Started"
             />
           }
@@ -583,7 +693,7 @@ export default function OnboardingPage() {
           title="Your way to track anything"
           banner={<LandingHeroPreviewWindow />}
           body="Track habits, health, computer activity, and daily context in one private desktop workspace. Ritual collects signals in the background so your patterns are ready when you are."
-          footer={<Footer onBack={() => goToStep(previousStep(step))} onContinue={() => goToStep(user ? "permissions" : "signup")} />}
+          footer={<Footer onBack={() => goToStep(previousVisibleStep(step))} onContinue={() => goToStep(user ? "permissions" : "signup")} />}
         />
       ) : null}
 
