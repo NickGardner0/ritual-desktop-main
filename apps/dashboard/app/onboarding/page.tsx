@@ -175,33 +175,19 @@ function TrustRow() {
 
 function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
   return (
-    <div className="flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-8">
-      <div className="ritual-signup-stage mx-auto max-h-full w-full max-w-md overflow-y-auto overscroll-contain px-1 py-3">
+    <div className="flex h-screen items-center justify-center overflow-auto bg-white px-4 py-8">
+      <div className="w-full max-w-md">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
           <ClerkLoading>
-            <div className="flex h-[560px] w-full items-center justify-center rounded-sm bg-white">
+            <div className="flex h-[420px] w-full items-center justify-center bg-white">
               <BrailleSpinner className="text-2xl text-gray-900" />
             </div>
           </ClerkLoading>
           <ClerkLoaded>
             <SignUp
-              appearance={{
-                variables: {
-                  borderRadius: "0.125rem",
-                },
-                elements: {
-                  rootBox: "mx-auto",
-                  card: "shadow-sm rounded-sm",
-                  formButtonPrimary: "rounded-sm",
-                  socialButtonsBlockButton: "rounded-sm",
-                  dividerRow: "",
-                  formFieldInput: "rounded-sm",
-                  footerActionText: "text-gray-600",
-                  footerActionLink: "text-blue-600 hover:text-blue-500",
-                },
-              }}
+              routing="hash"
               signInUrl="/sign-in"
               forceRedirectUrl="/auth/sso-callback"
               fallbackRedirectUrl="/auth/sso-callback"
@@ -211,133 +197,6 @@ function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
           </ClerkLoaded>
         </div>
       </div>
-      <style jsx global>{`
-        .ritual-signup-stage {
-          scrollbar-width: thin;
-          scrollbar-color: rgba(20, 23, 29, 0.24) transparent;
-        }
-
-        .ritual-signup-stage .cl-rootBox,
-        .ritual-signup-stage .cl-cardBox,
-        .ritual-signup-stage .cl-card {
-          width: 100%;
-          max-width: 448px;
-        }
-
-        .ritual-signup-stage .cl-card {
-          border-radius: 2px;
-          border: 1px solid #dedede;
-          box-shadow: 0 24px 54px rgba(18, 20, 28, 0.16);
-          overflow: hidden;
-        }
-
-        .ritual-signup-stage .cl-main {
-          padding: 28px 38px 26px;
-        }
-
-        .ritual-signup-stage .cl-header {
-          margin-bottom: 22px;
-        }
-
-        .ritual-signup-stage .cl-headerTitle {
-          font-size: 28px;
-          line-height: 1.14;
-          letter-spacing: 0;
-          font-weight: 700;
-          color: #14171d;
-        }
-
-        .ritual-signup-stage .cl-headerSubtitle {
-          margin-top: 8px;
-          font-size: 17px;
-          line-height: 1.35;
-          color: #737373;
-        }
-
-        .ritual-signup-stage .cl-socialButtonsBlockButton {
-          min-height: 44px;
-          border-color: #dedede;
-          box-shadow: 0 1px 2px rgba(18, 20, 28, 0.08);
-          font-size: 15px;
-          font-weight: 500;
-        }
-
-        .ritual-signup-stage .cl-dividerRow {
-          margin: 22px 0;
-        }
-
-        .ritual-signup-stage .cl-form {
-          gap: 16px;
-        }
-
-        .ritual-signup-stage .cl-formField {
-          gap: 7px;
-        }
-
-        .ritual-signup-stage .cl-formFieldLabel {
-          font-size: 14px;
-          line-height: 1.3;
-          font-weight: 600;
-          color: #23252b;
-        }
-
-        .ritual-signup-stage .cl-formFieldInput {
-          min-height: 44px;
-          border-color: #dedede;
-          padding: 10px 14px;
-          font-size: 15px;
-          line-height: 1.35;
-          color: #23252b;
-          box-shadow: none;
-        }
-
-        .ritual-signup-stage .cl-formFieldInput::placeholder {
-          color: #737373;
-        }
-
-        .ritual-signup-stage .cl-phoneInputBox .cl-formFieldInput {
-          padding-left: 8px;
-        }
-
-        .ritual-signup-stage .cl-formButtonPrimary {
-          min-height: 46px;
-          margin-top: 4px;
-          border: 0;
-          background: #000;
-          box-shadow: 0 2px 5px rgba(18, 20, 28, 0.18);
-          font-size: 15px;
-          font-weight: 500;
-        }
-
-        .ritual-signup-stage .cl-formButtonPrimary:hover {
-          background: #27251e;
-        }
-
-        .ritual-signup-stage .cl-footer {
-          background: #f7f7f7;
-          border-top: 1px solid #e7e7e7;
-        }
-
-        .ritual-signup-stage .cl-footerAction,
-        .ritual-signup-stage .cl-footerPages {
-          padding: 18px 24px;
-        }
-
-        .ritual-signup-stage .cl-footerActionText,
-        .ritual-signup-stage .cl-footerActionLink {
-          font-size: 15px;
-          line-height: 1.35;
-        }
-
-        .ritual-signup-stage .cl-footerActionLink {
-          color: #14171d;
-          font-weight: 600;
-        }
-
-        .ritual-signup-stage .cl-footerActionLink:hover {
-          color: #27251e;
-        }
-      `}</style>
     </div>
   )
 }

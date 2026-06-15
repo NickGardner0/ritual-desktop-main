@@ -488,22 +488,22 @@ export function DashboardPreviewWindow({ compact = false }: { compact?: boolean 
 
 export function LandingHeroPreviewWindow() {
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#f6f4ef]">
+    <div className="relative h-full w-full overflow-hidden bg-[#FAFAF9]">
       <div
         aria-hidden="true"
-        className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.96)_0,rgba(247,245,240,0.88)_46%,rgba(231,226,216,0.74)_100%)]"
+        className="absolute inset-0 bg-[#FAFAF9]"
       />
       <div
         aria-hidden="true"
-        className="absolute inset-x-0 top-0 h-[74px] bg-white/38"
+        className="absolute inset-x-0 top-0 h-[74px] bg-white/60"
       />
       <div
         aria-hidden="true"
-        className="absolute -left-[80px] top-[42px] h-[180px] w-[360px] rounded-full bg-[#d8d1bf]/28 blur-3xl"
+        className="absolute -left-[80px] top-[42px] h-[180px] w-[360px] rounded-full bg-white/42 blur-3xl"
       />
       <div
         aria-hidden="true"
-        className="absolute -right-[70px] top-[18px] h-[190px] w-[360px] rounded-full bg-[#b9c1b0]/22 blur-3xl"
+        className="absolute -right-[70px] top-[18px] h-[190px] w-[360px] rounded-full bg-white/36 blur-3xl"
       />
 
       <div className="absolute left-1/2 top-[12px] w-[492px] -translate-x-1/2">
