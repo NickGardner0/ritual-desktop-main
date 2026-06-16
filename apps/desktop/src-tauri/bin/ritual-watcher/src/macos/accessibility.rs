@@ -1,43 +1,13 @@
-//! macOS-specific window tracking implementation
-//!
-//! Uses NSWorkspace for active app detection and Accessibility API for window titles.
-//! Inspired by ActivityWatch's aw-watcher-window implementation.
+//! Accessibility API text capture, candidate scoring, and context dumps.
 
-#![allow(dead_code)] // Public API - some functions used externally
-#![allow(non_upper_case_globals)] // macOS API constants use camelCase
-
-use std::collections::HashSet;
-use std::process::Command;
-use std::ptr;
-
+use super::{AxAttributeDump, AxCandidateDump, AxContextDump, AxNodeDump, FocusedTextInfo};
 use core_foundation::base::{CFRelease, TCFType};
 use core_foundation::string::{CFString, CFStringRef};
 use core_foundation_sys::base::{CFGetTypeID, CFTypeRef};
 use core_foundation_sys::string::CFStringGetTypeID;
-use serde::Serialize;
-use std::env;
-
-fn env_flag_enabled(name: &str) -> bool {
-    matches!(
-        env::var(name).ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
-}
-
-#[cfg(target_os = "macos")]
-unsafe fn cf_string_from_get_rule(value: *const std::ffi::c_void) -> Option<String> {
-    if value.is_null() || CFGetTypeID(value as CFTypeRef) != CFStringGetTypeID() {
-        return None;
-    }
-    let cf = CFString::wrap_under_get_rule(value as CFStringRef);
-    let text = cf.to_string();
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
+use std::collections::HashSet;
+use std::process::Command;
+use std::ptr;
 
 #[cfg(target_os = "macos")]
 unsafe fn cf_string_from_create_rule(value: *const std::ffi::c_void) -> Option<String> {
@@ -58,86 +28,7 @@ unsafe fn cf_string_from_create_rule(value: *const std::ffi::c_void) -> Option<S
     }
 }
 
-/// Information about the currently active window
-#[derive(Debug, Clone)]
-pub struct ActiveWindowInfo {
-    /// Bundle identifier (e.g., "com.apple.Safari")
-    pub bundle_id: String,
-    /// Application name (e.g., "Safari")
-    pub app_name: String,
-    /// Window title (if accessible)
-    pub window_title: Option<String>,
-    /// Process ID
-    pub pid: Option<i32>,
-    /// Best-effort frontmost window bounds in global screen coordinates.
-    pub bounds: Option<ActiveWindowBounds>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ActiveWindowBounds {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-/// Best-effort accessibility text for the focused UI element.
-#[derive(Debug, Clone, Default)]
-pub struct FocusedTextInfo {
-    pub text: Option<String>,
-    pub is_sensitive: bool,
-    pub strategy: String,
-    pub quality_score: f64,
-    pub capture_components: Vec<String>,
-    pub ax_richness_score: f64,
-    pub ax_thinness_score: f64,
-    pub selected_text_present: bool,
-    pub document_path: Option<String>,
-    pub ax_source: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AxAttributeDump {
-    pub attribute: String,
-    pub value: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AxNodeDump {
-    pub source: String,
-    pub role: Option<String>,
-    pub subrole: Option<String>,
-    pub role_description: Option<String>,
-    pub title: Option<String>,
-    pub text_attributes: Vec<AxAttributeDump>,
-    pub children: Vec<AxNodeDump>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AxContextDump {
-    pub pid: i32,
-    pub bundle_id: Option<String>,
-    pub window_title: Option<String>,
-    pub document_hint: Option<String>,
-    pub focused: Option<AxNodeDump>,
-    pub parents: Vec<AxNodeDump>,
-    pub siblings: Vec<AxNodeDump>,
-    pub window: Option<AxNodeDump>,
-    pub candidates: Vec<AxCandidateDump>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AxCandidateDump {
-    pub text: String,
-    pub attribute: String,
-    pub source: String,
-    pub base_score: f64,
-    pub priority_score: f64,
-    pub document_match: bool,
-    pub filtered_reason: Option<String>,
-}
-
-fn normalize_ax_candidate_text(value: &str, max_len: usize) -> Option<String> {
+pub(crate) fn normalize_ax_candidate_text(value: &str, max_len: usize) -> Option<String> {
     let normalized = value
         .replace('\u{a0}', " ")
         .split_whitespace()
@@ -337,7 +228,7 @@ fn ax_text_thinness_score(
     thinness.clamp(0.0, 0.99)
 }
 
-fn candidate_score(attribute: &str, source: &str, text: &str) -> f64 {
+pub(crate) fn candidate_score(attribute: &str, source: &str, text: &str) -> f64 {
     (ax_attribute_weight(attribute) * ax_source_weight(source) * ax_text_richness_weight(text))
         .clamp(0.0, 0.99)
 }
@@ -357,7 +248,7 @@ fn tokenize_pathish(text: &str) -> Vec<String> {
     .collect()
 }
 
-fn basename_from_pathish(text: &str) -> Option<String> {
+pub(crate) fn basename_from_pathish(text: &str) -> Option<String> {
     tokenize_pathish(text).into_iter().find_map(|token| {
         let normalized = token.replace('\\', "/");
         let basename = normalized.rsplit('/').next().unwrap_or(&normalized).trim();
@@ -377,7 +268,7 @@ fn window_document_hint(window_title: Option<&str>) -> Option<String> {
     })
 }
 
-fn candidate_document_hint(
+pub(crate) fn candidate_document_hint(
     window_title: Option<&str>,
     candidates: &[(String, &'static str, f64, &'static str)],
 ) -> Option<String> {
@@ -388,7 +279,7 @@ fn candidate_document_hint(
         .or_else(|| window_document_hint(window_title))
 }
 
-fn is_editor_like_window_title(window_title: Option<&str>) -> bool {
+pub(crate) fn is_editor_like_window_title(window_title: Option<&str>) -> bool {
     let title = window_title.unwrap_or("").to_ascii_lowercase();
     if title.is_empty() {
         return false;
@@ -438,7 +329,7 @@ fn is_terminal_style_context(bundle_id: Option<&str>, window_title: Option<&str>
             .contains("terminal")
 }
 
-fn is_browser_context(bundle_id: Option<&str>, _window_title: Option<&str>) -> bool {
+pub(crate) fn is_browser_context(bundle_id: Option<&str>, _window_title: Option<&str>) -> bool {
     let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
     bundle.contains("safari")
         || bundle.contains("chrome")
@@ -462,7 +353,7 @@ fn is_task_manager_context(bundle_id: Option<&str>, window_title: Option<&str>) 
             .contains("things")
 }
 
-fn is_high_risk_desktop_shell(bundle_id: Option<&str>) -> bool {
+pub(crate) fn is_high_risk_desktop_shell(bundle_id: Option<&str>) -> bool {
     let bundle = bundle_id.unwrap_or("").to_ascii_lowercase();
     bundle == "com.ritual.desktop"
         || bundle.contains("claude")
@@ -477,7 +368,7 @@ fn is_high_risk_desktop_shell(bundle_id: Option<&str>) -> bool {
         || bundle.contains("todesktop")
 }
 
-fn looks_like_tiny_fragment(text: &str) -> bool {
+pub(crate) fn looks_like_tiny_fragment(text: &str) -> bool {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return true;
@@ -499,7 +390,7 @@ fn looks_like_tiny_fragment(text: &str) -> bool {
     false
 }
 
-fn matches_document_hint(text: &str, document_hint: Option<&str>) -> bool {
+pub(crate) fn matches_document_hint(text: &str, document_hint: Option<&str>) -> bool {
     let Some(document_hint) = document_hint else {
         return false;
     };
@@ -510,7 +401,7 @@ fn matches_document_hint(text: &str, document_hint: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
-fn looks_like_sidebar_listing(text: &str) -> bool {
+pub(crate) fn looks_like_sidebar_listing(text: &str) -> bool {
     let tokens = tokenize_pathish(text);
     if tokens.len() < 3 {
         return false;
@@ -545,7 +436,7 @@ fn looks_like_generic_terminal_tab_label(text: &str) -> bool {
             .all(|token| *token == "terminal" || token.parse::<u32>().is_ok())
 }
 
-fn is_known_window_chrome_noise(
+pub(crate) fn is_known_window_chrome_noise(
     text: &str,
     attribute: &str,
     source: &str,
@@ -659,7 +550,7 @@ fn related_editor_process_pids(parent_pid: i32, bundle_id: Option<&str>) -> Vec<
     descendants
 }
 
-fn candidate_priority(
+pub(crate) fn candidate_priority(
     bundle_id: Option<&str>,
     window_title: Option<&str>,
     document_hint: Option<&str>,
@@ -734,7 +625,7 @@ fn candidate_priority(
     priority.clamp(0.0, 1.2)
 }
 
-fn candidate_document_path(
+pub(crate) fn candidate_document_path(
     candidates: &[(String, &'static str, f64, &'static str)],
 ) -> Option<String> {
     candidates.iter().find_map(|(text, attr, _, _)| {
@@ -752,7 +643,7 @@ fn candidate_document_path(
     })
 }
 
-fn candidate_is_redundant(existing: &[String], candidate: &str) -> bool {
+pub(crate) fn candidate_is_redundant(existing: &[String], candidate: &str) -> bool {
     let candidate_key = candidate.to_ascii_lowercase();
     existing.iter().any(|value| {
         let existing_key = value.to_ascii_lowercase();
@@ -763,7 +654,7 @@ fn candidate_is_redundant(existing: &[String], candidate: &str) -> bool {
     })
 }
 
-fn finalize_accessibility_text(
+pub(crate) fn finalize_accessibility_text(
     bundle_id: Option<&str>,
     window_title: Option<&str>,
     candidates: Vec<(String, &'static str, f64, &'static str)>,
@@ -1065,333 +956,6 @@ fn finalize_accessibility_text(
         ax_source: Some(best_source.to_string()),
     }
 }
-
-/// Get information about the currently active window
-pub fn get_active_window_info() -> Result<Option<ActiveWindowInfo>, String> {
-    #[cfg(target_os = "macos")]
-    {
-        get_active_window_info_macos()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        Err("This platform is not supported".to_string())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn get_active_window_info_macos() -> Result<Option<ActiveWindowInfo>, String> {
-    use objc2::exception;
-    use objc2::rc::Retained;
-    use objc2_app_kit::{NSRunningApplication, NSWorkspace};
-
-    let result = unsafe {
-        exception::catch(|| {
-            // Get the shared workspace
-            let workspace = NSWorkspace::sharedWorkspace();
-
-            // Get the frontmost application
-            let frontmost_app: Option<Retained<NSRunningApplication>> =
-                workspace.frontmostApplication();
-
-            let app = match frontmost_app {
-                Some(app) => app,
-                None => return Ok(None),
-            };
-
-            // Get bundle identifier
-            let bundle_id: String = app
-                .bundleIdentifier()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
-
-            // Get application name
-            let app_name: String = app
-                .localizedName()
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "Unknown".to_string());
-
-            // Get process ID using the raw method
-            // NSRunningApplication.processIdentifier returns pid_t (i32)
-            let pid: i32 = {
-                use objc2::msg_send;
-                msg_send![&app, processIdentifier]
-            };
-
-            let (cg_window_title, window_bounds) = get_frontmost_window_metadata(pid);
-
-            // Default to the safer no-title path for the beta watcher. AX window-title
-            // capture can be re-enabled explicitly once the callback crash surface is
-            // isolated.
-            let window_title = if ax_window_title_capture_enabled_for_bundle(&bundle_id) {
-                get_window_title_ax(pid).or(cg_window_title)
-            } else {
-                cg_window_title
-            };
-
-            Ok(Some(ActiveWindowInfo {
-                bundle_id,
-                app_name,
-                window_title,
-                pid: Some(pid),
-                bounds: window_bounds,
-            }))
-        })
-    };
-
-    match result {
-        Ok(value) => value,
-        Err(Some(exception)) => Err(format!(
-            "Objective-C exception during active window lookup: {:?}",
-            exception
-        )),
-        Err(None) => Err("Objective-C exception during active window lookup: <nil>".to_string()),
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn get_frontmost_window_metadata(pid: i32) -> (Option<String>, Option<ActiveWindowBounds>) {
-    use core_foundation::array::CFArray;
-    use core_foundation::dictionary::CFDictionary;
-    use core_foundation::number::CFNumber;
-    use core_graphics::display::CGWindowListCopyWindowInfo;
-    use core_graphics::display::{
-        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
-    };
-
-    unsafe fn dict_number_i32(
-        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
-        key: &str,
-    ) -> Option<i32> {
-        let key = CFString::new(key);
-        let value_ref = dict.find(&key)?;
-        let number = CFNumber::wrap_under_get_rule(*value_ref as _);
-        number.to_i32()
-    }
-
-    unsafe fn dict_number_f64(
-        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
-        key: &str,
-    ) -> Option<f64> {
-        let key = CFString::new(key);
-        let value_ref = dict.find(&key)?;
-        let number = CFNumber::wrap_under_get_rule(*value_ref as _);
-        number.to_f64()
-    }
-
-    unsafe fn dict_string(
-        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
-        key: &str,
-    ) -> Option<String> {
-        let key = CFString::new(key);
-        let value_ref = dict.find(&key)?;
-        cf_string_from_get_rule(*value_ref as _)
-    }
-
-    unsafe fn dict_bounds(
-        dict: &CFDictionary<CFString, *const std::ffi::c_void>,
-    ) -> Option<ActiveWindowBounds> {
-        let key = CFString::new("kCGWindowBounds");
-        let value_ref = dict.find(&key)?;
-        let bounds_dict: CFDictionary<CFString, *const std::ffi::c_void> =
-            CFDictionary::wrap_under_get_rule(*value_ref as _);
-        let x = dict_number_f64(&bounds_dict, "X")?;
-        let y = dict_number_f64(&bounds_dict, "Y")?;
-        let width = dict_number_f64(&bounds_dict, "Width")?;
-        let height = dict_number_f64(&bounds_dict, "Height")?;
-        Some(ActiveWindowBounds {
-            x,
-            y,
-            width,
-            height,
-        })
-    }
-
-    unsafe {
-        let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
-        let window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
-        if window_list.is_null() {
-            return (None, None);
-        }
-
-        let windows: CFArray<CFDictionary<CFString, *const std::ffi::c_void>> =
-            CFArray::wrap_under_get_rule(window_list as _);
-        let mut fallback_title = None;
-        let mut fallback_bounds = None;
-
-        for window in windows.iter() {
-            if dict_number_i32(&window, "kCGWindowOwnerPID") != Some(pid) {
-                continue;
-            }
-
-            let title = dict_string(&window, "kCGWindowName");
-            let bounds = dict_bounds(&window);
-
-            if fallback_title.is_none() {
-                fallback_title = title.clone();
-            }
-            if fallback_bounds.is_none() {
-                fallback_bounds = bounds;
-            }
-
-            let layer = dict_number_i32(&window, "kCGWindowLayer").unwrap_or_default();
-            let alpha = dict_number_f64(&window, "kCGWindowAlpha").unwrap_or(1.0);
-            let Some(bounds) = bounds else {
-                continue;
-            };
-
-            if layer == 0 && alpha > 0.01 && bounds.width >= 40.0 && bounds.height >= 40.0 {
-                return (title, Some(bounds));
-            }
-        }
-
-        (fallback_title, fallback_bounds)
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn ax_window_title_high_risk_bundle(bundle_id: &str) -> bool {
-    is_high_risk_desktop_shell(Some(bundle_id))
-}
-
-#[cfg(target_os = "macos")]
-fn ax_window_title_capture_enabled_for_bundle(bundle_id: &str) -> bool {
-    if env_flag_enabled("RITUAL_DISABLE_AX_WINDOW_TITLES") {
-        return false;
-    }
-    if env_flag_enabled("RITUAL_ENABLE_AX_WINDOW_TITLES") {
-        return true;
-    }
-
-    !is_browser_context(Some(bundle_id), None) && !ax_window_title_high_risk_bundle(bundle_id)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn ax_window_title_capture_enabled_for_bundle(_bundle_id: &str) -> bool {
-    false
-}
-
-#[cfg(target_os = "macos")]
-fn get_window_title_ax(pid: i32) -> Option<String> {
-    use core_foundation::array::CFArray;
-    use core_foundation::dictionary::CFDictionary;
-    use core_foundation::number::CFNumber;
-    use core_graphics::display::CGWindowListCopyWindowInfo;
-    use core_graphics::display::{
-        kCGNullWindowID, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly,
-    };
-
-    unsafe {
-        // Try Accessibility API first (more reliable but requires permissions)
-        if let Some(title) = get_window_title_accessibility(pid) {
-            return Some(title);
-        }
-
-        // Fallback to CGWindowList (doesn't require Accessibility permissions but less reliable)
-        let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
-
-        let window_list = CGWindowListCopyWindowInfo(options, kCGNullWindowID);
-        if window_list.is_null() {
-            return None;
-        }
-
-        let windows: CFArray<CFDictionary<CFString, *const std::ffi::c_void>> =
-            CFArray::wrap_under_get_rule(window_list as _);
-
-        for window in windows.iter() {
-            // Get owner PID
-            let owner_pid_key = CFString::new("kCGWindowOwnerPID");
-            if let Some(pid_ref) = window.find(&owner_pid_key) {
-                // Use wrap_under_get_rule instead of from_void
-                let pid_num = CFNumber::wrap_under_get_rule(*pid_ref as _);
-                if let Some(window_pid) = pid_num.to_i32() {
-                    if window_pid == pid {
-                        // Get window name
-                        let name_key = CFString::new("kCGWindowName");
-                        if let Some(name_ref) = window.find(&name_key) {
-                            if let Some(title) = cf_string_from_get_rule(*name_ref as _) {
-                                return Some(title);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        None
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn get_window_title_accessibility(pid: i32) -> Option<String> {
-    // Accessibility API types
-    #[repr(C)]
-    struct __AXUIElement(std::ffi::c_void);
-    type AXUIElementRef = *mut __AXUIElement;
-    type AXError = i32;
-
-    const kAXErrorSuccess: AXError = 0;
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
-        fn AXUIElementCreateApplication(pid: i32) -> AXUIElementRef;
-        fn AXUIElementCopyAttributeValue(
-            element: AXUIElementRef,
-            attribute: CFStringRef,
-            value: *mut *const std::ffi::c_void,
-        ) -> AXError;
-        fn AXIsProcessTrusted() -> bool;
-    }
-
-    unsafe {
-        // Check if we have accessibility permissions
-        if !AXIsProcessTrusted() {
-            return None;
-        }
-
-        // Create an accessibility element for the application
-        let app_element = AXUIElementCreateApplication(pid);
-        if app_element.is_null() {
-            return None;
-        }
-
-        // Get the focused window
-        let focused_window_attr = CFString::new("AXFocusedWindow");
-        let mut window_value: *const std::ffi::c_void = ptr::null();
-
-        let result = AXUIElementCopyAttributeValue(
-            app_element,
-            focused_window_attr.as_concrete_TypeRef(),
-            &mut window_value,
-        );
-
-        CFRelease(app_element as *const _);
-
-        if result != kAXErrorSuccess || window_value.is_null() {
-            return None;
-        }
-
-        let window_element = window_value as AXUIElementRef;
-
-        // Get the window title
-        let title_attr = CFString::new("AXTitle");
-        let mut title_value: *const std::ffi::c_void = ptr::null();
-
-        let result = AXUIElementCopyAttributeValue(
-            window_element,
-            title_attr.as_concrete_TypeRef(),
-            &mut title_value,
-        );
-
-        CFRelease(window_element as *const _);
-
-        if result != kAXErrorSuccess || title_value.is_null() {
-            return None;
-        }
-
-        cf_string_from_create_rule(title_value)
-    }
-}
-
 /// Check if accessibility permissions are granted
 #[cfg(target_os = "macos")]
 pub fn check_accessibility_permission() -> bool {
@@ -2353,325 +1917,5 @@ pub fn prompt_accessibility_permission() {
         let options = CFDictionary::from_CFType_pairs(&[(key.as_CFType(), value.as_CFType())]);
 
         AXIsProcessTrustedWithOptions(options.as_concrete_TypeRef() as *const _);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        basename_from_pathish, candidate_document_hint, candidate_document_path,
-        candidate_is_redundant, candidate_priority, candidate_score, finalize_accessibility_text,
-        is_editor_like_window_title, is_known_window_chrome_noise, looks_like_sidebar_listing,
-        looks_like_tiny_fragment, matches_document_hint, normalize_ax_candidate_text,
-    };
-
-    #[test]
-    fn normalize_ax_candidate_text_compacts_whitespace() {
-        assert_eq!(
-            normalize_ax_candidate_text("  hello\n   world  ", 100).as_deref(),
-            Some("hello world")
-        );
-    }
-
-    #[test]
-    fn finalize_accessibility_text_prefers_richer_candidates() {
-        let info = finalize_accessibility_text(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("project_time_service.py"),
-            vec![
-                (
-                    "apps/backend/services/project_time_service.py".to_string(),
-                    "AXDocument",
-                    0.82,
-                    "window",
-                ),
-                (
-                    "Implement context renderer and claim cards".to_string(),
-                    "AXSelectedText",
-                    0.98,
-                    "focused",
-                ),
-            ],
-        );
-
-        assert!(info.text.unwrap_or_default().contains("claim cards"));
-        assert!(info.quality_score >= 0.84);
-    }
-
-    #[test]
-    fn candidate_is_redundant_filters_substrings() {
-        let existing = vec![
-            "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts".to_string(),
-        ];
-        assert!(candidate_is_redundant(
-            &existing,
-            "projectTimeAttribution orchestrator.ts"
-        ));
-        assert!(!candidate_is_redundant(
-            &existing,
-            "Things Today Ritual launch day planning list"
-        ));
-    }
-
-    #[test]
-    fn candidate_score_rewards_richer_focused_content() {
-        let focused = candidate_score(
-            "AXSelectedText",
-            "focused",
-            "Implement context-aware window traversal and dedupe",
-        );
-        let sibling = candidate_score("AXTitle", "sibling", "Implement");
-
-        assert!(focused > sibling);
-        assert!(focused > 0.8);
-    }
-
-    #[test]
-    fn tiny_fragment_detection_flags_short_editor_inputs() {
-        assert!(looks_like_tiny_fragment("c"));
-        assert!(looks_like_tiny_fragment("run test"));
-        assert!(!looks_like_tiny_fragment("python start.py"));
-        assert!(!looks_like_tiny_fragment(
-            "home-client.tsx ritual-desktop-main search context capture"
-        ));
-    }
-
-    #[test]
-    fn editor_like_window_title_detects_code_windows() {
-        assert!(is_editor_like_window_title(Some(
-            "home-client.tsx — ritual-desktop-main"
-        )));
-        assert!(!is_editor_like_window_title(Some("Today")));
-    }
-
-    #[test]
-    fn editor_priority_prefers_richer_neighbor_context() {
-        let focused = candidate_priority(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("home-client.tsx — ritual-desktop-main"),
-            Some("home-client.tsx"),
-            "npm run d",
-            "AXValue",
-            "focused",
-            0.90,
-        );
-        let sibling = candidate_priority(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("home-client.tsx — ritual-desktop-main"),
-            Some("home-client.tsx"),
-            "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts",
-            "AXTitle",
-            "sibling",
-            0.64,
-        );
-
-        assert!(sibling > focused);
-    }
-
-    #[test]
-    fn document_hint_prefers_ax_document_basename() {
-        let hint = candidate_document_hint(
-            Some("page.tsx — ritual-desktop-main"),
-            &[(
-                "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/app/page.tsx"
-                    .to_string(),
-                "AXDocument",
-                0.82,
-                "window",
-            )],
-        );
-        assert_eq!(hint.as_deref(), Some("page.tsx"));
-        assert_eq!(
-            basename_from_pathish(
-                "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/app/page.tsx"
-            )
-            .as_deref(),
-            Some("page.tsx")
-        );
-    }
-
-    #[test]
-    fn noise_and_sidebar_helpers_catch_cursor_window_chrome() {
-        assert!(is_known_window_chrome_noise(
-            "this button also has an action to zoom the window",
-            "AXHelp",
-            "window",
-            Some("page.tsx — ritual-desktop-main")
-        ));
-        assert!(is_known_window_chrome_noise(
-            "Terminal 1 Terminal 1 Terminal 2 Terminal 2 Terminal tabs",
-            "AXTitle",
-            "visible_descendant",
-            Some("page.tsx — ritual-desktop-main")
-        ));
-        assert!(looks_like_sidebar_listing(
-            ".pytest_cache .trigger .cursor .github"
-        ));
-        assert!(matches_document_hint(
-            "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/app/page.tsx",
-            Some("page.tsx")
-        ));
-    }
-
-    #[test]
-    fn finalize_accessibility_text_boosts_multi_source_window_context() {
-        let info = finalize_accessibility_text(
-            Some("com.apple.Terminal"),
-            Some("zsh"),
-            vec![
-                (
-                    "cargo test -p ritual-watcher".to_string(),
-                    "AXValue",
-                    0.9,
-                    "focused",
-                ),
-                (
-                    "apps/desktop/src-tauri/bin/ritual-watcher/src/macos.rs".to_string(),
-                    "AXTitle",
-                    0.73,
-                    "sibling",
-                ),
-                (
-                    "Implement generic AX traversal for visible descendants".to_string(),
-                    "AXDescription",
-                    0.68,
-                    "visible_descendant",
-                ),
-            ],
-        );
-
-        let text = info.text.unwrap_or_default();
-        assert!(text.contains("cargo test -p ritual-watcher"));
-        assert!(text.contains("visible descendants"));
-        assert!(info.quality_score >= 0.8);
-    }
-
-    #[test]
-    fn finalize_accessibility_text_prefers_context_over_tiny_editor_fragment() {
-        let info = finalize_accessibility_text(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("home-client.tsx — ritual-desktop-main"),
-            vec![
-                ("npm run d".to_string(), "AXValue", 0.90, "focused"),
-                (
-                    "home-client.tsx ritual-desktop-main projectTimeAttribution orchestrator.ts"
-                        .to_string(),
-                    "AXTitle",
-                    0.64,
-                    "sibling",
-                ),
-                (
-                    "Implement context-aware window traversal and visible descendant ranking"
-                        .to_string(),
-                    "AXDescription",
-                    0.66,
-                    "visible_descendant",
-                ),
-            ],
-        );
-
-        let text = info.text.unwrap_or_default();
-        assert!(text.contains("projectTimeAttribution"));
-        assert!(text.contains("visible descendant ranking"));
-        assert!(info.quality_score >= 0.86);
-    }
-
-    #[test]
-    fn finalize_accessibility_text_filters_window_chrome_noise_and_prefers_document_context() {
-        let info = finalize_accessibility_text(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("page.tsx — ritual-desktop-main"),
-            vec![
-                (
-                    "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/dashboard/app/(dashboard)/dashboard/page.tsx"
-                        .to_string(),
-                    "AXDocument",
-                    0.82,
-                    "window",
-                ),
-                (
-                    "this button also has an action to zoom the window".to_string(),
-                    "AXHelp",
-                    0.58,
-                    "visible_descendant",
-                ),
-                (
-                    ".pytest_cache .trigger .cursor .github".to_string(),
-                    "AXTitle",
-                    0.74,
-                    "visible_descendant",
-                ),
-                (
-                    "page.tsx ritual-desktop-main projectTimeAttribution orchestrator".to_string(),
-                    "AXTitle",
-                    0.68,
-                    "visible_descendant",
-                ),
-            ],
-        );
-
-        let text = info.text.unwrap_or_default().to_ascii_lowercase();
-        assert!(text.contains("page.tsx"));
-        assert!(text.contains("projecttimeattribution"));
-        assert!(!text.contains("zoom the window"));
-        assert!(info.quality_score >= 0.86);
-    }
-
-    #[test]
-    fn candidate_document_path_prefers_full_ax_path() {
-        let path = candidate_document_path(&[(
-            "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py"
-                .to_string(),
-            "AXDocument",
-            0.82,
-            "window",
-        )]);
-        assert_eq!(
-            path.as_deref(),
-            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py")
-        );
-    }
-
-    #[test]
-    fn finalize_accessibility_text_tracks_selected_text_and_document_path() {
-        let info = finalize_accessibility_text(
-            Some("com.todesktop.230313mzl4w4u92"),
-            Some("project_time_service.py — ritual-desktop-main"),
-            vec![
-                (
-                    "file:///Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py"
-                        .to_string(),
-                    "AXDocument",
-                    0.82,
-                    "window",
-                ),
-                (
-                    "selected query expansion branch".to_string(),
-                    "AXSelectedText",
-                    0.98,
-                    "focused",
-                ),
-                (
-                    "surrounding retrieval heuristics for context snapshots".to_string(),
-                    "AXValue",
-                    0.90,
-                    "focused",
-                ),
-            ],
-        );
-
-        assert!(info.selected_text_present);
-        assert!(matches!(
-            info.ax_source.as_deref(),
-            Some("focused" | "window")
-        ));
-        assert_eq!(
-            info.document_path.as_deref(),
-            Some("/Users/nickgardner/Desktop/ritual-desktop-main/apps/backend/services/project_time_service.py")
-        );
-        assert_eq!(
-            info.capture_components.first().map(|value| value.as_str()),
-            Some("document_identity")
-        );
     }
 }

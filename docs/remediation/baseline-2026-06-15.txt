@@ -1,0 +1,52 @@
+# Thermo-Nuclear Remediation Baseline — 2026-06-15
+
+## repo:check
+
+> ritual@1.0.0 repo:check
+> bash scripts/check-repo-structure.sh && node scripts/check-dead-code.mjs && bash scripts/check-removed-recorder.sh && node scripts/check-dashboard-api-budget.mjs && node scripts/check-dashboard-api-manifest.mjs && node scripts/check-runtime-schema-budget.mjs && node scripts/check-backend-ops-manifest.mjs && node scripts/check-backend-ops-smoke.mjs && node scripts/check-migration-boundary.mjs && node scripts/check-generated-backend-client.mjs && node scripts/check-import-cycles.mjs && node scripts/check-no-direct-backend-fetch.mjs && node scripts/check-desktop-capabilities-boundary.mjs && node scripts/check-dashboard-line-budget.mjs && RITUAL_RUST_LINE_BUDGET_WARN_ONLY=1 node scripts/check-rust-line-budget.mjs && node scripts/check-performance-budgets.mjs
+
+Repo structure check passed.
+Dead-code guard passed.
+Removed recorder guard passed.
+Dashboard API route budget passed: 39/39.
+Dashboard API route manifest passed: 39 routes allowlisted.
+Runtime schema mutation guard passed: 0 forbidden DDL statements in runtime code.
+Approved migration/provisioning DDL files:
+- apps/backend/services/turso_activity_schema.py: 19
+- apps/desktop/src-tauri/crates/ritual-db/src/migration.rs: 2
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/activity.rs: 3
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/memory.rs: 11
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/metadata.rs: 1
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/migrations.rs: 10
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/mod.rs: 3
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/recorder.rs: 3
+- apps/desktop/src-tauri/crates/ritual-db/src/schema/sync.rs: 50
+Backend ops script manifest passed: 34 scripts covered.
+Backend ops smoke check passed: 34 scripts syntax-checked.
+Migration boundary check passed.
+Generated backend client check passed.
+Import cycle check passed: 509 files scanned.
+API client boundary passed (514 dashboard files scanned).
+✅ Desktop capabilities boundary: no stray isTauri() calls.
+Dashboard line budget passed: 571 files <= 800 lines.
+Rust line budget exceeded (1000 lines):
+- apps/desktop/src-tauri/crates/ritual-db/src/text_processing.rs: 1785
+- apps/desktop/src-tauri/src/main.rs: 1625
+- apps/desktop/src-tauri/bin/ritual-watcher/src/browser_heartbeat_server.rs: 1423
+- apps/desktop/src-tauri/src/ritual_database.rs: 1196
+- apps/desktop/src-tauri/crates/ritual-db/src/project_time.rs: 1137
+- apps/desktop/src-tauri/crates/ritual-db/src/activity.rs: 1098
+- apps/desktop/src-tauri/crates/ritual-db/src/recorder.rs: 1095
+- apps/desktop/src-tauri/bin/ritual-watcher/src/main_part_loop.rs: 1058
+- apps/desktop/src-tauri/crates/ritual-db/src/context.rs: 1037
+- apps/desktop/src-tauri/bin/ritual-watcher/src/main_part_bootstrap.rs: 1013
+- apps/desktop/src-tauri/crates/ritual-db/src/migration.rs: 1012
+Performance budget check passed: 39 API routes, 494 dashboard files checked.
+
+## typecheck — pass
+## test:dashboard — 132/132 pass
+## contracts:typecheck — pass
+## chat-runtime test — 14/14 pass
+## cargo check — pass (warnings only)
+
+Note: backend pytest requires project venv (pytest not in system python).
