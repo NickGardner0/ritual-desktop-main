@@ -76,13 +76,28 @@ jobs:
       - name: Python backend full test suite
         run: PYTHONPATH=apps/backend pytest -q apps/backend/tests
 
-      - name: Rust desktop check
-        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
+      - name: Rust database check
+        working-directory: apps/desktop/src-tauri/crates/ritual-db
         run: cargo check
-
-      - name: Rust desktop tests
-        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
-        run: cargo test
 
       - name: Dashboard unit tests
         run: npm run test:dashboard
+
+  desktop-rust:
+    runs-on: macos-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust watcher check
+        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
+        run: cargo check
+
+      - name: Rust watcher tests
+        working-directory: apps/desktop/src-tauri/bin/ritual-watcher
+        run: cargo test
