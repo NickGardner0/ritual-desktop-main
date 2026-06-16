@@ -40,34 +40,34 @@ class ActivationServiceTests(unittest.TestCase):
             connected_providers=set(),
         )
 
-    def test_bootstrap_routes_missing_profile_to_profile_step(self):
+    def test_bootstrap_routes_missing_profile_to_signup_step(self):
         bootstrap = self._bootstrap(full_name="", timezone=None)
 
         self.assertFalse(bootstrap.profileComplete)
-        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=profile")
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=signup")
 
-    def test_bootstrap_routes_missing_first_behavior_to_first_behavior_step(self):
+    def test_bootstrap_routes_missing_permissions_seen_to_meet_step(self):
         bootstrap = self._bootstrap()
 
         self.assertTrue(bootstrap.profileComplete)
-        self.assertFalse(bootstrap.firstBehaviorLogged)
-        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=first-behavior")
-
-    def test_bootstrap_routes_first_behavior_to_dashboard_without_global_setup_gate(self):
-        bootstrap = self._bootstrap(first_logged=True)
-
-        self.assertTrue(bootstrap.firstBehaviorLogged)
-        self.assertTrue(bootstrap.activation.activationCompleted)
         self.assertFalse(bootstrap.permissionsSeen)
-        self.assertEqual(bootstrap.nextRoute, "/dashboard")
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=meet")
 
-    def test_bootstrap_routes_activated_user_to_dashboard_after_setup_seen(self):
+    def test_bootstrap_routes_setup_seen_user_to_dashboard(self):
         bootstrap = self._bootstrap(first_logged=True, permissions_seen=True)
 
         self.assertTrue(bootstrap.firstBehaviorLogged)
         self.assertTrue(bootstrap.activation.activationCompleted)
         self.assertTrue(bootstrap.permissionsSeen)
         self.assertEqual(bootstrap.nextRoute, "/dashboard")
+
+    def test_bootstrap_routes_profile_complete_without_setup_seen_to_meet(self):
+        bootstrap = self._bootstrap(first_logged=True)
+
+        self.assertTrue(bootstrap.firstBehaviorLogged)
+        self.assertTrue(bootstrap.activation.activationCompleted)
+        self.assertFalse(bootstrap.permissionsSeen)
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=meet")
 
     def test_connected_provider_marks_checklist_completed(self):
         bootstrap = self.service._build_response(

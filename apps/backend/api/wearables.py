@@ -14,6 +14,13 @@ from api.wearables_routes.connections import register_connection_routes
 from api.wearables_routes.deps import WearablesRouterDeps
 from api.wearables_routes.samples import register_sample_routes
 from api.wearables_routes.sync_runs import register_sync_run_routes
+from api.wearables_helpers import (
+    apple_owned_habit_metric_types as _apple_owned_habit_metric_types,
+    build_tracked_metrics_contract as _build_tracked_metrics_contract,
+    normalize_metric_preferences_v2 as _normalize_metric_preferences_v2,
+    parse_metric_preferences_payload as _parse_metric_preferences_payload,
+    selected_metrics_from_preferences as _selected_metrics_from_preferences,
+)
 
 logger = logging.getLogger(__name__)
 

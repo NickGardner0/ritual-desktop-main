@@ -1,6 +1,6 @@
-"""Extracted computer-activity analytics/sync logic for WatcherService."""
+"""Computer activity analytics — facade re-exports."""
 
-from services.computer_activity import (
+from services.computer_activity.common import (
     IPHONE_ACTIVITY_SOURCE,
     MAX_SINGLE_EVENT_MS,
     RAW_EVENT_FALLBACK_MAX_DAYS,
@@ -9,25 +9,38 @@ from services.computer_activity import (
     _activity_source_sql_clause,
     _aggregate_computer_activity_daily_rows_from_events_impl,
     _aggregate_computer_activity_daily_totals_from_events_impl,
-    _build_computer_activity_snapshot_impl,
     _build_computer_activity_sync_cache_key_impl,
     _clamp_single_event_span_impl,
     _escape_tinybird_literal_impl,
-    _fetch_local_activity_event_rows_impl,
     _get_computer_activity_daily_rows_from_local_db_impl,
     _get_computer_activity_daily_totals_from_local_db_impl,
     _get_computer_activity_distinct_counts_from_local_db_impl,
+    _log_activity_perf,
+    _normalize_activity_source_filter,
+    _perf_ms,
+    _resolve_activity_user_ids,
+    _split_interval_by_local_day,
+    _sqlite_user_filter_clause,
+)
+from services.computer_activity.query import (
     _get_computer_activity_pipe_rows_impl,
     _query_computer_activity_summary_pipe_impl,
-    _resolve_activity_user_ids,
-    _sqlite_user_filter_clause,
-    _sync_computer_activity_range_to_tinybird_impl,
-    get_computer_activity_snapshot_impl,
     get_computer_time_summary_impl,
     get_daily_computer_time_impl,
     get_usage_daily_breakdown_impl,
 )
-from services.computer_activity.deps import fetch_remote_activity_rows, turso_user_service
+from services.computer_activity.snapshot import (
+    _build_computer_activity_snapshot_impl,
+    _build_snapshot_from_event_rows_impl,
+    _build_snapshot_from_sql_aggregate_rows_impl,
+    _build_top_apps_from_daily_rows_impl,
+    _build_top_domains_from_daily_rows_impl,
+    _empty_computer_activity_snapshot,
+    _fetch_local_activity_event_rows_impl,
+    _fetch_remote_activity_sql_aggregate_snapshot_impl,
+    get_computer_activity_snapshot_impl,
+)
+from services.computer_activity.sync import _sync_computer_activity_range_to_tinybird_impl
 
 __all__ = [
     "IPHONE_ACTIVITY_SOURCE",
@@ -35,22 +48,30 @@ __all__ = [
     "RAW_EVENT_FALLBACK_MAX_DAYS",
     "REMOTE_AGGREGATE_TIMEOUT_SECONDS",
     "REMOTE_RAW_READ_TIMEOUT_SECONDS",
-    "fetch_remote_activity_rows",
-    "turso_user_service",
     "_activity_source_sql_clause",
     "_aggregate_computer_activity_daily_rows_from_events_impl",
     "_aggregate_computer_activity_daily_totals_from_events_impl",
     "_build_computer_activity_snapshot_impl",
     "_build_computer_activity_sync_cache_key_impl",
+    "_build_snapshot_from_event_rows_impl",
+    "_build_snapshot_from_sql_aggregate_rows_impl",
+    "_build_top_apps_from_daily_rows_impl",
+    "_build_top_domains_from_daily_rows_impl",
     "_clamp_single_event_span_impl",
+    "_empty_computer_activity_snapshot",
     "_escape_tinybird_literal_impl",
     "_fetch_local_activity_event_rows_impl",
+    "_fetch_remote_activity_sql_aggregate_snapshot_impl",
     "_get_computer_activity_daily_rows_from_local_db_impl",
     "_get_computer_activity_daily_totals_from_local_db_impl",
     "_get_computer_activity_distinct_counts_from_local_db_impl",
     "_get_computer_activity_pipe_rows_impl",
+    "_log_activity_perf",
+    "_normalize_activity_source_filter",
+    "_perf_ms",
     "_query_computer_activity_summary_pipe_impl",
     "_resolve_activity_user_ids",
+    "_split_interval_by_local_day",
     "_sqlite_user_filter_clause",
     "_sync_computer_activity_range_to_tinybird_impl",
     "get_computer_activity_snapshot_impl",

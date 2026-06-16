@@ -21,14 +21,21 @@ async def _unused_db_session():
 
 
 _fake_db_module.get_db_session = _unused_db_session
+_previous_connection_module = sys.modules.get("database.connection")
 sys.modules["database.connection"] = _fake_db_module
 
 
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-from api.location import create_location_router  # noqa: E402
-from services.location.ingest import IngestResult  # noqa: E402
+try:
+    from api.location import create_location_router  # noqa: E402
+    from services.location.ingest import IngestResult  # noqa: E402
+finally:
+    if _previous_connection_module is None:
+        sys.modules.pop("database.connection", None)
+    else:
+        sys.modules["database.connection"] = _previous_connection_module
 
 
 async def _fake_current_user():

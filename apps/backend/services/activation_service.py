@@ -500,9 +500,9 @@ class ActivationService:
             integrations[INTEGRATION_RESPONSE_KEYS[key]] = IntegrationActivationStatus(status=status)
 
         if not profile_complete:
-            next_route = "/onboarding?s=profile"
-        elif not first_behavior_logged:
-            next_route = "/onboarding?s=first-behavior"
+            next_route = "/onboarding?s=signup"
+        elif not state.permissions_seen_at:
+            next_route = "/onboarding?s=meet"
         else:
             next_route = "/dashboard"
 
