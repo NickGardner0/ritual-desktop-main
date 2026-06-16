@@ -9,14 +9,19 @@ import { Check, ChevronLeft } from "lucide-react"
 import { AuthFlowIntent } from "@/components/auth-flow-intent"
 import { ClerkOAuthHandler } from "@/components/clerk-oauth-handler"
 import { DashboardPreviewWindow, LandingHeroPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
-import LegacyActivationOnboarding from "@/components/onboarding/legacy-activation-onboarding"
+import {
+  onboardingRouteForStep,
+  parseOnboardingStepFromRoute,
+  resolveOnboardingStep,
+  resolveSsoRedirectRoute,
+} from "@/lib/activation-flow.mjs"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
 import { PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
+import { getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities'
 import {
-  isTauri,
   ONBOARDING_CARD_WINDOW_HEIGHT,
   ONBOARDING_CARD_WINDOW_WIDTH,
   ONBOARDING_SIGNUP_WINDOW_HEIGHT,
@@ -27,7 +32,6 @@ import {
 } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
 
-type LegacyStep = "profile" | "first-behavior" | "connect"
 type V3Step = "welcome" | "signup" | "meet" | "permissions" | "privacy"
 
 type BootstrapResponse = {
@@ -39,15 +43,10 @@ type BootstrapResponse = {
 type ChecklistStatus = "seen" | "skipped" | "completed" | "needs_attention"
 
 const V3_STEPS: V3Step[] = ["welcome", "signup", "meet", "permissions", "privacy"]
-const LEGACY_STEPS = new Set(["profile", "first-behavior", "connect"])
 const ONBOARDING_V3_STEP_KEY = "ritual:onboarding-v3-step"
 
 function readV3Step(value: string | null): V3Step | null {
   return V3_STEPS.includes(value as V3Step) ? (value as V3Step) : null
-}
-
-function isLegacyStep(value: string | null): value is LegacyStep {
-  return LEGACY_STEPS.has(value ?? "")
 }
 
 function nextStep(step: V3Step): V3Step {
@@ -86,7 +85,7 @@ function clearPersistedStep() {
 }
 
 async function getInvoke() {
-  if (!isTauri()) return null
+  if (!getDesktopCapabilities().isDesktop) return null
   try {
     const mod = await import("@tauri-apps/api/core")
     return mod.invoke
@@ -173,7 +172,7 @@ function TrustRow() {
   )
 }
 
-function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
+function SignUpStep({ desktopMode, oauthFlowMode }: { desktopMode: boolean; oauthFlowMode: 'redirect' | 'auto' }) {
   return (
     <div className="flex h-screen items-center justify-center overflow-auto bg-white px-4 py-8">
       <div className="w-full max-w-md">
@@ -191,7 +190,7 @@ function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
               signInUrl="/sign-in"
               forceRedirectUrl="/auth/sso-callback"
               fallbackRedirectUrl="/auth/sso-callback"
-              oauthFlow={desktopMode ? "redirect" : "auto"}
+              oauthFlow={oauthFlowMode}
               oidcPrompt={desktopMode ? "select_account" : undefined}
             />
           </ClerkLoaded>
@@ -202,6 +201,7 @@ function SignUpStep({ desktopMode }: { desktopMode: boolean }) {
 }
 
 export default function OnboardingPage() {
+  const { isDesktop, oauthFlow } = useDesktopCapabilities()
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isLoaded, user } = useUser()
@@ -211,7 +211,6 @@ export default function OnboardingPage() {
   const initialStep = useMemo(() => queryStep ?? (typeof window === "undefined" ? "welcome" : readPersistedStep() ?? "welcome"), [queryStep])
 
   const [step, setStep] = useState<V3Step>(initialStep)
-  const [desktopMode, setDesktopMode] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -226,23 +225,19 @@ export default function OnboardingPage() {
   const goToStep = useCallback((target: V3Step) => {
     persistReachedStep(target)
     setStep(target)
-    router.replace(`/onboarding?s=${target}`, { scroll: false })
+    router.replace(onboardingRouteForStep(target), { scroll: false })
   }, [router])
 
   useEffect(() => {
-    if (isLegacyStep(rawStep)) return
     const target = queryStep ?? readPersistedStep() ?? "welcome"
     setStep(target)
     persistReachedStep(target)
     if (!queryStep) {
-      router.replace(`/onboarding?s=${target}`, { scroll: false })
+      router.replace(onboardingRouteForStep(target), { scroll: false })
     }
-  }, [queryStep, rawStep, router])
+  }, [queryStep, router])
 
   useEffect(() => {
-    if (isLegacyStep(rawStep)) return
-    const nextDesktopMode = isTauri()
-    setDesktopMode(nextDesktopMode)
     const nextHeight = step === "welcome"
       ? ONBOARDING_WELCOME_WINDOW_HEIGHT
       : step === "signup"
@@ -250,10 +245,10 @@ export default function OnboardingPage() {
         : ONBOARDING_CARD_WINDOW_HEIGHT
     const nextWidth = step === "welcome" || step === "signup" ? ONBOARDING_WINDOW_WIDTH : ONBOARDING_CARD_WINDOW_WIDTH
     void setOnboardingWindowSize(nextHeight, nextWidth)
-  }, [rawStep, step])
+  }, [step])
 
   useEffect(() => {
-    if (isLegacyStep(rawStep) || !isLoaded) return
+    if (!isLoaded) return
 
     if (!user && (step === "permissions" || step === "privacy")) {
       goToStep("signup")
@@ -263,7 +258,53 @@ export default function OnboardingPage() {
     if (user && step === "signup") {
       goToStep("meet")
     }
-  }, [goToStep, isLoaded, rawStep, step, user])
+  }, [goToStep, isLoaded, step, user])
+
+  useEffect(() => {
+    if (!isLoaded || !user) return
+
+    let cancelled = false
+
+    const syncBootstrapRoute = async () => {
+      try {
+        const response = await fetch("/api/user/bootstrap", {
+          cache: "no-store",
+          headers: await authHeaders(),
+        })
+
+        if (!response.ok || cancelled) {
+          return
+        }
+
+        const bootstrap = await response.json() as BootstrapResponse
+        const redirectRoute = resolveSsoRedirectRoute(bootstrap.nextRoute, undefined)
+
+        if (redirectRoute === "/dashboard") {
+          clearPersistedStep()
+          router.replace("/dashboard")
+          return
+        }
+
+        const backendStep = parseOnboardingStepFromRoute(redirectRoute)
+        if (!backendStep) {
+          return
+        }
+
+        const resolvedStep = resolveOnboardingStep(redirectRoute, readPersistedStep() ?? queryStep)
+        if (resolvedStep !== step) {
+          goToStep(resolvedStep)
+        }
+      } catch (bootstrapError) {
+        console.warn("Unable to sync onboarding bootstrap route:", bootstrapError)
+      }
+    }
+
+    void syncBootstrapRoute()
+
+    return () => {
+      cancelled = true
+    }
+  }, [authHeaders, goToStep, isLoaded, queryStep, router, step, user])
 
   async function updateChecklist(key: "mac_activity" | "ai_voice" | "place_tagging", status: ChecklistStatus, metadata?: Record<string, unknown>) {
     const response = await fetch("/api/user/activation/checklist", {
@@ -484,10 +525,6 @@ export default function OnboardingPage() {
     }
   }
 
-  if (isLegacyStep(rawStep)) {
-    return <LegacyActivationOnboarding />
-  }
-
   if (!isLoaded && step !== "welcome") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
@@ -497,11 +534,11 @@ export default function OnboardingPage() {
   }
 
   if (step === "signup") {
-    return <SignUpStep desktopMode={desktopMode} />
+    return <SignUpStep desktopMode={isDesktop} oauthFlowMode={oauthFlow} />
   }
 
   const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[500px] max-w-[720px]"
-  const pageClassName = desktopMode
+  const pageClassName = isDesktop
     ? "min-h-screen bg-white"
     : "min-h-screen bg-[#e9e9e7]"
 

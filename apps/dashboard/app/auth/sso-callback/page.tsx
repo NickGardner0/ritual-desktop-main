@@ -10,7 +10,11 @@ import {
   clearSignUpIntent,
   markDeviceAuthenticated,
 } from '@/lib/onboarding-flow'
-import { resolveSsoRedirectRoute } from '@/lib/activation-flow.mjs'
+import {
+  onboardingRouteForStep,
+  resolveOnboardingStep,
+  resolveSsoRedirectRoute,
+} from '@/lib/activation-flow.mjs'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
@@ -33,11 +37,19 @@ function readDashboardReturnUrl(): string | null {
   return value
 }
 
-function readOnboardingV3ReturnUrl(): string | null {
+function readPersistedOnboardingStep(): string | null {
   if (typeof window === 'undefined') return null
+  return window.localStorage.getItem(ONBOARDING_V3_STEP_KEY)
+}
 
-  const value = window.localStorage.getItem(ONBOARDING_V3_STEP_KEY)
-  return value ? '/onboarding?s=meet' : null
+function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string | null): string {
+  const redirectRoute = resolveSsoRedirectRoute(nextRoute, dashboardReturnUrl)
+  if (redirectRoute === '/dashboard' || !redirectRoute.startsWith('/onboarding')) {
+    return redirectRoute
+  }
+
+  const resolvedStep = resolveOnboardingStep(redirectRoute, readPersistedOnboardingStep())
+  return onboardingRouteForStep(resolvedStep)
 }
 
 export default function SSOCallback() {
@@ -96,11 +108,11 @@ export default function SSOCallback() {
 
         const bootstrap = await response.json() as BootstrapResponse
         setStatus('Taking you to Ritual...')
-        router.replace(readOnboardingV3ReturnUrl() ?? resolveSsoRedirectRoute(bootstrap.nextRoute, readDashboardReturnUrl()))
+        router.replace(resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl()))
       } catch (error) {
         console.error('Error completing sign-in:', error)
         setStatus('Taking you to Ritual...')
-        router.replace(readOnboardingV3ReturnUrl() ?? readDashboardReturnUrl() ?? '/dashboard')
+        router.replace(resolveBootstrapRedirect('/dashboard', readDashboardReturnUrl()))
       }
     }
 
@@ -108,7 +120,7 @@ export default function SSOCallback() {
   }, [getToken, isLoaded, router, user])
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
+    <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
       <div className="text-center">
         <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" />
         <p className="text-sm text-gray-600">{status}</p>
