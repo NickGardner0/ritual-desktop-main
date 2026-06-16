@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
 
@@ -28,10 +28,11 @@ function normalizeDesktopDeepLinkToAppPath(rawUrl: string): string {
 }
 
 export function DesktopAuthDeepLinkBridge() {
+  const { isDesktop } = useDesktopCapabilities();
   const router = useRouter();
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isDesktop) {
       return;
     }
 
