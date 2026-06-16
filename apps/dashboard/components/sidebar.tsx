@@ -130,7 +130,7 @@ export function Sidebar() {
           type="button"
           onClick={handleSettingsClick}
           className={cn(
-            "group relative h-[40px] transition-colors duration-200",
+            "group relative h-[40px] rounded-sm transition-colors duration-150 ease-standard hover:bg-black/[0.045]",
             isExpanded
               ? "w-full"
               : "w-[40px]"
@@ -140,14 +140,14 @@ export function Sidebar() {
         >
           <span
             className={cn(
-              "absolute top-1/2 left-0 flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center text-[#0f0f0f] transition-colors duration-200",
-              "group-hover:text-[#111111]"
+              "absolute top-1/2 left-0 flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center text-[#5f6368] transition-colors duration-200",
+              "group-hover:text-[#252525]"
             )}
           >
-            <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.2} />
+            <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.1} />
           </span>
           {isExpanded && (
-            <span className="absolute top-1/2 left-[40px] right-[4px] flex h-[40px] -translate-y-1/2 items-center text-sm font-[450] leading-none text-[#666] transition-colors duration-200 group-hover:text-[#111111]">
+            <span className="absolute top-1/2 left-[40px] right-[4px] flex h-[40px] -translate-y-1/2 items-center text-sm font-[450] leading-none text-[#666] transition-colors duration-200 group-hover:text-[#252525]">
               Settings
             </span>
           )}

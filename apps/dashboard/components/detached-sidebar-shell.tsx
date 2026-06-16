@@ -124,29 +124,32 @@ export function DetachedSidebarShell() {
               const isCollapsedActive = isActive && !isExpanded;
               const Icon = item.icon;
               return (
-                <button key={item.path} type="button" onClick={() => navigate(item.path)} className="group text-left">
+                <button key={item.path} type="button" onClick={() => navigate(item.path)} className="group/nav-item text-left">
                   <div className="relative">
                     <div
                       className={cn(
-                        "h-[40px] transition-all duration-200 ease-standard",
-                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px] rounded-none",
+                        "h-[40px] rounded-sm transition-all duration-150 ease-standard",
+                        "group-hover/nav-item:bg-black/[0.045]",
+                        isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
+                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px]",
                       )}
                     />
                     <div
                       className={cn(
                         "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200",
-                        "text-gray-900",
+                        "text-[#5f6368] group-hover/nav-item:text-[#252525]",
+                        isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
                       )}
                     >
-                      <Icon className="w-5 h-5" strokeWidth={isActive ? 2.55 : 2.0} />
+                      <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
                       <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-200 text-gray-700 group-hover:text-gray-900 whitespace-nowrap overflow-hidden",
-                            isActive && "text-gray-900 font-[600]",
+                            "text-sm font-[450] transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
+                            isActive && "font-[560] text-[#111111]",
                           )}
                         >
                           {item.name}
