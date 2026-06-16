@@ -1,22 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API_BASE_URL } from './integrations-client.shared';
-import { isTauri, openInBrowser } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { openInBrowser } from '@/lib/tauri-utils';
+import { formatErrorMessage } from '../../integrations-client.shared';
+import type { IntegrationOrchestratorDeps } from '../types';
 
-interface UseTeslaIntegrationParams {
-  callbackProcessedRef: { current: boolean };
-  fetchHabitLogs: () => unknown;
-  fetchHabits: () => unknown;
-  getToken: () => Promise<string | null>;
-  oauthSessionIdRef: { current: string | null };
-  oauthSessionTokenRef: { current: string | null };
-  pollingIntervalRef: { current: NodeJS.Timeout | null };
-  refetchOverview: () => unknown;
-  router: { replace: (path: string) => void };
-  setIsProcessingCallback: (value: boolean) => void;
-  teslaConnection: any;
-}
+type UseTeslaIntegrationParams = Pick<
+  IntegrationOrchestratorDeps,
+  | 'callbackProcessedRef'
+  | 'fetchHabitLogs'
+  | 'fetchHabits'
+  | 'getToken'
+  | 'oauthSessionIdRef'
+  | 'oauthSessionTokenRef'
+  | 'pollingIntervalRef'
+  | 'refetchOverview'
+  | 'router'
+  | 'setIsProcessingCallback'
+> & {
+  teslaConnection: Record<string, unknown> | undefined;
+};
 
 export function useTeslaIntegration({
   callbackProcessedRef,
@@ -31,6 +35,7 @@ export function useTeslaIntegration({
   setIsProcessingCallback,
   teslaConnection,
 }: UseTeslaIntegrationParams) {
+  const { isDesktop } = useDesktopCapabilities();
 const [teslaConnected, setTeslaConnected] = useState(false);
 const [teslaConnecting, setTeslaConnecting] = useState(false);
 const [teslaSyncing, setTeslaSyncing] = useState(false);
@@ -62,7 +67,7 @@ async function handleTeslaCallback(code: string) {
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/callback?code=${code}`, {
+    const response = await fetch(`/api/integrations/tesla/callback?code=${code}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
@@ -76,7 +81,7 @@ async function handleTeslaCallback(code: string) {
     router.replace('/integrations');
   } catch (error) {
     console.error('Error handling Tesla callback:', error);
-    alert(`Failed to connect Tesla: ${error}`);
+    alert(`Failed to connect Tesla: ${formatErrorMessage(error, 'Unknown error')}`);
     setTeslaConnecting(false);
     setIsProcessingCallback(false);
     callbackProcessedRef.current = false;
@@ -101,7 +106,7 @@ async function handleTeslaConnect() {
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
 
-    const isDesktopApp = isTauri();
+    const isDesktopApp = isDesktop;
 
     let sessionId = null;
     if (isDesktopApp) {
@@ -178,7 +183,7 @@ function startPollingForTeslaConnection() {
         }
       }
 
-      const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/status`, {
+      const response = await fetch(`/api/integrations/tesla/status`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -209,7 +214,7 @@ async function handleTeslaSync() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/sync`, {
+    const response = await fetch(`/api/integrations/tesla/sync`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
@@ -222,7 +227,7 @@ async function handleTeslaSync() {
     fetchHabitLogs();
   } catch (error) {
     console.error('Tesla sync error:', error);
-    alert(`Tesla sync failed: ${error}`);
+    alert(`Tesla sync failed: ${formatErrorMessage(error, 'Unknown error')}`);
   } finally {
     setTeslaSyncing(false);
   }
@@ -240,7 +245,7 @@ async function handleTeslaBackfill() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/backfill-odometer`, {
+    const response = await fetch(`/api/integrations/tesla/backfill-odometer`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ previous_odometer: odometer, as_of_date: teslaBackfillDate }),
@@ -260,7 +265,7 @@ async function handleTeslaBackfill() {
     fetchHabitLogs();
   } catch (error) {
     console.error('Tesla backfill error:', error);
-    alert(`Backfill failed: ${error}`);
+    alert(`Backfill failed: ${formatErrorMessage(error, 'Unknown error')}`);
   } finally {
     setTeslaBackfilling(false);
   }
@@ -271,7 +276,7 @@ async function handleTeslaDisconnect() {
     const token = await getToken();
     if (!token) return;
 
-    await fetch(`${API_BASE_URL}/api/integrations/tesla`, {
+    await fetch(`/api/integrations/tesla`, {
       method: 'DELETE',
       headers: { Authorization: `Bearer ${token}` },
     });
