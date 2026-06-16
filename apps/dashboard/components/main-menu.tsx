@@ -143,10 +143,11 @@ const ChildItem = ({
     >
       <div
         className={cn(
-          "relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard",
+          "sidebar-nav-child-row relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard",
           "hover:bg-black/[0.04]",
           isActive && "bg-black/[0.055]",
         )}
+        data-active={isActive ? "true" : undefined}
       >
         {/* Child item text */}
         <div
@@ -238,13 +239,14 @@ const Item = ({
         <div className="relative">
           <div
             className={cn(
-              "h-[40px] rounded-sm transition-all duration-150 ease-standard",
+              "sidebar-nav-row h-[40px] rounded-sm transition-all duration-150 ease-standard",
               "group-hover/nav-item:bg-black/[0.045]",
               isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
               isExpanded 
                 ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
                 : "ml-[15px] w-[40px]",
             )}
+            data-active={isActive ? "true" : undefined}
           />
 
           <div className={cn(
