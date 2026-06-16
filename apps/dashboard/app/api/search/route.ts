@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 /**
  * Global federated search endpoint.
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
     backendParams.set("limit", limit);
 
     const response = await fetch(
-      `${BACKEND_URL}/api/search?${backendParams.toString()}`,
+      `${getServerBackendBaseUrl()}/api/search?${backendParams.toString()}`,
       {
         method: "GET",
         headers: {

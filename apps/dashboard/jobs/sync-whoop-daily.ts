@@ -1,4 +1,5 @@
 import { schedules } from "@trigger.dev/sdk/v3";
+import { triggerBackendFetch } from "@/lib/api/trigger-client";
 
 /**
  * Daily Whoop Data Sync Job
@@ -33,11 +34,9 @@ export const syncWhoopDaily = schedules.task({
  * Sync Whoop data for a specific user
  */
 async function syncWhoopForUser(userId: string) {
-  const API_BASE_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
-  
   // You'll need to get an internal API key or use a service account token
   // For now, this would need to be called from the backend directly
-  const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync?user_id=${userId}`, {
+  const response = await triggerBackendFetch(`/api/integrations/whoop/sync?user_id=${userId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -58,10 +57,8 @@ async function syncWhoopForUser(userId: string) {
  * Sync Whoop data for all active users
  */
 async function syncAllWhoopUsers() {
-  const API_BASE_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
-  
   // Get all users with active Whoop integrations
-  const response = await fetch(`${API_BASE_URL}/api/integrations/whoop/sync-all`, {
+  const response = await triggerBackendFetch('/api/integrations/whoop/sync-all', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

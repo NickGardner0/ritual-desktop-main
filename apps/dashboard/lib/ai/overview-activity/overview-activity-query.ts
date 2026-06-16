@@ -1,11 +1,11 @@
-import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity/client';
+import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity';
 import {
   invokeDailySummariesWithInitRetry,
   invokeDetailedActivityWithInitRetry,
 } from '@/lib/computerActivity/tauri-activity';
 import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
 import { getStrictThisWeekRange } from '@/lib/ai/overview-activity/weekly-overview-utils.mjs';
-import { isTauri } from '@/lib/tauri-utils';
+import { isDesktopRuntime } from '@/lib/desktop-capabilities';
 
 export type LocalOverviewActivityBundle = {
   startDate: string;
@@ -304,11 +304,11 @@ export async function buildLocalOverviewActivityBundle(
       source,
     };
 
-    if (!isTauri() || hasMeaningfulOverviewActivity(backendBundle)) {
+    if (!isDesktopRuntime() || hasMeaningfulOverviewActivity(backendBundle)) {
       return backendBundle;
     }
   } catch (error) {
-    if (!isTauri()) throw error;
+    if (!isDesktopRuntime()) throw error;
   }
 
   try {
@@ -325,7 +325,7 @@ export async function getOverviewActivityBundle(
   rangeKey: OverviewActivityRangeKey,
   timezone: string,
 ): Promise<LocalOverviewActivityBundle | null> {
-  if (!isTauri()) return null;
+  if (!isDesktopRuntime()) return null;
   const { startDate, endDate } = getOverviewActivityRangeWindow(rangeKey, timezone);
   return buildLocalOverviewActivityBundle(startDate, endDate);
 }

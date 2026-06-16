@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 
 export const dynamic = 'force-dynamic';
 
 const TINYBIRD_URL = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.tinybird.co';
-const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 
 function metricFactsReadsEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes((process.env.METRIC_FACTS_READS || '').toLowerCase());
@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     if (metricFactsReadsEnabled()) {
       const token = await clerkAuth.getToken();
       const backendPath = output === 'daily' ? '/api/metrics/facts/daily' : '/api/metrics/facts/summary';
-      const url = `${BACKEND_URL}${backendPath}?${params.toString()}`;
+      const url = `${getServerBackendBaseUrl()}${backendPath}?${params.toString()}`;
       const response = await fetch(url, {
         headers: buildBackendAuthHeaders({ userId, token }),
         cache: 'no-store',

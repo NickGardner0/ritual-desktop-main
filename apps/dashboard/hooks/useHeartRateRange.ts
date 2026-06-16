@@ -12,14 +12,9 @@ export function useHeartRateRange(params: HeartRateRangeParams, enabled = true) 
   return useQuery({
     queryKey: ["heart-rate-range", user?.id, params.start, params.end, params.resolution, params.sourceType],
     queryFn: async () => {
-      const token = await getToken();
-      if (!token) {
-        throw new Error("Missing auth token");
-      }
-      return getHeartRateRange(token, params);
+      return getHeartRateRange(getToken, params);
     },
     enabled: !!user?.id && enabled,
     staleTime: 15_000,
   });
 }
-

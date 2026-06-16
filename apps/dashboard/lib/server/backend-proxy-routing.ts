@@ -1,4 +1,5 @@
 const BACKEND_PATH_ALIASES: Record<string, string> = {
+  "/api/ready": "/ready",
   "/api/wearables/apple/export-history": "/api/wearables/apple/export_history",
   "/api/wearables/apple/export-schedule": "/api/wearables/apple/export_schedule",
   "/api/wearables/apple/metric-catalog": "/api/wearables/apple/metric_catalog",
