@@ -11,6 +11,7 @@ import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { type DesktopSettingsView } from '@/lib/tauri-utils';
 import { useFont, type FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
+import { CHROME_APPEARANCE_OPTIONS, useChromeAppearance } from '@/contexts/ChromeAppearanceContext';
 import { contrastRatioAgainstWhite, useUIPreferences } from '@/hooks/use-ui-preferences';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
@@ -68,11 +69,13 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
   const router = useRouter();
   const { font, setFont } = useFont();
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebarMode();
+  const { appearance: chromeAppearance, setAppearance: setChromeAppearance, selectedOption: selectedChromeOption } = useChromeAppearance();
   const { habitTextColor, setHabitTextColor } = useUIPreferences();
   const [activeTab, setActiveTab] = useState<DesktopSettingsView>(() => normalizeSettingsView(initialView));
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
+  const [showChromeDropdown, setShowChromeDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showAttributionHealth, setShowAttributionHealth] = useState(false);
   const unlistenRef = useRef<null | (() => void)>(null);
@@ -80,6 +83,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
   const handleTabSelect = useCallback((id: DesktopSettingsView) => {
     setShowFontDropdown(false);
     setShowSidebarDropdown(false);
+    setShowChromeDropdown(false);
     setShowColorPicker(false);
     setActiveTab(id);
   }, []);
@@ -194,6 +198,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                         onClick={() => {
                           setShowFontDropdown(!showFontDropdown);
                           setShowSidebarDropdown(false);
+                          setShowChromeDropdown(false);
                           setShowColorPicker(false);
                         }}
                         className="settings-native-value-button"
@@ -232,6 +237,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                         onClick={() => {
                           setShowSidebarDropdown(!showSidebarDropdown);
                           setShowFontDropdown(false);
+                          setShowChromeDropdown(false);
                           setShowColorPicker(false);
                         }}
                         className="settings-native-value-button"
@@ -260,6 +266,46 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                 />
 
                 <SettingsRow
+                  title="Chrome appearance"
+                  control={(
+                    <PopupRoot>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowChromeDropdown(!showChromeDropdown);
+                          setShowFontDropdown(false);
+                          setShowSidebarDropdown(false);
+                          setShowColorPicker(false);
+                        }}
+                        className="settings-native-value-button"
+                      >
+                        <span>{selectedChromeOption.label}</span>
+                        <ChevronDown className="h-3.5 w-3.5 text-[#6f6f6f]" />
+                      </button>
+                      {showChromeDropdown ? (
+                        <Dropdown onClose={() => setShowChromeDropdown(false)} className="min-w-[210px]">
+                          {CHROME_APPEARANCE_OPTIONS.map((option) => (
+                            <DropdownItem
+                              key={option.value}
+                              selected={chromeAppearance === option.value}
+                              onClick={() => {
+                                setChromeAppearance(option.value);
+                                setShowChromeDropdown(false);
+                              }}
+                            >
+                              <span className="flex flex-col gap-0.5">
+                                <span>{option.label}</span>
+                                <span className="text-[11px] font-normal text-[#888]">{option.description}</span>
+                              </span>
+                            </DropdownItem>
+                          ))}
+                        </Dropdown>
+                      ) : null}
+                    </PopupRoot>
+                  )}
+                />
+
+                <SettingsRow
                   title="Metric number color"
                   description={(
                     <>
@@ -279,6 +325,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                           setShowColorPicker(!showColorPicker);
                           setShowFontDropdown(false);
                           setShowSidebarDropdown(false);
+                          setShowChromeDropdown(false);
                         }}
                         className="settings-native-value-button"
                       >

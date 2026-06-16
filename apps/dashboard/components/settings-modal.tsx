@@ -14,6 +14,7 @@ import { useRouter } from 'next/navigation';
 import { HexColorPicker } from 'react-colorful';
 import { useFont, FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
+import { CHROME_APPEARANCE_OPTIONS, useChromeAppearance } from '@/contexts/ChromeAppearanceContext';
 import {
   useUIPreferences,
   contrastRatioAgainstWhite,
@@ -82,6 +83,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const router = useRouter();
   const { font, setFont } = useFont();
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebarMode();
+  const { appearance: chromeAppearance, setAppearance: setChromeAppearance, selectedOption: selectedChromeOption } = useChromeAppearance();
   const { habitTextColor, setHabitTextColor } = useUIPreferences();
 
   const [activeTab, setActiveTab] = useState<SettingsTabId>(initialView ?? 'account');
@@ -89,6 +91,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
+  const [showChromeDropdown, setShowChromeDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showAttributionHealth, setShowAttributionHealth] = useState(false);
   const wasOpenRef = useRef(false);
@@ -116,6 +119,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
   const handleTabSelect = useCallback((id: SettingsTabId) => {
     setShowFontDropdown(false);
     setShowSidebarDropdown(false);
+    setShowChromeDropdown(false);
     setShowColorPicker(false);
     setActiveTab(id);
   }, []);
@@ -248,7 +252,12 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     control={(
                       <div className="relative">
                         <button
-                          onClick={() => { setShowFontDropdown(!showFontDropdown); setShowSidebarDropdown(false); }}
+                          onClick={() => {
+                            setShowFontDropdown(!showFontDropdown);
+                            setShowSidebarDropdown(false);
+                            setShowChromeDropdown(false);
+                            setShowColorPicker(false);
+                          }}
                           className="settings-value-button"
                         >
                           <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
@@ -286,7 +295,12 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     control={(
                       <div className="relative">
                         <button
-                          onClick={() => { setShowSidebarDropdown(!showSidebarDropdown); setShowFontDropdown(false); }}
+                          onClick={() => {
+                            setShowSidebarDropdown(!showSidebarDropdown);
+                            setShowFontDropdown(false);
+                            setShowChromeDropdown(false);
+                            setShowColorPicker(false);
+                          }}
                           className="settings-value-button"
                         >
                           <span>{sidebarModeOptions.find((o) => o.value === sidebarMode)?.label}</span>
@@ -317,6 +331,52 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   />
 
                   <SettingsRow
+                    title="Chrome appearance"
+                    control={(
+                      <div className="relative">
+                        <button
+                          onClick={() => {
+                            setShowChromeDropdown(!showChromeDropdown);
+                            setShowFontDropdown(false);
+                            setShowSidebarDropdown(false);
+                            setShowColorPicker(false);
+                          }}
+                          className="settings-value-button"
+                        >
+                          <span>{selectedChromeOption.label}</span>
+                          <ChevronDown className="h-4 w-4 text-[#6f6f6f]" />
+                        </button>
+                        {showChromeDropdown && (
+                          <>
+                            <div className="fixed inset-0 z-10" onClick={() => setShowChromeDropdown(false)} />
+                            <div className="absolute right-0 top-full z-20 mt-1.5 min-w-[220px] overflow-hidden rounded-xl border border-black/10 bg-white py-1 shadow-[0_16px_38px_rgba(0,0,0,0.16)]">
+                              {CHROME_APPEARANCE_OPTIONS.map((option) => (
+                                <button
+                                  key={option.value}
+                                  onClick={() => {
+                                    setChromeAppearance(option.value);
+                                    setShowChromeDropdown(false);
+                                  }}
+                                  className={cn(
+                                    'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors hover:bg-black/[0.04]',
+                                    chromeAppearance === option.value ? 'font-semibold text-[#252525]' : 'text-[#5f5f5f]',
+                                  )}
+                                >
+                                  <span className="flex min-w-0 flex-col gap-0.5">
+                                    <span>{option.label}</span>
+                                    <span className="text-[11px] font-normal text-[#888]">{option.description}</span>
+                                  </span>
+                                  {chromeAppearance === option.value && <span className="text-[13px] text-[#252525]">✓</span>}
+                                </button>
+                              ))}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  />
+
+                  <SettingsRow
                     title="Metric number color"
                     description={(
                       <>
@@ -335,6 +395,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                             setShowColorPicker((open) => !open);
                             setShowFontDropdown(false);
                             setShowSidebarDropdown(false);
+                            setShowChromeDropdown(false);
                           }}
                           className="settings-value-button"
                         >

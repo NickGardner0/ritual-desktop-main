@@ -11,6 +11,7 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
+import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
 import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { showMainWindow } from '@/lib/tauri-utils';
@@ -188,15 +189,17 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   }, []);
 
   const content = (
-    <OpenPanelProvider>
-      <QueryProvider>
-        <HabitsProvider>
-          <DesktopAssetRecoveryBridge />
-          <DesktopAuthDeepLinkBridge />
-          {children}
-        </HabitsProvider>
-      </QueryProvider>
-    </OpenPanelProvider>
+    <ChromeAppearanceProvider>
+      <OpenPanelProvider>
+        <QueryProvider>
+          <HabitsProvider>
+            <DesktopAssetRecoveryBridge />
+            <DesktopAuthDeepLinkBridge />
+            {children}
+          </HabitsProvider>
+        </QueryProvider>
+      </OpenPanelProvider>
+    </ChromeAppearanceProvider>
   );
 
   return (
