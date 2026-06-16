@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, FlaskConical, Plug2, Settings, TableProperties } from "lucide-react";
+import { CalendarDays, FileText, FlaskConical, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { cn } from "@/lib/utils";
 import { isTauri } from "@/lib/tauri-utils";
@@ -28,9 +28,11 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
 
 const items = [
   { path: "/dashboard", name: "Index", icon: ILetterIcon },
-  { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/activity", name: "Logs", icon: TableProperties },
+  { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
+  { path: "/reports", name: "Reports", icon: FileText },
+  { path: "/reports?view=routines", name: "Routines", icon: Repeat2 },
   { path: "/experiments", name: "Experiments", icon: FlaskConical },
   { path: "/integrations", name: "Integrations", icon: Plug2 },
   { path: "/settings", name: "Settings", icon: Settings },
@@ -120,7 +122,23 @@ export function DetachedSidebarShell() {
         <nav className="w-full">
           <div className="flex flex-col gap-1">
             {items.map((item) => {
-              const isActive = activePath.startsWith(item.path);
+              const [itemBasePath, itemQuery] = item.path.split("?");
+              const activeUrl = new URL(activePath, "http://ritual.local");
+              const itemQueryParams = new URLSearchParams(itemQuery || "");
+              const matchingQueryItem = items.some((candidate) => {
+                const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+                if (candidateBasePath !== item.path || !candidateQuery) return false;
+                const candidateParams = new URLSearchParams(candidateQuery);
+                return Array.from(candidateParams.entries()).every(
+                  ([key, value]) => activeUrl.searchParams.get(key) === value,
+                );
+              });
+              const isActive = itemQuery
+                ? activeUrl.pathname === itemBasePath &&
+                  Array.from(itemQueryParams.entries()).every(
+                    ([key, value]) => activeUrl.searchParams.get(key) === value,
+                  )
+                : !matchingQueryItem && activeUrl.pathname.startsWith(item.path);
               const isCollapsedActive = isActive && !isExpanded;
               const Icon = item.icon;
               return (

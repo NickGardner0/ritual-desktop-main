@@ -2,12 +2,13 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   FlaskConical,
   Plug2,
   ChevronDown,
+  Repeat2,
   TableProperties,
   CalendarDays,
   ChartNoAxesCombined,
@@ -64,6 +65,7 @@ const icons = {
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
+  "/reports?view=routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
@@ -74,13 +76,13 @@ const items = [
     path: "/dashboard",
     name: "Index",
   },
-  // {
-  //   path: "/tasks",
-  //   name: "Tasks",
-  // },
   {
     path: "/activity",
     name: "Logs",
+  },
+  {
+    path: "/tasks",
+    name: "Tasks",
   },
   {
     path: "/calendar",
@@ -89,6 +91,10 @@ const items = [
   {
     path: "/reports",
     name: "Reports",
+  },
+  {
+    path: "/reports?view=routines",
+    name: "Routines",
   },
   {
     path: "/experiments",
@@ -324,6 +330,7 @@ type Props = {
 
 export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   // Reset expanded item when sidebar expands/collapses
@@ -336,11 +343,31 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
       <nav className="w-full">
         <div className="flex flex-col gap-1">
           {items.map((item) => {
-            const isActive = pathname === item.path || 
-              pathname === item.path + "/" ||
-              (pathname === "/" && item.path === "/dashboard") ||
-              (pathname === "/dashboard/" && item.path === "/dashboard") ||
-              (pathname?.startsWith(item.path) && item.path !== "/dashboard");
+            const [itemBasePath, itemQuery] = item.path.split("?");
+            const itemQueryParams = new URLSearchParams(itemQuery || "");
+            const matchingQueryItem = items.some((candidate) => {
+              const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+              if (candidateBasePath !== item.path || !candidateQuery) return false;
+              const candidateParams = new URLSearchParams(candidateQuery);
+              return Array.from(candidateParams.entries()).every(
+                ([key, value]) => searchParams.get(key) === value,
+              );
+            });
+            const isQueryActive = itemQuery
+              ? pathname === itemBasePath &&
+                Array.from(itemQueryParams.entries()).every(
+                  ([key, value]) => searchParams.get(key) === value,
+                )
+              : false;
+            const isActive = isQueryActive || (
+              !itemQuery &&
+              !matchingQueryItem &&
+              (pathname === item.path || 
+                pathname === item.path + "/" ||
+                (pathname === "/" && item.path === "/dashboard") ||
+                (pathname === "/dashboard/" && item.path === "/dashboard") ||
+                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
+            );
 
             return (
               <Item
