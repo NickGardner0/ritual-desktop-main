@@ -3,12 +3,13 @@
   "private": true,
   "packageManager": "npm@11.0.0",
   "scripts": {
+    "build:shared-contracts": "tsc -p ../../packages/shared-contracts/tsconfig.json",
     "build:chat-runtime": "tsc -p ../../packages/chat-runtime/tsconfig.json",
     "dev": "npm run build:chat-runtime && next dev -p 3000 --turbo",
-    "build": "npm run build:chat-runtime && next build --webpack && node ./scripts/normalize-next-proxy-output.mjs",
+    "build": "npm run build:shared-contracts && npm run build:chat-runtime && next build --webpack && node ./scripts/normalize-next-proxy-output.mjs",
     "start": "next start -p 3000",
     "lint": "eslint .",
-    "typecheck": "npm run build:chat-runtime && tsc --noEmit --pretty false"
+    "typecheck": "npm run build:shared-contracts && npm run build:chat-runtime && tsc --noEmit --pretty false"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.31",

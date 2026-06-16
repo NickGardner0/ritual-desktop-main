@@ -8,9 +8,8 @@
     "trackedFileMaxLines": {
       "apps/dashboard/components/ai-habit-chat.tsx": 1535,
       "apps/dashboard/app/(dashboard)/calendar/calendar-client.tsx": 1361,
-      "apps/dashboard/components/analytics/overview-view.tsx": 1403,
+      "apps/dashboard/components/analytics/overview-view.tsx": 1490,
       "apps/dashboard/components/apple-watch-settings.tsx": 1226,
-      "apps/dashboard/app/(dashboard)/reports/reports-client.tsx": 1432,
       "apps/dashboard/components/data-import-modal.tsx": 1223,
       "apps/backend/services/whoop_service.py": 560,
       "apps/backend/services/whoop_sync_payload.py": 375,

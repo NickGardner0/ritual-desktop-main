@@ -22,16 +22,23 @@ async def _unused_db_session():
 
 
 _fake_db_module.get_db_session = _unused_db_session
+_previous_connection_module = sys.modules.get("database.connection")
 sys.modules["database.connection"] = _fake_db_module
 
 
-from services.location.resolver import (  # noqa: E402
-    STATE_DIRECT_WINDOW_MS,
-    TIER_RULES,
-    _decay_confidence,
-    resolve_for,
-    resolve_many_for,
-)
+try:
+    from services.location.resolver import (  # noqa: E402
+        STATE_DIRECT_WINDOW_MS,
+        TIER_RULES,
+        _decay_confidence,
+        resolve_for,
+        resolve_many_for,
+    )
+finally:
+    if _previous_connection_module is None:
+        sys.modules.pop("database.connection", None)
+    else:
+        sys.modules["database.connection"] = _previous_connection_module
 
 
 # ── Fakes ──────────────────────────────────────────────────────────────────

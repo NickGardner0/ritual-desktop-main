@@ -115,7 +115,11 @@ async def _fetch_remote_project_time_rows(
         logger.warning("Project-time remote client unavailable for %s: %s", user_id, exc)
         return None
 
-    result = await fetch_remote_activity_rows(user_id, sql, params)
+    try:
+        result = await fetch_remote_activity_rows(user_id, sql, params)
+    except Exception as exc:
+        logger.warning("Project-time remote read raised for %s: %s", user_id, exc)
+        return None
     if not result.expected_remote:
         return None
     if result.error:
