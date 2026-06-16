@@ -69,4 +69,4 @@ jobs:
         run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_wearable_provider_sync_registry.py apps/backend/tests/test_wearable_provider_pipeline.py apps/backend/tests/test_sync_job_registry.py
 
       - name: Rust desktop check
-        run: cargo check --manifest-path apps/desktop/src-tauri/bin/ritual-watcher/Cargo.toml --no-default-features
+        run: cargo check --manifest-path apps/desktop/src-tauri/bin/ritual-watcher/Cargo.toml
