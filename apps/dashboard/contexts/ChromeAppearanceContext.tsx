@@ -43,6 +43,7 @@ export const CHROME_APPEARANCE_OPTIONS: ChromeAppearanceOption[] = [
 ];
 
 const STORAGE_KEY = "ritual-chrome-appearance";
+const CHANNEL_NAME = "ritual-chrome-appearance";
 const DEFAULT_APPEARANCE: ChromeAppearance = "frosted";
 
 const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
@@ -109,14 +110,42 @@ export function ChromeAppearanceProvider({ children }: { children: ReactNode }) 
   const [appearance, setAppearanceState] = useState<ChromeAppearance>(DEFAULT_APPEARANCE);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const applyAppearance = (next: string | null) => {
+      if (isChromeAppearance(next)) {
+        setAppearanceState(next);
+      }
+    };
+
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
       if (isChromeAppearance(stored)) {
-        queueMicrotask(() => setAppearanceState(stored));
+        queueMicrotask(() => applyAppearance(stored));
       }
     } catch {
       // localStorage can be unavailable in test or constrained browser contexts.
     }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) {
+        applyAppearance(event.newValue);
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel(CHANNEL_NAME);
+      channel.onmessage = (event: MessageEvent<{ appearance?: string }>) => {
+        applyAppearance(event.data?.appearance ?? null);
+      };
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      channel?.close();
+    };
   }, []);
 
   useEffect(() => {
@@ -133,6 +162,11 @@ export function ChromeAppearanceProvider({ children }: { children: ReactNode }) 
     setAppearanceState(next);
     try {
       window.localStorage.setItem(STORAGE_KEY, next);
+      if ("BroadcastChannel" in window) {
+        const channel = new BroadcastChannel(CHANNEL_NAME);
+        channel.postMessage({ appearance: next });
+        channel.close();
+      }
     } catch {
       // Ignore persistence failures and keep the in-memory preference.
     }
