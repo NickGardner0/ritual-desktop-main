@@ -7,7 +7,8 @@ import { ChevronDown, MapPin, Monitor, User2 } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
-import { isTauri, type DesktopSettingsView } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { type DesktopSettingsView } from '@/lib/tauri-utils';
 import { useFont, type FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
 import { contrastRatioAgainstWhite, useUIPreferences } from '@/hooks/use-ui-preferences';
@@ -61,6 +62,7 @@ function normalizeSettingsView(value: unknown): DesktopSettingsView {
 }
 
 export function SettingsWindowContent({ initialView = 'account' }: SettingsWindowContentProps) {
+  const { isDesktop } = useDesktopCapabilities();
   const { user } = useUser();
   const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
@@ -92,7 +94,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
   }, [user?.primaryEmailAddress?.emailAddress]);
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     let cancelled = false;
     void import('@tauri-apps/api/event').then(async ({ listen }) => {
       const unlisten = await listen<{ initialView?: string }>('settings:show', (event) => {

@@ -248,8 +248,8 @@ const Item = ({
               "sidebar-nav-row h-[30px] rounded-sm transition-none",
               "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
               isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
-              isExpanded 
-                ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" 
+              isExpanded
+                ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]"
                 : "ml-[15px] w-[40px]",
             )}
             data-active={isActive ? "true" : undefined}
@@ -271,7 +271,7 @@ const Item = ({
                   "text-sm font-[450] leading-none transition-colors duration-75 text-[#5f5f5f] group-hover/nav-item:text-[#252525]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-[#111111]",
+                  isActive && "font-[560] text-[#111111]",
                 )}
               >
                 {item.name}
@@ -335,7 +335,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
-    setExpandedItem(null);
+    queueMicrotask(() => setExpandedItem(null));
   }, [isExpanded]);
 
   return (
@@ -362,7 +362,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
             const isActive = isQueryActive || (
               !itemQuery &&
               !matchingQueryItem &&
-              (pathname === item.path || 
+              (pathname === item.path ||
                 pathname === item.path + "/" ||
                 (pathname === "/" && item.path === "/dashboard") ||
                 (pathname === "/dashboard/" && item.path === "/dashboard") ||

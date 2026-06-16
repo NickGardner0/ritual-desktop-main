@@ -16,7 +16,7 @@ import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 
-// Import types
+import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 
@@ -50,7 +50,7 @@ export interface HabitsContextType {
   fetchHabits: () => Promise<void>;
   fetchHabitLogs: () => Promise<void>;
   logHabit: (habitLog: Omit<HabitLog, 'id'>) => Promise<void>;
-  createHabit: (habitData: any) => Promise<any>;
+  createHabit: (habitData: CreateHabitInput) => Promise<HabitRecord>;
   deleteHabit: (habitId: string) => Promise<void>;
   
   // Computed values
@@ -78,7 +78,9 @@ export const HabitsContext = React.createContext<HabitsContextType>({
   fetchHabits: async () => {},
   fetchHabitLogs: async () => {},
   logHabit: async () => {},
-  createHabit: async () => {},
+  createHabit: async (): Promise<HabitRecord> => {
+    throw new Error('HabitsContext not initialized');
+  },
   deleteHabit: async () => {},
   totalMinutesToday: 0,
   completedHabitsToday: 0,
@@ -214,7 +216,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     await logHabitMutation.mutateAsync(habitLog);
   }, [logHabitMutation]);
   
-  const createHabit = React.useCallback(async (habitData: any) => {
+  const createHabit = React.useCallback(async (habitData: CreateHabitInput): Promise<HabitRecord> => {
     if (process.env.NODE_ENV !== 'production') { console.log('➕ [Compat] createHabit called - using React Query mutation'); }
     return await createHabitMutation.mutateAsync(habitData);
   }, [createHabitMutation]);

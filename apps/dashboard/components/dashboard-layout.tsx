@@ -5,7 +5,7 @@ import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { TeamDropdown } from '@/components/team-dropdown';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
@@ -23,11 +23,12 @@ const CommandPalette = dynamic(
 
 /** Syncs route to detached sidebar - uses useSearchParams so must be in Suspense */
 function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolean }) {
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
     (async () => {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
@@ -44,6 +45,7 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { isDesktop } = useDesktopCapabilities();
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(76);
@@ -81,7 +83,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
 
     let unlisten: (() => void) | null = null;
     (async () => {
