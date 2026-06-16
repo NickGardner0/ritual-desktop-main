@@ -118,7 +118,7 @@ export function DetachedSidebarShell() {
 
       <div className="flex flex-col w-full pt-[70px] flex-1 mt-6">
         <nav className="w-full">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1">
             {items.map((item) => {
               const isActive = activePath.startsWith(item.path);
               const isCollapsedActive = isActive && !isExpanded;
@@ -128,16 +128,16 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "sidebar-nav-row h-[40px] rounded-sm transition-all duration-150 ease-standard",
-                        "group-hover/nav-item:bg-black/[0.045]",
-                        isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
+                        "sidebar-nav-row h-[36px] rounded-md transition-all duration-150 ease-standard",
+                        "group-hover/nav-item:bg-black/[0.025]",
+                        isActive && "bg-black/[0.04] group-hover/nav-item:bg-black/[0.045]",
                         isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px]",
                       )}
                       data-active={isActive ? "true" : undefined}
                     />
                     <div
                       className={cn(
-                        "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200",
+                        "absolute top-0 left-[15px] flex h-[36px] w-[40px] items-center justify-center transition-[color,transform] duration-200",
                         "text-[#5f6368] group-hover/nav-item:text-[#252525]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
@@ -146,7 +146,7 @@ export function DetachedSidebarShell() {
                       <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
-                      <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
+                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[36px] items-center">
                         <span
                           className={cn(
                             "text-sm font-[450] transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",

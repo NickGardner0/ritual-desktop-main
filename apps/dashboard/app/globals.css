@@ -831,27 +831,27 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover {
-    background-color: rgba(0, 0, 0, 0.045) !important;
+    background-color: rgba(0, 0, 0, 0.025) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"],
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"] {
-    background-color: rgba(0, 0, 0, 0.065) !important;
+    background-color: rgba(0, 0, 0, 0.04) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover {
-    background-color: rgba(0, 0, 0, 0.075) !important;
+    background-color: rgba(0, 0, 0, 0.045) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover {
-    background-color: rgba(0, 0, 0, 0.04) !important;
+    background-color: rgba(0, 0, 0, 0.025) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"],
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"] {
-    background-color: rgba(0, 0, 0, 0.055) !important;
+    background-color: rgba(0, 0, 0, 0.04) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,
