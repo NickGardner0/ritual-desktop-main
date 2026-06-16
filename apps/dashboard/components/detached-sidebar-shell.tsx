@@ -128,10 +128,10 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "sidebar-nav-row h-[32px] rounded-md transition-all duration-150 ease-standard",
-                        "group-hover/nav-item:bg-[#f3f2ef]/60",
-                        isActive && "bg-[#efeeeb]/70 group-hover/nav-item:bg-[#eae9e5]/75",
-                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px]",
+                        "sidebar-nav-row h-[32px] rounded-md transition-[background-color,width,margin] duration-75 ease-standard",
+                        "group-hover/nav-item:bg-[#e8e8e8]/80",
+                        isActive && "bg-[#e4e4e4]/85 group-hover/nav-item:bg-[#dddddd]/90",
+                        isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
                       )}
                       data-active={isActive ? "true" : undefined}
                     />
