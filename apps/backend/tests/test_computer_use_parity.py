@@ -13,9 +13,16 @@ async def _unused_db_session():
     yield None
 
 fake_connection_module.get_db_session = _unused_db_session
+_previous_connection_module = sys.modules.get("database.connection")
 sys.modules["database.connection"] = fake_connection_module
 
-from services.watcher_service import WatcherService
+try:
+    from services.watcher_service import WatcherService
+finally:
+    if _previous_connection_module is None:
+        sys.modules.pop("database.connection", None)
+    else:
+        sys.modules["database.connection"] = _previous_connection_module
 
 
 class _FakeExecuteResult:

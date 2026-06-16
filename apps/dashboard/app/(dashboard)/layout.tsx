@@ -13,10 +13,7 @@ import * as Sentry from '@sentry/nextjs';
 import { cookies, headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { resolveDashboardActivationRedirect } from '@/lib/activation-flow.mjs';
-
-const PYTHON_API_URL = process.env.PYTHON_API_URL
-  || process.env.NEXT_PUBLIC_PYTHON_API_URL
-  || 'http://127.0.0.1:8000';
+import { serverBackendFetch } from '@/lib/api/server-client';
 const FORCE_FRESH_COOKIE = 'ritual_force_fresh_until';
 const DESKTOP_USER_AGENT_FRAGMENT = 'RitualDesktop/';
 const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 2500;
@@ -65,7 +62,7 @@ async function assertDashboardActivation() {
 
   let response: Response;
   try {
-    response = await fetch(`${PYTHON_API_URL}/api/user/bootstrap`, {
+    response = await serverBackendFetch('/api/user/bootstrap', {
       cache: 'no-store',
       headers: {
         Authorization: `Bearer ${token}`,

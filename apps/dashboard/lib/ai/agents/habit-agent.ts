@@ -16,13 +16,13 @@ import {
   type RitualContext 
 } from '../context';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { serverBackendFetch } from '@/lib/api/server-client';
 
 // Helper to make API calls with auth
-async function fetchWithAuth(url: string, token: string) {
+async function fetchWithAuth(path: string, token: string) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
-  return fetch(url, { headers });
+  return serverBackendFetch(path, { headers });
 }
 
 /**
@@ -39,8 +39,8 @@ function createTools(ctx: RitualContext) {
       }),
       execute: async (params) => {
         try {
-          const habitsRes = await fetchWithAuth(`${PYTHON_API_BASE}/api/habits`, ctx.token);
-          const logsRes = await fetchWithAuth(`${PYTHON_API_BASE}/api/habit-logs`, ctx.token);
+          const habitsRes = await fetchWithAuth('/api/habits', ctx.token);
+          const logsRes = await fetchWithAuth('/api/habit-logs', ctx.token);
           if (!habitsRes.ok || !logsRes.ok) throw new Error('Failed to fetch data');
           
           const habits = await habitsRes.json();
@@ -108,8 +108,8 @@ function createTools(ctx: RitualContext) {
       }),
       execute: async (params) => {
         try {
-          const habitsRes = await fetchWithAuth(`${PYTHON_API_BASE}/api/habits`, ctx.token);
-          const logsRes = await fetchWithAuth(`${PYTHON_API_BASE}/api/habit-logs`, ctx.token);
+          const habitsRes = await fetchWithAuth('/api/habits', ctx.token);
+          const logsRes = await fetchWithAuth('/api/habit-logs', ctx.token);
           if (!habitsRes.ok || !logsRes.ok) throw new Error('Failed to fetch data');
           
           const habits = await habitsRes.json();
@@ -168,7 +168,7 @@ function createTools(ctx: RitualContext) {
       inputSchema: z.object({}),
       execute: async () => {
         try {
-          const habitsRes = await fetchWithAuth(`${PYTHON_API_BASE}/api/habits`, ctx.token);
+          const habitsRes = await fetchWithAuth('/api/habits', ctx.token);
           if (!habitsRes.ok) throw new Error('Failed to fetch habits');
           const habits = await habitsRes.json();
 
@@ -206,9 +206,9 @@ function createTools(ctx: RitualContext) {
           });
 
           const [summaryRes, topAppsRes, topDomainsRes] = await Promise.all([
-            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/summary?${queryParams}`, ctx.token),
-            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/top-apps?${queryParams}&limit=10`, ctx.token),
-            fetchWithAuth(`${PYTHON_API_BASE}/api/watcher/stats/top-domains?${queryParams}&limit=10`, ctx.token),
+            fetchWithAuth(`/api/watcher/stats/summary?${queryParams}`, ctx.token),
+            fetchWithAuth(`/api/watcher/stats/top-apps?${queryParams}&limit=10`, ctx.token),
+            fetchWithAuth(`/api/watcher/stats/top-domains?${queryParams}&limit=10`, ctx.token),
           ]);
 
           const summary = summaryRes.ok ? (await summaryRes.json()).data : null;
@@ -261,7 +261,7 @@ function createTools(ctx: RitualContext) {
           });
 
           const topAppsRes = await fetchWithAuth(
-            `${PYTHON_API_BASE}/api/watcher/stats/top-apps?${queryParams}`,
+            `/api/watcher/stats/top-apps?${queryParams}`,
             ctx.token
           );
 
@@ -321,7 +321,7 @@ function createTools(ctx: RitualContext) {
           });
 
           const topDomainsRes = await fetchWithAuth(
-            `${PYTHON_API_BASE}/api/watcher/stats/top-domains?${queryParams}`,
+            `/api/watcher/stats/top-domains?${queryParams}`,
             ctx.token
           );
 
@@ -379,7 +379,7 @@ function createTools(ctx: RitualContext) {
           });
 
           const dailyRes = await fetchWithAuth(
-            `${PYTHON_API_BASE}/api/watcher/stats/daily?${queryParams}`,
+            `/api/watcher/stats/daily?${queryParams}`,
             ctx.token
           );
 

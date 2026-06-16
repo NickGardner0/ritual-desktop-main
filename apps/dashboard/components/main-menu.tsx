@@ -326,7 +326,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
-    setExpandedItem(null);
+    queueMicrotask(() => setExpandedItem(null));
   }, [isExpanded]);
 
   return (

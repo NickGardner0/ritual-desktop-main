@@ -15,6 +15,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { apiFetchWithAuth } from '@/lib/api/client';
 
 interface DeviceSyncStatus {
   device_id: string;
@@ -60,11 +61,7 @@ export function AppleHealthSyncStatus({
         return;
       }
 
-      const response = await fetch('http://127.0.0.1:8000/api/wearables/apple/sync-status', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
+      const response = await apiFetchWithAuth('/api/wearables/apple/sync-status', getToken);
 
       if (!response.ok) {
         throw new Error('Failed to fetch sync status');

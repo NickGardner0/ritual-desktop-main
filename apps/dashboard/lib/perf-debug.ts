@@ -1,6 +1,6 @@
 'use client'
 
-import { isTauri } from '@/lib/tauri-utils'
+import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import type { QueryClient } from '@tanstack/react-query'
 
 type PerfPayload = Record<string, unknown>
@@ -21,7 +21,7 @@ function shouldEmitPerfLogs() {
     // ignore storage errors
   }
 
-  return isTauri() || process.env.NODE_ENV !== 'production'
+  return isDesktopRuntime() || process.env.NODE_ENV !== 'production'
 }
 
 function safeConsole(

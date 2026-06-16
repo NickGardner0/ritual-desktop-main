@@ -47,11 +47,11 @@ function DesktopOAuthBridgePageInner() {
 
     if (!user) {
       if (providerError) {
-        setError(providerError);
+        queueMicrotask(() => setError(providerError));
         return;
       }
 
-      setError('Browser sign-in completed without an authenticated Ritual session.');
+      queueMicrotask(() => setError('Browser sign-in completed without an authenticated Ritual session.'));
       return;
     }
 

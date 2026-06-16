@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 /**
  * POST /api/import/preview
@@ -68,7 +69,7 @@ export async function POST(request: NextRequest) {
     }
     
     // Forward to Python backend
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
     
     // Create a new FormData to send to the backend
     const backendFormData = new FormData();
@@ -103,4 +104,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

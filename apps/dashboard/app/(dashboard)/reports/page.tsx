@@ -1,26 +1,36 @@
 import type { Metadata } from "next";
-import { Info } from "lucide-react";
+import { Suspense } from "react";
+
+import { ReportsClient } from "./reports-client";
 
 export const metadata: Metadata = {
   title: "Reports | Ritual",
-  description: "Reports are coming soon.",
+  description: "Durable Ritual artifacts, routines, approvals, and run history.",
 };
+
+function ReportsSkeleton() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-[340px_minmax(0,1fr)]">
+      <div className="space-y-3">
+        {[0, 1, 2, 3].map((item) => (
+          <div
+            key={item}
+            className="h-28 animate-pulse rounded-3xl border border-[rgba(15,23,42,0.08)] bg-white/75"
+          />
+        ))}
+      </div>
+      <div className="h-[520px] animate-pulse rounded-[32px] border border-[rgba(15,23,42,0.08)] bg-white/75" />
+    </div>
+  );
+}
 
 export default function ReportsPage() {
   return (
-    <div className="flex-1 overflow-auto bg-white">
-      <div className="flex min-h-full items-center justify-center px-4 text-center">
-        <div>
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
-            <Info className="h-6 w-6 text-gray-400" />
-          </div>
-          <h3 className="mb-2 text-lg font-medium text-gray-900">
-            Reports coming soon
-          </h3>
-          <p className="mx-auto max-w-sm text-sm text-gray-500">
-            This page is being rebuilt from scratch.
-          </p>
-        </div>
+    <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top_left,rgba(115,191,29,0.12),transparent_28%),linear-gradient(180deg,#f8fbf5_0%,#f4f6f3_42%,#f8faf8_100%)]">
+      <div className="mx-auto max-w-7xl px-8 py-8">
+        <Suspense fallback={<ReportsSkeleton />}>
+          <ReportsClient />
+        </Suspense>
       </div>
     </div>
   );

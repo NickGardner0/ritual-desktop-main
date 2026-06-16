@@ -50,6 +50,12 @@ export type {
   UsageBreakdownKind,
   BreakdownPoint,
   BreakdownResponse,
+  ComputerActivityRangeParams,
+  ComputerSummaryResponse,
+  ComputerDailyResponseRow,
+  TopAppResponseRow,
+  TopDomainResponseRow,
+  AggregatedComputerStatsResponse,
 } from "./computer-activity";
 export {
   KIND_COLORS,
@@ -69,3 +75,5 @@ export type {
   WearableConnectionActionResponse,
   WearableSyncResponse,
 } from "./wearables-unified";
+
+export type { CreateHabitInput, HabitRecord } from "./habits";

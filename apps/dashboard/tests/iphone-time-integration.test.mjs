@@ -18,26 +18,30 @@ function sliceBetween(source, start, end) {
 
 test('Apple Screen Time card is active and directly follows Computer Use', () => {
   const cardsSource = read('app/(dashboard)/integrations/integrations-client.cards.tsx');
-  const computerIndex = cardsSource.indexOf("id: 'computer'");
-  const screenTimeIndex = cardsSource.indexOf("id: 'apple-screen-time'");
-  const appleWatchIndex = cardsSource.indexOf("id: 'apple-watch'");
+  const iphoneCardSource = read('app/(dashboard)/integrations/plugins/iphone-time/card.tsx');
+  const computerCardSource = read('app/(dashboard)/integrations/plugins/computer-tracking/card.tsx');
 
-  assert.ok(computerIndex >= 0, 'Computer Use card should exist');
-  assert.ok(screenTimeIndex >= 0, 'Apple Screen Time card should exist');
-  assert.ok(appleWatchIndex >= 0, 'Apple Watch card should exist');
+  const computerIndex = cardsSource.indexOf("'computer'");
+  const screenTimeIndex = cardsSource.indexOf("'apple-screen-time'");
+  const appleWatchIndex = cardsSource.indexOf("'apple-watch'");
+
+  assert.ok(computerIndex >= 0, 'Computer Use card should exist in orderedIds');
+  assert.ok(screenTimeIndex >= 0, 'Apple Screen Time card should exist in orderedIds');
+  assert.ok(appleWatchIndex >= 0, 'Apple Watch card should exist in orderedIds');
   assert.ok(computerIndex < screenTimeIndex, 'Apple Screen Time should come after Computer Use');
   assert.ok(screenTimeIndex < appleWatchIndex, 'Apple Screen Time should be in the first row before Apple Watch');
 
-  const screenTimeBlock = sliceBetween(cardsSource, "id: 'apple-screen-time'", "id: 'apple-watch'");
-  assert.match(screenTimeBlock, /title: 'Apple Screen Time'/);
-  assert.match(screenTimeBlock, /description: IPHONE_TIME_CARD_DESCRIPTION/);
-  assert.doesNotMatch(screenTimeBlock, /comingSoon/);
-  assert.match(screenTimeBlock, /onConnect=\{handleIphoneTimeConnect\}/);
-  assert.match(screenTimeBlock, /onSync=\{handleIphoneTimeSync\}/);
+  assert.match(computerCardSource, /id:\s*'computer'/);
+  assert.match(iphoneCardSource, /id:\s*'apple-screen-time'/);
+  assert.match(iphoneCardSource, /title:\s*'Apple Screen Time'/);
+  assert.match(iphoneCardSource, /IPHONE_TIME_CARD_DESCRIPTION/);
+  assert.doesNotMatch(iphoneCardSource, /comingSoon/);
+  assert.match(iphoneCardSource, /onConnect=\{handleIphoneTimeConnect/);
+  assert.match(iphoneCardSource, /onSync=\{handleIphoneTimeSync/);
 });
 
 test('iPhone Time status model includes required states and user-facing warning', () => {
-  const sharedSource = read('app/(dashboard)/integrations/integrations-client.shared.tsx');
+  const sharedSource = read('app/(dashboard)/integrations/integrations-client.shared.helpers.tsx');
 
   assert.match(
     sharedSource,
@@ -63,7 +67,7 @@ test('iPhone Time status model includes required states and user-facing warning'
 });
 
 test('iPhone Time details panel exposes diagnostics and bridge import instructions', () => {
-  const detailsSource = read('app/(dashboard)/integrations/integrations-client.details.tsx');
+  const detailsSource = read('app/(dashboard)/integrations/plugins/iphone-time/detail-panel.tsx');
 
   assert.match(detailsSource, /Current status/);
   assert.match(detailsSource, /Last imported date/);

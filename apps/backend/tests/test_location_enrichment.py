@@ -21,14 +21,21 @@ async def _unused_db_session():
 
 
 _fake_db_module.get_db_session = _unused_db_session
+_previous_connection_module = sys.modules.get("database.connection")
 sys.modules["database.connection"] = _fake_db_module
 
 
-from services.location.enrichment import (  # noqa: E402
-    _log_timestamp_ms,
-    _user_id_from_log,
-    enrich_habit_log,
-)
+try:
+    from services.location.enrichment import (  # noqa: E402
+        _log_timestamp_ms,
+        _user_id_from_log,
+        enrich_habit_log,
+    )
+finally:
+    if _previous_connection_module is None:
+        sys.modules.pop("database.connection", None)
+    else:
+        sys.modules["database.connection"] = _previous_connection_module
 from services.location.models import ResolvedLocation  # noqa: E402
 
 

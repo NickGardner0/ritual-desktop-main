@@ -25,7 +25,7 @@ export function SidebarModeProvider({ children }: { children: ReactNode }) {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored && ["compact", "hover", "expanded"].includes(stored)) {
-        setModeState(stored as SidebarMode);
+        queueMicrotask(() => setModeState(stored as SidebarMode));
       } else if (stored === "hidden") {
         localStorage.setItem(STORAGE_KEY, DEFAULT_MODE);
       }

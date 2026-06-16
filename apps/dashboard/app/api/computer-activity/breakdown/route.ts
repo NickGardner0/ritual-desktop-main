@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
-
-const BACKEND_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 
 function isValidDateString(value: string | null): value is string {
   if (!value) return false;
@@ -81,7 +80,7 @@ export async function GET(request: NextRequest) {
     }).toString();
 
     const upstreamPath = source === "iphone" ? "/api/screen-time/breakdown" : "/api/watcher/breakdown";
-    const url = `${BACKEND_URL}${upstreamPath}?${queryString}`;
+    const url = `${getServerBackendBaseUrl()}${upstreamPath}?${queryString}`;
 
     const response = await fetch(url, {
       method: "GET",

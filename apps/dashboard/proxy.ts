@@ -21,6 +21,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/integrations/whoop/store-code(.*)',
   '/api/sendblue/webhook(.*)',
   '/api/chat/sms(.*)',
+  '/api/internal/workflows/execute(.*)',
   '/integrations/success(.*)',
   '/integrations(.*)',
 ]);

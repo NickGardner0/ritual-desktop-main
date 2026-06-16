@@ -1,15 +1,14 @@
 import { schedules, task } from "@trigger.dev/sdk/v3";
+import { triggerBackendFetch } from "@/lib/api/trigger-client";
 
 async function runPlaidSync(payload: { hour?: number }) {
-  const apiBaseUrl =
-    process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
   const internalApiKey = process.env.INTERNAL_API_KEY;
 
   if (!internalApiKey) {
     throw new Error("INTERNAL_API_KEY environment variable is not set");
   }
 
-  const response = await fetch(`${apiBaseUrl}/api/financial/sync-all`, {
+  const response = await triggerBackendFetch("/api/financial/sync-all", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

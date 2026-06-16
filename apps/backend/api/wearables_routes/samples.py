@@ -178,10 +178,10 @@ def register_sample_routes(router: APIRouter, deps: WearablesRouterDeps) -> None
             resolution=resolution,
             limit=limit,
         )
-        resolved_resolution = points[0].get("rollup_level") if points else resolution
+        resolved_resolution = points[0].rollup_level if points else resolution
         if resolved_resolution in {None, ""}:
             resolved_resolution = resolution
-        selected_source = points[0].get("selected_source") if points else None
+        selected_source = points[0].selected_source if points else None
         return {
             "metric_type": metric_type,
             "resolution": resolution,

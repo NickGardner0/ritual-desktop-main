@@ -22,7 +22,9 @@ from sqlalchemy import select, update
 from database.connection import get_db_session
 from database.models import UserDB
 from services.turso_activity_schema import (
+    ACTIVITY_INDEX_STATEMENTS,
     ACTIVITY_MIGRATION_TABLES,
+    ACTIVITY_SCHEMA_STATEMENTS,
     apply_activity_backfills,
     apply_activity_indexes,
     apply_full_activity_schema,
@@ -35,6 +37,7 @@ ROLLOUT_COUNT_MINIMUMS = {
 }
 
 MIGRATION_TABLES = ACTIVITY_MIGRATION_TABLES
+SCHEMA_STATEMENTS = (*ACTIVITY_SCHEMA_STATEMENTS, *ACTIVITY_INDEX_STATEMENTS)
 
 MIGRATION_BATCH_SIZE = max(50, int((os.getenv("TURSO_MIGRATION_BATCH_SIZE") or "250").strip()))
 MIGRATION_BATCH_RETRY_LIMIT = max(5, int((os.getenv("TURSO_MIGRATION_BATCH_RETRY_LIMIT") or "25").strip()))

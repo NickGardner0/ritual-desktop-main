@@ -5,9 +5,9 @@
  */
 
 import { task, schedules } from "@trigger.dev/sdk/v3";
+import { triggerBackendFetch } from "@/lib/api/trigger-client";
 
 async function runTeslaSync() {
-  const API_BASE_URL = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
   const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
   if (!INTERNAL_API_KEY) {
@@ -16,7 +16,7 @@ async function runTeslaSync() {
 
   console.log('🚗 Starting automated Tesla odometer sync...');
 
-  const response = await fetch(`${API_BASE_URL}/api/integrations/tesla/sync-all`, {
+  const response = await triggerBackendFetch('/api/integrations/tesla/sync-all', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

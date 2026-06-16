@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 type LegacySource = "apple_health" | "whoop" | "csv" | "screenshot" | "oura" | "garmin" | "fitbit";
 
@@ -88,7 +89,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
 
     const previewFormData = new FormData();
     previewFormData.append("source", source);
@@ -161,4 +162,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

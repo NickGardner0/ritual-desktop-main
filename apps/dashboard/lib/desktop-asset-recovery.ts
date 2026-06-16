@@ -208,11 +208,11 @@ export function useDesktopAssetRecovery(errorLike: unknown, source: string) {
 
   useEffect(() => {
     if (!recoverable) {
-      setMode("none");
+      queueMicrotask(() => setMode("none"));
       return;
     }
 
-    setMode(scheduleDesktopAssetRecoveryReload(errorLike, source));
+    queueMicrotask(() => setMode(scheduleDesktopAssetRecoveryReload(errorLike, source)));
   }, [errorLike, recoverable, source]);
 
   return {

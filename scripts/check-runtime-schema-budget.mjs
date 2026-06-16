@@ -21,7 +21,13 @@ const runtimeRoots = [
 const approvedDdlFiles = new Set([
   'apps/backend/services/turso_activity_schema.py',
   'apps/desktop/src-tauri/crates/ritual-db/src/migration.rs',
-  'apps/desktop/src-tauri/crates/ritual-db/src/schema.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/activity.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/memory.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/metadata.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/migrations.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/mod.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/recorder.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/sync.rs',
 ]);
 
 function toRelative(absolutePath) {

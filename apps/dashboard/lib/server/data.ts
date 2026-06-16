@@ -12,9 +12,7 @@
 
 import { auth } from '@clerk/nextjs/server';
 import { redirect } from 'next/navigation';
-
-// Server-only environment variables
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { serverBackendFetch } from '@/lib/api/server-client';
 
 /**
  * Get server-side auth token from Clerk
@@ -58,7 +56,7 @@ export async function getAuthenticatedUserId(): Promise<string> {
 async function serverFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = await getServerAuthToken();
   
-  const response = await fetch(`${PYTHON_API_URL}${endpoint}`, {
+  const response = await serverBackendFetch(endpoint, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
