@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, FlaskConical, Plug2, Settings, TableProperties } from "lucide-react";
+import { CalendarDays, FileText, FlaskConical, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { cn } from "@/lib/utils";
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
@@ -28,9 +28,11 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
 
 const items = [
   { path: "/dashboard", name: "Index", icon: ILetterIcon },
-  { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/activity", name: "Logs", icon: TableProperties },
+  { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
+  { path: "/reports", name: "Reports", icon: FileText },
+  { path: "/reports?view=routines", name: "Routines", icon: Repeat2 },
   { path: "/experiments", name: "Experiments", icon: FlaskConical },
   { path: "/integrations", name: "Integrations", icon: Plug2 },
   { path: "/settings", name: "Settings", icon: Settings },
@@ -119,9 +121,25 @@ export function DetachedSidebarShell() {
 
       <div className="flex flex-col w-full pt-[70px] flex-1 mt-6">
         <nav className="w-full">
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-1.5">
             {items.map((item) => {
-              const isActive = activePath.startsWith(item.path);
+              const [itemBasePath, itemQuery] = item.path.split("?");
+              const activeUrl = new URL(activePath, "http://ritual.local");
+              const itemQueryParams = new URLSearchParams(itemQuery || "");
+              const matchingQueryItem = items.some((candidate) => {
+                const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+                if (candidateBasePath !== item.path || !candidateQuery) return false;
+                const candidateParams = new URLSearchParams(candidateQuery);
+                return Array.from(candidateParams.entries()).every(
+                  ([key, value]) => activeUrl.searchParams.get(key) === value,
+                );
+              });
+              const isActive = itemQuery
+                ? activeUrl.pathname === itemBasePath &&
+                  Array.from(itemQueryParams.entries()).every(
+                    ([key, value]) => activeUrl.searchParams.get(key) === value,
+                  )
+                : !matchingQueryItem && activeUrl.pathname.startsWith(item.path);
               const isCollapsedActive = isActive && !isExpanded;
               const Icon = item.icon;
               return (
@@ -129,15 +147,16 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "h-[40px] rounded-sm transition-all duration-150 ease-standard",
-                        "group-hover/nav-item:bg-black/[0.045]",
-                        isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
-                        isExpanded ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" : "ml-[15px] w-[40px]",
+                        "sidebar-nav-row h-[26px] rounded-sm transition-none",
+                        "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
+                        isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
+                        isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
                       )}
+                      data-active={isActive ? "true" : undefined}
                     />
                     <div
                       className={cn(
-                        "absolute top-0 left-[15px] w-[40px] h-[40px] flex items-center justify-center transition-[color,transform] duration-200",
+                        "absolute top-0 left-[15px] flex h-[26px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
                         "text-[#5f6368] group-hover/nav-item:text-[#252525]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
@@ -146,11 +165,11 @@ export function DetachedSidebarShell() {
                       <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
-                      <div className="absolute top-0 left-[55px] right-[8px] h-[40px] flex items-center">
+                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[26px] items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
-                            isActive && "font-[560] text-[#111111]",
+                            "text-sm font-[450] transition-colors duration-75 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
+                            isActive && "text-[#111111]",
                           )}
                         >
                           {item.name}

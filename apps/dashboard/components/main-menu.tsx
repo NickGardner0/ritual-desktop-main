@@ -2,12 +2,13 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   FlaskConical,
   Plug2,
   ChevronDown,
+  Repeat2,
   TableProperties,
   CalendarDays,
   ChartNoAxesCombined,
@@ -64,6 +65,7 @@ const icons = {
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
+  "/reports?view=routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
@@ -74,13 +76,13 @@ const items = [
     path: "/dashboard",
     name: "Index",
   },
-  // {
-  //   path: "/tasks",
-  //   name: "Tasks",
-  // },
   {
     path: "/activity",
     name: "Logs",
+  },
+  {
+    path: "/tasks",
+    name: "Tasks",
   },
   {
     path: "/calendar",
@@ -89,6 +91,10 @@ const items = [
   {
     path: "/reports",
     name: "Reports",
+  },
+  {
+    path: "/reports?view=routines",
+    name: "Routines",
   },
   {
     path: "/experiments",
@@ -143,15 +149,16 @@ const ChildItem = ({
     >
       <div
         className={cn(
-          "relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard",
-          "hover:bg-black/[0.04]",
-          isActive && "bg-black/[0.055]",
+          "sidebar-nav-child-row relative ml-[29px] mr-[9px] rounded-sm transition-none",
+          "hover:bg-[rgba(17,24,39,0.032)]",
+          isActive && "bg-[rgba(17,24,39,0.052)] hover:bg-[rgba(17,24,39,0.058)]",
         )}
+        data-active={isActive ? "true" : undefined}
       >
         {/* Child item text */}
         <div
           className={cn(
-            "h-[32px] flex items-center",
+            "h-[26px] flex items-center",
             "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
@@ -166,7 +173,7 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-colors duration-200",
+              "text-xs font-[450] transition-colors duration-75",
               "text-[#7a7a7a] group-hover/child:text-[#343434]",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-[#111111]",
@@ -238,17 +245,18 @@ const Item = ({
         <div className="relative">
           <div
             className={cn(
-              "h-[40px] rounded-sm transition-all duration-150 ease-standard",
-              "group-hover/nav-item:bg-black/[0.045]",
-              isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
-              isExpanded 
-                ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
+              "sidebar-nav-row h-[26px] rounded-sm transition-none",
+              "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
+              isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
+              isExpanded
+                ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]"
                 : "ml-[15px] w-[40px]",
             )}
+            data-active={isActive ? "true" : undefined}
           />
 
           <div className={cn(
-            "absolute top-1/2 left-[15px] flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
+            "absolute top-1/2 left-[15px] flex h-[26px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-75 pointer-events-none",
             "text-[#5f6368] group-hover/nav-item:text-[#252525]",
             isActive && "text-[#111111]",
             isCollapsedActive && "scale-[1.04]"
@@ -257,10 +265,10 @@ const Item = ({
           </div>
 
           {isExpanded && (
-            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[40px] -translate-y-1/2 items-center pointer-events-none">
+            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[26px] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525]",
+                  "text-sm font-[450] leading-none transition-colors duration-75 text-[#666] group-hover/nav-item:text-[#252525]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
                   isActive && "font-[560] text-[#111111]",
@@ -322,6 +330,7 @@ type Props = {
 
 export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   // Reset expanded item when sidebar expands/collapses
@@ -334,11 +343,31 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
       <nav className="w-full">
         <div className="flex flex-col gap-1.5">
           {items.map((item) => {
-            const isActive = pathname === item.path || 
-              pathname === item.path + "/" ||
-              (pathname === "/" && item.path === "/dashboard") ||
-              (pathname === "/dashboard/" && item.path === "/dashboard") ||
-              (pathname?.startsWith(item.path) && item.path !== "/dashboard");
+            const [itemBasePath, itemQuery] = item.path.split("?");
+            const itemQueryParams = new URLSearchParams(itemQuery || "");
+            const matchingQueryItem = items.some((candidate) => {
+              const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+              if (candidateBasePath !== item.path || !candidateQuery) return false;
+              const candidateParams = new URLSearchParams(candidateQuery);
+              return Array.from(candidateParams.entries()).every(
+                ([key, value]) => searchParams.get(key) === value,
+              );
+            });
+            const isQueryActive = itemQuery
+              ? pathname === itemBasePath &&
+                Array.from(itemQueryParams.entries()).every(
+                  ([key, value]) => searchParams.get(key) === value,
+                )
+              : false;
+            const isActive = isQueryActive || (
+              !itemQuery &&
+              !matchingQueryItem &&
+              (pathname === item.path ||
+                pathname === item.path + "/" ||
+                (pathname === "/" && item.path === "/dashboard") ||
+                (pathname === "/dashboard/" && item.path === "/dashboard") ||
+                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
+            );
 
             return (
               <Item
