@@ -312,16 +312,20 @@ async def _fetch_existing_events_remote(
     saw_remote = False
     for chunk in _chunks(event_uids, EVENT_LOOKUP_CHUNK_SIZE):
         placeholders = ", ".join(["?"] * len(chunk))
-        result = await fetch_remote_activity_rows(
-            user_id,
-            f"""
-            SELECT event_uid, ts_end, COALESCE(biome_is_provisional, 0)
-            FROM activity_events
-            WHERE event_uid IN ({placeholders})
-              AND COALESCE(source, '') = ?
-            """,
-            [*chunk, SOURCE],
-        )
+        try:
+            result = await fetch_remote_activity_rows(
+                user_id,
+                f"""
+                SELECT event_uid, ts_end, COALESCE(biome_is_provisional, 0)
+                FROM activity_events
+                WHERE event_uid IN ({placeholders})
+                  AND COALESCE(source, '') = ?
+                """,
+                [*chunk, SOURCE],
+            )
+        except Exception as exc:
+            logger.warning("Unable to fetch remote Biome existing-event lookup: %s", exc)
+            return None
         if not result.expected_remote:
             return None
         saw_remote = True
