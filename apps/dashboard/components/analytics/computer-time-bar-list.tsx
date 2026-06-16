@@ -5,6 +5,7 @@ import { VercelBarListCard } from '@/components/analytics/vercel-bar-list';
 import type { BarListItem, BarListRange } from '@/components/analytics/vercel-bar-list';
 import { format, subDays, startOfDay } from 'date-fns';
 import { getAggregatedComputerStats } from '@/lib/computerActivity';
+import type { TopAppResponseRow, TopDomainResponseRow } from '@/lib/computerActivity';
 
 interface ComputerTimeBarListProps {
   activeRange: BarListRange;
@@ -100,6 +101,9 @@ function getDomainDisplayName(domain: { domain?: string | null }): string {
   return String(domain.domain || 'Unknown').toLowerCase();
 }
 
+type ComputerTimeAppRow = Pick<TopAppResponseRow, 'hours' | 'app_bundle_id' | 'app_name'>;
+type ComputerTimeDomainRow = Pick<TopDomainResponseRow, 'hours' | 'domain'>;
+
 export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTimeBarListProps) {
   const [appsData, setAppsData] = useState<BarListItem[]>([]);
   const [domainsData, setDomainsData] = useState<BarListItem[]>([]);
@@ -124,8 +128,8 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
 
       // Merge upstream rows by display name so the same app/domain never
       // appears twice in the rendered list.
-      const appsFull = mergeByName(current.apps, getAppDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
-      const domainsFull = mergeByName(current.domains, getDomainDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+      const appsFull = mergeByName<ComputerTimeAppRow>(current.apps, getAppDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
+      const domainsFull = mergeByName<ComputerTimeDomainRow>(current.domains, getDomainDisplayName).slice(0, BAR_LIST_ROW_LIMIT);
 
       // Show data immediately without % changes.
       if (appsFull.length > 0) {
@@ -180,11 +184,11 @@ export function ComputerTimeBarList({ activeRange, onRangeChange }: ComputerTime
         if (id !== fetchIdRef.current) return; // stale
 
         const appsPriorByName = new Map<string, number>();
-        for (const merged of mergeByName(prior.apps, getAppDisplayName)) {
+        for (const merged of mergeByName<ComputerTimeAppRow>(prior.apps, getAppDisplayName)) {
           appsPriorByName.set(merged.name, merged.hours);
         }
         const domainsPriorByName = new Map<string, number>();
-        for (const merged of mergeByName(prior.domains, getDomainDisplayName)) {
+        for (const merged of mergeByName<ComputerTimeDomainRow>(prior.domains, getDomainDisplayName)) {
           domainsPriorByName.set(merged.name, merged.hours);
         }
 

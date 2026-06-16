@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { type TimeRangePreset } from '@/lib/computerActivity/contracts'
+import { type RankedBar, type TimeRangePreset } from '@/lib/computerActivity/contracts'
 import {
   getAggregatedComputerStats,
 } from '@/lib/computerActivity'
@@ -111,8 +111,8 @@ interface ComputerTimeDetailSectionProps {
 export function ComputerTimeDetailSection({ externalRange }: ComputerTimeDetailSectionProps) {
   const [range, setRange] = useState<TimeRangePreset>(externalRange ?? '1D')
   const [summaryActiveMs, setSummaryActiveMs] = useState(0)
-  const [apps, setApps] = useState<any[]>([])
-  const [domains, setDomains] = useState<any[]>([])
+  const [apps, setApps] = useState<RankedBar[]>([])
+  const [domains, setDomains] = useState<RankedBar[]>([])
   const [isSyncPending, setIsSyncPending] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
