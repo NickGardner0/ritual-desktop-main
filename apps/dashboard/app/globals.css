@@ -927,6 +927,48 @@
     color: rgba(60, 65, 70, 0.94) !important;
   }
 
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    border-right-color: rgba(15, 23, 42, 0.045) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="white"] .chat-header-sidebar-strip {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.045) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    border-right-color: rgba(15, 23, 42, 0.075) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before,
+  html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before {
+    display: none !important;
+  }
+
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
+  html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .chat-header-sidebar-strip,
+  html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="zed"] .chat-header-sidebar-strip {
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
+    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.075) !important;
+  }
+
   /* Opaque app surfaces cover native blur so only sidebar/chrome stay glassy. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque,
   html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque,
