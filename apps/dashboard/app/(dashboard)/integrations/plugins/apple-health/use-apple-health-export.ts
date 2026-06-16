@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 type ExportFormat = 'markdown' | 'json' | 'csv';
 type ExportWriteMode = 'overwrite' | 'append' | 'skip';
@@ -37,6 +37,7 @@ interface UseAppleHealthExportParams {
 }
 
 export function useAppleHealthExport({ getToken }: UseAppleHealthExportParams) {
+  const { isDesktop } = useDesktopCapabilities();
 // Export state
 const [exportFormat, setExportFormat] = useState<'markdown' | 'json' | 'csv'>('markdown');
 const [exportWriteMode, setExportWriteMode] = useState<'overwrite' | 'append' | 'skip'>('overwrite');
@@ -169,7 +170,7 @@ async function handleExportNow() {
     let exportedContent = '';
     let exportedPath: string | null = null;
 
-    if (isTauri()) {
+    if (isDesktop) {
       // Desktop: use Tauri save dialog
       try {
         const { save } = await import('@tauri-apps/plugin-dialog');

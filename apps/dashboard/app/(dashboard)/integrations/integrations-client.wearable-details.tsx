@@ -18,15 +18,47 @@ import {
   formatHour,
   formatRelativeTime,
 } from './integrations-client.shared';
+import type { WhoopSyncFeedback, WhoopSyncMode } from './integrations-client.shared';
+import type { IntegrationRuntimeContext } from './plugins/types';
+
+type WearableSyncProvider = 'whoop' | 'apple_health' | 'oura' | 'garmin';
+
+type WearableSyncConnection = {
+  auto_sync_enabled?: boolean | null;
+  auto_sync_note?: string | null;
+  last_successful_sync_at?: string | null;
+  last_sync_at?: string | null;
+  sleep_status_message?: string | null;
+  stale_message?: string | null;
+  sync_hour?: number | null;
+};
+
+type WearableSyncDetailsContext = {
+  handleWearableSyncSettingsUpdate: (
+    provider: WearableSyncProvider,
+    updates: { auto_sync_enabled?: boolean; sync_hour?: number },
+  ) => void | Promise<void>;
+  handleWhoopSync: () => void | Promise<void>;
+  setWhoopCustomDaysBack: (value: string) => void;
+  setWhoopSyncMode: (mode: WhoopSyncMode) => void;
+  syncing?: boolean;
+  whoopConnection?: WearableSyncConnection | null;
+  whoopCustomDaysBack: string;
+  whoopStatusData?: WearableSyncConnection | null;
+  whoopSyncFeedback?: WhoopSyncFeedback | null;
+  whoopSyncHour?: number;
+  whoopSyncMode: WhoopSyncMode;
+};
 
 export function renderIntegrationAutoSyncDetails(
-  ctx: Record<string, any>,
-  provider: 'whoop' | 'apple_health' | 'oura' | 'garmin',
-  connection: any,
+  ctx: IntegrationRuntimeContext,
+  provider: WearableSyncProvider,
+  connection: WearableSyncConnection | null | undefined,
   fallbackLastSync?: string | null,
   staleMessage?: string | null,
 ) {
-  const { handleWearableSyncSettingsUpdate, whoopSyncHour } = ctx;
+  const { handleWearableSyncSettingsUpdate, whoopSyncHour } =
+    ctx as unknown as Pick<WearableSyncDetailsContext, 'handleWearableSyncSettingsUpdate' | 'whoopSyncHour'>;
   const autoSyncEnabled = connection?.auto_sync_enabled ?? (provider !== 'apple_health');
   const syncHour = connection?.sync_hour ?? (provider === 'whoop' ? whoopSyncHour : 9);
   const lastSyncValue = fallbackLastSync || connection?.last_sync_at || connection?.last_successful_sync_at || null;
@@ -107,7 +139,7 @@ export function renderIntegrationAutoSyncDetails(
   );
 }
 
-export function renderWhoopSyncDetailsPanel(ctx: Record<string, any>) {
+export function renderWhoopSyncDetailsPanel(ctx: IntegrationRuntimeContext) {
   const {
     handleWearableSyncSettingsUpdate,
     handleWhoopSync,
@@ -120,7 +152,7 @@ export function renderWhoopSyncDetailsPanel(ctx: Record<string, any>) {
     whoopSyncFeedback,
     whoopSyncHour,
     whoopSyncMode,
-  } = ctx;
+  } = ctx as unknown as WearableSyncDetailsContext;
   const autoSyncEnabled = whoopConnection?.auto_sync_enabled ?? true;
   const syncHour = whoopConnection?.sync_hour ?? whoopSyncHour ?? 9;
   const lastSyncValue = whoopStatusData?.last_sync_at || whoopConnection?.last_sync_at || whoopConnection?.last_successful_sync_at || null;

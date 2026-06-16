@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE_URL, parseApiError } from './integrations-client.shared';
+import { parseApiError } from '../../integrations-client.shared';
 
 interface UsePlaidIntegrationParams {
   fetchHabitLogs: () => unknown;
@@ -85,7 +85,7 @@ useEffect(() => {
 
       await ensurePlaidLoaded();
 
-      const linkTokenResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/link-token`, {
+      const linkTokenResponse = await fetch(`/api/financial/plaid/link-token`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -106,7 +106,7 @@ useEffect(() => {
         receivedRedirectUri,
         onSuccess: async (publicToken, metadata) => {
           try {
-            const exchangeResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/exchange-public-token`, {
+            const exchangeResponse = await fetch(`/api/financial/plaid/exchange-public-token`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -153,7 +153,6 @@ useEffect(() => {
       setPlaidConnecting(false);
     }
   })();
-// eslint-disable-next-line react-hooks/exhaustive-deps
 }, []);
 const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) => {
   try {
@@ -170,7 +169,7 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
 
     await ensurePlaidLoaded();
 
-    const linkTokenResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/link-token`, {
+    const linkTokenResponse = await fetch(`/api/financial/plaid/link-token`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -200,7 +199,7 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
             if (!plaidConnection?.id) {
               throw new Error('Plaid connection not found');
             }
-            const syncResponse = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync`, {
+            const syncResponse = await fetch(`/api/financial/connections/${plaidConnection.id}/sync`, {
               method: 'POST',
               headers: {
                 'Authorization': `Bearer ${token}`,
@@ -216,7 +215,7 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
             return;
           }
 
-          const exchangeResponse = await fetch(`${API_BASE_URL}/api/financial/plaid/exchange-public-token`, {
+          const exchangeResponse = await fetch(`/api/financial/plaid/exchange-public-token`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${token}`,
@@ -289,7 +288,7 @@ async function handlePlaidSyncSettingsUpdate(
     const nextEnabled = updates.auto_sync_enabled ?? plaidConnection.auto_sync_enabled ?? true;
     const nextHour = updates.sync_hour ?? plaidConnection.sync_hour ?? 9;
 
-    const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync-settings`, {
+    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/sync-settings`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -323,7 +322,7 @@ async function handlePlaidAccountInclusion(accountId: string, includeInSpending:
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/accounts/${accountId}`, {
+    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/accounts/${accountId}`, {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -356,7 +355,7 @@ async function handlePlaidBackfill() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/backfill`, {
+    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/backfill`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -392,7 +391,7 @@ async function handlePlaidSync() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}/sync`, {
+    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/sync`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -432,7 +431,7 @@ async function handlePlaidDisconnect() {
       return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/financial/connections/${plaidConnection.id}`, {
+    const response = await fetch(`/api/financial/connections/${plaidConnection.id}`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${token}`,
