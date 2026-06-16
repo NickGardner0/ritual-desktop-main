@@ -158,7 +158,7 @@ const ChildItem = ({
         {/* Child item text */}
         <div
           className={cn(
-            "h-[26px] flex items-center",
+            "h-[30px] flex items-center",
             "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
@@ -245,7 +245,7 @@ const Item = ({
         <div className="relative">
           <div
             className={cn(
-              "sidebar-nav-row h-[26px] rounded-sm transition-none",
+              "sidebar-nav-row h-[30px] rounded-sm transition-none",
               "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
               isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
               isExpanded 
@@ -256,8 +256,8 @@ const Item = ({
           />
 
           <div className={cn(
-            "absolute top-1/2 left-[15px] flex h-[26px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-75 pointer-events-none",
-            "text-[#5f6368] group-hover/nav-item:text-[#252525]",
+            "absolute top-1/2 left-[15px] flex h-[30px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-75 pointer-events-none",
+            "text-[#575b60] group-hover/nav-item:text-[#252525]",
             isActive && "text-[#111111]",
             isCollapsedActive && "scale-[1.04]"
           )}>
@@ -265,10 +265,10 @@ const Item = ({
           </div>
 
           {isExpanded && (
-            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[26px] -translate-y-1/2 items-center pointer-events-none">
+            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[30px] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-75 text-[#666] group-hover/nav-item:text-[#252525]",
+                  "text-sm font-[450] leading-none transition-colors duration-75 text-[#5f5f5f] group-hover/nav-item:text-[#252525]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
                   isActive && "text-[#111111]",
@@ -341,7 +341,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
   return (
     <div className="mt-3 w-full">
       <nav className="w-full">
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-3">
           {items.map((item) => {
             const [itemBasePath, itemQuery] = item.path.split("?");
             const itemQueryParams = new URLSearchParams(itemQuery || "");

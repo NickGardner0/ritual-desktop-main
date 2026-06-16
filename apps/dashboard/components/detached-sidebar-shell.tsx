@@ -120,7 +120,7 @@ export function DetachedSidebarShell() {
 
       <div className="flex flex-col w-full pt-[70px] flex-1 mt-6">
         <nav className="w-full">
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-3">
             {items.map((item) => {
               const [itemBasePath, itemQuery] = item.path.split("?");
               const activeUrl = new URL(activePath, "http://ritual.local");
@@ -146,7 +146,7 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "sidebar-nav-row h-[26px] rounded-sm transition-none",
+                        "sidebar-nav-row h-[30px] rounded-sm transition-none",
                         "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
                         isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
                         isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
@@ -155,8 +155,8 @@ export function DetachedSidebarShell() {
                     />
                     <div
                       className={cn(
-                        "absolute top-0 left-[15px] flex h-[26px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
-                        "text-[#5f6368] group-hover/nav-item:text-[#252525]",
+                        "absolute top-0 left-[15px] flex h-[30px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
+                        "text-[#575b60] group-hover/nav-item:text-[#252525]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
                       )}
@@ -164,10 +164,10 @@ export function DetachedSidebarShell() {
                       <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
-                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[26px] items-center">
+                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[30px] items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-75 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
+                            "text-sm font-[450] transition-colors duration-75 text-[#5f5f5f] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
                             isActive && "text-[#111111]",
                           )}
                         >
