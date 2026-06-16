@@ -61,7 +61,7 @@ const nextConfig = {
     ],
   },
 
-  transpilePackages: ['@ritual/chat-runtime'],
+  transpilePackages: ['@ritual/chat-runtime', '@ritual/shared-contracts'],
 
   serverExternalPackages: ['pino'],
 
@@ -83,6 +83,10 @@ const nextConfig = {
       '@ritual/chat-runtime/weekly-overview-utils': path.resolve(
         repoRoot,
         'packages/chat-runtime/dist/weekly-overview-utils.js',
+      ),
+      '@ritual/shared-contracts$': path.resolve(
+        repoRoot,
+        'packages/shared-contracts/dist/index.js',
       ),
     };
 
