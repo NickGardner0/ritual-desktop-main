@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
+import { ensureMicrophonePermission } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -18,6 +19,7 @@ interface UseChatVoiceInputParams {
 }
 
 export function useChatVoiceInput({ setInput, textareaRef }: UseChatVoiceInputParams) {
+  const { isDesktop, supportsNativeVoice } = useDesktopCapabilities();
 // Voice mode state (transcription)
 const [isListening, setIsListening] = useState(false);
 const [isProcessingVoice, setIsProcessingVoice] = useState(false);
@@ -418,7 +420,7 @@ const startVoiceRecognition = async () => {
       setIsProcessingVoice(false);
     }
   }
-  if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
+  if (isDesktop && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
     try {
       await startWhisperRecording();
       return;
@@ -429,7 +431,7 @@ const startVoiceRecognition = async () => {
     }
   }
 
-  if (isTauri()) {
+  if (isDesktop) {
     try {
       await startNativeVoiceRecognition();
       return;

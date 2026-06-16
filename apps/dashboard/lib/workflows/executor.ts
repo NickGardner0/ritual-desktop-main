@@ -633,12 +633,16 @@ export async function executeWorkflow(payload: WorkflowExecutePayload, backendTo
 
   let artifact: WorkflowArtifactResult;
   let modelUsed = 'deterministic';
-  try {
-    artifact = await synthesizeArtifactWithOpenAI(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
-    modelUsed = 'gpt-4o-mini';
-  } catch (error) {
-    console.warn('[workflow-executor] falling back to deterministic renderer', error);
+  if (process.env.RITUAL_WORKFLOW_EXECUTOR_DISABLE_OPENAI === '1') {
     artifact = buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+  } else {
+    try {
+      artifact = await synthesizeArtifactWithOpenAI(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+      modelUsed = 'gpt-4o-mini';
+    } catch (error) {
+      console.warn('[workflow-executor] falling back to deterministic renderer', error);
+      artifact = buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+    }
   }
 
   artifact.metadata = {

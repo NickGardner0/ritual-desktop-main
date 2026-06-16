@@ -172,7 +172,8 @@ function UnifiedAnalyticsContent({
     enabled: viewMode === 'metrics',
   });
   const metricsReadModel = metricsSnapshot ?? dashboardSnapshot;
-  const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const [shellMountTime] = useState(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+  const shellMountTimeRef = useRef(shellMountTime);
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
   const lastDateFilteredLogRefreshAtRef = useRef(0);
@@ -321,8 +322,10 @@ function UnifiedAnalyticsContent({
     const shouldOpenImport = searchParams.get('openImport') === '1';
     if (!shouldOpenImport) return;
 
-    setViewMode('overview');
-    setShowImportModal(true);
+    queueMicrotask(() => {
+      setViewMode('overview');
+      setShowImportModal(true);
+    });
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete('openImport');
@@ -410,8 +413,10 @@ function UnifiedAnalyticsContent({
   useEffect(() => {
     const right = document.getElementById('header-right-slot');
     const center = document.getElementById('header-center-slot');
-    setHeaderRightSlot(right);
-    setHeaderCenterSlot(center);
+    queueMicrotask(() => {
+      setHeaderRightSlot(right);
+      setHeaderCenterSlot(center);
+    });
   }, [isFullScreenChat]);
 
   return (

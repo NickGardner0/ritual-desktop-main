@@ -138,14 +138,20 @@ const ChildItem = ({
     <Link
       href={child.path}
       onClick={() => onSelect?.()}
-      className="block group/child"
+      className="group/child block"
       prefetch={true}
     >
-      <div className="relative">
+      <div
+        className={cn(
+          "relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard",
+          "hover:bg-black/[0.04]",
+          isActive && "bg-black/[0.055]",
+        )}
+      >
         {/* Child item text */}
         <div
           className={cn(
-            "ml-[35px] mr-[15px] h-[32px] flex items-center",
+            "h-[32px] flex items-center",
             "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
@@ -161,7 +167,7 @@ const ChildItem = ({
           <span
             className={cn(
               "text-xs font-[450] transition-colors duration-200",
-              "text-[#888] group-hover/child:text-[#111111]",
+              "text-[#7a7a7a] group-hover/child:text-[#343434]",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-[#111111]",
             )}
@@ -225,36 +231,39 @@ const Item = ({
       <Link
         href={item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
-        className="group"
+        className="group/nav-item block"
         prefetch={true}
         {...getPrefetchProps()}
       >
         <div className="relative">
           <div
             className={cn(
-              "h-[40px] transition-all duration-200 ease-standard",
+              "h-[40px] rounded-sm transition-all duration-150 ease-standard",
+              "group-hover/nav-item:bg-black/[0.045]",
+              isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
               isExpanded 
                 ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
-                : "ml-[15px] w-[40px] rounded-none",
+                : "ml-[15px] w-[40px]",
             )}
           />
 
           <div className={cn(
             "absolute top-1/2 left-[15px] flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-[#0f0f0f]",
+            "text-[#5f6368] group-hover/nav-item:text-[#252525]",
+            isActive && "text-[#111111]",
             isCollapsedActive && "scale-[1.04]"
           )}>
-            <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.6 : 2.2} />
+            <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
           </div>
 
           {isExpanded && (
             <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[40px] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#666] group-hover:text-[#111111]",
+                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525]",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "text-[#111111]",
+                  isActive && "font-[560] text-[#111111]",
                 )}
               >
                 {item.name}
@@ -317,7 +326,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
-    setExpandedItem(null);
+    queueMicrotask(() => setExpandedItem(null));
   }, [isExpanded]);
 
   return (
