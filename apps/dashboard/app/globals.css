@@ -831,27 +831,32 @@
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover {
-    background-color: rgba(232, 232, 232, 0.8) !important;
+    background-color: rgba(17, 24, 39, 0.032) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"],
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"] {
-    background-color: rgba(228, 228, 228, 0.85) !important;
+    background-color: rgba(17, 24, 39, 0.052) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover {
-    background-color: rgba(221, 221, 221, 0.9) !important;
+    background-color: rgba(17, 24, 39, 0.058) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover {
-    background-color: rgba(232, 232, 232, 0.8) !important;
+    background-color: rgba(17, 24, 39, 0.032) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"],
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"] {
-    background-color: rgba(228, 228, 228, 0.85) !important;
+    background-color: rgba(17, 24, 39, 0.052) !important;
+  }
+
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"]:hover,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"]:hover {
+    background-color: rgba(17, 24, 39, 0.058) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,

@@ -146,16 +146,16 @@ export function DetachedSidebarShell() {
                   <div className="relative">
                     <div
                       className={cn(
-                        "sidebar-nav-row h-[32px] rounded-md transition-[background-color,width,margin] duration-75 ease-standard",
-                        "group-hover/nav-item:bg-[#e8e8e8]/80",
-                        isActive && "bg-[#e4e4e4]/85 group-hover/nav-item:bg-[#dddddd]/90",
+                        "sidebar-nav-row h-[28px] rounded-sm transition-none",
+                        "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
+                        isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
                         isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
                       )}
                       data-active={isActive ? "true" : undefined}
                     />
                     <div
                       className={cn(
-                        "absolute top-0 left-[15px] flex h-[32px] w-[40px] items-center justify-center transition-[color,transform] duration-200",
+                        "absolute top-0 left-[15px] flex h-[28px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
                         "text-[#5f6368] group-hover/nav-item:text-[#252525]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
@@ -164,10 +164,10 @@ export function DetachedSidebarShell() {
                       <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
                     </div>
                     {isExpanded && (
-                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[32px] items-center">
+                      <div className="absolute top-0 left-[55px] right-[8px] flex h-[28px] items-center">
                         <span
                           className={cn(
-                            "text-sm font-[450] transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
+                            "text-sm font-[450] transition-colors duration-75 text-[#666] group-hover/nav-item:text-[#252525] whitespace-nowrap overflow-hidden",
                             isActive && "text-[#111111]",
                           )}
                         >
