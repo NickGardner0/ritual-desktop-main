@@ -150,6 +150,7 @@ pub fn dump_accessibility_context(
 #[cfg(not(target_os = "macos"))]
 pub fn prompt_accessibility_permission() {}
 
+#[cfg(test)]
 mod tests {
     use super::accessibility::{
         basename_from_pathish, candidate_document_hint, candidate_document_path,
