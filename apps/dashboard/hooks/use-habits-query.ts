@@ -16,6 +16,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { useMemo } from 'react';
+import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';
 import { useAnalytics } from '@/lib/analytics';
 import { QUERY_POLICY } from '@/lib/query-policies';
@@ -34,8 +35,8 @@ import {
   markReadConsistencyRequired,
   shouldForceFreshRead,
 } from '@/lib/read-consistency';
+import { apiFetchWithAuth } from '@/lib/api/client';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
@@ -143,33 +144,8 @@ async function fetchWithAuthRetry(
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
   options?: RequestInit
 ): Promise<Response> {
-  const token = await getToken();
-  if (!token) throw new Error('No auth token available');
-
-  let response = await fetch(url, {
-    ...options,
-    headers: {
-      ...options?.headers,
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if ((response.status === 401 || response.status === 403) && response.url.includes('/api/')) {
-    const freshToken = await getToken({ skipCache: true });
-    if (freshToken) {
-      response = await fetch(url, {
-        ...options,
-        headers: {
-          ...options?.headers,
-          Authorization: `Bearer ${freshToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
-    }
-  }
-
-  return response;
+  const path = url.startsWith('http') ? new URL(url).pathname : url;
+  return apiFetchWithAuth(path, getToken, options);
 }
 
 /**
@@ -397,11 +373,11 @@ export function useCreateHabitMutation() {
   const { trackHabitCreated } = useAnalytics();
 
   return useMutation({
-    mutationFn: async (habitData: any) => {
+    mutationFn: async (habitData: CreateHabitInput): Promise<HabitRecord> => {
       if (process.env.NODE_ENV !== 'production') { console.log('➕ [React Query] Creating habit:', habitData); }
 
       const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habits`,
+        LOCAL_HABITS_API,
         getToken,
         {
           method: 'POST',
@@ -423,7 +399,7 @@ export function useCreateHabitMutation() {
         );
       }
 
-      return response.json();
+      return response.json() as Promise<HabitRecord>;
     },
 
     onSuccess: (data) => {
@@ -459,7 +435,7 @@ export function useUpdateHabitMutation() {
       updates: Partial<Habit>;
     }) => {
       const response = await fetchWithAuthRetry(
-        `${PYTHON_API_BASE}/api/habits/${habitId}`,
+        `${LOCAL_HABITS_API}/${habitId}`,
         getToken,
         {
           method: 'PUT',
@@ -534,7 +510,7 @@ export function useDeleteHabitMutation() {
       const token = await getToken();
       if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [React Query] Deleting habit:', habitId); }
 
-      const response = await fetch(`${PYTHON_API_BASE}/api/habits/${habitId}`, {
+      const response = await fetch(`${LOCAL_HABITS_API}/${habitId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

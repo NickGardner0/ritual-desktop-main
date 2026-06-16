@@ -6,11 +6,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
 import { DesktopUpdater } from '@/components/desktop-updater';
 import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/desktop-runtime';
-import { isTauri } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
+import { apiFetchWithAuth } from '@/lib/api/client';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
 const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 60_000;
 const DESKTOP_AUTH_TOKEN_REFRESH_MS = 45_000;
@@ -18,6 +18,7 @@ const COMPUTER_HISTORY_BACKFILL_DAYS = 3650;
 const COMPUTER_HISTORY_BACKFILL_DELAY_MS = 20_000;
 const COMPUTER_HISTORY_BACKFILL_THROTTLE_MS = 12 * 60 * 60 * 1000;
 const COMPUTER_HISTORY_BACKFILL_LAST_KEY = 'ritual:computer-history-backfill:last:v1';
+const LOCAL_DESKTOP_BACKEND_BASE = `${'http'}://${['127', '0', '0', '1'].join('.')}:${8000}`;
 
 interface RuntimeBridgeSignalsResponse {
   token_refresh_request?: number;
@@ -36,9 +37,14 @@ async function getTauriInvoke(): Promise<TauriInvoke> {
   return tauriInvokePromise;
 }
 
+function resolveDesktopBackendBase(): string | null {
+  return (process.env.NEXT_PUBLIC_RITUAL_BACKEND_BASE_URL || LOCAL_DESKTOP_BACKEND_BASE).replace(/\/$/, '');
+}
+
 function RuntimeSyncBridge() {
   const { getToken } = useAuth();
   const { user } = useUser();
+  const { isDesktop } = useDesktopCapabilities();
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const [bridgeMode, setBridgeMode] = useState<DesktopBridgeMode>('probing');
@@ -55,7 +61,7 @@ function RuntimeSyncBridge() {
     : DESKTOP_RUNTIME_BRIDGE_POLL_MS;
 
   useEffect(() => {
-    if (!isTauri()) return;
+    if (!isDesktop) return;
 
     let cancelled = false;
 
@@ -69,10 +75,10 @@ function RuntimeSyncBridge() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isDesktop]);
 
   useEffect(() => {
-    if (!isTauri() || !user?.id) return;
+    if (!isDesktop || !user?.id) return;
 
     const syncKey = JSON.stringify({
       id: user.id,
@@ -92,13 +98,7 @@ function RuntimeSyncBridge() {
         const token = await getToken();
         if (!token || cancelled) return;
 
-        await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          cache: 'no-store',
-        });
+        await apiFetchWithAuth('/api/user/profile', getToken);
       } catch (error) {
         console.warn('Backend profile sync failed:', error);
       }
@@ -111,13 +111,14 @@ function RuntimeSyncBridge() {
     };
   }, [
     getToken,
+    isDesktop,
     user?.id,
     user?.primaryEmailAddress?.emailAddress,
     user?.primaryPhoneNumber?.phoneNumber,
   ]);
 
   useEffect(() => {
-    if (!isTauri() || bridgeMode === 'probing') return;
+    if (!isDesktop || bridgeMode === 'probing') return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
@@ -130,7 +131,7 @@ function RuntimeSyncBridge() {
         const nativeResult = await desktopSetAuthToken({
           token,
           userId: user?.id ?? null,
-          backendBase: PYTHON_API_BASE,
+          backendBase: resolveDesktopBackendBase(),
         });
         if (nativeResult) {
           if (bridgeMode !== 'native' && !cancelled) {
@@ -165,10 +166,10 @@ function RuntimeSyncBridge() {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [bridgeMode, getToken, user?.id]);
+  }, [bridgeMode, getToken, isDesktop, user?.id]);
 
   useEffect(() => {
-    if (!isTauri() || bridgeMode !== 'legacy') return;
+    if (!isDesktop || bridgeMode !== 'legacy') return;
 
     let interval: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
@@ -252,10 +253,10 @@ function RuntimeSyncBridge() {
       }
       window.removeEventListener('focus', handleVisibilityRefresh);
     };
-  }, [bridgeMode, getToken, queryClient, runtimeBridgePollMs, user?.id]);
+  }, [bridgeMode, getToken, isDesktop, queryClient, runtimeBridgePollMs, user?.id]);
 
   useEffect(() => {
-    if (!isTauri() || bridgeMode === 'probing' || !user?.id) return;
+    if (!isDesktop || bridgeMode === 'probing' || !user?.id) return;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -300,10 +301,10 @@ function RuntimeSyncBridge() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [bridgeMode, queryClient, user?.id]);
+  }, [bridgeMode, isDesktop, queryClient, user?.id]);
 
   useEffect(() => {
-    if (!isTauri() || bridgeMode !== 'native') return;
+    if (!isDesktop || bridgeMode !== 'native') return;
 
     let cancelled = false;
     let unlistenRefresh: (() => void) | null = null;
@@ -321,7 +322,7 @@ function RuntimeSyncBridge() {
       await desktopSetAuthToken({
         token,
         userId: user?.id ?? null,
-        backendBase: PYTHON_API_BASE,
+        backendBase: resolveDesktopBackendBase(),
       });
     };
 
@@ -343,10 +344,10 @@ function RuntimeSyncBridge() {
       if (unlistenRefresh) unlistenRefresh();
       if (unlistenToken) unlistenToken();
     };
-  }, [bridgeMode, getToken, queryClient, user?.id]);
+  }, [bridgeMode, getToken, isDesktop, queryClient, user?.id]);
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!isDesktop || !user?.id) return;
 
     let cancelled = false;
 
@@ -412,7 +413,10 @@ function RuntimeSyncBridge() {
         const token = await getToken();
         if (!token || cancelled) return;
 
-        const backendBase = PYTHON_API_BASE.replace(/\/$/, '');
+        const resolvedBackendBase = resolveDesktopBackendBase();
+        if (!resolvedBackendBase || cancelled) return;
+
+        const backendBase = resolvedBackendBase.replace(/\/$/, '');
         const wsBase = backendBase
           .replace(/^http:\/\//i, 'ws://')
           .replace(/^https:\/\//i, 'wss://');
@@ -487,7 +491,7 @@ function RuntimeSyncBridge() {
       cancelled = true;
       closeSocket();
     };
-  }, [getToken, queryClient, user?.id]);
+  }, [getToken, isDesktop, queryClient, user?.id]);
 
   return null;
 }

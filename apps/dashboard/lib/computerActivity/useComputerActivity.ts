@@ -12,7 +12,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { isTauri } from '@/lib/tauri-utils'
+import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import {
   ActivityBreakdownSource,
   ActivityBreakdownViewModel,
@@ -35,7 +35,7 @@ import {
 import {
   invokeDetailedActivityWithInitRetry,
 } from './tauri-activity'
-import { getAggregatedComputerStats } from './client'
+import { getAggregatedComputerStats } from './api'
 import { QUERY_POLICY } from '@/lib/query-policies'
 import { getReadConsistencyHeaders } from '@/lib/read-consistency'
 
@@ -157,8 +157,8 @@ export const computerActivityKeys = {
 async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
   try {
     // Check if we're in Tauri environment
-    if (isTauri()) {
-      if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] isTauri()=true, attempting Tauri invoke for detailed activity…') }
+    if (isDesktopRuntime()) {
+      if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] isDesktop=true, attempting Tauri invoke for detailed activity…') }
       try {
         const response = await invokeDetailedActivityWithInitRetry({
           startTs,

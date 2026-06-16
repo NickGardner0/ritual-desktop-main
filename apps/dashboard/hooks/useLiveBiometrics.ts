@@ -19,11 +19,7 @@ export function useLiveBiometrics(options: UseLiveBiometricsOptions = {}) {
   const query = useQuery({
     queryKey: ["live-biometrics", user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      if (!token) {
-        throw new Error("Missing auth token");
-      }
-      return getLiveBiometrics(token);
+      return getLiveBiometrics(getToken);
     },
     enabled: !!user?.id,
     staleTime: 1000,
@@ -47,4 +43,3 @@ export function useLiveBiometrics(options: UseLiveBiometricsOptions = {}) {
     data: query.data ?? storeSnapshot,
   };
 }
-

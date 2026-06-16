@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { logger } from '@/lib/logger';
-
-const PYTHON_API_BASE =
-  process.env.PYTHON_API_URL ||
-  process.env.NEXT_PUBLIC_PYTHON_API_URL ||
-  'http://127.0.0.1:8000';
 
 type WhoopSyncRequest = {
   daysBack?: number;
@@ -181,7 +177,7 @@ async function handleWhoopSync(
     backendParams.set('full_history', 'true');
   }
 
-  const backendUrl = `${PYTHON_API_BASE}/api/integrations/whoop/sync${
+  const backendUrl = `${getServerBackendBaseUrl()}/api/integrations/whoop/sync${
     backendParams.size ? `?${backendParams.toString()}` : ''
   }`;
 

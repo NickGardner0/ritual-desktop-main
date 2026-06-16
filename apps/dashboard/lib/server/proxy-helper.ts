@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
 const FORCE_FRESH_COOKIE = "ritual_force_fresh_until";
 const FORCE_FRESH_WINDOW_MS = 10_000;
 
@@ -57,7 +56,7 @@ export async function forwardProxyRequest(
     }
 
     // --- Forward to backend ---
-    const url = `${BACKEND_URL}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const url = `${getServerBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
 
     const fetchInit: RequestInit = {
       method,

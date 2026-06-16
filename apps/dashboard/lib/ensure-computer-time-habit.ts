@@ -1,3 +1,4 @@
+import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,
   isComputerHabitName,
@@ -9,8 +10,8 @@ import {
  */
 export async function ensureComputerTimeHabit(
   habits: { name?: string | null }[],
-  createHabit: (data: Record<string, unknown>) => Promise<unknown>
-): Promise<{ created: boolean; habit?: unknown }> {
+  createHabit: (data: CreateHabitInput) => Promise<HabitRecord>
+): Promise<{ created: boolean; habit?: HabitRecord }> {
   if (habits.some((h) => isComputerHabitName(h.name ?? undefined))) {
     return { created: false };
   }
