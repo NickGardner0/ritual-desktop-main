@@ -10,6 +10,7 @@ import dynamic from "next/dynamic";
 import { Settings } from "lucide-react";
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
+import { NavRowSurface, SidebarShell } from "@/components/ui/ritual-system";
 
 const SettingsModal = dynamic(
   () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
@@ -109,10 +110,7 @@ export function Sidebar() {
   };
 
   return (
-    <aside
-      className={cn(
-        "sidebar-vibrancy relative h-full flex-shrink-0 flex-col justify-between pb-4 items-stretch overflow-hidden hidden md:flex",
-      )}
+    <SidebarShell
       style={{
         width,
         transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
@@ -131,25 +129,20 @@ export function Sidebar() {
         <button
           type="button"
           onClick={handleSettingsClick}
-          className={cn(
-            "group relative h-[40px] rounded-sm transition-colors duration-150 ease-standard hover:bg-black/[0.045]",
-            isExpanded
-              ? "w-full"
-              : "w-[40px]"
-          )}
+          className={cn("group/settings-row relative h-[var(--sidebar-row-height)]", isExpanded ? "w-full" : "w-[40px]")}
           aria-label="Settings"
           title="Settings"
         >
+          <NavRowSurface active={false} expanded={isExpanded} className={isExpanded ? "!ml-0 !mr-0 !w-full" : "!ml-0"} />
           <span
             className={cn(
-              "absolute top-1/2 left-0 flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center text-[#5f6368] transition-colors duration-200",
-              "group-hover:text-[#252525]"
+              "ritual-nav-icon absolute top-1/2 left-0 flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center",
             )}
           >
             <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.1} />
           </span>
           {isExpanded && (
-            <span className="absolute top-1/2 left-[40px] right-[4px] flex h-[40px] -translate-y-1/2 items-center text-sm font-[450] leading-none text-[#666] transition-colors duration-200 group-hover:text-[#252525]">
+            <span className="ritual-nav-label absolute top-1/2 left-[40px] right-[4px] flex h-[var(--sidebar-row-height)] -translate-y-1/2 items-center text-sm leading-none">
               Settings
             </span>
           )}
@@ -168,6 +161,6 @@ export function Sidebar() {
           initialView={settingsInitialView}
         />
       )}
-    </aside>
+    </SidebarShell>
   );
 }

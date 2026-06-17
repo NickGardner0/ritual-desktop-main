@@ -16,6 +16,10 @@ import { contrastRatioAgainstWhite, useUIPreferences } from '@/hooks/use-ui-pref
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
+import {
+  SettingsGroup as RitualSettingsGroup,
+  SettingsRow as RitualSettingsRow,
+} from '@/components/ui/ritual-system';
 
 type SettingsWindowContentProps = {
   initialView?: DesktopSettingsView;
@@ -130,8 +134,8 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
   };
 
   return (
-    <div className="settings-native-window flex h-screen w-screen overflow-hidden bg-[#fbfbfa] text-[#262626]">
-      <aside className="flex w-[184px] shrink-0 flex-col border-r border-black/[0.06] bg-[#f8f8f7] px-[14px] pb-4 pt-[50px]">
+    <div className="settings-native-window ritual-app-chrome flex h-screen w-screen overflow-hidden bg-[var(--surface-window)] text-[var(--text-primary)]">
+      <aside className="flex w-[184px] shrink-0 flex-col border-r border-[var(--border-subtle)] bg-[var(--surface-sidebar)] px-[14px] pb-4 pt-[50px]">
         <nav className="flex flex-col gap-0.5" aria-label="Settings sections">
           {TAB_ORDER.map((id) => {
             const { label, icon: Icon } = TABS[id];
@@ -143,7 +147,7 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                 onClick={() => handleTabSelect(id)}
                 className={cn(
                   'flex h-[30px] items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13px] font-medium leading-none transition-colors',
-                  selected ? 'bg-[#dededc] text-[#171717]' : 'text-[#171717] hover:bg-black/[0.045]',
+                  selected ? 'bg-[var(--row-active)] text-[var(--text-primary)]' : 'text-[var(--text-primary)] hover:bg-[var(--row-hover)]',
                 )}
               >
                 <Icon className="h-[15px] w-[15px] shrink-0" strokeWidth={2.1} />
@@ -413,9 +417,9 @@ function SettingsSection({ title, children }: { title: string; children: React.R
 
 function SettingsGroup({ children }: { children: React.ReactNode }) {
   return (
-    <div className="divide-y divide-black/[0.07] overflow-visible rounded-[10px] bg-[#f4f4f3]">
+    <RitualSettingsGroup>
       {children}
-    </div>
+    </RitualSettingsGroup>
   );
 }
 
@@ -429,15 +433,15 @@ function SettingsRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-[44px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-3.5 py-2.5">
+    <RitualSettingsRow>
       <div className="min-w-0">
-        <p className="text-[13px] font-medium leading-tight text-[#252525]">{title}</p>
+        <p className="text-[13px] font-medium leading-tight text-[var(--text-primary)]">{title}</p>
         {description ? (
-          <p className="mt-0.5 max-w-[350px] text-[11px] leading-snug text-[#777]">{description}</p>
+          <p className="mt-0.5 max-w-[350px] text-[11px] leading-snug text-[var(--text-muted)]">{description}</p>
         ) : null}
       </div>
       <div className="flex shrink-0 items-center justify-end">{control}</div>
-    </div>
+    </RitualSettingsRow>
   );
 }
 

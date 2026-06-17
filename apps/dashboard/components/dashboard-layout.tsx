@@ -10,6 +10,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
+import { ContentSurface, Titlebar, ToolbarButton } from '@/components/ui/ritual-system';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -149,10 +150,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Native window chrome. Keep this row focused on window/navigation controls. */}
         {!isFullScreenChat && (
           <>
-            <header
-              data-tauri-drag-region
-              className="dashboard-top-chrome titlebar-region tauri-drag-region relative flex h-9 items-center overflow-hidden bg-transparent px-2"
-            >
+            <Titlebar>
               <div
                 data-tauri-drag-region
                 aria-hidden="true"
@@ -171,21 +169,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 >
                   {shouldShowTitlebarSidebarControls ? (
                     <div className="no-drag flex h-full items-center pl-[72px]">
-                      <button
+                      <ToolbarButton
                         type="button"
                         onMouseDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
                           handleChromeToggle();
                         }}
-                        className="titlebar-icon-button mr-3 flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.46)] transition-colors hover:text-[rgba(17,24,39,0.78)]"
+                        className="titlebar-icon-button mr-3"
                         aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                         title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
                       >
                         <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
-                      </button>
+                      </ToolbarButton>
                       <div className="flex items-center gap-0">
-                        <button
+                        <ToolbarButton
                           type="button"
                           onMouseDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
@@ -194,25 +192,25 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                               router.back();
                             }
                           }}
-                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button"
                           aria-label="Go back"
                           title="Go back"
                         >
                           <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
-                        </button>
-                        <button
+                        </ToolbarButton>
+                        <ToolbarButton
                           type="button"
                           onMouseDown={(event) => event.stopPropagation()}
                           onClick={(event) => {
                             event.stopPropagation();
                             router.forward();
                           }}
-                          className="titlebar-icon-button flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(17,24,39,0.42)] transition-colors hover:text-[rgba(17,24,39,0.76)]"
+                          className="titlebar-icon-button"
                           aria-label="Go forward"
                           title="Go forward"
                         >
                           <ChevronRight className="h-4 w-4 stroke-[2.05]" />
-                        </button>
+                        </ToolbarButton>
                       </div>
                     </div>
                   ) : null}
@@ -227,7 +225,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   </div>
                 </div>
               </div>
-            </header>
+            </Titlebar>
 
           </>
         )}
@@ -267,9 +265,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               </div>
             )}
             {/* Main Content */}
-            <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
+            <ContentSurface className="content-opaque flex flex-col flex-1 overflow-auto border-0">
               {children}
-            </main>
+            </ContentSurface>
           </div>
         </div>
       </div>

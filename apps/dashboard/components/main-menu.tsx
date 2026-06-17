@@ -2,19 +2,19 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   FlaskConical,
   Plug2,
   ChevronDown,
-  Repeat2,
   TableProperties,
   CalendarDays,
   ChartNoAxesCombined,
 } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
+import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -65,7 +65,6 @@ const icons = {
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
-  "/reports?view=routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
@@ -76,13 +75,13 @@ const items = [
     path: "/dashboard",
     name: "Index",
   },
+  // {
+  //   path: "/tasks",
+  //   name: "Tasks",
+  // },
   {
     path: "/activity",
     name: "Logs",
-  },
-  {
-    path: "/tasks",
-    name: "Tasks",
   },
   {
     path: "/calendar",
@@ -91,10 +90,6 @@ const items = [
   {
     path: "/reports",
     name: "Reports",
-  },
-  {
-    path: "/reports?view=routines",
-    name: "Routines",
   },
   {
     path: "/experiments",
@@ -149,17 +144,15 @@ const ChildItem = ({
     >
       <div
         className={cn(
-          "sidebar-nav-child-row relative ml-[29px] mr-[9px] rounded-sm transition-none",
-          "hover:bg-[rgba(17,24,39,0.032)]",
-          isActive && "bg-[rgba(17,24,39,0.052)] hover:bg-[rgba(17,24,39,0.058)]",
+              "group/child relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard hover:bg-[var(--row-hover)]",
+              isActive && "bg-[var(--row-active)]",
         )}
-        data-active={isActive ? "true" : undefined}
       >
         {/* Child item text */}
         <div
           className={cn(
-            "h-[30px] flex items-center",
-            "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
+            "h-[32px] flex items-center",
+              "border-l border-[var(--border-muted)] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
@@ -173,10 +166,10 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-colors duration-75",
-              "text-[#7a7a7a] group-hover/child:text-[#343434]",
+              "text-xs font-[450] transition-colors duration-90",
+              "text-[var(--text-muted)] group-hover/child:text-[var(--text-primary)]",
               "whitespace-nowrap overflow-hidden",
-              isActive && "text-[#111111]",
+              isActive && "text-[var(--text-primary)]",
             )}
           >
             {child.name}
@@ -243,36 +236,32 @@ const Item = ({
         {...getPrefetchProps()}
       >
         <div className="relative">
-          <div
+          <NavRowSurface
             className={cn(
-              "sidebar-nav-row h-[30px] rounded-sm transition-none",
-              "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
-              isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
-              isExpanded
-                ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]"
-                : "ml-[15px] w-[40px]",
+              "transition-[width,margin,background-color] duration-90 ease-out",
             )}
-            data-active={isActive ? "true" : undefined}
+            active={isActive}
+            expanded={isExpanded}
           />
 
           <div className={cn(
-            "absolute top-1/2 left-[15px] flex h-[30px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-75 pointer-events-none",
-            "text-[#575b60] group-hover/nav-item:text-[#252525]",
-            isActive && "text-[#111111]",
+            "ritual-nav-icon absolute top-1/2 left-[var(--sidebar-row-x)] flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center pointer-events-none",
             isCollapsedActive && "scale-[1.04]"
-          )}>
+          )}
+            data-active={isActive ? "true" : undefined}
+          >
             <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
           </div>
 
           {isExpanded && (
-            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[30px] -translate-y-1/2 items-center pointer-events-none">
+            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[var(--sidebar-row-height)] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-75 text-[#5f5f5f] group-hover/nav-item:text-[#252525]",
+                  "ritual-nav-label text-sm leading-none",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "font-[560] text-[#111111]",
                 )}
+                data-active={isActive ? "true" : undefined}
               >
                 {item.name}
               </span>
@@ -281,9 +270,9 @@ const Item = ({
                   type="button"
                   onClick={handleChevronClick}
                   className={cn(
-                    "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-[#888] hover:text-[#111111] pointer-events-auto",
-                    isActive && "text-[#111111]",
+                    "w-8 h-8 flex items-center justify-center transition-all duration-90 ml-auto mr-3",
+                    "text-[var(--icon-muted)] hover:text-[var(--text-primary)] pointer-events-auto",
+                    isActive && "text-[var(--text-primary)]",
                     shouldShowChildren && "rotate-180",
                   )}
                 >
@@ -330,7 +319,6 @@ type Props = {
 
 export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
   // Reset expanded item when sidebar expands/collapses
@@ -341,33 +329,13 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
   return (
     <div className="mt-3 w-full">
       <nav className="w-full">
-        <div className="flex flex-col gap-3">
+        <NavList>
           {items.map((item) => {
-            const [itemBasePath, itemQuery] = item.path.split("?");
-            const itemQueryParams = new URLSearchParams(itemQuery || "");
-            const matchingQueryItem = items.some((candidate) => {
-              const [candidateBasePath, candidateQuery] = candidate.path.split("?");
-              if (candidateBasePath !== item.path || !candidateQuery) return false;
-              const candidateParams = new URLSearchParams(candidateQuery);
-              return Array.from(candidateParams.entries()).every(
-                ([key, value]) => searchParams.get(key) === value,
-              );
-            });
-            const isQueryActive = itemQuery
-              ? pathname === itemBasePath &&
-                Array.from(itemQueryParams.entries()).every(
-                  ([key, value]) => searchParams.get(key) === value,
-                )
-              : false;
-            const isActive = isQueryActive || (
-              !itemQuery &&
-              !matchingQueryItem &&
-              (pathname === item.path ||
-                pathname === item.path + "/" ||
-                (pathname === "/" && item.path === "/dashboard") ||
-                (pathname === "/dashboard/" && item.path === "/dashboard") ||
-                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
-            );
+            const isActive = pathname === item.path || 
+              pathname === item.path + "/" ||
+              (pathname === "/" && item.path === "/dashboard") ||
+              (pathname === "/dashboard/" && item.path === "/dashboard") ||
+              (pathname?.startsWith(item.path) && item.path !== "/dashboard");
 
             return (
               <Item
@@ -383,7 +351,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
               />
             );
           })}
-        </div>
+        </NavList>
       </nav>
     </div>
   );

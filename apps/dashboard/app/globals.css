@@ -248,6 +248,35 @@
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
+
+  /* Ritual design system v0
+     Semantic app chrome tokens. Keep these as the first layer components
+     consume; appearance presets and platform-specific rules can remap them. */
+  --surface-window: #fefefe;
+  --surface-content: #fefefe;
+  --surface-chrome: var(--titlebar-glass-bg);
+  --surface-sidebar: var(--sidebar-vibrancy-bg);
+  --surface-panel: #f4f4f3;
+  --surface-control: rgba(255, 255, 255, 0.42);
+  --surface-control-hover: rgba(255, 255, 255, 0.58);
+  --border-subtle: rgba(15, 23, 42, 0.052);
+  --border-muted: rgba(15, 23, 42, 0.035);
+  --row-hover: rgba(0, 0, 0, 0.045);
+  --row-active: rgba(0, 0, 0, 0.065);
+  --row-active-hover: rgba(0, 0, 0, 0.075);
+  --text-primary: #111111;
+  --text-secondary: #666666;
+  --text-muted: #7a7a7a;
+  --icon-default: #5f6368;
+  --icon-muted: #888888;
+  --radius-control: 0.125rem;
+  --radius-row: 0.25rem;
+  --titlebar-height: 36px;
+  --sidebar-row-height: 40px;
+  --sidebar-row-gap: 10px;
+  --sidebar-row-x: 15px;
+  --sidebar-icon-size: 18px;
+  --sidebar-icon-box: 40px;
 }
 
 .dark {
@@ -288,6 +317,24 @@
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.18);
   --titlebar-glass-filter: saturate(1.2) blur(22px);
   --content-bg: #0b0b0c;
+
+  --surface-window: #0b0b0c;
+  --surface-content: #0b0b0c;
+  --surface-chrome: var(--titlebar-glass-bg);
+  --surface-sidebar: var(--sidebar-vibrancy-bg);
+  --surface-panel: #151516;
+  --surface-control: rgba(255, 255, 255, 0.1);
+  --surface-control-hover: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-muted: rgba(255, 255, 255, 0.06);
+  --row-hover: rgba(255, 255, 255, 0.055);
+  --row-active: rgba(255, 255, 255, 0.075);
+  --row-active-hover: rgba(255, 255, 255, 0.09);
+  --text-primary: #f7f7f3;
+  --text-secondary: #b8b8b2;
+  --text-muted: #9a9a94;
+  --icon-default: #b7b7b0;
+  --icon-muted: #969690;
 }
 
 @layer base {
@@ -348,6 +395,104 @@
   .no-drag textarea,
   .no-drag [contenteditable="true"] {
     cursor: text !important;
+  }
+
+  .ritual-app-chrome {
+    background: var(--surface-window);
+    color: var(--text-primary);
+  }
+
+  .ritual-titlebar {
+    height: var(--titlebar-height);
+    background: var(--surface-chrome);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .ritual-content-surface {
+    background: var(--surface-content);
+  }
+
+  .ritual-sidebar-shell {
+    background: var(--surface-sidebar);
+    border-right: 1px solid var(--border-subtle);
+  }
+
+  .ritual-sidebar-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sidebar-row-gap);
+    width: 100%;
+  }
+
+  .ritual-nav-row-surface {
+    height: var(--sidebar-row-height);
+    border-radius: var(--radius-row);
+    transition:
+      background-color 90ms ease-out,
+      color 90ms ease-out;
+  }
+
+  .group\/nav-item:hover .ritual-nav-row-surface,
+  .group\/settings-row:hover .ritual-nav-row-surface {
+    background-color: var(--row-hover);
+  }
+
+  .ritual-nav-row-surface[data-active="true"] {
+    background-color: var(--row-active);
+  }
+
+  .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"] {
+    background-color: var(--row-active-hover);
+  }
+
+  .ritual-nav-icon {
+    color: var(--icon-default);
+    transition:
+      color 90ms ease-out,
+      transform 90ms ease-out;
+  }
+
+  .group\/nav-item:hover .ritual-nav-icon,
+  .group\/settings-row:hover .ritual-nav-icon {
+    color: var(--text-primary);
+  }
+
+  .ritual-nav-label {
+    color: var(--text-secondary);
+    font-weight: 450;
+    transition: color 90ms ease-out;
+  }
+
+  .group\/nav-item:hover .ritual-nav-label,
+  .group\/settings-row:hover .ritual-nav-label {
+    color: var(--text-primary);
+  }
+
+  .ritual-nav-label[data-active="true"],
+  .ritual-nav-icon[data-active="true"] {
+    color: var(--text-primary);
+  }
+
+  .ritual-toolbar-button {
+    color: var(--titlebar-glass-control-text-muted);
+    border-radius: var(--radius-control);
+    transition:
+      color 90ms ease-out,
+      background-color 90ms ease-out;
+  }
+
+  .ritual-toolbar-button:hover {
+    color: var(--titlebar-glass-control-text-active);
+  }
+
+  .ritual-panel {
+    background: var(--surface-panel);
+    border-color: var(--border-subtle);
+  }
+
+  .ritual-settings-row {
+    color: var(--text-primary);
   }
 
   .titlebar-control {
@@ -822,41 +967,28 @@
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row,
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface {
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row:hover {
-    background-color: rgba(17, 24, 39, 0.032) !important;
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface,
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface,
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface {
+    background-color: var(--row-hover) !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"],
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"] {
-    background-color: rgba(17, 24, 39, 0.052) !important;
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"] {
+    background-color: var(--row-active) !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-row[data-active="true"]:hover {
-    background-color: rgba(17, 24, 39, 0.058) !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row:hover {
-    background-color: rgba(17, 24, 39, 0.032) !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"],
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"] {
-    background-color: rgba(17, 24, 39, 0.052) !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"]:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .sidebar-nav-child-row[data-active="true"]:hover {
-    background-color: rgba(17, 24, 39, 0.058) !important;
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"] {
+    background-color: var(--row-active-hover) !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .sidebar-header,
