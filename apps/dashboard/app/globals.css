@@ -261,9 +261,9 @@
   --surface-control-hover: rgba(255, 255, 255, 0.58);
   --border-subtle: rgba(15, 23, 42, 0.052);
   --border-muted: rgba(15, 23, 42, 0.035);
-  --row-hover: rgba(0, 0, 0, 0.045);
-  --row-active: rgba(0, 0, 0, 0.065);
-  --row-active-hover: rgba(0, 0, 0, 0.075);
+  --row-hover: rgba(17, 24, 39, 0.032);
+  --row-active: rgba(17, 24, 39, 0.052);
+  --row-active-hover: rgba(17, 24, 39, 0.058);
   --text-primary: #111111;
   --text-secondary: #666666;
   --text-muted: #7a7a7a;
@@ -272,9 +272,10 @@
   --radius-control: 0.125rem;
   --radius-row: 0.25rem;
   --titlebar-height: 36px;
-  --sidebar-row-height: 40px;
-  --sidebar-row-gap: 10px;
-  --sidebar-row-x: 15px;
+  --sidebar-row-height: 30px;
+  --sidebar-row-gap: 12px;
+  --sidebar-row-x: 9px;
+  --sidebar-icon-x: 15px;
   --sidebar-icon-size: 18px;
   --sidebar-icon-box: 40px;
 }
