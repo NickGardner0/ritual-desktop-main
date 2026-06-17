@@ -202,9 +202,9 @@ export function HomeClient() {
 
   const startSignup = () => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'meet');
+      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'setup');
     }
-    router.push('/onboarding?s=meet');
+    router.push('/onboarding?s=setup');
   };
 
   // Show loading while checking auth state for signed-in users

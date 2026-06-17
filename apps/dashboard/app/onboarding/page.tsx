@@ -4,35 +4,34 @@ import { useCallback, useEffect, useMemo, useState, type ButtonHTMLAttributes } 
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ClerkLoaded, ClerkLoading, SignUp, useAuth, useUser } from "@clerk/nextjs"
-import { Check, ChevronLeft } from "lucide-react"
+import { ChevronLeft } from "lucide-react"
 
 import { AuthFlowIntent } from "@/components/auth-flow-intent"
 import { ClerkOAuthHandler } from "@/components/clerk-oauth-handler"
-import { DashboardPreviewWindow, LandingHeroPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
+import { DashboardPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
+import { OnboardingSetupStep } from "@/components/onboarding/onboarding-setup-step"
 import {
+  normalizeOnboardingStep,
   onboardingRouteForStep,
   parseOnboardingStepFromRoute,
   resolveOnboardingStep,
   resolveSsoRedirectRoute,
 } from "@/lib/activation-flow.mjs"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
-import { PermissionsPanel, VaultPanel } from "@/components/onboarding/onboarding-preview-panels"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import { getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities'
 import {
-  ONBOARDING_CARD_WINDOW_HEIGHT,
-  ONBOARDING_CARD_WINDOW_WIDTH,
+  ONBOARDING_SETUP_WINDOW_HEIGHT,
   ONBOARDING_SIGNUP_WINDOW_HEIGHT,
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
-  ONBOARDING_WINDOW_HEIGHT,
   ONBOARDING_WINDOW_WIDTH,
   setOnboardingWindowSize,
 } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
 
-type V3Step = "welcome" | "signup" | "meet" | "permissions" | "privacy"
+type V3Step = "welcome" | "signup" | "setup"
 
 type BootstrapResponse = {
   nextRoute?: string
@@ -42,27 +41,11 @@ type BootstrapResponse = {
 
 type ChecklistStatus = "seen" | "skipped" | "completed" | "needs_attention"
 
-const V3_STEPS: V3Step[] = ["welcome", "signup", "meet", "permissions", "privacy"]
+const V3_STEPS: V3Step[] = ["welcome", "signup", "setup"]
 const ONBOARDING_V3_STEP_KEY = "ritual:onboarding-v3-step"
 
 function readV3Step(value: string | null): V3Step | null {
-  return V3_STEPS.includes(value as V3Step) ? (value as V3Step) : null
-}
-
-function nextStep(step: V3Step): V3Step {
-  const index = V3_STEPS.indexOf(step)
-  return V3_STEPS[Math.min(index + 1, V3_STEPS.length - 1)]
-}
-
-function previousStep(step: V3Step): V3Step {
-  const index = V3_STEPS.indexOf(step)
-  return V3_STEPS[Math.max(index - 1, 0)]
-}
-
-function previousVisibleStep(step: V3Step): V3Step {
-  if (step === "permissions") return "meet"
-  if (step === "meet") return "welcome"
-  return previousStep(step)
+  return normalizeOnboardingStep(value)
 }
 
 function readPersistedStep(): V3Step | null {
@@ -113,62 +96,6 @@ function OnboardingButton({
     >
       {children}
     </Button>
-  )
-}
-
-function BackButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
-  return (
-    <OnboardingButton variant="secondary" onClick={onClick} disabled={disabled} aria-label="Back">
-      <ChevronLeft className="mr-[2px] h-[14px] w-[14px] text-[#111827]" strokeWidth={2.4} />
-      Back
-    </OnboardingButton>
-  )
-}
-
-function Footer({
-  onBack,
-  onContinue,
-  onSkip,
-  continueLabel = "Continue",
-  busy = false,
-}: {
-  onBack?: () => void
-  onContinue: () => void
-  onSkip?: () => void
-  continueLabel?: string
-  busy?: boolean
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div>{onBack ? <BackButton onClick={onBack} disabled={busy} /> : null}</div>
-      <div className="flex items-center gap-2">
-        {onSkip ? (
-          <OnboardingButton variant="secondary" onClick={onSkip} disabled={busy}>
-            Skip
-          </OnboardingButton>
-        ) : null}
-        <OnboardingButton onClick={onContinue} disabled={busy}>
-          {busy ? "Working..." : continueLabel}
-        </OnboardingButton>
-      </div>
-    </div>
-  )
-}
-
-function TrustRow() {
-  const items = ["Local-first storage", "End-to-end encrypted", "Delete anytime"]
-
-  return (
-    <div className="mt-[25px] flex flex-wrap items-center gap-x-[28px] gap-y-3">
-      {items.map((item) => (
-        <div key={item} className="flex items-center gap-[9px] text-[15px] font-medium text-[#3f4654]">
-          <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[7px] bg-[#f0f0f2]">
-            <Check className="h-[14px] w-[14px] text-[#52525b]" strokeWidth={2.3} />
-          </span>
-          {item}
-        </div>
-      ))}
-    </div>
   )
 }
 
@@ -242,21 +169,20 @@ export default function OnboardingPage() {
       ? ONBOARDING_WELCOME_WINDOW_HEIGHT
       : step === "signup"
         ? ONBOARDING_SIGNUP_WINDOW_HEIGHT
-        : ONBOARDING_CARD_WINDOW_HEIGHT
-    const nextWidth = step === "welcome" || step === "signup" ? ONBOARDING_WINDOW_WIDTH : ONBOARDING_CARD_WINDOW_WIDTH
-    void setOnboardingWindowSize(nextHeight, nextWidth)
+        : ONBOARDING_SETUP_WINDOW_HEIGHT
+    void setOnboardingWindowSize(nextHeight, ONBOARDING_WINDOW_WIDTH)
   }, [step])
 
   useEffect(() => {
     if (!isLoaded) return
 
-    if (!user && (step === "permissions" || step === "privacy")) {
+    if (!user && step === "setup") {
       goToStep("signup")
       return
     }
 
     if (user && step === "signup") {
-      goToStep("meet")
+      goToStep("setup")
     }
   }, [goToStep, isLoaded, step, user])
 
@@ -489,17 +415,16 @@ export default function OnboardingPage() {
       placeTagging.completed ? "completed" : "needs_attention",
       placeTagging.metadata,
     ).catch(() => undefined)
-
-    await openPrivacyPane(invoke, "open_screen_recording_settings")
-    await openPrivacyPane(invoke, "open_input_monitoring_settings")
-    await openPrivacyPane(invoke, "open_full_disk_access_settings")
   }
 
-  async function finishV3Flow() {
+  const finishSetupFlow = useCallback(async () => {
     if (busy) return
     setBusy(true)
     setError(null)
     try {
+      await requestDesktopPermissions().catch((permissionError) => {
+        console.warn("Setup permissions finished with partial errors:", permissionError)
+      })
       await markSetupSeen()
       clearPersistedStep()
       router.replace("/dashboard")
@@ -508,22 +433,21 @@ export default function OnboardingPage() {
       setError("Unable to finish setup. Please try again.")
       setBusy(false)
     }
-  }
+  }, [authHeaders, getToken, router, user])
 
-  async function allowAndContinue() {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      await requestDesktopPermissions()
-      goToStep("privacy")
-    } catch (permissionError) {
-      console.error("Failed requesting desktop permissions:", permissionError)
-      setError("Some permissions could not be requested. You can continue and adjust them later in Settings.")
-    } finally {
-      setBusy(false)
+  useEffect(() => {
+    if (step !== "setup" || busy) return
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Enter") {
+        event.preventDefault()
+        void finishSetupFlow()
+      }
     }
-  }
+
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [busy, finishSetupFlow, step])
 
   if (!isLoaded && step !== "welcome") {
     return (
@@ -537,7 +461,6 @@ export default function OnboardingPage() {
     return <SignUpStep desktopMode={isDesktop} oauthFlowMode={oauthFlow} />
   }
 
-  const windowClassName = step === "welcome" ? "h-[612px] max-w-[800px]" : "h-[500px] max-w-[720px]"
   const pageClassName = isDesktop
     ? "min-h-screen bg-white"
     : "min-h-screen bg-[#e9e9e7]"
@@ -547,7 +470,7 @@ export default function OnboardingPage() {
       <div data-tauri-drag-region className="fixed left-0 right-0 top-0 z-50 h-8" />
       {step === "welcome" ? (
         <OnboardingWindow
-          className={windowClassName}
+          className="h-[612px] max-w-[800px]"
           bannerSize="welcome"
           title="Welcome to Ritual"
           banner={
@@ -575,51 +498,17 @@ export default function OnboardingPage() {
             </p>
           }
           footer={
-            <Footer
-              onContinue={() => goToStep(user ? "meet" : "signup")}
-              continueLabel="Get Started"
-            />
+            <div className="flex justify-center">
+              <OnboardingButton onClick={() => goToStep(user ? "setup" : "signup")}>
+                Get Started
+              </OnboardingButton>
+            </div>
           }
         />
       ) : null}
 
-      {step === "meet" ? (
-        <OnboardingWindow
-          className={windowClassName}
-          title="Your way to track anything"
-          banner={<LandingHeroPreviewWindow />}
-          body="Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior. It connects the data from your wearables, your computer, and your phone, quietly logging in the background while you live your life."
-          footer={<Footer onBack={() => goToStep(previousVisibleStep(step))} onContinue={() => goToStep(user ? "permissions" : "signup")} />}
-        />
-      ) : null}
-
-      {step === "permissions" ? (
-        <OnboardingWindow
-          className={windowClassName}
-          title="Grant permissions"
-          banner={<PermissionsPanel />}
-          body="Allow Ritual to read local activity, files, microphone, screen context, and place context so it can track your day in the background. You can change these permissions anytime in macOS Settings."
-          footer={
-            <Footer
-              onBack={() => goToStep(previousVisibleStep(step))}
-              onSkip={() => goToStep(nextStep(step))}
-              onContinue={() => void allowAndContinue()}
-              continueLabel="Allow & Continue"
-              busy={busy}
-            />
-          }
-        />
-      ) : null}
-
-      {step === "privacy" ? (
-        <OnboardingWindow
-          className={windowClassName}
-          title="Your data stays yours"
-          banner={<VaultPanel />}
-          body="Everything Ritual remembers lives on your Mac, encrypted with a key only you hold. No cloud sync, and your data is never used to train anyone's models."
-          afterBody={<TrustRow />}
-          footer={<Footer onBack={() => goToStep(previousVisibleStep(step))} onContinue={() => void finishV3Flow()} busy={busy} />}
-        />
+      {step === "setup" ? (
+        <OnboardingSetupStep busy={busy} onFinish={() => void finishSetupFlow()} />
       ) : null}
 
       {error ? (

@@ -1,10 +1,34 @@
-/** @typedef {"welcome" | "signup" | "meet" | "permissions" | "privacy"} OnboardingStep */
+/** @typedef {"welcome" | "signup" | "setup"} OnboardingStep */
 
-export const V3_ONBOARDING_STEPS = ["welcome", "signup", "meet", "permissions", "privacy"];
+export const V3_ONBOARDING_STEPS = ["welcome", "signup", "setup"];
 
-const ONBOARDING_ROUTES = new Set(
-  V3_ONBOARDING_STEPS.map((step) => `/onboarding?s=${step}`),
-);
+/** @type {Record<string, OnboardingStep>} */
+const LEGACY_ONBOARDING_STEP_ALIASES = {
+  meet: "setup",
+  permissions: "setup",
+  privacy: "setup",
+};
+
+const ONBOARDING_ROUTES = new Set([
+  ...V3_ONBOARDING_STEPS.map((step) => `/onboarding?s=${step}`),
+  ...Object.keys(LEGACY_ONBOARDING_STEP_ALIASES).map((step) => `/onboarding?s=${step}`),
+]);
+
+/**
+ * @param {unknown} step
+ * @returns {OnboardingStep | null}
+ */
+export function normalizeOnboardingStep(step) {
+  if (typeof step !== "string") {
+    return null;
+  }
+
+  if (V3_ONBOARDING_STEPS.includes(step)) {
+    return step;
+  }
+
+  return LEGACY_ONBOARDING_STEP_ALIASES[step] ?? null;
+}
 
 /**
  * @param {unknown} route
@@ -23,13 +47,12 @@ export function parseOnboardingStepFromRoute(route) {
     return null;
   }
 
-  const match = route.match(/^\/onboarding\?s=([a-z-]+)$/);
+  const match = route.match(/^\/onboarding\?s=([a-z_]+)$/);
   if (!match) {
     return null;
   }
 
-  const step = match[1];
-  return V3_ONBOARDING_STEPS.includes(step) ? step : null;
+  return normalizeOnboardingStep(match[1]);
 }
 
 /**
@@ -39,16 +62,18 @@ export function parseOnboardingStepFromRoute(route) {
  */
 export function resolveOnboardingStep(backendRoute, cachedStep) {
   const backendStep = parseOnboardingStepFromRoute(backendRoute);
+  const normalizedCachedStep = normalizeOnboardingStep(cachedStep);
+
   if (!backendStep) {
-    return cachedStep && V3_ONBOARDING_STEPS.includes(cachedStep) ? cachedStep : "welcome";
+    return normalizedCachedStep ?? "welcome";
   }
 
-  if (!cachedStep || !V3_ONBOARDING_STEPS.includes(cachedStep)) {
+  if (!normalizedCachedStep) {
     return backendStep;
   }
 
   const backendIdx = V3_ONBOARDING_STEPS.indexOf(backendStep);
-  const cachedIdx = V3_ONBOARDING_STEPS.indexOf(cachedStep);
+  const cachedIdx = V3_ONBOARDING_STEPS.indexOf(normalizedCachedStep);
   return V3_ONBOARDING_STEPS[Math.max(backendIdx, cachedIdx)];
 }
 
@@ -63,7 +88,8 @@ export function resolveSsoRedirectRoute(nextRoute, dashboardReturnUrl) {
   }
 
   if (isSafeActivationRoute(nextRoute)) {
-    return nextRoute;
+    const normalizedStep = parseOnboardingStepFromRoute(nextRoute);
+    return normalizedStep ? onboardingRouteForStep(normalizedStep) : "/dashboard";
   }
 
   return "/dashboard";
@@ -78,7 +104,12 @@ export function resolveDashboardActivationRedirect(nextRoute) {
     return null;
   }
 
-  return nextRoute === "/dashboard" ? null : nextRoute;
+  if (nextRoute === "/dashboard") {
+    return null;
+  }
+
+  const normalizedStep = parseOnboardingStepFromRoute(nextRoute);
+  return normalizedStep ? onboardingRouteForStep(normalizedStep) : null;
 }
 
 /**

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 const {
   isSafeActivationRoute,
+  normalizeOnboardingStep,
   onboardingRouteForStep,
   parseOnboardingStepFromRoute,
   resolveDashboardActivationRedirect,
@@ -13,8 +14,9 @@ const {
 describe("activation flow route helpers", () => {
   test("SSO callback redirects only from backend nextRoute", () => {
     assert.equal(resolveSsoRedirectRoute("/onboarding?s=signup"), "/onboarding?s=signup");
-    assert.equal(resolveSsoRedirectRoute("/onboarding?s=meet"), "/onboarding?s=meet");
-    assert.equal(resolveSsoRedirectRoute("/onboarding?s=permissions"), "/onboarding?s=permissions");
+    assert.equal(resolveSsoRedirectRoute("/onboarding?s=setup"), "/onboarding?s=setup");
+    assert.equal(resolveSsoRedirectRoute("/onboarding?s=meet"), "/onboarding?s=setup");
+    assert.equal(resolveSsoRedirectRoute("/onboarding?s=permissions"), "/onboarding?s=setup");
     assert.equal(resolveSsoRedirectRoute("/dashboard"), "/dashboard");
   });
 
@@ -26,7 +28,7 @@ describe("activation flow route helpers", () => {
     assert.equal(resolveSsoRedirectRoute("/dashboard", "/settings"), "/dashboard");
     assert.equal(
       resolveSsoRedirectRoute("/onboarding?s=meet", "/dashboard?view=metrics"),
-      "/onboarding?s=meet",
+      "/onboarding?s=setup",
     );
   });
 
@@ -41,21 +43,23 @@ describe("activation flow route helpers", () => {
     assert.equal(resolveDashboardActivationRedirect("/onboarding?s=signup"), "/onboarding?s=signup");
     assert.equal(
       resolveDashboardActivationRedirect("/onboarding?s=permissions"),
-      "/onboarding?s=permissions",
+      "/onboarding?s=setup",
     );
     assert.equal(resolveDashboardActivationRedirect("/not-real"), null);
   });
 
-  test("onboarding step parsing supports V3 steps", () => {
-    assert.equal(parseOnboardingStepFromRoute("/onboarding?s=meet"), "meet");
-    assert.equal(parseOnboardingStepFromRoute("/onboarding?s=privacy"), "privacy");
+  test("onboarding step parsing supports setup and legacy aliases", () => {
+    assert.equal(parseOnboardingStepFromRoute("/onboarding?s=setup"), "setup");
+    assert.equal(parseOnboardingStepFromRoute("/onboarding?s=meet"), "setup");
+    assert.equal(parseOnboardingStepFromRoute("/onboarding?s=privacy"), "setup");
     assert.equal(parseOnboardingStepFromRoute("/onboarding?s=profile"), null);
     assert.equal(parseOnboardingStepFromRoute("/dashboard"), null);
+    assert.equal(normalizeOnboardingStep("permissions"), "setup");
   });
 
   test("onboarding step resolution keeps UX cache ahead of backend minimum", () => {
-    assert.equal(resolveOnboardingStep("/onboarding?s=meet", "permissions"), "permissions");
-    assert.equal(resolveOnboardingStep("/onboarding?s=meet", null), "meet");
-    assert.equal(onboardingRouteForStep("privacy"), "/onboarding?s=privacy");
+    assert.equal(resolveOnboardingStep("/onboarding?s=setup", "setup"), "setup");
+    assert.equal(resolveOnboardingStep("/onboarding?s=meet", null), "setup");
+    assert.equal(onboardingRouteForStep("setup"), "/onboarding?s=setup");
   });
 });

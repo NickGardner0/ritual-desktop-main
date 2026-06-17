@@ -51,7 +51,7 @@ class ActivationServiceTests(unittest.TestCase):
 
         self.assertTrue(bootstrap.profileComplete)
         self.assertFalse(bootstrap.permissionsSeen)
-        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=meet")
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=setup")
 
     def test_bootstrap_routes_setup_seen_user_to_dashboard(self):
         bootstrap = self._bootstrap(first_logged=True, permissions_seen=True)
@@ -67,7 +67,7 @@ class ActivationServiceTests(unittest.TestCase):
         self.assertTrue(bootstrap.firstBehaviorLogged)
         self.assertTrue(bootstrap.activation.activationCompleted)
         self.assertFalse(bootstrap.permissionsSeen)
-        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=meet")
+        self.assertEqual(bootstrap.nextRoute, "/onboarding?s=setup")
 
     def test_connected_provider_marks_checklist_completed(self):
         bootstrap = self.service._build_response(

@@ -502,7 +502,7 @@ class ActivationService:
         if not profile_complete:
             next_route = "/onboarding?s=signup"
         elif not state.permissions_seen_at:
-            next_route = "/onboarding?s=meet"
+            next_route = "/onboarding?s=setup"
         else:
             next_route = "/dashboard"
 
