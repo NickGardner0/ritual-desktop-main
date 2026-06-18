@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, FileText, FlaskConical, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
+import { CalendarDays, ChartNoAxesColumn, FileText, FlaskConical, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { cn } from "@/lib/utils";
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
@@ -28,6 +28,7 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
 
 const items = [
   { path: "/dashboard", name: "Index", icon: ILetterIcon },
+  { path: "/dashboard?view=metrics", name: "Metrics", icon: ChartNoAxesColumn },
   { path: "/activity", name: "Logs", icon: TableProperties },
   { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
@@ -148,16 +149,18 @@ export function DetachedSidebarShell() {
                     <div
                       className={cn(
                         "sidebar-nav-row h-[30px] rounded-sm transition-none",
-                        "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
-                        isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
+                        isExpanded && "group-hover/nav-item:bg-[rgba(17,24,39,0.032)]",
+                        isExpanded && isActive && "bg-[rgba(17,24,39,0.052)] group-hover/nav-item:bg-[rgba(17,24,39,0.058)]",
                         isExpanded ? "ml-[9px] mr-[9px] w-[calc(100%-18px)]" : "ml-[15px] w-[40px]",
                       )}
                       data-active={isActive ? "true" : undefined}
+                      data-expanded={isExpanded ? "true" : "false"}
                     />
                     <div
                       className={cn(
                         "absolute top-0 left-[15px] flex h-[30px] w-[40px] items-center justify-center transition-[color,transform] duration-75",
                         "text-[#575b60] group-hover/nav-item:text-[#252525]",
+                        !isExpanded && "text-[#252525] group-hover/nav-item:text-[#050505]",
                         isActive && "text-[#111111]",
                         isCollapsedActive && "scale-[1.04]",
                       )}

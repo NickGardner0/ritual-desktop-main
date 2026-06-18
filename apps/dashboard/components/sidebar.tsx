@@ -138,6 +138,7 @@ export function Sidebar() {
             className={cn(
               "ritual-nav-icon absolute top-1/2 left-0 flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center",
             )}
+            data-collapsed={!isExpanded ? "true" : undefined}
           >
             <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.1} />
           </span>

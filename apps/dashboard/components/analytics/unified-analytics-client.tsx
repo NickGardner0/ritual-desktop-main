@@ -25,7 +25,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
-import { ViewModeToggle, ViewMode } from './view-mode-toggle';
+import type { ViewMode } from './view-mode-toggle';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
@@ -313,7 +313,7 @@ function UnifiedAnalyticsContent({
   // Sync view mode with URL
   useEffect(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam === 'chat' || viewParam === 'overview' || viewParam === 'metrics') {
+    if (viewParam === 'overview' || viewParam === 'metrics') {
       setViewMode(viewParam);
     }
   }, [searchParams, setViewMode]);
@@ -377,21 +377,6 @@ function UnifiedAnalyticsContent({
     };
   }, [dashboardSnapshot.overviewStats, habits.length, metricsReadModel.metricsAnalyticsData, viewMode]);
   
-  // Update URL when view mode changes
-  const handleViewChange = useCallback((newView: ViewMode) => {
-    if (newView === 'chat') {
-      // Navigate to the dedicated full chat page
-      router.push('/chat');
-      return;
-    }
-    setViewMode(newView);
-
-    // Update URL without triggering navigation
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('view', newView);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [setViewMode, router, pathname, searchParams]);
-
   // Handle habit creation
   const handleHabitCreated = useCallback(async () => {
     try {
@@ -408,28 +393,16 @@ function UnifiedAnalyticsContent({
   // fires *after* paint, finds the freshly-mounted nodes, and triggers a
   // re-render that wires up the portals.
   const [headerRightSlot, setHeaderRightSlot] = useState<HTMLElement | null>(null);
-  const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     const right = document.getElementById('header-right-slot');
-    const center = document.getElementById('header-center-slot');
     queueMicrotask(() => {
       setHeaderRightSlot(right);
-      setHeaderCenterSlot(center);
     });
   }, [isFullScreenChat]);
 
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
-      {/* Tab bar — portalled into header center slot */}
-      {!isFullScreenChat && headerCenterSlot && createPortal(
-        <ViewModeToggle
-          currentView={viewMode}
-          onViewChange={handleViewChange}
-        />,
-        headerCenterSlot
-      )}
-
       {/* + button (overview) + Date picker — portalled into header right slot, hidden in chat mode */}
       {!isFullScreenChat && viewMode !== 'chat' && headerRightSlot && createPortal(
         <>

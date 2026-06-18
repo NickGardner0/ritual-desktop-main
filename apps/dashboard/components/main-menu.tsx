@@ -62,6 +62,7 @@ const MiddayInvoiceIcon = ({
 
 const icons = {
   "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
+  "/dashboard?view=metrics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
@@ -76,6 +77,10 @@ const items = [
   {
     path: "/dashboard",
     name: "Index",
+  },
+  {
+    path: "/dashboard?view=metrics",
+    name: "Metrics",
   },
   {
     path: "/activity",
@@ -207,6 +212,7 @@ const Item = ({
   const getPrefetchProps = () => {
     switch (item.path) {
       case '/dashboard': return prefetchDashboard;
+      case '/dashboard?view=metrics': return prefetchAnalytics;
       case '/analytics': return prefetchAnalytics;
       default: return {};
     }
@@ -255,6 +261,7 @@ const Item = ({
             isCollapsedActive && "scale-[1.04]"
           )}
             data-active={isActive ? "true" : undefined}
+            data-collapsed={!isExpanded ? "true" : undefined}
           >
             <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
           </div>

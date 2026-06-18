@@ -5,7 +5,7 @@ import React from 'react';
 export function StartSectionHeader({ title }: { title: string }) {
   return (
     <div className="mb-2 flex items-center gap-2 px-1">
-      <span className="text-[11px] font-medium uppercase leading-none tracking-normal text-[#8f9399]">
+      <span className="text-[11px] font-normal uppercase leading-none tracking-normal text-[#8f9399]">
         {title}
       </span>
       <div className="h-px flex-1 bg-[rgba(15,23,42,0.075)]" />
@@ -31,13 +31,13 @@ export function StartCommand({
       className="group flex h-8 w-full items-center justify-between rounded-sm px-2 text-left transition-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:outline-none"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <Icon className="h-4 w-4 shrink-0 text-[#8f9399] transition-none group-hover:text-[#62666d]" strokeWidth={2} />
-        <span className="truncate text-[14px] font-medium leading-none text-[#27292d]">
+        <Icon className="h-4 w-4 shrink-0 text-[#8f9399] transition-none group-hover:text-[#62666d]" strokeWidth={1.9} />
+        <span className="truncate text-[14px] font-normal leading-none text-[#27292d]">
           {label}
         </span>
       </span>
       {shortcut ? (
-        <span className="ml-4 shrink-0 text-[12px] font-medium leading-none text-[#8f9399]">
+        <span className="ml-4 shrink-0 text-[12px] font-normal leading-none text-[#8f9399]">
           {shortcut}
         </span>
       ) : null}

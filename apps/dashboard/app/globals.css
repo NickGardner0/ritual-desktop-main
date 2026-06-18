@@ -433,18 +433,22 @@
       color 90ms ease-out;
   }
 
-  .group\/nav-item:hover .ritual-nav-row-surface,
-  .group\/settings-row:hover .ritual-nav-row-surface {
+  .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"] {
     background-color: var(--row-hover);
   }
 
-  .ritual-nav-row-surface[data-active="true"] {
+  .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
     background-color: var(--row-active);
   }
 
-  .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
-  .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"] {
+  .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
     background-color: var(--row-active-hover);
+  }
+
+  .ritual-nav-row-surface[data-expanded="false"] {
+    background-color: transparent;
   }
 
   .ritual-nav-icon {
@@ -454,9 +458,19 @@
       transform 90ms ease-out;
   }
 
+  .ritual-nav-icon[data-collapsed="true"] {
+    color: #252525;
+  }
+
   .group\/nav-item:hover .ritual-nav-icon,
   .group\/settings-row:hover .ritual-nav-icon {
     color: var(--text-primary);
+  }
+
+  .group\/nav-item:hover .ritual-nav-icon[data-collapsed="true"],
+  .group\/settings-row:hover .ritual-nav-icon[data-collapsed="true"],
+  .ritual-nav-icon[data-active="true"][data-collapsed="true"] {
+    color: #050505;
   }
 
   .ritual-nav-label {
@@ -973,22 +987,22 @@
     background-color: transparent !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface,
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="true"] {
     background-color: var(--row-hover) !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"],
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"] {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
     background-color: var(--row-active) !important;
   }
 
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"],
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"],
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"] {
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/nav-item:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"],
+  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .group\/settings-row:hover .ritual-nav-row-surface[data-active="true"][data-expanded="true"] {
     background-color: var(--row-active-hover) !important;
   }
 

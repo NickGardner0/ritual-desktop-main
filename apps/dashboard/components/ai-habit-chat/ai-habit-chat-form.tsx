@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, ArrowUpRight, AudioLines, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VoiceWaveform, VoiceWaveformMini } from '../voice-waveform';
@@ -63,10 +64,44 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
     editedValue, setEditedValue, selectedHabitId, setSelectedHabitId, selectedScreenshotHabit,
     screenshotHabitOptions, showHabitPicker, setShowHabitPicker, isConfirming, visibleInlineOptions,
     selectedSuggestionIndex, setSelectedSuggestionIndex, keyboardSuggestionActive, setKeyboardSuggestionActive,
-    showSuggestions, clarifications, setClarifications, textareaRef, fileInputRef, router, handleFormSubmit, handleKeyDown,
+    showSuggestions, clarifications, setClarifications, textareaRef, fileInputRef, handleFormSubmit, handleKeyDown,
     handleInputFocus, handleInputBlur, handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
     handleFileChange, handleCancelScreenshot, handleConfirmScreenshot, adjustEditedValue,
   } = props;
+
+  const shellRef = React.useRef<HTMLDivElement | null>(null);
+  const [isExpanded, setIsExpanded] = React.useState(false);
+  const hasInput = input.trim().length > 0;
+  const hasTransientState = Boolean(
+    hasInput
+      || showSuggestions
+      || error
+      || isListening
+      || isProcessingVoice
+      || submitButtonLoading
+      || isUploadingScreenshot
+      || screenshotPreview
+      || clarifications.length > 0
+  );
+  const displayExpanded = isExpanded || hasTransientState;
+  const surfaceHeight = showSuggestions
+    ? 220
+    : error
+      ? 150
+      : hasInput && (input.length > 88 || input.includes('\n'))
+        ? 136
+        : displayExpanded
+          ? 112
+          : 48;
+
+  const handleComposerBlur = () => {
+    handleInputBlur();
+    window.setTimeout(() => {
+      if (!shellRef.current?.contains(document.activeElement) && !hasTransientState) {
+        setIsExpanded(false);
+      }
+    }, 0);
+  };
 
   return (
     <div className="w-full">
@@ -89,19 +124,26 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         handleConfirmScreenshot={handleConfirmScreenshot}
       />
 
-      <div className="relative border border-gray-200/80 bg-[#FEFEFE] shadow-sm rounded-sm transition-all duration-300 hover:shadow-md hover:border-gray-300 focus-within:shadow-md focus-within:border-gray-300">
-        <form onSubmit={handleFormSubmit}>
-          <div className="px-5 pt-3 pb-3">
-            {/* Input Area */}
-            <div className="mb-1 relative">
+      <motion.div
+        ref={shellRef}
+        initial={false}
+        animate={{
+          maxWidth: displayExpanded ? 672 : 480,
+          height: surfaceHeight,
+          borderRadius: displayExpanded ? 8 : 24,
+        }}
+        transition={{ type: 'spring', stiffness: 520, damping: 42, mass: 0.75 }}
+        className="relative mx-auto w-full overflow-hidden border border-gray-200/80 bg-[#FEFEFE] shadow-sm focus-within:border-gray-300 focus-within:shadow-md"
+      >
+        <form onSubmit={handleFormSubmit} className="h-full">
+          <div className="relative h-full">
+            <div className={cn("absolute inset-x-0 top-0 pr-14", displayExpanded ? "px-5 pt-3" : "px-5")}>
               {isListening && audioStream ? (
-                <div className="w-full flex flex-col items-center justify-center gap-1">
-                  <div className="w-full h-[42px] flex items-center justify-center">
-                    <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
-                  </div>
+                <div className={cn("flex w-full items-center justify-center", displayExpanded ? "h-[42px]" : "h-12")}>
+                  <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
                 </div>
               ) : isListening || isProcessingVoice ? (
-                <div className="w-full h-[42px]" aria-hidden />
+                <div className={cn("w-full", displayExpanded ? "h-[42px]" : "h-12")} aria-hidden />
               ) : (
                 <textarea
                   ref={textareaRef}
@@ -115,121 +157,128 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     setKeyboardSuggestionActive(false);
                   }}
                   onKeyDown={handleKeyDown}
-                  onFocus={handleInputFocus}
-                  onBlur={handleInputBlur}
+                  onFocus={() => {
+                    setIsExpanded(true);
+                    handleInputFocus();
+                  }}
+                  onBlur={handleComposerBlur}
                   placeholder={isListening
                     ? "Listening..."
                     : mode === 'log'
                       ? "Log anything..."
                       : "Ask about your personal data..."
                   }
-                  className="w-full resize-none border-0 outline-none text-base text-gray-900 placeholder-gray-500 bg-transparent py-1.5 font-normal leading-6"
-                  rows={1}
+                  className={cn(
+                    "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60",
+                    displayExpanded
+                      ? "min-h-[42px] max-h-[70px] py-1.5 text-base leading-6"
+                      : "h-12 py-[13px] text-[15px] leading-5"
+                  )}
+                  rows={displayExpanded ? 2 : 1}
                   disabled={submitButtonLoading}
                   readOnly={isListening}
                 />
               )}
-            </div>
 
-            <div
-              className={cn(
-                "overflow-hidden transition-all duration-150 ease-out",
-                showSuggestions ? "max-h-[104px] opacity-100 pt-1 pb-0" : "max-h-0 opacity-0"
-              )}
-            >
-              <div className="max-h-[98px] overflow-y-auto border-t border-gray-200/70 pt-0.5">
-                {visibleInlineOptions.map((option, idx) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => handleInlineOptionSelect(option)}
-                    onMouseEnter={() => {
-                      setSelectedSuggestionIndex(idx);
-                      setKeyboardSuggestionActive(true);
-                    }}
-                    className={cn(
-                      "w-full flex items-center justify-between gap-3 px-0 py-[7px] text-left text-[13px] transition-colors group",
-                      idx === selectedSuggestionIndex
-                        ? "text-gray-950"
-                        : "text-gray-500 hover:text-gray-900"
-                    )}
+              <AnimatePresence initial={false}>
+                {displayExpanded && showSuggestions && (
+                  <motion.div
+                    initial={{ opacity: 0, filter: 'blur(4px)' }}
+                    animate={{ opacity: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, filter: 'blur(4px)' }}
+                    transition={{ duration: 0.14, ease: 'easeOut' }}
+                    className="mt-1 max-h-[104px] overflow-y-auto border-t border-gray-200/70 pt-0.5"
                   >
-                    <div className="min-w-0">
-                      <div className="truncate leading-snug">{option.label}</div>
-                      {option.kind === 'clarification' && option.sublabel && (
-                        <div className="truncate text-[11px] leading-snug text-gray-400">
-                          {option.sublabel}
+                    {visibleInlineOptions.map((option, idx) => (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleInlineOptionSelect(option)}
+                        onMouseEnter={() => {
+                          setSelectedSuggestionIndex(idx);
+                          setKeyboardSuggestionActive(true);
+                        }}
+                        className={cn(
+                          "group flex w-full items-center justify-between gap-3 px-0 py-[7px] text-left text-[13px] transition-colors",
+                          idx === selectedSuggestionIndex
+                            ? "text-gray-950"
+                            : "text-gray-500 hover:text-gray-900"
+                        )}
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate leading-snug">{option.label}</div>
+                          {option.kind === 'clarification' && option.sublabel && (
+                            <div className="truncate text-[11px] leading-snug text-gray-400">
+                              {option.sublabel}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
-                    <ArrowUpRight
-                      className={cn(
-                        "w-3 h-3 flex-shrink-0 transition-colors",
-                        idx === selectedSuggestionIndex ? "text-gray-500" : "text-gray-300 group-hover:text-gray-500"
-                      )}
-                    />
-                  </button>
-                ))}
-              </div>
+                        <ArrowUpRight
+                          className={cn(
+                            "h-3 w-3 flex-shrink-0 transition-colors",
+                            idx === selectedSuggestionIndex ? "text-gray-500" : "text-gray-300 group-hover:text-gray-500"
+                          )}
+                        />
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <AnimatePresence initial={false}>
+                {displayExpanded && error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -2 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -2 }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                    className="mt-2 border border-red-200 bg-red-50 p-2 text-sm text-red-700"
+                  >
+                    {error}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Error Display */}
-            {error && (
-              <div className="mb-2 p-2 bg-red-50 border border-red-200 text-red-700 text-sm">
-                {error}
-              </div>
-            )}
-
-            {/* Bottom Row */}
-            <div className="flex justify-between items-center mt-1.5">
-              {/* Left side: Mode Toggle + Voice Button */}
-              <div className="flex items-center gap-2 text-gray-600">
-                {/* Mode Toggle - iOS style (FIRST) */}
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
-                    className={cn(
-                      "relative w-9 h-5 rounded-full transition-colors duration-200 ease-in-out focus:outline-none",
-                      mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
-                    )}
-                    role="switch"
-                    aria-checked={mode === 'chat'}
-                    aria-label="Toggle between log and chat mode"
-                  >
-                    <span
-                      className={cn(
-                        "absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-transform duration-200 ease-in-out",
-                        mode === 'chat' ? "translate-x-4" : "translate-x-0"
-                      )}
-                    />
-                  </button>
-                  {mode === 'chat' ? (
+            <AnimatePresence initial={false}>
+              {displayExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, filter: 'blur(4px)' }}
+                  animate={{ opacity: 1, filter: 'blur(0px)' }}
+                  exit={{ opacity: 0, filter: 'blur(5px)' }}
+                  transition={{ duration: 0.16, delay: 0.03, ease: 'easeOut' }}
+                  className="absolute bottom-3 left-5 right-14 flex items-center gap-2 text-gray-600"
+                >
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => router.push('/chat')}
-                      className="text-xs text-gray-600 font-medium hover:text-gray-900 hover:underline transition-colors"
-                      title="Open chat history"
+                      onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
+                      className={cn(
+                        "relative h-5 w-9 rounded-full transition-colors duration-150 ease-out focus:outline-none",
+                        mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
+                      )}
+                      role="switch"
+                      aria-checked={mode === 'chat'}
+                      aria-label="Toggle between log and chat mode"
                     >
-                      Chat
+                      <span
+                        className={cn(
+                          "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
+                          mode === 'chat' ? "translate-x-4" : "translate-x-0"
+                        )}
+                      />
                     </button>
-                  ) : (
-                    <span className="text-xs text-gray-500 font-medium">
-                      Log
+                    <span className="text-xs font-medium text-gray-500">
+                      {mode === 'chat' ? 'Chat' : 'Log'}
                     </span>
-                  )}
-                </div>
+                  </div>
 
-                {/* Voice Button (SECOND) */}
-                <div className="relative group">
                   <button
                     type="button"
                     className={cn(
-                      "w-8 h-8 flex items-center justify-center transition-all duration-200 bg-transparent hover:bg-transparent",
-                      isListening || isProcessingVoice
-                        ? "text-gray-900"
-                        : "text-gray-600 hover:text-gray-800"
+                      "flex h-8 w-8 items-center justify-center bg-transparent transition-colors duration-150",
+                      isListening || isProcessingVoice ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
                     )}
                     onClick={startVoiceRecognition}
                     aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
@@ -239,26 +288,15 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     ) : isProcessingVoice ? (
                       <BrailleSpinner className="text-sm text-gray-900" />
                     ) : (
-                      <AudioLines className="w-[18px] h-[18px] stroke-[1.5]" />
+                      <AudioLines className="h-[18px] w-[18px] stroke-[1.5]" />
                     )}
                   </button>
-                  {/* Tooltip */}
-                  {!isListening && !isProcessingVoice && (
-                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                      Voice Mode
-                    </div>
-                  )}
-                </div>
 
-                {/* Screen Time Upload Button (THIRD) */}
-                <div className="relative group">
                   <button
                     type="button"
                     className={cn(
-                      "w-8 h-8 flex items-center justify-center transition-all duration-200",
-                      isUploadingScreenshot
-                        ? "text-gray-900"
-                        : "text-gray-600 hover:text-gray-800"
+                      "flex h-8 w-8 items-center justify-center transition-colors duration-150",
+                      isUploadingScreenshot ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
                     )}
                     onClick={handleUploadClick}
                     disabled={isUploadingScreenshot}
@@ -267,42 +305,78 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     {isUploadingScreenshot ? (
                       <BrailleSpinner className="text-sm text-gray-900" />
                     ) : (
-                      <Paperclip className="w-4 h-4 stroke-[1.5]" />
+                      <Paperclip className="h-4 w-4 stroke-[1.5]" />
                     )}
                   </button>
-                  {/* Hidden file input */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
-                  {/* Tooltip */}
-                  {!isUploadingScreenshot && (
-                    <div className="absolute bottom-[calc(100%+4px)] left-1/2 -translate-x-1/2 px-2 py-1 bg-black text-white text-xs opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50">
-                      Attach file
-                    </div>
-                  )}
-                </div>
-              </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={!input.trim() || submitButtonLoading}
-                className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-sm transition-colors duration-200 hover:bg-[#27251E] disabled:cursor-not-allowed"
-              >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            <button
+              type={hasInput || submitButtonLoading ? "submit" : "button"}
+              onClick={hasInput || submitButtonLoading ? undefined : () => {
+                setIsExpanded(true);
+                startVoiceRecognition();
+              }}
+              disabled={submitButtonLoading}
+              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
+              aria-label={hasInput ? 'Submit' : 'Start voice recording'}
+            >
+              <AnimatePresence mode="popLayout" initial={false}>
                 {submitButtonLoading ? (
-                  <BrailleSpinner className="text-sm text-white" />
+                  <motion.span
+                    key="loading"
+                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                  >
+                    <BrailleSpinner className="text-sm text-white" />
+                  </motion.span>
+                ) : hasInput ? (
+                  <motion.span
+                    key="arrow"
+                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </motion.span>
+                ) : isListening ? (
+                  <motion.span
+                    key="listening"
+                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                  >
+                    <VoiceWaveformMini isActive={isListening} />
+                  </motion.span>
                 ) : (
-                  <ArrowUp className="w-4 h-4" />
+                  <motion.span
+                    key="voice"
+                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
+                    transition={{ duration: 0.12, ease: 'easeOut' }}
+                  >
+                    <AudioLines className="h-[17px] w-[17px] stroke-[1.6]" />
+                  </motion.span>
                 )}
-              </button>
-            </div>
+              </AnimatePresence>
+            </button>
           </div>
         </form>
-      </div>
+      </motion.div>
     </div>
   );
 }

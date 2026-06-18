@@ -61,6 +61,7 @@ export function NavRowSurface({
   return (
     <div
       data-active={active ? "true" : undefined}
+      data-expanded={expanded ? "true" : "false"}
       className={cn(
         "ritual-nav-row-surface",
         className,
