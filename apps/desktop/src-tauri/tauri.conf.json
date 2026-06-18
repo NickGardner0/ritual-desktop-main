@@ -1,7 +1,7 @@
 {
   "$schema": "../../../node_modules/@tauri-apps/cli/schema.json",
   "productName": "Ritual",
-  "version": "0.1.76",
+  "version": "0.1.77",
   "identifier": "com.ritual.desktop",
   "mainBinaryName": "Ritual",
   "build": {
