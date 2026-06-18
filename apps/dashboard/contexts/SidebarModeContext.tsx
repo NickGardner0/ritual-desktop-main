@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 
-export type SidebarMode = "compact" | "hover" | "expanded";
+export type SidebarMode = "hidden" | "compact" | "hover" | "expanded";
 
 interface SidebarModeContextValue {
   mode: SidebarMode;
@@ -24,10 +24,8 @@ export function SidebarModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored && ["compact", "hover", "expanded"].includes(stored)) {
+      if (stored && ["hidden", "compact", "hover", "expanded"].includes(stored)) {
         queueMicrotask(() => setModeState(stored as SidebarMode));
-      } else if (stored === "hidden") {
-        localStorage.setItem(STORAGE_KEY, DEFAULT_MODE);
       }
     } catch {
       // SSR or localStorage unavailable

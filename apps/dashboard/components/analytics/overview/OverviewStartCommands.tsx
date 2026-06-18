@@ -28,10 +28,10 @@ export function StartCommand({
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-9 w-full items-center justify-between rounded-sm px-2 text-left transition-colors duration-75 ease-out hover:bg-[rgba(15,23,42,0.055)] focus-visible:bg-[rgba(15,23,42,0.055)] focus-visible:outline-none"
+      className="group flex h-7 w-full items-center justify-between rounded-sm px-2 text-left transition-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:outline-none"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <Icon className="h-4 w-4 shrink-0 text-[#8f9399] transition-colors duration-75 group-hover:text-[#62666d]" strokeWidth={2} />
+        <Icon className="h-4 w-4 shrink-0 text-[#8f9399] transition-none group-hover:text-[#62666d]" strokeWidth={2} />
         <span className="truncate text-[14px] font-medium leading-none text-[#3f4247]">
           {label}
         </span>

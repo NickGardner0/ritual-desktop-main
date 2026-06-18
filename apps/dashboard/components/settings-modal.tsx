@@ -68,6 +68,7 @@ const fontOptions: { value: FontOption; label: string }[] = [
 ];
 
 const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
+  { value: 'hidden', label: 'Hidden' },
   { value: 'compact', label: 'Compact' },
   { value: 'hover', label: 'Expand on Hover' },
   { value: 'expanded', label: 'Always Expanded' },

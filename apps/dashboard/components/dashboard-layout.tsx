@@ -117,12 +117,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
-  const shouldShowTitlebarSidebarControls = !shouldHideAppSidebar && !detachedSidebarMode;
+  const shouldHideAppSidebarForRoute = isFullScreenChat || isChatRoute;
+  const shouldHideAppSidebarForMode = mode === 'hidden';
+  const shouldHideAppSidebar = shouldHideAppSidebarForRoute || shouldHideAppSidebarForMode;
+  const shouldShowTitlebarSidebarControls = !shouldHideAppSidebarForRoute && !detachedSidebarMode;
 
   const handleChromeToggle = () => {
-    setMode(mode === 'expanded' ? 'compact' : 'expanded');
+    setMode(mode === 'hidden' ? 'expanded' : mode === 'expanded' ? 'compact' : 'hidden');
   };
+
+  const sidebarToggleLabel =
+    mode === 'hidden' ? 'Show sidebar' : mode === 'expanded' ? 'Collapse sidebar' : 'Hide sidebar';
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -177,8 +182,8 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                           handleChromeToggle();
                         }}
                         className="titlebar-icon-button mr-3"
-                        aria-label={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
-                        title={mode === 'expanded' ? 'Collapse sidebar' : 'Expand sidebar'}
+                        aria-label={sidebarToggleLabel}
+                        title={sidebarToggleLabel}
                       >
                         <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
                       </ToolbarButton>

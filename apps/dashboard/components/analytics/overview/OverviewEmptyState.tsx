@@ -19,11 +19,11 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-[520px] items-center justify-center overflow-y-auto px-6 pb-[152px] pt-10">
-      <div className="flex size-full max-w-[512px] flex-col justify-center gap-6 p-8">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pb-[180px] pt-[clamp(72px,11vh,120px)]">
+      <div className="flex w-full max-w-[512px] flex-col gap-6 p-8">
         <div className="mb-4 flex w-full items-center justify-center gap-4">
           <img
-            src="/images/logo_fix1.svg"
+            src="/images/eclipse.svg"
             alt=""
             aria-hidden="true"
             className="h-[45px] w-[45px] shrink-0 opacity-70 grayscale"
