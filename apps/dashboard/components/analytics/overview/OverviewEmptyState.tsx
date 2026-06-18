@@ -19,22 +19,20 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pt-[clamp(64px,10vh,104px)]">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pt-[clamp(56px,8vh,92px)]">
       <div className="flex w-full max-w-[460px] flex-col gap-6">
-        <div className="mb-4 flex w-full items-center justify-center gap-2.5">
+        <div className="mb-5 flex w-full flex-col items-center justify-center text-center">
           <img
             src="/images/eclipse.svg"
             alt=""
             aria-hidden="true"
-            className="h-8 w-8 shrink-0"
+            className="mb-2 h-7 w-7 shrink-0"
           />
-          <div className="min-w-0">
-            <div className="text-[18px] font-normal leading-none tracking-normal text-black">
-              Welcome to Ritual
-            </div>
-            <div className="mt-1 text-[12px] font-normal leading-none tracking-normal text-[#6f7278]">
-              Your way to track anything
-            </div>
+          <div className="text-[20px] font-medium leading-none tracking-normal text-black">
+            Welcome to Ritual
+          </div>
+          <div className="mt-1 text-[12px] font-normal leading-none tracking-normal text-[#6f7278]">
+            Your way to track anything
           </div>
         </div>
 

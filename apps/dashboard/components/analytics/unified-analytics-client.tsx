@@ -112,11 +112,6 @@ const AIHabitChat = dynamic(
   { ssr: false }
 );
 
-const ConnectedDevicesBar = dynamic(
-  () => import("@/components/connected-devices-modal").then(m => ({ default: m.ConnectedDevicesBar })),
-  { ssr: false }
-);
-
 // Loading fallback for lazy-loaded views
 function ViewLoadingFallback() {
   return (
@@ -570,10 +565,6 @@ function UnifiedAnalyticsContent({
         </div>
       )}
 
-      {/* Connected devices button below chat bar */}
-      {viewMode === 'overview' && (
-        <ConnectedDevicesBar />
-      )}
     </div>
   );
 }

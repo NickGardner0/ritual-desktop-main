@@ -130,7 +130,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         animate={{
           maxWidth: displayExpanded ? 672 : 480,
           height: surfaceHeight,
-          borderRadius: displayExpanded ? 8 : 24,
+          borderRadius: 4,
         }}
         transition={{ type: 'spring', stiffness: 520, damping: 42, mass: 0.75 }}
         className="relative mx-auto w-full overflow-hidden border border-gray-200/80 bg-[#FEFEFE] shadow-sm focus-within:border-gray-300 focus-within:shadow-md"
@@ -253,7 +253,11 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setIsExpanded(true);
+                        setMode(mode === 'log' ? 'chat' : 'log');
+                      }}
                       className={cn(
                         "relative h-5 w-9 rounded-full transition-colors duration-150 ease-out focus:outline-none",
                         mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
@@ -280,6 +284,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                       "flex h-8 w-8 items-center justify-center bg-transparent transition-colors duration-150",
                       isListening || isProcessingVoice ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
                     )}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={startVoiceRecognition}
                     aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
                   >
@@ -298,6 +303,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                       "flex h-8 w-8 items-center justify-center transition-colors duration-150",
                       isUploadingScreenshot ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
                     )}
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={handleUploadClick}
                     disabled={isUploadingScreenshot}
                     aria-label="Upload Screen Time screenshot"
@@ -321,14 +327,10 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             />
 
             <button
-              type={hasInput || submitButtonLoading ? "submit" : "button"}
-              onClick={hasInput || submitButtonLoading ? undefined : () => {
-                setIsExpanded(true);
-                startVoiceRecognition();
-              }}
-              disabled={submitButtonLoading}
-              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-70"
-              aria-label={hasInput ? 'Submit' : 'Start voice recording'}
+              type="submit"
+              disabled={!hasInput || submitButtonLoading}
+              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-100"
+              aria-label="Submit"
             >
               <AnimatePresence mode="popLayout" initial={false}>
                 {submitButtonLoading ? (
@@ -341,7 +343,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   >
                     <BrailleSpinner className="text-sm text-white" />
                   </motion.span>
-                ) : hasInput ? (
+                ) : (
                   <motion.span
                     key="arrow"
                     initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
@@ -350,26 +352,6 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     transition={{ duration: 0.12, ease: 'easeOut' }}
                   >
                     <ArrowUp className="h-4 w-4" />
-                  </motion.span>
-                ) : isListening ? (
-                  <motion.span
-                    key="listening"
-                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.12, ease: 'easeOut' }}
-                  >
-                    <VoiceWaveformMini isActive={isListening} />
-                  </motion.span>
-                ) : (
-                  <motion.span
-                    key="voice"
-                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.12, ease: 'easeOut' }}
-                  >
-                    <AudioLines className="h-[17px] w-[17px] stroke-[1.6]" />
                   </motion.span>
                 )}
               </AnimatePresence>
