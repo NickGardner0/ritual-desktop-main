@@ -4,7 +4,11 @@ import { useUser, useAuth } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { ONBOARDING_WINDOW_HEIGHT, setOnboardingWindowSize } from '@/lib/tauri-utils';
+import {
+  ONBOARDING_HOME_WINDOW_HEIGHT,
+  ONBOARDING_HOME_WINDOW_WIDTH,
+  setOnboardingWindowSize,
+} from '@/lib/tauri-utils';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
@@ -103,7 +107,7 @@ export function HomeClient() {
   // whatever dashboard size they chose.
   useEffect(() => {
     if (isNewUser) {
-      void setOnboardingWindowSize(ONBOARDING_WINDOW_HEIGHT);
+      void setOnboardingWindowSize(ONBOARDING_HOME_WINDOW_HEIGHT, ONBOARDING_HOME_WINDOW_WIDTH);
     }
   }, [isNewUser]);
 
@@ -204,7 +208,7 @@ export function HomeClient() {
     if (typeof window !== 'undefined') {
       window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'setup');
     }
-    router.push('/onboarding?s=setup');
+    router.push('/onboarding?s=signup');
   };
 
   // Show loading while checking auth state for signed-in users

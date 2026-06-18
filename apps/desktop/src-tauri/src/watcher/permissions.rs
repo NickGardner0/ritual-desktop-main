@@ -52,11 +52,7 @@ pub fn request_accessibility_permission() -> bool {
 pub fn open_accessibility_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
-            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-            .spawn()
-            .map_err(|e| format!("Failed to open settings: {}", e))?;
-        Ok(())
+        open_macos_settings_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -64,17 +60,27 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn open_macos_settings_url(url: &str) -> Result<(), String> {
+    Command::new("open")
+        .arg(url)
+        .spawn()
+        .map_err(|e| format!("Failed to open settings: {}", e))?;
+
+    let _ = Command::new("osascript")
+        .args(["-e", r#"tell application "System Settings" to activate"#])
+        .spawn();
+
+    Ok(())
+}
+
 fn open_macos_privacy_pane(pane: &str) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        Command::new("open")
-            .arg(format!(
-                "x-apple.systempreferences:com.apple.preference.security?{}",
-                pane
-            ))
-            .spawn()
-            .map_err(|e| format!("Failed to open settings: {}", e))?;
-        Ok(())
+        open_macos_settings_url(&format!(
+            "x-apple.systempreferences:com.apple.preference.security?{}",
+            pane
+        ))
     }
     #[cfg(not(target_os = "macos"))]
     {

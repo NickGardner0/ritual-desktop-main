@@ -23,10 +23,12 @@ import { Button } from "@/components/ui/button"
 import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import { getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities'
 import {
+  ONBOARDING_SETUP_WINDOW_WIDTH,
   ONBOARDING_SETUP_WINDOW_HEIGHT,
+  ONBOARDING_SIGNUP_WINDOW_WIDTH,
   ONBOARDING_SIGNUP_WINDOW_HEIGHT,
+  ONBOARDING_WELCOME_WINDOW_WIDTH,
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
-  ONBOARDING_WINDOW_WIDTH,
   setOnboardingWindowSize,
 } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
@@ -101,8 +103,8 @@ function OnboardingButton({
 
 function SignUpStep({ desktopMode, oauthFlowMode }: { desktopMode: boolean; oauthFlowMode: 'redirect' | 'auto' }) {
   return (
-    <div className="flex h-screen items-center justify-center overflow-auto bg-white px-4 py-8">
-      <div className="w-full max-w-md">
+    <div className="flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-5">
+      <div className="w-full max-w-[420px]">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
@@ -157,7 +159,7 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     const target = queryStep ?? readPersistedStep() ?? "welcome"
-    setStep(target)
+    queueMicrotask(() => setStep(target))
     persistReachedStep(target)
     if (!queryStep) {
       router.replace(onboardingRouteForStep(target), { scroll: false })
@@ -165,24 +167,24 @@ export default function OnboardingPage() {
   }, [queryStep, router])
 
   useEffect(() => {
-    const nextHeight = step === "welcome"
-      ? ONBOARDING_WELCOME_WINDOW_HEIGHT
+    const nextSize = step === "welcome"
+      ? { height: ONBOARDING_WELCOME_WINDOW_HEIGHT, width: ONBOARDING_WELCOME_WINDOW_WIDTH }
       : step === "signup"
-        ? ONBOARDING_SIGNUP_WINDOW_HEIGHT
-        : ONBOARDING_SETUP_WINDOW_HEIGHT
-    void setOnboardingWindowSize(nextHeight, ONBOARDING_WINDOW_WIDTH)
+        ? { height: ONBOARDING_SIGNUP_WINDOW_HEIGHT, width: ONBOARDING_SIGNUP_WINDOW_WIDTH }
+        : { height: ONBOARDING_SETUP_WINDOW_HEIGHT, width: ONBOARDING_SETUP_WINDOW_WIDTH }
+    void setOnboardingWindowSize(nextSize.height, nextSize.width)
   }, [step])
 
   useEffect(() => {
     if (!isLoaded) return
 
     if (!user && step === "setup") {
-      goToStep("signup")
+      queueMicrotask(() => goToStep("signup"))
       return
     }
 
     if (user && step === "signup") {
-      goToStep("setup")
+      queueMicrotask(() => goToStep("setup"))
     }
   }, [goToStep, isLoaded, step, user])
 
@@ -422,18 +424,18 @@ export default function OnboardingPage() {
     setBusy(true)
     setError(null)
     try {
-      await requestDesktopPermissions().catch((permissionError) => {
-        console.warn("Setup permissions finished with partial errors:", permissionError)
-      })
       await markSetupSeen()
       clearPersistedStep()
       router.replace("/dashboard")
+      void requestDesktopPermissions().catch((permissionError) => {
+        console.warn("Setup permissions finished with partial errors:", permissionError)
+      })
     } catch (finishError) {
       console.error("Failed finishing onboarding:", finishError)
       setError("Unable to finish setup. Please try again.")
       setBusy(false)
     }
-  }, [authHeaders, getToken, router, user])
+  }, [busy, requestDesktopPermissions, markSetupSeen, router])
 
   useEffect(() => {
     if (step !== "setup" || busy) return
