@@ -19,7 +19,7 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pt-[clamp(104px,15vh,148px)]">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pt-[clamp(64px,10vh,104px)]">
       <div className="flex w-full max-w-[520px] flex-col gap-6">
         <div className="mb-4 flex w-full items-center justify-center gap-3">
           <img
