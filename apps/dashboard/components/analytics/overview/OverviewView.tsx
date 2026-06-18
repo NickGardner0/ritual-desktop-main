@@ -36,6 +36,9 @@ export function OverviewView(props: OverviewViewProps) {
     );
   }
 
+  const shouldShowEmptyState =
+    !metrics.isBackendUnavailable && metrics.habits.length === 0 && !metrics.isLoading;
+
   return (
     <div
       className="relative h-[calc(100vh-160px)] overflow-hidden transition-[padding-right] duration-150 ease-out sm:pr-[var(--overview-context-pane-width)]"
@@ -43,38 +46,40 @@ export function OverviewView(props: OverviewViewProps) {
       onClick={metrics.selectedContextHabitId ? metrics.handleCloseContext : undefined}
     >
       <div className="h-full min-w-0 overflow-hidden">
-        <OverviewInitialSection
-          hideControls={metrics.hideControls}
-          isDesktopShell={metrics.isDesktopShell}
-          habits={metrics.habits}
-          orderedHabits={metrics.orderedHabits}
-          displayLogs={metrics.scrubberDisplayLogs}
-          dateRange={metrics.dateRange}
-          onDateRangeChange={metrics.setDateRange}
-          scrubberSelectedDate={metrics.scrubberSelectedDate}
-          onScrubberHover={metrics.handleScrubberHover}
-          onScrubberSelect={metrics.handleScrubberSelect}
-          onShowSelectionModal={metrics.handleOpenSelectionModal}
-          onShowImportModal={metrics.handleOpenImportModal}
-          onReorder={metrics.handleReorder}
-          getHabitMetricDisplay={metrics.getHabitMetricDisplay}
-          getHabitMetricClassName={metrics.getHabitMetricClassName}
-          scrubberHoveredDate={metrics.scrubberHoveredDate}
-          scrubberHoveredValues={metrics.scrubberHoveredValues}
-          activeTooltip={metrics.activeTooltip}
-          setActiveTooltip={metrics.setActiveTooltip}
-          getHabitMetricStats={metrics.getHabitMetricStats}
-          onUpdateHabitDetails={metrics.handleUpdateHabitDetails}
-          updatingHabitId={
-            metrics.updateHabitMutation.isPending
-              ? metrics.updateHabitMutation.variables?.habitId
-              : null
-          }
-          confirmDelete={metrics.confirmDelete}
-          deletingHabit={metrics.deletingHabit}
-          selectedContextHabitId={metrics.selectedContextHabitId}
-          onOpenContext={metrics.handleOpenContext}
-        />
+        {!shouldShowEmptyState && (
+          <OverviewInitialSection
+            hideControls={metrics.hideControls}
+            isDesktopShell={metrics.isDesktopShell}
+            habits={metrics.habits}
+            orderedHabits={metrics.orderedHabits}
+            displayLogs={metrics.scrubberDisplayLogs}
+            dateRange={metrics.dateRange}
+            onDateRangeChange={metrics.setDateRange}
+            scrubberSelectedDate={metrics.scrubberSelectedDate}
+            onScrubberHover={metrics.handleScrubberHover}
+            onScrubberSelect={metrics.handleScrubberSelect}
+            onShowSelectionModal={metrics.handleOpenSelectionModal}
+            onShowImportModal={metrics.handleOpenImportModal}
+            onReorder={metrics.handleReorder}
+            getHabitMetricDisplay={metrics.getHabitMetricDisplay}
+            getHabitMetricClassName={metrics.getHabitMetricClassName}
+            scrubberHoveredDate={metrics.scrubberHoveredDate}
+            scrubberHoveredValues={metrics.scrubberHoveredValues}
+            activeTooltip={metrics.activeTooltip}
+            setActiveTooltip={metrics.setActiveTooltip}
+            getHabitMetricStats={metrics.getHabitMetricStats}
+            onUpdateHabitDetails={metrics.handleUpdateHabitDetails}
+            updatingHabitId={
+              metrics.updateHabitMutation.isPending
+                ? metrics.updateHabitMutation.variables?.habitId
+                : null
+            }
+            confirmDelete={metrics.confirmDelete}
+            deletingHabit={metrics.deletingHabit}
+            selectedContextHabitId={metrics.selectedContextHabitId}
+            onOpenContext={metrics.handleOpenContext}
+          />
+        )}
 
         {metrics.isBackendUnavailable && (
           <OverviewBackendUnavailable
@@ -85,7 +90,7 @@ export function OverviewView(props: OverviewViewProps) {
           />
         )}
 
-        {!metrics.isBackendUnavailable && metrics.habits.length === 0 && !metrics.isLoading && (
+        {shouldShowEmptyState && (
           <OverviewEmptyState
             onOpenSelectionModal={metrics.handleOpenSelectionModal}
             onOpenImportModal={metrics.handleOpenImportModal}

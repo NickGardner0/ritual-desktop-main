@@ -19,21 +19,21 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pb-[180px] pt-[clamp(72px,11vh,120px)]">
-      <div className="flex w-full max-w-[512px] flex-col gap-6 p-8">
-        <div className="mb-4 flex w-full items-center justify-center gap-4">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pt-[clamp(104px,15vh,148px)]">
+      <div className="flex w-full max-w-[520px] flex-col gap-6">
+        <div className="mb-4 flex w-full items-center justify-center gap-3">
           <img
             src="/images/eclipse.svg"
             alt=""
             aria-hidden="true"
-            className="h-[45px] w-[45px] shrink-0 opacity-70 grayscale"
+            className="h-9 w-9 shrink-0"
           />
           <div className="min-w-0">
-            <div className="text-[20px] font-medium leading-none tracking-normal text-[#5f636a]">
+            <div className="text-[20px] font-medium leading-none tracking-normal text-black">
               Welcome to Ritual
             </div>
-            <div className="mt-1 text-[13px] font-medium italic leading-none tracking-normal text-[#9699a0]">
-              Track what matters
+            <div className="mt-1 text-[13px] font-medium leading-none tracking-normal text-[#6f7278]">
+              Your way to track anything
             </div>
           </div>
         </div>

@@ -420,7 +420,7 @@ function UnifiedAnalyticsContent({
   }, [isFullScreenChat]);
 
   return (
-    <div className="space-y-3">
+    <div className="relative h-full min-h-0 overflow-hidden">
       {/* Tab bar — portalled into header center slot */}
       {!isFullScreenChat && headerCenterSlot && createPortal(
         <ViewModeToggle
@@ -481,7 +481,7 @@ function UnifiedAnalyticsContent({
       )}
 
       {/* Content Area with smooth view switching */}
-      <div className="relative min-h-[400px] pt-1">
+      <div className="relative h-full min-h-0 pt-1">
         {/* Overview View - Lazy loaded */}
         <div 
           role="tabpanel"
