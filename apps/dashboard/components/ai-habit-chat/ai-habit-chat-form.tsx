@@ -92,7 +92,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         ? 136
         : displayExpanded
           ? 112
-          : 48;
+          : 96;
 
   const handleComposerBlur = () => {
     handleInputBlur();
@@ -128,22 +128,22 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         ref={shellRef}
         initial={false}
         animate={{
-          maxWidth: displayExpanded ? 672 : 480,
+          maxWidth: 672,
           height: surfaceHeight,
-          borderRadius: 4,
+          borderRadius: 6,
         }}
-        transition={{ type: 'spring', stiffness: 520, damping: 42, mass: 0.75 }}
-        className="relative mx-auto w-full overflow-hidden border border-gray-200/80 bg-[#FEFEFE] shadow-sm focus-within:border-gray-300 focus-within:shadow-md"
+        transition={{ type: 'spring', stiffness: 520, damping: 44, mass: 0.75 }}
+        className="relative mx-auto w-full overflow-hidden border border-[rgba(15,23,42,0.10)] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus-within:border-[rgba(15,23,42,0.16)]"
       >
         <form onSubmit={handleFormSubmit} className="h-full">
           <div className="relative h-full">
-            <div className={cn("absolute inset-x-0 top-0 pr-14", displayExpanded ? "px-5 pt-3" : "px-5")}>
+            <div className="absolute inset-x-0 top-0 px-5 pt-3">
               {isListening && audioStream ? (
-                <div className={cn("flex w-full items-center justify-center", displayExpanded ? "h-[42px]" : "h-12")}>
+                <div className="flex h-[42px] w-full items-center justify-center">
                   <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
                 </div>
               ) : isListening || isProcessingVoice ? (
-                <div className={cn("w-full", displayExpanded ? "h-[42px]" : "h-12")} aria-hidden />
+                <div className="h-[42px] w-full" aria-hidden />
               ) : (
                 <textarea
                   ref={textareaRef}
@@ -170,11 +170,9 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   }
                   className={cn(
                     "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60",
-                    displayExpanded
-                      ? "min-h-[42px] max-h-[70px] py-1.5 text-base leading-6"
-                      : "h-12 py-[13px] text-[15px] leading-5"
+                    "min-h-[42px] max-h-[70px] py-1.5 text-base leading-6"
                   )}
-                  rows={displayExpanded ? 2 : 1}
+                  rows={2}
                   disabled={submitButtonLoading}
                   readOnly={isListening}
                 />
@@ -241,82 +239,72 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <AnimatePresence initial={false}>
-              {displayExpanded && (
-                <motion.div
-                  initial={{ opacity: 0, filter: 'blur(4px)' }}
-                  animate={{ opacity: 1, filter: 'blur(0px)' }}
-                  exit={{ opacity: 0, filter: 'blur(5px)' }}
-                  transition={{ duration: 0.16, delay: 0.03, ease: 'easeOut' }}
-                  className="absolute bottom-3 left-5 right-14 flex items-center gap-2 text-gray-600"
+            <div className="absolute bottom-3 left-5 right-14 flex items-center gap-2 text-gray-600">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => {
+                    setIsExpanded(true);
+                    setMode(mode === 'log' ? 'chat' : 'log');
+                  }}
+                  className={cn(
+                    "relative h-5 w-9 rounded-full transition-colors duration-150 ease-out focus:outline-none",
+                    mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
+                  )}
+                  role="switch"
+                  aria-checked={mode === 'chat'}
+                  aria-label="Toggle between log and chat mode"
                 >
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setIsExpanded(true);
-                        setMode(mode === 'log' ? 'chat' : 'log');
-                      }}
-                      className={cn(
-                        "relative h-5 w-9 rounded-full transition-colors duration-150 ease-out focus:outline-none",
-                        mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
-                      )}
-                      role="switch"
-                      aria-checked={mode === 'chat'}
-                      aria-label="Toggle between log and chat mode"
-                    >
-                      <span
-                        className={cn(
-                          "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
-                          mode === 'chat' ? "translate-x-4" : "translate-x-0"
-                        )}
-                      />
-                    </button>
-                    <span className="text-xs font-medium text-gray-500">
-                      {mode === 'chat' ? 'Chat' : 'Log'}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
+                  <span
                     className={cn(
-                      "flex h-8 w-8 items-center justify-center bg-transparent transition-colors duration-150",
-                      isListening || isProcessingVoice ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
+                      mode === 'chat' ? "translate-x-4" : "translate-x-0"
                     )}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={startVoiceRecognition}
-                    aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
-                  >
-                    {isListening ? (
-                      <VoiceWaveformMini isActive={isListening} />
-                    ) : isProcessingVoice ? (
-                      <BrailleSpinner className="text-sm text-gray-900" />
-                    ) : (
-                      <AudioLines className="h-[18px] w-[18px] stroke-[1.5]" />
-                    )}
-                  </button>
+                  />
+                </button>
+                <span className="text-xs font-medium text-gray-500">
+                  {mode === 'chat' ? 'Chat' : 'Log'}
+                </span>
+              </div>
 
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex h-8 w-8 items-center justify-center transition-colors duration-150",
-                      isUploadingScreenshot ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
-                    )}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={handleUploadClick}
-                    disabled={isUploadingScreenshot}
-                    aria-label="Upload Screen Time screenshot"
-                  >
-                    {isUploadingScreenshot ? (
-                      <BrailleSpinner className="text-sm text-gray-900" />
-                    ) : (
-                      <Paperclip className="h-4 w-4 stroke-[1.5]" />
-                    )}
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              <button
+                type="button"
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center bg-transparent transition-colors duration-150",
+                  isListening || isProcessingVoice ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+                )}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={startVoiceRecognition}
+                aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
+              >
+                {isListening ? (
+                  <VoiceWaveformMini isActive={isListening} />
+                ) : isProcessingVoice ? (
+                  <BrailleSpinner className="text-sm text-gray-900" />
+                ) : (
+                  <AudioLines className="h-[18px] w-[18px] stroke-[1.5]" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center transition-colors duration-150",
+                  isUploadingScreenshot ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+                )}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={handleUploadClick}
+                disabled={isUploadingScreenshot}
+                aria-label="Upload Screen Time screenshot"
+              >
+                {isUploadingScreenshot ? (
+                  <BrailleSpinner className="text-sm text-gray-900" />
+                ) : (
+                  <Paperclip className="h-4 w-4 stroke-[1.5]" />
+                )}
+              </button>
+            </div>
 
             <input
               ref={fileInputRef}
