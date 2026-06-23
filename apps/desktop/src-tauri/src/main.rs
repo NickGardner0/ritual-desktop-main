@@ -46,6 +46,9 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
+const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1440.0;
+const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 820.0;
+const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1440x820_v1.done";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -119,6 +122,40 @@ fn read_nonempty_env(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
+    let Some(ritual_dir) = dirs::home_dir().map(|home| home.join(".ritual")) else {
+        return;
+    };
+    let marker_path = ritual_dir.join(MAIN_WINDOW_DEFAULT_SIZE_MARKER);
+    if marker_path.exists() {
+        return;
+    }
+
+    if let Err(error) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: MAIN_WINDOW_DEFAULT_WIDTH,
+        height: MAIN_WINDOW_DEFAULT_HEIGHT,
+    })) {
+        warn!(error = %error, "Failed to apply one-time main window default size");
+        return;
+    }
+
+    if let Err(error) = window.center() {
+        warn!(error = %error, "Failed to center main window after default size migration");
+    }
+
+    if let Err(error) = std::fs::create_dir_all(&ritual_dir) {
+        warn!(error = %error, "Failed to create Ritual config directory for window size marker");
+        return;
+    }
+    if let Err(error) = std::fs::write(&marker_path, b"ok\n") {
+        warn!(
+            error = %error,
+            marker_path = %marker_path.display(),
+            "Failed to write main window default size marker"
+        );
+    }
 }
 
 fn configured_ritual_env() -> String {
@@ -1490,7 +1527,7 @@ fn main() {
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
-                        .inner_size(1360.0, 820.0)
+                        .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)
@@ -1592,6 +1629,7 @@ fn main() {
                         bootstrap_url_json
                     ));
                 }
+                apply_one_time_main_window_default_size(&window);
                 let _ = window.show();
                 let _ = window.set_focus();
             }

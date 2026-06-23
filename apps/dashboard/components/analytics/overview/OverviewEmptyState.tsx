@@ -19,26 +19,25 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="absolute inset-x-0 top-[clamp(40px,5vh,68px)] flex justify-center px-6">
+    <div className="absolute inset-x-0 top-[clamp(0px,2vh,28px)] flex justify-center px-6">
       <div className="flex w-full max-w-[512px] flex-col gap-5">
-        <div className="mb-5 flex w-full flex-col items-center text-center">
-          <img
-            src="/images/eclipse.svg"
-            alt=""
-            aria-hidden="true"
-            className="h-7 w-7 shrink-0"
-          />
-          <div className="mt-2 text-[21px] font-normal leading-[26px] tracking-normal text-[#2c2f33]">
-            Welcome to Ritual
-          </div>
-          <div className="mt-0.5 text-[13px] leading-[18px] tracking-normal text-[#777b80]">
-            Your way to track anything
+        <div className="mb-6 flex w-full justify-center">
+          <div className="inline-flex items-center gap-2">
+            <img
+              src="/images/eclipse.svg"
+              alt=""
+              aria-hidden="true"
+              className="h-6 w-6 shrink-0"
+            />
+            <div className="text-[24px] font-medium leading-[28px] tracking-normal text-[#111827]">
+              Ritual
+            </div>
           </div>
         </div>
 
         <div className="w-full">
           <StartSectionHeader title="Get Started" />
-          <div className="space-y-1">
+          <div>
             <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
             <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
             <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
@@ -53,7 +52,7 @@ export function OverviewEmptyState({
 
         <div className="w-full">
           <StartSectionHeader title="Configure" />
-          <div className="space-y-1">
+          <div>
             <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
             <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
             <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />
