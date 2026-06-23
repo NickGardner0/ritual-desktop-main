@@ -1490,7 +1490,7 @@ fn main() {
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
-                        .inner_size(1240.0, 820.0)
+                        .inner_size(1360.0, 820.0)
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)

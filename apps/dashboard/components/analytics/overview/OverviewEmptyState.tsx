@@ -19,7 +19,7 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-hidden px-6 pb-[clamp(96px,12vh,140px)] pt-[clamp(108px,17vh,210px)]">
+    <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto px-6 pb-[clamp(180px,22vh,260px)] pt-[clamp(72px,8vh,104px)]">
       <div className="flex w-full max-w-[512px] flex-col gap-6">
         <div className="mb-6 flex w-full flex-col items-center text-center">
           <img
@@ -38,7 +38,7 @@ export function OverviewEmptyState({
 
         <div className="w-full">
           <StartSectionHeader title="Get Started" />
-          <div className="space-y-[var(--sidebar-row-gap)]">
+          <div className="space-y-1">
             <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
             <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
             <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
@@ -53,7 +53,7 @@ export function OverviewEmptyState({
 
         <div className="w-full">
           <StartSectionHeader title="Configure" />
-          <div className="space-y-[var(--sidebar-row-gap)]">
+          <div className="space-y-1">
             <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
             <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
             <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />
