@@ -215,7 +215,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
                   className={cn(
-                    "relative h-6 w-12 rounded-full transition-colors duration-150 ease-out focus:outline-none",
+                    "relative h-5 w-10 rounded-full transition-colors duration-150 ease-out focus:outline-none",
                     mode === 'chat' ? "bg-[#2b2b2b]" : "bg-[#d9d9d9]"
                   )}
                   role="switch"
@@ -224,8 +224,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
-                      mode === 'chat' ? "translate-x-6" : "translate-x-0"
+                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
+                      mode === 'chat' ? "translate-x-5" : "translate-x-0"
                     )}
                   />
                 </button>

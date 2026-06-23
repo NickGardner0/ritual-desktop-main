@@ -1,6 +1,6 @@
 'use client';
 
-import { Blocks, ListCollapse, Palette, Plus, Settings, Upload } from 'lucide-react';
+import { Blocks, ListCollapse, Palette, Plug2, Plus, Settings, Upload } from 'lucide-react';
 import { StartCommand, StartSectionHeader } from './OverviewStartCommands';
 
 interface OverviewEmptyStateProps {
@@ -21,20 +21,18 @@ export function OverviewEmptyState({
   return (
     <div className="flex h-full min-h-0 items-center justify-center overflow-hidden px-6 pb-[clamp(110px,14vh,156px)] pt-8">
       <div className="flex w-full max-w-[512px] flex-col gap-6">
-        <div className="mb-4 flex w-full items-center justify-center gap-4">
+        <div className="mb-6 flex w-full flex-col items-center text-center">
           <img
             src="/images/eclipse.svg"
             alt=""
             aria-hidden="true"
-            className="h-[45px] w-[45px] shrink-0"
+            className="h-[34px] w-[34px] shrink-0"
           />
-          <div className="flex flex-col items-start">
-            <div className="text-[21px] font-medium leading-[26px] tracking-normal text-[#2c2f33]">
-              Welcome to Ritual
-            </div>
-            <div className="text-[13px] italic leading-[18px] tracking-normal text-[#777b80]">
-              Your way to track anything
-            </div>
+          <div className="mt-2 text-[21px] font-medium leading-[26px] tracking-normal text-[#2c2f33]">
+            Welcome to Ritual
+          </div>
+          <div className="mt-0.5 text-[13px] leading-[18px] tracking-normal text-[#777b80]">
+            Your way to track anything
           </div>
         </div>
 
@@ -43,6 +41,7 @@ export function OverviewEmptyState({
           <div className="space-y-0">
             <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
             <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
+            <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
             <StartCommand
               icon={ListCollapse}
               label="Open Command Palette"
