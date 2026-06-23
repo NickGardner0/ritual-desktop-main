@@ -19,9 +19,9 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="flex h-full min-h-0 items-start justify-center overflow-y-auto px-6 pb-[clamp(180px,22vh,260px)] pt-[clamp(72px,8vh,104px)]">
-      <div className="flex w-full max-w-[512px] flex-col gap-6">
-        <div className="mb-6 flex w-full flex-col items-center text-center">
+    <div className="absolute inset-x-0 top-[clamp(40px,5vh,68px)] flex justify-center px-6">
+      <div className="flex w-full max-w-[512px] flex-col gap-5">
+        <div className="mb-5 flex w-full flex-col items-center text-center">
           <img
             src="/images/eclipse.svg"
             alt=""
