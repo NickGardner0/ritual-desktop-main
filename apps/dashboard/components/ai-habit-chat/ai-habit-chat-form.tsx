@@ -65,43 +65,20 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
     screenshotHabitOptions, showHabitPicker, setShowHabitPicker, isConfirming, visibleInlineOptions,
     selectedSuggestionIndex, setSelectedSuggestionIndex, keyboardSuggestionActive, setKeyboardSuggestionActive,
     showSuggestions, clarifications, setClarifications, textareaRef, fileInputRef, handleFormSubmit, handleKeyDown,
-    handleInputFocus, handleInputBlur, handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
+    handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
     handleFileChange, handleCancelScreenshot, handleConfirmScreenshot, adjustEditedValue,
   } = props;
 
-  const shellRef = React.useRef<HTMLDivElement | null>(null);
-  const [isExpanded, setIsExpanded] = React.useState(false);
   const hasInput = input.trim().length > 0;
-  const hasTransientState = Boolean(
-    hasInput
-      || showSuggestions
-      || error
-      || isListening
-      || isProcessingVoice
-      || submitButtonLoading
-      || isUploadingScreenshot
-      || screenshotPreview
-      || clarifications.length > 0
-  );
-  const displayExpanded = isExpanded || hasTransientState;
-  const surfaceHeight = showSuggestions
-    ? 220
+  const hasExtraInput = input.length > 120 || input.includes('\n');
+  const hasSuggestionContent = visibleInlineOptions.length > 0 || clarifications.length > 0;
+  const composerHeightClass = showSuggestions && hasSuggestionContent
+    ? 'h-[184px]'
     : error
-      ? 150
-      : hasInput && (input.length > 88 || input.includes('\n'))
-        ? 136
-        : displayExpanded
-          ? 112
-          : 96;
-
-  const handleComposerBlur = () => {
-    handleInputBlur();
-    window.setTimeout(() => {
-      if (!shellRef.current?.contains(document.activeElement) && !hasTransientState) {
-        setIsExpanded(false);
-      }
-    }, 0);
-  };
+      ? 'h-[132px]'
+      : hasExtraInput
+        ? 'h-[124px]'
+        : 'h-[104px]';
 
   return (
     <div className="w-full">
@@ -124,26 +101,21 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         handleConfirmScreenshot={handleConfirmScreenshot}
       />
 
-      <motion.div
-        ref={shellRef}
-        initial={false}
-        animate={{
-          maxWidth: 672,
-          height: surfaceHeight,
-          borderRadius: 6,
-        }}
-        transition={{ type: 'spring', stiffness: 520, damping: 44, mass: 0.75 }}
-        className="relative mx-auto w-full overflow-hidden border border-[rgba(15,23,42,0.10)] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.05)] focus-within:border-[rgba(15,23,42,0.16)]"
+      <div
+        className={cn(
+          'relative mx-auto w-full max-w-[632px] transform-none overflow-hidden rounded-[5px] border border-[rgba(15,23,42,0.09)] bg-[#fffefe] shadow-[0_1px_2px_rgba(15,23,42,0.025)] transition-none',
+          composerHeightClass
+        )}
       >
         <form onSubmit={handleFormSubmit} className="h-full">
           <div className="relative h-full">
-            <div className="absolute inset-x-0 top-0 px-5 pt-3">
+            <div className="absolute inset-x-0 top-0 px-4 pt-3">
               {isListening && audioStream ? (
-                <div className="flex h-[42px] w-full items-center justify-center">
-                  <VoiceWaveform isActive={true} audioStream={audioStream} className="h-10 w-full" />
+                <div className="flex h-[36px] w-full items-center justify-center">
+                  <VoiceWaveform isActive={true} audioStream={audioStream} className="h-8 w-full" />
                 </div>
               ) : isListening || isProcessingVoice ? (
-                <div className="h-[42px] w-full" aria-hidden />
+                <div className="h-[36px] w-full" aria-hidden />
               ) : (
                 <textarea
                   ref={textareaRef}
@@ -157,11 +129,6 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     setKeyboardSuggestionActive(false);
                   }}
                   onKeyDown={handleKeyDown}
-                  onFocus={() => {
-                    setIsExpanded(true);
-                    handleInputFocus();
-                  }}
-                  onBlur={handleComposerBlur}
                   placeholder={isListening
                     ? "Listening..."
                     : mode === 'log'
@@ -170,22 +137,22 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   }
                   className={cn(
                     "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60",
-                    "min-h-[42px] max-h-[70px] py-1.5 text-base leading-6"
+                    "min-h-[34px] max-h-[64px] py-0.5 text-[15px] leading-5"
                   )}
-                  rows={2}
+                  rows={1}
                   disabled={submitButtonLoading}
                   readOnly={isListening}
                 />
               )}
 
               <AnimatePresence initial={false}>
-                {displayExpanded && showSuggestions && (
+                {showSuggestions && hasSuggestionContent && (
                   <motion.div
                     initial={{ opacity: 0, filter: 'blur(4px)' }}
                     animate={{ opacity: 1, filter: 'blur(0px)' }}
                     exit={{ opacity: 0, filter: 'blur(4px)' }}
                     transition={{ duration: 0.14, ease: 'easeOut' }}
-                    className="mt-1 max-h-[104px] overflow-y-auto border-t border-gray-200/70 pt-0.5"
+                    className="mt-1 max-h-[102px] overflow-y-auto border-t border-gray-200/70 pt-0.5"
                   >
                     {visibleInlineOptions.map((option, idx) => (
                       <button
@@ -225,7 +192,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
 
               <AnimatePresence initial={false}>
-                {displayExpanded && error && (
+                {error && (
                   <motion.div
                     initial={{ opacity: 0, y: -2 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -239,18 +206,15 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <div className="absolute bottom-3 left-5 right-14 flex items-center gap-2 text-gray-600">
+            <div className="absolute bottom-2.5 left-4 right-12 flex items-center gap-2 text-gray-600">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    setIsExpanded(true);
-                    setMode(mode === 'log' ? 'chat' : 'log');
-                  }}
+                  onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
                   className={cn(
-                    "relative h-5 w-9 rounded-full transition-colors duration-150 ease-out focus:outline-none",
-                    mode === 'chat' ? "bg-gray-900" : "bg-gray-300"
+                    "relative h-5 w-9 rounded-sm transition-colors duration-150 ease-out focus:outline-none",
+                    mode === 'chat' ? "bg-[#242424]" : "bg-[#d7d7d7]"
                   )}
                   role="switch"
                   aria-checked={mode === 'chat'}
@@ -258,12 +222,12 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
+                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-[3px] bg-white shadow-sm transition-transform duration-150 ease-out",
                       mode === 'chat' ? "translate-x-4" : "translate-x-0"
                     )}
                   />
                 </button>
-                <span className="text-xs font-medium text-gray-500">
+                <span className="text-[11px] font-normal text-gray-500">
                   {mode === 'chat' ? 'Chat' : 'Log'}
                 </span>
               </div>
@@ -317,36 +281,18 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-100"
+              className="absolute bottom-2.5 right-3 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
               aria-label="Submit"
             >
-              <AnimatePresence mode="popLayout" initial={false}>
-                {submitButtonLoading ? (
-                  <motion.span
-                    key="loading"
-                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.12, ease: 'easeOut' }}
-                  >
-                    <BrailleSpinner className="text-sm text-white" />
-                  </motion.span>
-                ) : (
-                  <motion.span
-                    key="arrow"
-                    initial={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, scale: 0.75, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.12, ease: 'easeOut' }}
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </motion.span>
-                )}
-              </AnimatePresence>
+              {submitButtonLoading ? (
+                <BrailleSpinner className="text-sm text-white" />
+              ) : (
+                <ArrowUp className="h-4 w-4" />
+              )}
             </button>
           </div>
         </form>
-      </motion.div>
+      </div>
     </div>
   );
 }

@@ -451,6 +451,12 @@
     background-color: transparent;
   }
 
+  .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="false"],
+  .group\/settings-row:hover .ritual-nav-row-surface[data-expanded="false"],
+  .ritual-nav-row-surface[data-active="true"][data-expanded="false"] {
+    background-color: transparent;
+  }
+
   .ritual-nav-icon {
     color: var(--icon-default);
     transition:
