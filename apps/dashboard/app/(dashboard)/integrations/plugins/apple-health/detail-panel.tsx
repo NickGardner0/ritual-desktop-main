@@ -193,7 +193,7 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                     <section className="rounded-sm border border-border bg-background">
                       <button
                         onClick={() => (setDetailsTab as (tab: string) => void)('metrics')}
-                        className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                        className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left ritual-snappy-row"
                       >
                         <div>
                           <p className="text-sm font-medium text-foreground">Metrics</p>
@@ -203,7 +203,7 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                       </button>
                       <button
                         onClick={() => (setDetailsTab as (tab: string) => void)('export')}
-                        className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                        className="flex w-full items-center justify-between border-b border-border px-4 py-3 text-left ritual-snappy-row"
                       >
                         <div>
                           <p className="text-sm font-medium text-foreground">Export</p>
@@ -213,7 +213,7 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                       </button>
                       <button
                         onClick={() => (setDetailsTab as (tab: string) => void)('settings')}
-                        className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/30"
+                        className="flex w-full items-center justify-between px-4 py-3 text-left ritual-snappy-row"
                       >
                         <div>
                           <p className="text-sm font-medium text-foreground">Settings</p>
@@ -456,7 +456,7 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                                 (setExportFormat as (v: string) => void)(entry.format);
                                 (setExportDatePreset as (v: string) => void)('custom');
                               }}
-                              className="ml-2 shrink-0 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground hover:bg-muted/30 hover:text-foreground"
+                              className="ml-2 shrink-0 rounded-sm border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted/30 hover:text-foreground"
                             >
                               Retry
                             </button>

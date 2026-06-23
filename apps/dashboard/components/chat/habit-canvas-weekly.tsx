@@ -83,7 +83,7 @@ export const WeeklyOverviewSection = memo(function WeeklyOverviewSection({
               </tr>
           ) : (
             rows.map((row, idx) => (
-                <tr key={`${row.name}-${idx}`} className="transition-colors hover:bg-neutral-50/80">
+                <tr key={`${row.name}-${idx}`} className="ritual-snappy-row">
                   <td className={cn(`${CANVAS_BODY_CELL} text-[#666] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>{idx + 1}</td>
                   <td className={cn(`${CANVAS_BODY_CELL} text-[#1a1a1a] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}><span className="line-clamp-1">{row.name}</span></td>
                   <td className={cn(`${CANVAS_BODY_CELL} text-[#1a1a1a] text-right tabular-nums border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>{formatNumber(row.hours)}h</td>

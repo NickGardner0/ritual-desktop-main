@@ -71,7 +71,7 @@ export function SearchableList({
                 type="button"
                 onClick={() => onToggle(item)}
                 className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-neutral-900 transition-colors hover:bg-[#F5F5F5]',
+                  'flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] text-neutral-900 ritual-snappy-row',
                   checked && 'bg-[#F5F5F5]',
                 )}
               >

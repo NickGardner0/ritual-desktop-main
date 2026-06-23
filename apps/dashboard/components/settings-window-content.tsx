@@ -147,9 +147,10 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                 type="button"
                 onClick={() => handleTabSelect(id)}
                 className={cn(
-                  'flex h-[30px] items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13px] font-medium leading-none transition-colors',
-                  selected ? 'bg-[var(--row-active)] text-[var(--text-primary)]' : 'text-[var(--text-primary)] hover:bg-[var(--row-hover)]',
+                  'ritual-snappy-row flex h-[30px] items-center gap-2.5 rounded-[8px] px-2.5 text-left text-[13px] font-medium leading-none',
+                  selected ? 'bg-[var(--row-active)] text-[var(--text-primary)]' : 'text-[var(--text-primary)]',
                 )}
+                data-active={selected ? 'true' : undefined}
               >
                 <Icon className="h-[15px] w-[15px] shrink-0" strokeWidth={2.1} />
                 <span className="truncate">{label}</span>
@@ -509,7 +510,7 @@ function DropdownItem({
       type="button"
       onClick={onClick}
       className={cn(
-        'flex w-full items-center justify-between px-3 py-2 text-left text-[13px] transition-colors hover:bg-black/[0.04]',
+        'flex w-full items-center justify-between px-3 py-2 text-left text-[13px] ritual-snappy-row ritual-snappy-row-muted-menu',
         selected ? 'font-semibold text-[#252525]' : 'text-[#5f5f5f]',
       )}
     >

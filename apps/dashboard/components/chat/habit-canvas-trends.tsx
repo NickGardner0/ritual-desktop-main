@@ -56,7 +56,7 @@ export const TrendsSection = memo(function TrendsSection({ trends }: { trends: T
                   <tr
                     key={trend.habit_id}
                     className={cn(
-                      "hover:bg-[#F2F1EF] transition-colors",
+                      "ritual-snappy-row",
                       index !== sortedImprovers.slice(0, 5).length - 1 && "border-b border-[#e6e6e6]"
                     )}
                   >
@@ -106,7 +106,7 @@ export const TrendsSection = memo(function TrendsSection({ trends }: { trends: T
                   <tr
                     key={trend.habit_id}
                     className={cn(
-                      "hover:bg-[#F2F1EF] transition-colors",
+                      "ritual-snappy-row",
                       index !== sortedDecliners.slice(0, 5).length - 1 && "border-b border-[#e6e6e6]"
                     )}
                   >

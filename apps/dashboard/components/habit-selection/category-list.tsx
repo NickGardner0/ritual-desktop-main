@@ -5,7 +5,7 @@ import {
   ChevronDown, ChartLine, Brain, Heart, FlaskConical, Plus, Monitor,
 } from 'lucide-react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { connectRowActionClass, connectRowActionConnectedClass } from './constants';
+import { categoryRowClass, connectRowActionClass, connectRowActionConnectedClass } from './constants';
 
 export type CategoryListProps = {
   computerTrackingConnected: boolean;
@@ -38,7 +38,7 @@ export function CategoryList({
   return (
             <div className="pb-2">
                 {/* Custom - Manual */}
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <Plus className="h-5 w-5 text-gray-900" strokeWidth={1.75} />
@@ -56,7 +56,7 @@ export function CategoryList({
 
                 {/* Computer Use - Only show on desktop (Tauri) */}
                 {isDesktop && (
-                  <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                  <div className={categoryRowClass}>
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                         <Monitor className="h-5 w-5 text-gray-900" strokeWidth={1.75} />
@@ -85,7 +85,7 @@ export function CategoryList({
                 )}
 
                 {/* Wearables & Devices - Connect */}
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/Screen_Time.svg" alt="Screen Time" className="h-5 w-5 object-contain" onError={(e) => {
@@ -108,7 +108,7 @@ export function CategoryList({
                   </button>
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <svg className="h-5 w-5" viewBox="0 0 814 1000" fill="currentColor">
@@ -145,7 +145,7 @@ export function CategoryList({
                   )}
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/oura.svg" alt="Oura Ring" className="h-8 w-8 object-contain" />
@@ -171,7 +171,7 @@ export function CategoryList({
                   )}
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/whoop.svg" alt="Whoop" className="h-5 object-contain" />
@@ -198,7 +198,7 @@ export function CategoryList({
                   )}
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/fitbit.svg" alt="Fitbit" className="h-5 object-contain" />
@@ -214,7 +214,7 @@ export function CategoryList({
                   </button>
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/garmin.svg" alt="Garmin" className="h-5 object-contain" />
@@ -240,7 +240,7 @@ export function CategoryList({
                   )}
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <img src="/images/plaid-mark.svg" alt="Plaid" className="h-5 object-contain" />
@@ -267,7 +267,7 @@ export function CategoryList({
                 </div>
 
                 {/* Manual Tracking Categories */}
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <ChartLine className="h-5 w-5 text-gray-900" strokeWidth={2} />
@@ -283,7 +283,7 @@ export function CategoryList({
                   </button>
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <Brain className="h-5 w-5 text-gray-900" strokeWidth={2} />
@@ -299,7 +299,7 @@ export function CategoryList({
                   </button>
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <Heart className="h-5 w-5 text-gray-900" strokeWidth={2} />
@@ -315,7 +315,7 @@ export function CategoryList({
                   </button>
                 </div>
 
-                <div className="group flex items-center justify-between gap-3 -mx-2 rounded-sm px-2 py-2 transition-colors hover:bg-[#f5f5f2]">
+                <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <div className="flex h-[34px] w-[34px] shrink-0 items-center justify-center">
                       <FlaskConical className="h-5 w-5 text-gray-900" strokeWidth={2} />

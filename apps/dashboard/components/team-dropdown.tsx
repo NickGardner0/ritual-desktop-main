@@ -142,13 +142,13 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           <div className="h-px bg-gray-200 my-1" />
           
           <div className="py-0.5">
-            <DropdownMenuItem onClick={handleAccount} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleAccount} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
               Account
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleSupport} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSupport} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
               Support
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleSupport} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSupport} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
               Teams
             </DropdownMenuItem>
           </div>
@@ -156,7 +156,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
           <div className="h-px bg-gray-200 my-1" />
           
           <div className="py-0.5">
-            <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut} className="rounded-none px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
               {isSigningOut ? (
                 <>
                   <BrailleSpinner className="mr-2 text-sm text-gray-600" />
@@ -210,14 +210,14 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
               <div className="p-1">
                 <button
                   onClick={handleAccount}
-                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none ritual-snappy-row ritual-snappy-row-menu focus:bg-gray-100"
                 >
                   Profile
                 </button>
 
                 <button
                   onClick={handleSupport}
-                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100"
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none ritual-snappy-row ritual-snappy-row-menu focus:bg-gray-100"
                 >
                   Support
                 </button>
@@ -227,7 +227,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
                 <button
                   onClick={handleSignOut}
                   disabled={isSigningOut}
-                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none hover:bg-gray-100 focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="team-dropdown-row w-full cursor-pointer px-2 py-1 text-left text-sm text-black rounded-none ritual-snappy-row ritual-snappy-row-menu focus:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSigningOut ? "Signing out..." : "Sign out"}
                 </button>

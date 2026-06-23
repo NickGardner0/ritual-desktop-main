@@ -43,6 +43,32 @@
   contain: layout paint;
 }
 
+.ritual-snappy-row {
+  transition: none !important;
+}
+
+.ritual-snappy-row:hover,
+.ritual-snappy-row:focus-visible,
+.ritual-snappy-row[data-highlighted],
+.ritual-snappy-row[data-highlighted="true"] {
+  background-color: var(--ritual-snappy-row-hover, var(--row-hover, rgba(39, 37, 30, 0.055))) !important;
+}
+
+.ritual-snappy-row[data-active="true"],
+.ritual-snappy-row[data-selected="true"] {
+  background-color: var(--ritual-snappy-row-active, var(--row-active, rgba(39, 37, 30, 0.055))) !important;
+}
+
+.ritual-snappy-row-menu {
+  --ritual-snappy-row-hover: #F3F3F3;
+  --ritual-snappy-row-active: #F3F3F3;
+}
+
+.ritual-snappy-row-muted-menu {
+  --ritual-snappy-row-hover: rgba(0, 0, 0, 0.04);
+  --ritual-snappy-row-active: rgba(0, 0, 0, 0.04);
+}
+
 /* Shimmer animation for "Thinking..." text */
 @keyframes shimmer {
   0% {
@@ -428,9 +454,7 @@
   .ritual-nav-row-surface {
     height: var(--sidebar-row-height);
     border-radius: var(--radius-row);
-    transition:
-      background-color 90ms ease-out,
-      color 90ms ease-out;
+    transition: none;
   }
 
   .group\/nav-item:hover .ritual-nav-row-surface[data-expanded="true"],
@@ -459,9 +483,7 @@
 
   .ritual-nav-icon {
     color: var(--icon-default);
-    transition:
-      color 90ms ease-out,
-      transform 90ms ease-out;
+    transition: none;
   }
 
   .ritual-nav-icon[data-collapsed="true"] {
@@ -482,7 +504,7 @@
   .ritual-nav-label {
     color: var(--text-secondary);
     font-weight: 450;
-    transition: color 90ms ease-out;
+    transition: none;
   }
 
   .group\/nav-item:hover .ritual-nav-label,
@@ -1422,7 +1444,7 @@
     font-weight: 500;
     line-height: 1;
     text-align: left;
-    transition: background-color 140ms ease, color 140ms ease;
+    transition: none;
   }
 
   .settings-action-row:hover {
@@ -1489,7 +1511,7 @@
     font-weight: 500;
     line-height: 1;
     text-align: left;
-    transition: background-color 140ms ease, color 140ms ease;
+    transition: none;
   }
 
   .settings-native-action-row:hover {

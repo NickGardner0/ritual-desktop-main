@@ -202,11 +202,16 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                   key={id}
                   onClick={() => handleTabSelect(id)}
                   className={cn(
-                    'flex h-11 w-full items-center gap-3 rounded-[11px] px-3 text-left text-[15px] font-medium leading-none transition-colors',
+                    'ritual-snappy-row flex h-11 w-full items-center gap-3 rounded-[11px] px-3 text-left text-[15px] font-medium leading-none',
                     selected
                       ? 'bg-[#0f7f86] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.2)]'
-                      : 'text-[#171717] hover:bg-black/[0.045]',
+                      : 'text-[#171717]',
                   )}
+                  style={{
+                    '--ritual-snappy-row-hover': 'rgba(0,0,0,0.045)',
+                    '--ritual-snappy-row-active': '#0f7f86',
+                  } as React.CSSProperties}
+                  data-active={selected ? 'true' : undefined}
                 >
                   <Icon className="h-[17px] w-[17px] shrink-0" strokeWidth={2.35} />
                   <span className="truncate">{label}</span>
@@ -275,7 +280,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                   key={option.value}
                                   onClick={() => { setFont(option.value); setShowFontDropdown(false); }}
                                   className={cn(
-                                    'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-black/[0.04]',
+                                    'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left ritual-snappy-row ritual-snappy-row-muted-menu',
                                     font === option.value ? 'font-semibold text-[#252525]' : 'text-[#5f5f5f]',
                                     option.value === 'system-ui' && 'font-system-ui',
                                   )}
@@ -316,7 +321,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                   key={option.value}
                                   onClick={() => { setSidebarMode(option.value); setShowSidebarDropdown(false); }}
                                   className={cn(
-                                    'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left transition-colors hover:bg-black/[0.04]',
+                                    'flex w-full items-center justify-between px-3 py-2 text-[13px] text-left ritual-snappy-row ritual-snappy-row-muted-menu',
                                     sidebarMode === option.value ? 'font-semibold text-[#252525]' : 'text-[#5f5f5f]',
                                   )}
                                 >
@@ -359,7 +364,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                                     setShowChromeDropdown(false);
                                   }}
                                   className={cn(
-                                    'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] transition-colors hover:bg-black/[0.04]',
+                                    'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-[13px] ritual-snappy-row ritual-snappy-row-muted-menu',
                                     chromeAppearance === option.value ? 'font-semibold text-[#252525]' : 'text-[#5f5f5f]',
                                   )}
                                 >

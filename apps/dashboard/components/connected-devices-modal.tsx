@@ -276,10 +276,10 @@ function DeviceCard({
       onClick={device.comingSoon ? undefined : onConnect}
       disabled={device.comingSoon}
       className={cn(
-        'flex items-start justify-between w-full p-3 border border-border rounded-sm text-left transition-colors',
+        'ritual-snappy-row flex items-start justify-between w-full p-3 border border-border rounded-sm text-left',
         device.comingSoon
           ? 'cursor-default'
-          : 'hover:bg-neutral-50 cursor-pointer',
+          : 'cursor-pointer',
       )}
     >
       <div className="flex items-start gap-3 min-w-0">

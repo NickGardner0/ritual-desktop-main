@@ -147,7 +147,7 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
             <div key={cat.category} className="overflow-hidden rounded-sm border border-border bg-background">
               <button
                 onClick={() => toggleCollapse(cat.category)}
-                className="flex w-full items-center gap-2 px-3 py-3 text-left transition-colors hover:bg-muted/30"
+                className="flex w-full items-center gap-2 px-3 py-3 text-left ritual-snappy-row"
               >
                 <span className="text-xs text-muted-foreground">{isCollapsed ? '▶' : '▼'}</span>
                 <input
@@ -169,7 +169,7 @@ export function MetricSelectionTree({ categories, selected: initialSelected, onS
                   {cat.metrics.map(m => (
                     <label
                       key={m.type}
-                      className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 transition-colors hover:bg-muted/30"
+                      className="flex cursor-pointer items-center gap-2 rounded-sm px-1.5 py-2 ritual-snappy-row"
                     >
                       <input
                         type="checkbox"

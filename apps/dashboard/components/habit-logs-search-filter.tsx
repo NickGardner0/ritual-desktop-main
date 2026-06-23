@@ -679,7 +679,7 @@ export function HabitLogsSearchFilter({
           <button
             type="button"
             onClick={clearAllFilters}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] text-neutral-800 transition-colors hover:bg-[#F5F5F5]"
+            className="flex w-full items-center justify-between px-4 py-2.5 text-[13px] text-neutral-800 ritual-snappy-row"
           >
             <span>Clear all filters</span>
             {hasAnyFilters ? <span className="text-[12px] text-neutral-400">{activeFilterCount} active</span> : null}

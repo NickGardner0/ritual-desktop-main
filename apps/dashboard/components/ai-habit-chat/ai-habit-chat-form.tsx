@@ -65,7 +65,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
     screenshotHabitOptions, showHabitPicker, setShowHabitPicker, isConfirming, visibleInlineOptions,
     selectedSuggestionIndex, setSelectedSuggestionIndex, keyboardSuggestionActive, setKeyboardSuggestionActive,
     showSuggestions, clarifications, setClarifications, textareaRef, fileInputRef, handleFormSubmit, handleKeyDown,
-    handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
+    handleInputFocus, handleInputBlur, handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
     handleFileChange, handleCancelScreenshot, handleConfirmScreenshot, adjustEditedValue,
   } = props;
 
@@ -103,7 +103,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[632px] transform-none overflow-hidden rounded-[5px] border border-[rgba(15,23,42,0.09)] bg-[#fffefe] shadow-[0_1px_2px_rgba(15,23,42,0.025)] transition-none',
+          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[10px] border border-[rgba(15,23,42,0.14)] bg-[#fbfbfb] shadow-[0_12px_34px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.06)] transition-none',
           composerHeightClass
         )}
       >
@@ -129,6 +129,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     setKeyboardSuggestionActive(false);
                   }}
                   onKeyDown={handleKeyDown}
+                  onFocus={handleInputFocus}
+                  onBlur={handleInputBlur}
                   placeholder={isListening
                     ? "Listening..."
                     : mode === 'log'
@@ -213,8 +215,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
                   className={cn(
-                    "relative h-5 w-9 rounded-sm transition-colors duration-150 ease-out focus:outline-none",
-                    mode === 'chat' ? "bg-[#242424]" : "bg-[#d7d7d7]"
+                    "relative h-6 w-12 rounded-full transition-colors duration-150 ease-out focus:outline-none",
+                    mode === 'chat' ? "bg-[#2b2b2b]" : "bg-[#d9d9d9]"
                   )}
                   role="switch"
                   aria-checked={mode === 'chat'}
@@ -222,12 +224,12 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-[3px] bg-white shadow-sm transition-transform duration-150 ease-out",
-                      mode === 'chat' ? "translate-x-4" : "translate-x-0"
+                      "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
+                      mode === 'chat' ? "translate-x-6" : "translate-x-0"
                     )}
                   />
                 </button>
-                <span className="text-[11px] font-normal text-gray-500">
+                <span className="text-[13px] font-normal text-gray-500">
                   {mode === 'chat' ? 'Chat' : 'Log'}
                 </span>
               </div>

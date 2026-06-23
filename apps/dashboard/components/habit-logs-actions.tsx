@@ -76,7 +76,7 @@ export function HabitLogsActions({
               return (
                 <label
                   key={key}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2 transition-colors hover:bg-neutral-50"
+                  className="flex cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2 ritual-snappy-row"
                 >
                   <Checkbox
                     checked={isVisible}

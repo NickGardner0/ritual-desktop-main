@@ -115,7 +115,7 @@ export function NewTaskDialog({ open, onClose, columns, labels, defaultColumnId,
                   {columns.map((col) => (
                     <button key={col.id} type="button"
                       onClick={() => { setColumnId(col.id); setActiveDropdown(null); }}
-                      className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-[#f5f5f5]',
+                      className={cn('ritual-snappy-row flex w-full items-center gap-2 px-3 py-1.5 text-[13px]',
                         columnId === col.id ? 'font-medium text-[#1a1a1a]' : 'text-[#888]')}>
                       <StatusIcon columnId={col.id} size={13} />
                       {col.title}
@@ -138,7 +138,7 @@ export function NewTaskDialog({ open, onClose, columns, labels, defaultColumnId,
                   {([1, 2, 3, 4] as Priority[]).map((p) => (
                     <button key={p} type="button"
                       onClick={() => { setPriority(p); setActiveDropdown(null); }}
-                      className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-[#f5f5f5]',
+                      className={cn('ritual-snappy-row flex w-full items-center gap-2 px-3 py-1.5 text-[13px]',
                         priority === p ? 'font-medium text-[#1a1a1a]' : 'text-[#888]')}>
                       {p < 4 ? <PriorityIcon priority={p} size={13} /> : <NoPriorityIcon size={13} />}
                       {p === 1 ? 'Urgent' : p === 2 ? 'High' : p === 3 ? 'Medium' : 'No priority'}
@@ -169,7 +169,7 @@ export function NewTaskDialog({ open, onClose, columns, labels, defaultColumnId,
                   <div className="absolute bottom-full left-0 z-10 mb-1 min-w-[170px] rounded-lg border border-[#e5e5e5] bg-white py-1 shadow-md">
                     {labels.map((label) => (
                       <button key={label.id} type="button" onClick={() => toggleLabel(label.id)}
-                        className={cn('flex w-full items-center gap-2 px-3 py-1.5 text-[13px] hover:bg-[#f5f5f5]',
+                        className={cn('ritual-snappy-row flex w-full items-center gap-2 px-3 py-1.5 text-[13px]',
                           selectedLabelIds.includes(label.id) ? 'font-medium text-[#1a1a1a]' : 'text-[#888]')}>
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: label.color }} />
                         {label.name}

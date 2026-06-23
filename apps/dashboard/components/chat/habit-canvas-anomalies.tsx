@@ -47,7 +47,7 @@ export const AnomaliesSection = memo(function AnomaliesSection({ anomalies }: { 
                   <tr
                     key={index}
                     className={cn(
-                      "hover:bg-[#F2F1EF] transition-colors",
+                      "ritual-snappy-row",
                       index !== anomalies.anomalies.length - 1 && "border-b border-[#e6e6e6]"
                     )}
                   >

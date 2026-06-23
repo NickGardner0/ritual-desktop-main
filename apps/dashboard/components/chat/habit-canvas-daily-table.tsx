@@ -64,7 +64,7 @@ export const HabitDailyTable = memo(function HabitDailyTable({
             </tr>
           ) : (
             rows.map((row, idx) => (
-              <tr key={`${row.date}-${idx}`} className="transition-colors hover:bg-neutral-50/80">
+              <tr key={`${row.date}-${idx}`} className="ritual-snappy-row">
                 <td className={cn(`${bodyCellBase} text-[#1a1a1a] border-r ${CANVAS_TABLE_BORDER}`, idx !== rows.length - 1 && `border-b ${CANVAS_TABLE_BORDER}`)}>
                   {row.date}
                 </td>

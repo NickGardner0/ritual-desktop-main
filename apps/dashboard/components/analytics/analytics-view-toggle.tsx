@@ -100,7 +100,7 @@ export const AnalyticsViewToggle: React.FC<ViewToggleProps> = ({
               {viewOptions.map((option) => (
                 <label
                   key={option.value}
-                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 transition-colors hover:bg-[#F3F3F3]"
+                  className="flex cursor-pointer items-center gap-2.5 px-3 py-2 ritual-snappy-row"
                 >
                   <input
                     type="checkbox"

@@ -155,15 +155,15 @@ const ChildItem = ({
     >
       <div
         className={cn(
-              "group/child relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard hover:bg-[var(--row-hover)]",
-              isActive && "bg-[var(--row-active)]",
+          "ritual-snappy-row group/child relative ml-[35px] mr-[15px] rounded-sm",
+          isActive && "bg-[var(--row-active)]",
         )}
       >
         {/* Child item text */}
         <div
           className={cn(
             "h-[32px] flex items-center",
-              "border-l border-[var(--border-muted)] pl-3",
+            "border-l border-[var(--border-muted)] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
@@ -177,7 +177,7 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-colors duration-90",
+              "text-xs font-[450] transition-none",
               "text-[var(--text-muted)] group-hover/child:text-[var(--text-primary)]",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-[var(--text-primary)]",
@@ -250,7 +250,7 @@ const Item = ({
         <div className="relative">
           <NavRowSurface
             className={cn(
-              "transition-[width,margin,background-color] duration-90 ease-out",
+              "transition-[width,margin] duration-90 ease-out",
             )}
             active={isActive}
             expanded={isExpanded}

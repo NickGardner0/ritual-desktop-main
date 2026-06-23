@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { categoryRowClass } from './constants';
 
 export type HabitListProps = {
   displayedHabits: any[];
@@ -19,12 +20,12 @@ export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabi
                         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{habit.label}</p>
                       </div>
                     ) : (
-                      <div key={habit.value} className="flex justify-between items-center h-12 px-3">
+                      <div key={habit.value} className={`${categoryRowClass} min-h-12`}>
                         <p className="text-sm font-normal text-gray-900">{habit.label}</p>
                         <button
                           onClick={() => handleHabitClick(habit)}
                           disabled={isCreating}
-                          className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm hover:bg-[#F3F3F3] transition-colors disabled:opacity-50"
+                          className="px-3 py-1.5 text-sm font-normal text-gray-700 bg-white border border-gray-300 rounded-sm transition-none hover:bg-[#F3F3F3] disabled:opacity-50"
                         >
                           {isCreating ? 'Creating...' : 'Track'}
                         </button>
