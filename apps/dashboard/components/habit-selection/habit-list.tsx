@@ -25,7 +25,7 @@ export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabi
                         <button
                           onClick={() => handleHabitClick(habit)}
                           disabled={isCreating}
-                          className="rounded-sm border border-gray-300 bg-white px-2 py-1 text-xs font-normal text-gray-700 transition-none hover:bg-[#F3F3F3] disabled:opacity-50"
+                          className="rounded-md border border-[#ddd9d2] bg-white/70 px-2 py-1 text-[12.5px] font-medium text-[#74726d] transition-none hover:bg-[#efeee9] hover:text-[#2c2b28] disabled:opacity-50"
                         >
                           {isCreating ? 'Creating...' : 'Track'}
                         </button>
@@ -40,8 +40,8 @@ export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabi
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
-                    <p className="text-sm font-normal text-gray-900 mb-1">No habits found</p>
-                    <p className="text-xs text-gray-500">Try a different search term</p>
+                    <p className="text-sm font-medium text-[#2c2b28] mb-1">No habits found</p>
+                    <p className="text-xs text-[#8b8a86]">Try a different search term</p>
                   </div>
                 ) : null}
             </div>

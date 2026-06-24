@@ -566,33 +566,33 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       data-tauri-drag-region="false"
     >
       <div 
-        className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" 
+        className="absolute inset-0 bg-[#f7f6f2]/55 dark:bg-[#121212]/80"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         data-tauri-drag-region="false"
         style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
       />
       <div 
         ref={cardRef}
-        className={`relative z-10 flex w-[90vw] max-w-lg flex-col rounded-sm border border-[#d8d8d3] bg-white text-[#1f1e1a] shadow-[0_18px_50px_-35px_rgba(15,23,42,0.55)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
+        className={`relative z-10 flex w-[90vw] max-w-[560px] flex-col overflow-hidden rounded-[18px] border border-[#e1ded8] bg-[#fbfaf8] text-[#24231f] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
       >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
-        <div className="flex flex-shrink-0 items-center justify-between px-5 pb-2 pt-5">
+        <div className="flex flex-shrink-0 items-center justify-between px-6 pb-2.5 pt-6">
           {showComputerTracking ? (
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowComputerTracking(false)}
-                className="rounded-sm p-1 text-[#878787] transition-colors hover:bg-[#f5f5f2] hover:text-[#1f1e1a]"
+                className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
               </button>
-              <h2 className="text-lg font-semibold leading-none tracking-tight text-[#1f1e1a]">Computer Use</h2>
+              <h2 className="text-[19px] font-semibold leading-none tracking-normal text-[#1f1e1a]">Computer Use</h2>
             </div>
           ) : showCustomization ? (
             <button
               onClick={handleBack}
-              className="rounded-sm p-1 text-[#878787] transition-colors hover:bg-[#f5f5f2] hover:text-[#1f1e1a]"
+              className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -603,14 +603,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               {selectedCategory && (
                 <button
                   onClick={handleBack}
-                  className="rounded-sm p-1 text-[#878787] transition-colors hover:bg-[#f5f5f2] hover:text-[#1f1e1a]"
+                  className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>
                 </button>
               )}
-              <h2 className="text-lg font-semibold leading-none tracking-tight text-[#1f1e1a]">
+              <h2 className="text-[19px] font-semibold leading-none tracking-normal text-[#1f1e1a]">
                 {selectedCategory
                   ? selectedCategory === 'whoop' ? 'Whoop'
                   : selectedCategory === 'fitness' ? 'Health'
@@ -625,7 +625,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           )}
             <button
               onClick={onClose}
-              className="rounded-sm p-1 text-[#878787] transition-colors hover:bg-[#f5f5f2] hover:text-[#1f1e1a]"
+              className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
             >
               <X className="w-4 h-4" />
             </button>
@@ -633,8 +633,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Description */}
         {!selectedCategory && !showComputerTracking && (
-          <div className="flex-shrink-0 px-5 pb-4">
-            <p className="text-sm leading-6 text-[#878787]">
+          <div className="flex-shrink-0 px-6 pb-5">
+            <p className="text-[15px] leading-7 text-[#85847f]">
               Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
         </div>
@@ -642,20 +642,20 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
         {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="px-4 pb-1.5 flex-shrink-0">
+          <div className="px-6 pb-2 flex-shrink-0">
             <input
               type="text"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-sm border border-[#d8d8d3] px-4 py-2.5 text-sm text-[#1f1e1a] placeholder:text-[#878787] focus:border-[#b8b6af] focus:outline-none"
+              className="h-9 w-full rounded-md border border-[#dfdcd6] bg-white/80 px-3 text-[13.5px] text-[#24231f] placeholder:text-[#9b9993] focus:border-[#c7c2b8] focus:outline-none"
             />
           </div>
         )}
 
         {/* Content Area - Scrollable */}
 
-        <div className={`min-h-0 overflow-y-auto px-5 pb-5 ${showCustomization ? 'max-h-[440px]' : 'max-h-[380px]'}`}>
+        <div className={`min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[440px]' : 'max-h-[430px]'}`}>
           {showComputerTracking ? (
             <div className="py-2">
               {resolvedUserId ? (

@@ -46,9 +46,9 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
-const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1440.0;
+const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1330.0;
 const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 820.0;
-const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1440x820_v1.done";
+const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1330x820_v1.done";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
