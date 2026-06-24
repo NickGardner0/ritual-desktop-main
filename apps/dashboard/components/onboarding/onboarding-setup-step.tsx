@@ -189,7 +189,7 @@ export function OnboardingSetupStep({
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-2.5">
               <img
-                src="/images/logo_fix1.svg"
+                src="/images/eclipse.svg"
                 alt=""
                 width={32}
                 height={32}

@@ -29,6 +29,7 @@ import {
   ONBOARDING_SIGNUP_WINDOW_HEIGHT,
   ONBOARDING_WELCOME_WINDOW_WIDTH,
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
+  restoreDashboardWindowSize,
   setOnboardingWindowSize,
 } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
@@ -209,6 +210,7 @@ export default function OnboardingPage() {
 
         if (redirectRoute === "/dashboard") {
           clearPersistedStep()
+          await restoreDashboardWindowSize()
           router.replace("/dashboard")
           return
         }
@@ -426,6 +428,7 @@ export default function OnboardingPage() {
     try {
       await markSetupSeen()
       clearPersistedStep()
+      await restoreDashboardWindowSize()
       router.replace("/dashboard")
       void requestDesktopPermissions().catch((permissionError) => {
         console.warn("Setup permissions finished with partial errors:", permissionError)

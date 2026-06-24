@@ -4,12 +4,13 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
+import { onboardingRouteForStep } from "@/lib/activation-flow.mjs"
 
 export default function PermissionsOnboardingPage() {
   const router = useRouter()
 
   useEffect(() => {
-    router.replace("/dashboard")
+    router.replace(onboardingRouteForStep("setup"))
   }, [router])
 
   return (
