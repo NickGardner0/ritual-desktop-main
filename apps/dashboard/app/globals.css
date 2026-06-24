@@ -432,7 +432,7 @@
   .ritual-titlebar {
     height: var(--titlebar-height);
     background: var(--surface-chrome);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 0;
   }
 
   .ritual-content-surface {
@@ -441,7 +441,19 @@
 
   .ritual-sidebar-shell {
     background: var(--surface-sidebar);
-    border-right: 1px solid var(--border-subtle);
+    border-right: 0;
+  }
+
+  .app-window-shell.has-shell-sidebar-divider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--ritual-sidebar-current-width, 202px);
+    z-index: 45;
+    width: 1px;
+    pointer-events: none;
+    background: var(--border-subtle);
   }
 
   .ritual-sidebar-list {
@@ -564,6 +576,23 @@
 
   .titlebar-sidebar-lane {
     width: max(var(--ritual-sidebar-current-width, 76px), 202px);
+    background: var(--surface-sidebar);
+    border-right: 0;
+  }
+
+  .dashboard-top-chrome-row::after {
+    content: "";
+    position: absolute;
+    right: -0.5rem;
+    bottom: 0;
+    left: 0;
+    height: 1px;
+    pointer-events: none;
+    background: var(--border-subtle);
+  }
+
+  .dashboard-top-chrome-row.has-titlebar-sidebar-lane::after {
+    left: max(var(--ritual-sidebar-current-width, 76px), 202px);
   }
 
   .app-toolbar-region {
