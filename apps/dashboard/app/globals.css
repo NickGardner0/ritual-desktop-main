@@ -580,21 +580,6 @@
     border-right: 0;
   }
 
-  .dashboard-top-chrome-row::after {
-    content: "";
-    position: absolute;
-    right: -0.5rem;
-    bottom: 0;
-    left: 0;
-    height: 1px;
-    pointer-events: none;
-    background: var(--border-subtle);
-  }
-
-  .dashboard-top-chrome-row.has-titlebar-sidebar-lane::after {
-    left: max(var(--ritual-sidebar-current-width, 76px), 202px);
-  }
-
   .app-toolbar-region {
     border-bottom: 0;
     background: var(--content-bg);
