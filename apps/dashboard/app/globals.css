@@ -441,7 +441,19 @@
 
   .ritual-sidebar-shell {
     background: var(--surface-sidebar);
-    border-right: 1px solid var(--border-subtle);
+    border-right: 0;
+  }
+
+  .app-window-shell.has-shell-sidebar-divider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--ritual-sidebar-current-width, 202px);
+    z-index: 45;
+    width: 1px;
+    pointer-events: none;
+    background: var(--border-subtle);
   }
 
   .ritual-sidebar-list {
@@ -565,7 +577,7 @@
   .titlebar-sidebar-lane {
     width: max(var(--ritual-sidebar-current-width, 76px), 202px);
     background: var(--surface-sidebar);
-    border-right: 1px solid var(--border-subtle);
+    border-right: 0;
   }
 
   .dashboard-top-chrome-row::after {

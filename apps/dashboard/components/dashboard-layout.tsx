@@ -151,7 +151,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Suspense>
       ) : null}
       
-      <div className="app-window-shell flex h-full min-w-0 flex-1 flex-col overflow-hidden">
+      <div className={`app-window-shell relative flex h-full min-w-0 flex-1 flex-col overflow-hidden ${!shouldHideAppSidebar && !detachedSidebarMode ? 'has-shell-sidebar-divider' : ''}`}>
         {/* Native window chrome. Keep this row focused on window/navigation controls. */}
         {!isFullScreenChat && (
           <>

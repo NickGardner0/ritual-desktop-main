@@ -573,7 +573,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       />
       <div 
         ref={cardRef}
-        className={`relative z-10 flex w-[90vw] max-w-[560px] flex-col overflow-hidden rounded-[18px] border border-[#e1ded8] bg-[#fbfaf8] text-[#24231f] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
+        className={`relative z-10 flex w-[90vw] max-w-[560px] flex-col overflow-hidden rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
       >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
         <div className="flex flex-shrink-0 items-center justify-between px-6 pb-2.5 pt-6">
@@ -581,18 +581,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowComputerTracking(false)}
-                className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
+                className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
               </button>
-              <h2 className="text-[19px] font-semibold leading-none tracking-normal text-[#1f1e1a]">Computer Use</h2>
+              <h2 className="text-[19px] font-medium leading-none tracking-normal text-[var(--text-primary)]">Computer Use</h2>
             </div>
           ) : showCustomization ? (
             <button
               onClick={handleBack}
-              className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
+              className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -603,14 +603,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               {selectedCategory && (
                 <button
                   onClick={handleBack}
-                  className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
+                  className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>
                 </button>
               )}
-              <h2 className="text-[19px] font-semibold leading-none tracking-normal text-[#1f1e1a]">
+              <h2 className="text-[19px] font-medium leading-none tracking-normal text-[var(--text-primary)]">
                 {selectedCategory
                   ? selectedCategory === 'whoop' ? 'Whoop'
                   : selectedCategory === 'fitness' ? 'Health'
@@ -625,7 +625,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           )}
             <button
               onClick={onClose}
-              className="rounded-md p-1 text-[#8b8a86] transition-colors hover:bg-[#efeee9] hover:text-[#24231f]"
+              className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
               <X className="w-4 h-4" />
             </button>
@@ -634,7 +634,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         {/* Description */}
         {!selectedCategory && !showComputerTracking && (
           <div className="flex-shrink-0 px-6 pb-5">
-            <p className="text-[15px] leading-7 text-[#85847f]">
+            <p className="text-[15px] leading-7 text-[var(--text-secondary)]">
               Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
         </div>
@@ -648,7 +648,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 w-full rounded-md border border-[#dfdcd6] bg-white/80 px-3 text-[13.5px] text-[#24231f] placeholder:text-[#9b9993] focus:border-[#c7c2b8] focus:outline-none"
+              className="h-9 w-full rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-3 text-[13.5px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-muted)] focus:outline-none"
             />
           </div>
         )}
