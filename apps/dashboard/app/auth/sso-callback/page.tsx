@@ -15,6 +15,7 @@ import {
   resolveOnboardingStep,
   resolveSsoRedirectRoute,
 } from '@/lib/activation-flow.mjs'
+import { restoreDashboardWindowSize } from '@/lib/tauri-utils'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
@@ -60,6 +61,12 @@ function resolveFallbackRedirect(dashboardReturnUrl: string | null): string {
   }
 
   return resolveBootstrapRedirect('/dashboard', dashboardReturnUrl)
+}
+
+async function restoreDashboardSizeBeforeRedirect(target: string): Promise<void> {
+  if (target.startsWith('/dashboard')) {
+    await restoreDashboardWindowSize()
+  }
 }
 
 export default function SSOCallback() {
@@ -118,11 +125,15 @@ export default function SSOCallback() {
 
         const bootstrap = await response.json() as BootstrapResponse
         setStatus('Taking you to Ritual...')
-        router.replace(resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl()))
+        const redirectTarget = resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl())
+        await restoreDashboardSizeBeforeRedirect(redirectTarget)
+        router.replace(redirectTarget)
       } catch (error) {
         console.error('Error completing sign-in:', error)
         setStatus('Taking you to Ritual...')
-        router.replace(resolveFallbackRedirect(readDashboardReturnUrl()))
+        const fallbackTarget = resolveFallbackRedirect(readDashboardReturnUrl())
+        await restoreDashboardSizeBeforeRedirect(fallbackTarget)
+        router.replace(fallbackTarget)
       }
     }
 

@@ -13,7 +13,7 @@ export function RitualLogo({ className, size = 44 }: RitualLogoProps) {
   return (
     <img
       className={`${className || ''} cursor-pointer transition-transform duration-500 ease-in-out ${isSpinning ? 'rotate-[360deg]' : 'rotate-0'}`}
-      src="/images/logo_fix1.svg"
+      src="/images/eclipse.svg"
       alt="Ritual Logo"
       width={size}
       height={size}

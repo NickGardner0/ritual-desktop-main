@@ -7,6 +7,7 @@ import Link from 'next/link';
 import {
   ONBOARDING_HOME_WINDOW_HEIGHT,
   ONBOARDING_HOME_WINDOW_WIDTH,
+  restoreDashboardWindowSize,
   setOnboardingWindowSize,
 } from '@/lib/tauri-utils';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
@@ -152,6 +153,8 @@ export function HomeClient() {
     lastCheckedUserIdRef.current = user.id;
     queueMicrotask(() => setIsChecking(true));
 
+    const restoreDashboardOnRedirect = isNewUser === true;
+
     const checkAndRedirect = async () => {
       try {
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -184,7 +187,11 @@ export function HomeClient() {
 
         if (response && response.ok) {
           const bootstrap = await response.json();
-          router.replace(resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined));
+          const redirectRoute = resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined);
+          if (restoreDashboardOnRedirect && redirectRoute.startsWith('/dashboard')) {
+            await restoreDashboardWindowSize();
+          }
+          router.replace(redirectRoute);
         } else {
           router.replace('/sign-in');
         }
@@ -195,14 +202,7 @@ export function HomeClient() {
     };
 
     checkAndRedirect();
-  }, [authMode, getToken, isLoaded, isSignedIn, pageParam, router, user]);
-
-  // Handle signed in users during welcome flow
-  useEffect(() => {
-    if (isLoaded && isSignedIn && isNewUser) {
-      router.replace('/dashboard');
-    }
-  }, [isSignedIn, isLoaded, isNewUser, router]);
+  }, [authMode, getToken, isLoaded, isNewUser, isSignedIn, pageParam, router, user]);
 
   const startSignup = () => {
     if (typeof window !== 'undefined') {
