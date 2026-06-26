@@ -23,20 +23,20 @@ export function OverviewEmptyState({
     <div className="absolute inset-x-0 top-[clamp(0px,2vh,28px)] flex justify-center px-6">
       <div className="flex w-full max-w-[512px] flex-col gap-5">
         <div className="mb-6 flex w-full justify-center">
-          <div className="inline-flex items-center gap-[4px] text-[#111827]">
+          <div className="inline-flex items-center gap-[3px] text-[#111827]">
             <img
               src="/images/eclipse.svg"
               alt=""
               aria-hidden="true"
-              className="h-[27px] w-[27px] shrink-0"
+              className="h-[20px] w-[20px] shrink-0 object-contain"
             />
-            <RitualWordmark className="h-[24px] w-auto shrink-0" />
+            <RitualWordmark className="h-[15px] w-auto shrink-0" />
           </div>
         </div>
 
         <div className="w-full">
           <StartSectionHeader title="Get Started" />
-          <div>
+          <div className="space-y-1.5">
             <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
             <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
             <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
@@ -51,7 +51,7 @@ export function OverviewEmptyState({
 
         <div className="w-full">
           <StartSectionHeader title="Configure" />
-          <div>
+          <div className="space-y-1.5">
             <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
             <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
             <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />

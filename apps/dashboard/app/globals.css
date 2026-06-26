@@ -299,7 +299,7 @@
   --radius-row: 0.25rem;
   --titlebar-height: 36px;
   --sidebar-row-height: 30px;
-  --sidebar-row-gap: 12px;
+  --sidebar-row-gap: 10px;
   --sidebar-row-x: 9px;
   --sidebar-icon-x: 15px;
   --sidebar-icon-size: 18px;
@@ -440,7 +440,7 @@
     position: absolute;
     right: 0;
     bottom: 0;
-    left: max(0px, calc(var(--ritual-sidebar-current-width, 202px) - 0.5rem));
+    left: var(--ritual-sidebar-current-width, 202px);
     z-index: 46;
     height: 1px;
     pointer-events: none;
