@@ -435,6 +435,18 @@
     border-bottom: 0;
   }
 
+  .ritual-titlebar::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: max(0px, calc(var(--ritual-sidebar-current-width, 202px) - 0.5rem));
+    z-index: 46;
+    height: 1px;
+    pointer-events: none;
+    background: var(--titlebar-glass-border);
+  }
+
   .ritual-content-surface {
     background: var(--surface-content);
   }
@@ -876,7 +888,7 @@
         rgba(242, 241, 238, 0.93) 100%
       );
     background-color: rgba(244, 243, 240, 0.95);
-    border-right: 1px solid rgba(15, 23, 42, 0.05);
+    border-right: 0;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
        the entire app to freeze with the macOS pinwheel. The slightly
@@ -945,7 +957,7 @@
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     border-bottom: 0;
-    box-shadow: inset 0 -1px 0 var(--titlebar-glass-border);
+    box-shadow: none;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
   }
@@ -976,7 +988,7 @@
       rgba(252, 252, 250, 0.44) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
-    box-shadow: inset 0 -1px 0 var(--titlebar-glass-border);
+    box-shadow: none;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -1011,7 +1023,7 @@
       rgba(252, 252, 250, 0.32) 100%
     ) !important;
     background-color: rgba(255, 255, 255, 0.36) !important;
-    border-right: 1px solid rgba(15, 23, 42, 0.052) !important;
+    border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
@@ -1075,13 +1087,13 @@
   html.desktop[data-chrome-appearance="white"] .chat-header-sidebar-strip {
     background: #ffffff !important;
     background-color: #ffffff !important;
-    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.045) !important;
+    box-shadow: none !important;
   }
 
   html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy {
     background: #ffffff !important;
     background-color: #ffffff !important;
-    border-right-color: rgba(15, 23, 42, 0.045) !important;
+    border-right: 0 !important;
   }
 
   html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer,
@@ -1094,13 +1106,13 @@
   html.desktop[data-chrome-appearance="zed"] .chat-header-sidebar-strip {
     background: #eeeeec !important;
     background-color: #eeeeec !important;
-    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.075) !important;
+    box-shadow: none !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy {
     background: #eeeeec !important;
     background-color: #eeeeec !important;
-    border-right-color: rgba(15, 23, 42, 0.075) !important;
+    border-right: 0 !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer,
@@ -1120,7 +1132,7 @@
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy {
     background: #ffffff !important;
     background-color: #ffffff !important;
-    border-right-color: rgba(15, 23, 42, 0.045) !important;
+    border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before,
@@ -1134,14 +1146,14 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="white"] .chat-header-sidebar-strip {
     background: #ffffff !important;
     background-color: #ffffff !important;
-    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.045) !important;
+    box-shadow: none !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy {
     background: #eeeeec !important;
     background-color: #eeeeec !important;
-    border-right-color: rgba(15, 23, 42, 0.075) !important;
+    border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before,
@@ -1155,7 +1167,7 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"][data-chrome-appearance="zed"] .chat-header-sidebar-strip {
     background: #eeeeec !important;
     background-color: #eeeeec !important;
-    box-shadow: inset 0 -1px 0 rgba(15, 23, 42, 0.075) !important;
+    box-shadow: none !important;
   }
 
   /* Opaque app surfaces cover native blur so only sidebar/chrome stay glassy. */
@@ -1182,7 +1194,7 @@
   html.desktop[data-sidebar-capture="1"]:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: #fefefe !important;
     background-color: #fefefe !important;
-    border-right: 1px solid rgba(15, 23, 42, 0.035) !important;
+    border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
