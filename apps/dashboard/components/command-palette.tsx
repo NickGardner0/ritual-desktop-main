@@ -412,7 +412,7 @@ export default function CommandPalette({
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-none",
+          "justify-between rounded-sm border border-gray-200/90 bg-white shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]",
           className
         )}
       >

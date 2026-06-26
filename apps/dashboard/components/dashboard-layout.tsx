@@ -247,7 +247,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <div className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
                       <CommandPalette
-                        className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-0"
+                        className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
                         initialOpen={shouldOpenWhoopModal}
                         density="tight"
                       />

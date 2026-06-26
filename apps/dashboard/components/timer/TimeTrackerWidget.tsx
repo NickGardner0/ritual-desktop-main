@@ -205,7 +205,7 @@ export function TimeTrackerWidget({ open, onClose }: Props) {
             <div className="space-y-2">
               <label className="text-sm font-medium text-gray-700">Choose a habit</label>
               <Select value={selectedHabit} onValueChange={setSelectedHabit}>
-                <SelectTrigger className="w-full rounded-none border border-gray-300 bg-white text-gray-900 focus:border-gray-400 focus:ring-0">
+                <SelectTrigger className="w-full rounded-sm border border-gray-300 bg-white text-gray-900 focus:border-gray-400 focus:ring-0">
                   <SelectValue placeholder="Select a habit to track" />
                 </SelectTrigger>
                 <SelectContent className="z-[9999]" position="popper" side="bottom" align="start">
@@ -249,7 +249,7 @@ export function TimeTrackerWidget({ open, onClose }: Props) {
                   <Button
                     onClick={handleStart}
                     disabled={!selectedHabit}
-                    className="flex-1 px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 disabled:bg-gray-100 disabled:text-gray-400 transition-colors rounded-none text-xs h-6"
+                    className="flex-1 h-6 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-medium text-gray-900 transition-colors hover:bg-[#F3F3F3] disabled:bg-gray-100 disabled:text-gray-400"
                   >
                     <Play className="w-2 h-2 mr-1" />
                     Start
@@ -280,7 +280,7 @@ export function TimeTrackerWidget({ open, onClose }: Props) {
                   </Button>
                   <Button
                     onClick={handlePause}
-                    className="flex-1 px-1.5 py-0.5 bg-white border border-gray-300 text-gray-900 font-medium hover:bg-gray-50 transition-colors rounded-none text-xs h-6"
+                    className="flex-1 h-6 rounded-sm border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-medium text-gray-900 transition-colors hover:bg-[#F3F3F3]"
                   >
                     <Pause className="w-2 h-2 mr-1" />
                     Pause
@@ -300,7 +300,7 @@ export function TimeTrackerWidget({ open, onClose }: Props) {
             <Button
               onClick={handleReset}
               variant="outline"
-              className="w-full px-1.5 py-0.5 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-none text-xs h-6"
+              className="h-6 w-full rounded-sm border border-gray-300 px-1.5 py-0.5 text-xs text-gray-700 hover:bg-[#F3F3F3]"
             >
               Reset Timer
             </Button>

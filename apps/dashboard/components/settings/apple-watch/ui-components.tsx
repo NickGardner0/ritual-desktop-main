@@ -23,7 +23,7 @@ export function SegmentButton({ children, active, onClick, small }: { children: 
         small ? 'px-2 py-1' : 'px-3 py-1.5',
         active
           ? 'border-gray-900 bg-gray-900 text-white'
-          : `border-gray-200 bg-white ${SETTINGS_MUTED_TEXT_CLASS} hover:bg-gray-50`,
+          : `border-gray-200 bg-white ${SETTINGS_MUTED_TEXT_CLASS} hover:bg-[#F3F3F3]`,
       )}
     >
       {children}

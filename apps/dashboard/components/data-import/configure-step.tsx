@@ -105,10 +105,10 @@ export function ConfigureStep({ imp }: Props) {
               <div>
                 <Label className="text-sm font-medium text-gray-900 mb-2 block">When data already exists</Label>
                 <Select value={imp.conflictPolicy} onValueChange={(v: ConflictPolicy) => imp.setConflictPolicy(v)}>
-                  <SelectTrigger className="border-gray-300 h-11 rounded-none [&>span]:text-left [&>span]:pl-0">
+                  <SelectTrigger className="h-11 rounded-sm border-gray-300 [&>span]:text-left [&>span]:pl-0">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="z-[10000] rounded-none">
+                  <SelectContent className="z-[10000] rounded-sm">
                     {CONFLICT_POLICIES.map((policy) => (
                       <SelectItem key={policy.value} value={policy.value}>
                         <div className="flex flex-col items-start">
@@ -125,10 +125,10 @@ export function ConfigureStep({ imp }: Props) {
               <div>
                 <Label className="text-sm font-medium text-gray-900 mb-2 block">Aggregate data by</Label>
                 <Select value={imp.aggregation} onValueChange={(v: AggregationPeriod) => imp.setAggregation(v)}>
-                  <SelectTrigger className="border-gray-300 h-11 rounded-none [&>span]:text-left [&>span]:pl-0">
+                  <SelectTrigger className="h-11 rounded-sm border-gray-300 [&>span]:text-left [&>span]:pl-0">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent className="z-[10000] rounded-none">
+                  <SelectContent className="z-[10000] rounded-sm">
                     {AGGREGATION_OPTIONS.map((opt) => (
                       <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
@@ -177,10 +177,10 @@ export function ConfigureStep({ imp }: Props) {
                         value={imp.csvMapping.dateColumn} 
                         onValueChange={(v) => imp.setCsvMapping(prev => ({ ...prev, dateColumn: v }))}
                       >
-                        <SelectTrigger className="border-gray-300 h-9 text-sm rounded-none">
+                        <SelectTrigger className="h-9 rounded-sm border-gray-300 text-sm">
                           <SelectValue placeholder="Auto-detected" />
                         </SelectTrigger>
-                        <SelectContent className="z-[10000] rounded-none">
+                        <SelectContent className="z-[10000] rounded-sm">
                           {previewData.detected_columns.map((col) => (
                             <SelectItem key={col} value={col}>{col}</SelectItem>
                           ))}
@@ -198,10 +198,10 @@ export function ConfigureStep({ imp }: Props) {
                             imp.setCsvMapping(prev => ({ ...prev, valueColumns: updated }));
                           }}
                         >
-                          <SelectTrigger className="border-gray-300 h-8 text-sm rounded-none">
+                          <SelectTrigger className="h-8 rounded-sm border-gray-300 text-sm">
                             <SelectValue placeholder="Column" />
                           </SelectTrigger>
-                          <SelectContent className="z-[10000] rounded-none">
+                          <SelectContent className="z-[10000] rounded-sm">
                             {previewData.detected_columns?.map((col) => (
                               <SelectItem key={col} value={col}>{col}</SelectItem>
                             ))}

@@ -193,10 +193,10 @@ export function InlineDateRangeFilter({
             });
           }}
         >
-          <SelectTrigger className="h-8 w-[240px] rounded-none border-black/10 text-xs focus:ring-0 focus:ring-offset-0">
+          <SelectTrigger className="h-8 w-[240px] rounded-sm border-black/10 text-xs focus:ring-0 focus:ring-offset-0">
             <SelectValue placeholder="Select preset" />
           </SelectTrigger>
-          <SelectContent className="rounded-none border-black/10">
+          <SelectContent className="rounded-sm border-black/10">
             {DATE_PRESET_OPTIONS.map((preset) => (
               <SelectItem key={preset.id} value={preset.id} className="text-[13px]">
                 {preset.label}

@@ -337,7 +337,7 @@ export function AppleWatchTabPanels({
                 <button
                   onClick={() => saveExportSchedule(exportSchedule)}
                   disabled={scheduleSaving}
-                  className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-sm border border-gray-200 bg-white px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-[#F3F3F3] disabled:opacity-50"
                 >
                   {scheduleSaving ? (<><BrailleSpinner /> Saving...</>) : 'Save schedule'}
                 </button>
@@ -385,7 +385,7 @@ export function AppleWatchTabPanels({
                             setExportDatePreset('custom');
                           }}
                           className={cn(
-                            'ml-3 shrink-0 rounded-sm border border-gray-200 px-2.5 py-1 text-[12px] transition-colors hover:bg-gray-50 hover:text-gray-700',
+                            'ml-3 shrink-0 rounded-sm border border-gray-200 px-2.5 py-1 text-[12px] transition-colors hover:bg-[#F3F3F3] hover:text-gray-700',
                             SETTINGS_MUTED_TEXT_CLASS,
                           )}
                         >
