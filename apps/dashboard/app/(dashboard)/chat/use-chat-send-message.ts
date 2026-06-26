@@ -3,6 +3,7 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { submitCurrentLocationPing } from '@/lib/location-ping';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import {
   getOverviewActivityBundle,
   hasMeaningfulOverviewActivity,
@@ -134,6 +135,7 @@ export function useChatSendMessage({
         headers: {
           'Authorization': token ? `Bearer ${token}` : '',
           'Content-Type': 'application/json',
+          ...privacySettingsHeaders(),
         },
         body: JSON.stringify({
           messages: newMessages.map(m => ({ role: m.role, content: m.content })),

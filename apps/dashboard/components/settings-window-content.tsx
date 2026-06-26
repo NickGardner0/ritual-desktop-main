@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { ChevronDown, MapPin, Monitor, User2 } from 'lucide-react';
+import { ChevronDown, MapPin, Monitor, ShieldCheck, User2 } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { contrastRatioAgainstWhite, useUIPreferences } from '@/hooks/use-ui-pref
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
+import { PrivacySettingsPanel } from './privacy-settings-panel';
 import {
   SettingsGroup as RitualSettingsGroup,
   SettingsRow as RitualSettingsRow,
@@ -40,12 +41,13 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 
 const TABS: Record<DesktopSettingsView, TabConfig> = {
   account: { label: 'General', icon: User2 },
+  privacy: { label: 'Privacy', icon: ShieldCheck },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
   'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
-const TAB_ORDER: DesktopSettingsView[] = ['account', 'computer-tracking', 'place-tagging', 'apple-health'];
+const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -62,7 +64,7 @@ const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
 ];
 
 function normalizeSettingsView(value: unknown): DesktopSettingsView {
-  return value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
     : 'account';
 }
@@ -388,6 +390,12 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
                 showAttributionHealth={showAttributionHealth}
                 onClose={() => handleTabSelect('account')}
               />
+            </div>
+          ) : null}
+
+          {activeTab === 'privacy' ? (
+            <div className="settings-native-embedded">
+              <PrivacySettingsPanel />
             </div>
           ) : null}
 

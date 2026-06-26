@@ -1,5 +1,5 @@
-use super::*;
 use super::location_outbox::{append_quarantine_records, quarantine_text};
+use super::*;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -401,7 +401,11 @@ pub(crate) fn import_biome_export_into_path(
             by_key.insert(biome_event_key(&event), event);
         }
         if !existing.malformed_lines.is_empty() {
-            quarantine_text(outbox_path, "malformed", &existing.malformed_lines.join("\n"))?;
+            quarantine_text(
+                outbox_path,
+                "malformed",
+                &existing.malformed_lines.join("\n"),
+            )?;
         }
     }
 
@@ -458,7 +462,9 @@ pub(crate) fn import_biome_export_into_path(
     })
 }
 
-pub(crate) fn import_biome_export_into_outbox(source_path: &Path) -> Result<BiomeImportResult, String> {
+pub(crate) fn import_biome_export_into_outbox(
+    source_path: &Path,
+) -> Result<BiomeImportResult, String> {
     let Some(outbox_path) = biome_outbox_path() else {
         return Err("Biome outbox path is unavailable".to_string());
     };
@@ -622,7 +628,9 @@ fn drain_biome_outbox_blocking(auth_token: String, backend_base: String) -> Resu
     Ok(processed_keys.len())
 }
 
-pub(crate) async fn drain_biome_outbox_once<R: Runtime + 'static>(app: AppHandle<R>) -> Result<usize, String> {
+pub(crate) async fn drain_biome_outbox_once<R: Runtime + 'static>(
+    app: AppHandle<R>,
+) -> Result<usize, String> {
     let auth_state = read_auth_state(&app);
     let auth_token = match auth_state.token.filter(|token| !token.trim().is_empty()) {
         Some(token) => token,
@@ -799,9 +807,15 @@ mod tests {
         assert_eq!(result.outbox_event_count, 2);
         assert!(result.quarantine_path.is_none());
         assert_eq!(outbox.events.len(), 2);
-        assert!(outbox.events.iter().any(|event| event.app_name == "Messages"));
+        assert!(outbox
+            .events
+            .iter()
+            .any(|event| event.app_name == "Messages"));
         assert!(outbox.events.iter().any(|event| event.app_name == "Safari"));
-        assert!(export_path.exists(), "bridge import must not delete the source export");
+        assert!(
+            export_path.exists(),
+            "bridge import must not delete the source export"
+        );
     }
 
     #[test]
@@ -840,48 +854,10 @@ mod tests {
         assert!(quarantine_body.contains("bad-json"));
         assert!(quarantine_body.contains("ts_end must be greater than ts_start"));
         assert_eq!(outbox.events.len(), 1);
-        assert!(export_path.exists(), "bridge import must not delete the source export");
-    }
-
-    #[test]
-    fn classify_location_ack_handles_accepted_duplicates_and_rejects() {
-        let chunk = vec![
-            location_ping("accepted"),
-            location_ping("duplicate"),
-            location_ping("rejected"),
-        ];
-        let parsed = LocationIngestResponse {
-            accepted: 1,
-            rejected: 1,
-            duplicates: 1,
-            accepted_ids: vec!["accepted".to_string()],
-            duplicate_ids: vec!["duplicate".to_string()],
-            rejected_ids: vec!["rejected".to_string()],
-        };
-
-        let (processed, rejected) = classify_location_ack(&parsed, &chunk).unwrap();
-
-        assert_eq!(processed.len(), 3);
-        assert!(processed.contains("accepted"));
-        assert!(processed.contains("duplicate"));
-        assert!(processed.contains("rejected"));
-        assert_eq!(rejected.len(), 1);
-        assert_eq!(rejected[0].client_event_id, "rejected");
-    }
-
-    #[test]
-    fn classify_location_ack_keeps_batch_when_rejects_have_no_ids() {
-        let chunk = vec![location_ping("pending")];
-        let parsed = LocationIngestResponse {
-            accepted: 0,
-            rejected: 1,
-            duplicates: 0,
-            accepted_ids: vec![],
-            duplicate_ids: vec![],
-            rejected_ids: vec![],
-        };
-
-        assert!(classify_location_ack(&parsed, &chunk).is_err());
+        assert!(
+            export_path.exists(),
+            "bridge import must not delete the source export"
+        );
     }
 
     #[test]

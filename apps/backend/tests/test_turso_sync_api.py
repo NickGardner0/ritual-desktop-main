@@ -44,6 +44,11 @@ async def _get_current_user():
 
 
 class TursoSyncApiTests(unittest.TestCase):
+    plaintext_sync_headers = {
+        "x-ritual-privacy-mode": "cloud_intelligence",
+        "x-ritual-cloud-consents": "plaintext_sync",
+    }
+
     def _build_client(self) -> TestClient:
         app = FastAPI()
         app.include_router(
@@ -70,7 +75,10 @@ class TursoSyncApiTests(unittest.TestCase):
                 )
             ),
         ):
-            response = client.get("/api/user/turso-sync-config")
+            response = client.get(
+                "/api/user/turso-sync-config",
+                headers=self.plaintext_sync_headers,
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
@@ -86,6 +94,15 @@ class TursoSyncApiTests(unittest.TestCase):
         self.assertNotIn("TURSO_PLATFORM_API_TOKEN", response.text)
         self.assertNotIn("admin", response.text.lower())
 
+    def test_turso_sync_config_blocks_plaintext_sync_without_privacy_consent(self):
+        client = self._build_client()
+
+        response = client.get("/api/user/turso-sync-config")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"]["privacy_blocked"], True)
+        self.assertEqual(response.json()["detail"]["required_consent"], "plaintext_sync")
+
     def test_turso_sync_config_maps_pending_migration_to_conflict(self):
         client = self._build_client()
         with patch(
@@ -96,7 +113,10 @@ class TursoSyncApiTests(unittest.TestCase):
                 )
             ),
         ):
-            response = client.get("/api/user/turso-sync-config")
+            response = client.get(
+                "/api/user/turso-sync-config",
+                headers=self.plaintext_sync_headers,
+            )
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("migration", response.json()["detail"].lower())

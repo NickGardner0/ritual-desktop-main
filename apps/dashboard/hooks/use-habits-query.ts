@@ -36,6 +36,10 @@ import {
   shouldForceFreshRead,
 } from '@/lib/read-consistency';
 import { apiFetchWithAuth } from '@/lib/api/client';
+import {
+  readLocalVaultHabitLogs,
+  readLocalVaultHabits,
+} from '@/lib/privacy/habit-vault-adapter';
 
 const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
@@ -177,6 +181,13 @@ export function useHabitsQuery() {
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
+      const localVaultHabits = await readLocalVaultHabits(user.id);
+      if (localVaultHabits) {
+        persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, localVaultHabits, user.id);
+        clearReadConsistencyRequirement(user.id);
+        return localVaultHabits;
+      }
+
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
       try {
@@ -245,6 +256,13 @@ export function useHabitLogsQuery({
     queryFn: async () => {
       if (!user) throw new Error('No user');
 
+      const localVaultLogs = await readLocalVaultHabitLogs(user.id);
+      if (localVaultLogs) {
+        persistSnapshot(HABIT_LOGS_SNAPSHOT_STORAGE_KEY, localVaultLogs, user.id);
+        clearReadConsistencyRequirement(user.id);
+        return localVaultLogs;
+      }
+
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
       try {
@@ -307,6 +325,7 @@ export function useLogHabitMutation() {
 
   return useMutation({
     mutationFn: async (habitLog: Omit<HabitLog, 'id'> & { habit_name?: string }) => {
+      if (!user?.id) throw new Error('No user');
       const token = await getToken();
       if (process.env.NODE_ENV !== 'production') { console.log('📝 [React Query] Logging habit:', habitLog); }
 
@@ -374,6 +393,7 @@ export function useCreateHabitMutation() {
 
   return useMutation({
     mutationFn: async (habitData: CreateHabitInput): Promise<HabitRecord> => {
+      if (!user?.id) throw new Error('No user');
       if (process.env.NODE_ENV !== 'production') { console.log('➕ [React Query] Creating habit:', habitData); }
 
       const response = await fetchWithAuthRetry(
@@ -434,6 +454,7 @@ export function useUpdateHabitMutation() {
       habitId: string;
       updates: Partial<Habit>;
     }) => {
+      if (!user?.id) throw new Error('No user');
       const response = await fetchWithAuthRetry(
         `${LOCAL_HABITS_API}/${habitId}`,
         getToken,
@@ -507,6 +528,7 @@ export function useDeleteHabitMutation() {
 
   return useMutation({
     mutationFn: async ({ habitId, habitName, category }: { habitId: string; habitName?: string; category?: string }) => {
+      if (!user?.id) throw new Error('No user');
       const token = await getToken();
       if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [React Query] Deleting habit:', habitId); }
 

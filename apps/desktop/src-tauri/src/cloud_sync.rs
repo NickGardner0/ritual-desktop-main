@@ -1,4 +1,4 @@
-use crate::{desktop_runtime, native_widget, ritual_database};
+use crate::{desktop_runtime, native_widget, privacy_policy, ritual_database};
 use chrono::Utc;
 use libsql::{Builder, Connection, Database};
 use serde_json::Value;
@@ -53,6 +53,17 @@ async fn run_cloud_sync_pass<R: Runtime + 'static>(app: AppHandle<R>) -> Result<
 
 async fn run_cloud_sync_pass_inner<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> {
     let local_metrics = read_local_cloud_sync_metrics().await?;
+
+    if let Err(reason) = privacy_policy::plaintext_cloud_sync_allowed() {
+        ritual_database::record_cloud_sync_runtime_state(
+            local_metrics.latest_local_event_ts,
+            ritual_database::database_runtime_state_snapshot().latest_cloud_sync_ts,
+            local_metrics.backlog,
+            Some(reason.clone()),
+        );
+        debug!(reason = %reason, backlog = local_metrics.backlog, "Desktop cloud sync blocked by privacy policy");
+        return Ok(());
+    }
 
     let Some(config) = native_widget::load_turso_sync_config()? else {
         ritual_database::record_cloud_sync_runtime_state(

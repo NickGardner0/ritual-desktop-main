@@ -40,6 +40,11 @@ from database.models.metrics import (
     MetricFactRebuildRunDB,
     MetricDailyFactDB,
 )
+from database.models.privacy_sync import (
+    PrivateSyncDeviceDB,
+    PrivateSyncEnvelopeDB,
+    PrivateSyncKeyGrantDB,
+)
 from database.models.reports import (
     ReportScheduleDB,
     ReportRunDB,
@@ -137,6 +142,9 @@ __all__ = [
     "LiveBiometricsStateDB",
     "MetricDailyFactDB",
     "MetricFactRebuildRunDB",
+    "PrivateSyncDeviceDB",
+    "PrivateSyncEnvelopeDB",
+    "PrivateSyncKeyGrantDB",
     "ReportNotificationDB",
     "ReportRunDB",
     "ReportScheduleDB",

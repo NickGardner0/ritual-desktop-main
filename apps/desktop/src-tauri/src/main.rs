@@ -6,7 +6,9 @@ mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
 mod desktop_runtime_types;
+mod local_vault;
 mod native_widget;
+mod privacy_policy;
 mod ritual_database;
 mod watcher;
 mod watcher_activity;
@@ -440,8 +442,10 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
     );
 
     if watcher::permissions::check_accessibility_permission() {
-        match tauri::async_runtime::spawn_blocking(move || watcher::lifecycle::start_watcher_sync(config))
-            .await
+        match tauri::async_runtime::spawn_blocking(move || {
+            watcher::lifecycle::start_watcher_sync(config)
+        })
+        .await
         {
             Ok(Ok(status)) => {
                 info!(
@@ -636,8 +640,8 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
             let miniaturizable_mask = 1_u64 << 2; // NSWindowStyleMaskMiniaturizable
             let resizable_mask = 1_u64 << 3; // NSWindowStyleMaskResizable
             let full_size_content_view_mask = 1_u64 << 15; // NSWindowStyleMaskFullSizeContentView
-            // NSWindowStyleMaskFullSizeContentView lets the webview render under
-            // the titlebar, which is required for the thin Atlas-style glass chrome.
+                                                           // NSWindowStyleMaskFullSizeContentView lets the webview render under
+                                                           // the titlebar, which is required for the thin Atlas-style glass chrome.
             let desired_style_mask = current_style_mask
                 | titled_mask
                 | closable_mask
@@ -661,9 +665,7 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
             }
 
-            println!(
-                "✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)"
-            );
+            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
@@ -1139,10 +1141,7 @@ fn build_settings_window_url(initial_view: &str) -> String {
     let app_origin = get_app_url();
     let mut settings_url = join_url_path(&app_origin, "/settings-window");
     settings_url = with_query_param(&settings_url, "ritual_settings_window=1");
-    settings_url = with_query_param(
-        &settings_url,
-        &format!("ritual_desktop_env={ritual_env}"),
-    );
+    settings_url = with_query_param(&settings_url, &format!("ritual_desktop_env={ritual_env}"));
     with_query_param(&settings_url, &format!("view={initial_view}"))
 }
 
@@ -1430,6 +1429,17 @@ fn main() {
             desktop_runtime::get_biome_iphone_diagnostics,
             desktop_runtime::desktop_trigger_biome_iphone_sync,
             desktop_runtime::import_biome_iphone_export,
+            // Local encrypted vault commands
+            local_vault::vault_initialize,
+            local_vault::vault_get_status,
+            local_vault::vault_put_record,
+            local_vault::vault_get_record,
+            local_vault::vault_list_records,
+            local_vault::vault_tombstone_record,
+            local_vault::vault_put_migration_manifest,
+            local_vault::vault_list_migration_manifests,
+            local_vault::vault_put_deletion_receipt,
+            local_vault::vault_list_deletion_receipts,
             // Ritual Database commands (unified libSQL)
             ritual_database::init_ritual_database,
             ritual_database::get_ritual_db_stats,
@@ -1586,30 +1596,27 @@ fn main() {
                         let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
                         let app_handle_for_sync = app.handle().clone();
-                        window.on_window_event(move |event| {
-                            match event {
-                                tauri::WindowEvent::Moved(_)
-                                | tauri::WindowEvent::Resized(_)
-                                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                                    let state = app_handle_for_sync.state::<SidebarWindowState>();
-                                    let width = state.get_width();
-                                    let _ =
-                                        sync_detached_sidebar_window(&app_handle_for_sync, width);
-                                    if let Some(main_window) =
-                                        app_handle_for_sync.get_webview_window("main")
-                                    {
-                                        let _ = main_window.emit("sidebar:width", width);
-                                    }
+                        window.on_window_event(move |event| match event {
+                            tauri::WindowEvent::Moved(_)
+                            | tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                                let state = app_handle_for_sync.state::<SidebarWindowState>();
+                                let width = state.get_width();
+                                let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
+                                if let Some(main_window) =
+                                    app_handle_for_sync.get_webview_window("main")
+                                {
+                                    let _ = main_window.emit("sidebar:width", width);
                                 }
-                                tauri::WindowEvent::CloseRequested { .. } => {
-                                    if let Some(sidebar_window) =
-                                        app_handle_for_sync.get_webview_window("sidebar")
-                                    {
-                                        let _ = sidebar_window.close();
-                                    }
-                                }
-                                _ => {}
                             }
+                            tauri::WindowEvent::CloseRequested { .. } => {
+                                if let Some(sidebar_window) =
+                                    app_handle_for_sync.get_webview_window("sidebar")
+                                {
+                                    let _ = sidebar_window.close();
+                                }
+                            }
+                            _ => {}
                         });
                     } else {
                         sidebar_state.set_detached_enabled(false);

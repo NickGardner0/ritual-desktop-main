@@ -13,6 +13,11 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
+from services.privacy_policy import (
+    can_send_to_cloud,
+    data_class_for_tinybird_datasource,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -170,6 +175,18 @@ class TinybirdService:
         """
         Lightweight connectivity probe for health checks.
         """
+        decision = can_send_to_cloud(
+            data_class="product_telemetry",
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            return {
+                "status": "disabled",
+                "reason": decision.reason,
+                "privacy_blocked": True,
+            }
+
         url = f"{self.base_url}/v0/datasources"
         started = time.monotonic()
         try:
@@ -332,6 +349,26 @@ class TinybirdService:
         """
         Ingest events to Tinybird Events API with circuit breaker protection.
         """
+        decision = can_send_to_cloud(
+            data_class=data_class_for_tinybird_datasource(datasource),
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            logger.info(
+                "Tinybird ingest blocked by privacy policy datasource=%s count=%d reason=%s",
+                datasource,
+                len(events),
+                decision.reason,
+            )
+            return {
+                "success": True,
+                "count": 0,
+                "skipped": len(events),
+                "privacy_blocked": True,
+                "message": decision.reason,
+            }
+
         if not self._breaker.allow_request():
             # Buffer events for later drain
             for evt in events:
@@ -375,6 +412,18 @@ class TinybirdService:
         """
         Query a Tinybird pipe
         """
+        decision = can_send_to_cloud(
+            data_class="habit_log",
+            destination="tinybird",
+            purpose="analytics",
+        )
+        if not decision.allowed:
+            return {
+                "data": [],
+                "meta": {"privacy_blocked": True, "reason": decision.reason},
+                "statistics": {},
+            }
+
         try:
             url = f"{self.base_url}/v0/pipes/{pipe_name}.json"
             
@@ -505,9 +554,12 @@ class TinybirdService:
             'created_at': timestamp_str,
         }
         
-        logger.info(f"🔍 Tinybird event data (formatted): {event}")
         result = await self.ingest_events('habit_logs', [event])
-        logger.info(f"🔍 Tinybird ingest result: {result}")
+        logger.info("Tinybird habit log ingest result: %s", {
+            "success": result.get("success"),
+            "privacy_blocked": result.get("privacy_blocked", False),
+            "count": result.get("count"),
+        })
         return result
     
     async def ingest_habit_logs_batch(self, logs: List[Dict[str, Any]], batch_size: int = 500) -> Dict[str, Any]:

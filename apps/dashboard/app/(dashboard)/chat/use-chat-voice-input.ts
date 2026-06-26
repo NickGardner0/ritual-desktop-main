@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ensureMicrophonePermission } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -310,7 +311,11 @@ const startWhisperRecording = async () => {
       const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'wav';
       formData.append('file', audioBlob, `audio.${ext}`);
 
-      const response = await fetch('/api/whisper', { method: 'POST', body: formData });
+      const response = await fetch('/api/whisper', {
+        method: 'POST',
+        body: formData,
+        headers: privacySettingsHeaders(),
+      });
 
       if (response.ok) {
         const result = await response.json();

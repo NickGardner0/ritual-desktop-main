@@ -24,6 +24,11 @@ from models.user_models import (
     UserProfile,
 )
 from services.activation_service import activation_service
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
@@ -285,8 +290,28 @@ def create_core_router(
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
     @router.get("/api/user/turso-sync-config", response_model=TursoSyncConfigResponse)
-    async def get_turso_sync_config(current_user=Depends(get_current_user)):
+    async def get_turso_sync_config(
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
         try:
+            decision = can_send_to_cloud(
+                data_class="computer_activity",
+                destination="turso_cloud",
+                purpose="plaintext_sync",
+                mode=request_privacy_mode(request.headers),
+                consents=request_cloud_consents(request.headers),
+            )
+            if not decision.allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "Cloud consent required",
+                        "privacy_blocked": True,
+                        "reason": decision.reason,
+                        "required_consent": "plaintext_sync",
+                    },
+                )
             await user_service.ensure_user_exists(
                 user_id=current_user["id"],
                 email=current_user.get("email") or "",

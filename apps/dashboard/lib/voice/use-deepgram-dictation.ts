@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 
 type DeepgramDictationOptions = {
   language?: string;
@@ -77,6 +78,7 @@ async function fetchDeepgramToken(): Promise<string> {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      ...privacySettingsHeaders(),
     },
   });
 

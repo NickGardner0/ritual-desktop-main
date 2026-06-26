@@ -61,7 +61,10 @@ export async function forwardProxyRequest(
     const fetchInit: RequestInit = {
       method,
       cache: "no-store",
-      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
+      headers: {
+        ...buildBackendAuthHeaders({ userId, token, forceFresh }),
+        ...forwardPrivacyHeaders(request),
+      },
       signal: AbortSignal.timeout(timeout),
     };
 
@@ -132,6 +135,15 @@ export async function forwardProxyRequest(
       { status: 500 },
     );
   }
+}
+
+function forwardPrivacyHeaders(request: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const mode = request.headers.get("x-ritual-privacy-mode");
+  const consents = request.headers.get("x-ritual-cloud-consents");
+  if (mode) headers["X-Ritual-Privacy-Mode"] = mode;
+  if (consents) headers["X-Ritual-Cloud-Consents"] = consents;
+  return headers;
 }
 
 function shouldSetForceFreshCookie(method: string, backendPath: string): boolean {

@@ -76,7 +76,6 @@ export function CalendarClient() {
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [hoveredData, setHoveredData] = useState<HabitLog[]>([]);
 
-
   const projectTimeSessionsQuery = useQuery({
     queryKey: ['calendar-project-time-sessions', selectedDate],
     queryFn: async () => {

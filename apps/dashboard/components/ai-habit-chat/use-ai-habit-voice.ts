@@ -2,6 +2,7 @@ import { ensureMicrophonePermission } from '@/lib/tauri-utils';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import { normalizeLoggerVoiceTranscript } from './local-log-parser';
 import {
   clearNativeDesktopSpeechState,
@@ -310,7 +311,11 @@ export function useAiHabitVoice({ textareaRef, setInput, setError }: UseAiHabitV
         const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'wav';
         formData.append('file', audioBlob, `audio.${ext}`);
 
-        const response = await fetch('/api/whisper', { method: 'POST', body: formData });
+        const response = await fetch('/api/whisper', {
+          method: 'POST',
+          body: formData,
+          headers: privacySettingsHeaders(),
+        });
         if (response.ok) {
           const result = await response.json();
           if (result.text?.trim()) {

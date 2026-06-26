@@ -30,6 +30,7 @@ from api.integrations import create_tesla_router, create_whoop_router
 from api.location import create_location_router
 from api.metric_facts import create_metric_facts_router
 from api.observability import create_observability_router
+from api.privacy import create_privacy_router
 from api.proactive_sms import router as proactive_sms_router
 from api.reports import create_reports_router
 from api.screen_time import create_screen_time_router
@@ -154,7 +155,13 @@ def create_app() -> FastAPI:
         allow_origins=ALLOWED_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Ritual-Force-Fresh"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Ritual-Force-Fresh",
+            "X-Ritual-Privacy-Mode",
+            "X-Ritual-Cloud-Consents",
+        ],
     )
 
     app.include_router(
@@ -197,6 +204,7 @@ def create_app() -> FastAPI:
     app.include_router(create_facts_router(get_current_user=get_current_user))
     app.include_router(create_metric_facts_router(get_current_user=get_current_user))
     app.include_router(create_observability_router(get_current_user=get_current_user))
+    app.include_router(create_privacy_router(get_current_user=get_current_user))
     app.include_router(
         create_screenshot_router(
             limiter=limiter,
@@ -270,7 +278,10 @@ def create_app() -> FastAPI:
         else:
             tinybird_check = await tinybird_service.check_connectivity()
             checks["tinybird"] = tinybird_check
-            if tinybird_check.get("status") != "ok":
+            if tinybird_check.get("privacy_blocked"):
+                if status == "healthy":
+                    status = "degraded"
+            elif tinybird_check.get("status") != "ok":
                 status = "unhealthy"
                 status_code = 503
 

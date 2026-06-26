@@ -44,6 +44,11 @@ from schemas.wearables_unified import (
     WearableSyncResponse,
     WearableTimelineResponse,
 )
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 from services.wearable_provider_adapters import get_provider_adapter, list_provider_defs
 from services.wearable_provider_sync_registry import sync_wearable_provider_account
 
@@ -76,6 +81,26 @@ from api.wearables_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _enforce_provider_sync_consent(request: Optional[Request] = None) -> None:
+    decision = can_send_to_cloud(
+        data_class="health_metric",
+        destination="provider_api",
+        purpose="provider_sync",
+        mode=request_privacy_mode(request.headers) if request else None,
+        consents=request_cloud_consents(request.headers) if request else None,
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Cloud consent required",
+                "privacy_blocked": True,
+                "reason": decision.reason,
+                "required_consent": "provider_sync",
+            },
+        )
+
+
 def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
 
     limiter = deps.limiter
@@ -96,9 +121,11 @@ def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> No
 
     @router.post("/api/wearables/connections/{provider}/sync", response_model=WearableSyncResponse)
     async def sync_wearable_provider(
+        request: Request,
         provider: str,
         current_user = Depends(get_current_user),
     ):
+        _enforce_provider_sync_consent(request)
         connection = await wearable_connection_service.get_connection(current_user["id"], provider)
         if connection is None and provider != "apple_health":
             raise HTTPException(status_code=404, detail="Wearable connection not found")
@@ -147,11 +174,13 @@ def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> No
 
     @router.post("/api/wearables/connections/{provider}/sync-all")
     async def sync_wearable_provider_scheduled(
+        request: Request,
         provider: str,
         payload: ScheduledWearableSyncRequest,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
         _require_internal_key(internal_key)
+        _enforce_provider_sync_consent(request)
 
         if provider == "apple_health":
             return {

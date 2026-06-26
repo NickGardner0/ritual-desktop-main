@@ -1,6 +1,7 @@
 'use client';
 
 import { getReadConsistencyHeaders } from '@/lib/read-consistency';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 
 export class ApiError extends Error {
   status: number;
@@ -30,6 +31,7 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
     ...rest,
     headers: {
       ...getReadConsistencyHeaders(userId),
+      ...privacySettingsHeaders(),
       ...(headers ?? {}),
     },
   });
@@ -50,6 +52,7 @@ export async function apiFetchWithAuth(
       Authorization: `Bearer ${authToken}`,
       'Content-Type': 'application/json',
       ...getReadConsistencyHeaders(options.userId),
+      ...privacySettingsHeaders(),
       ...(options.headers ?? {}),
     },
   });

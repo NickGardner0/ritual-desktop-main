@@ -28,6 +28,7 @@ const approvedDdlFiles = new Set([
   'apps/desktop/src-tauri/crates/ritual-db/src/schema/mod.rs',
   'apps/desktop/src-tauri/crates/ritual-db/src/schema/recorder.rs',
   'apps/desktop/src-tauri/crates/ritual-db/src/schema/sync.rs',
+  'apps/desktop/src-tauri/crates/ritual-db/src/schema/vault.rs',
 ]);
 
 function toRelative(absolutePath) {

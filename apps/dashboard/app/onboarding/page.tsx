@@ -513,7 +513,11 @@ export default function OnboardingPage() {
       ) : null}
 
       {step === "setup" ? (
-        <OnboardingSetupStep busy={busy} onFinish={() => void finishSetupFlow()} />
+        <OnboardingSetupStep
+          busy={busy}
+          userId={user?.id}
+          onFinish={() => void finishSetupFlow()}
+        />
       ) : null}
 
       {error ? (

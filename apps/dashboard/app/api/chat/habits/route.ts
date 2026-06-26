@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { logger } from '@/lib/logger';
+import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 import {
   PYTHON_API_BASE,
   type LogIntent,
@@ -18,6 +19,13 @@ import { buildHabitLogSystemPrompt } from './route.prompt';
 
 export async function POST(req: NextRequest) {
   try {
+    const privacyBlock = privacyBlockResponse(req, {
+      dataClass: 'ai_content',
+      destination: 'openai',
+      purpose: 'ai',
+    });
+    if (privacyBlock) return privacyBlock;
+
     // Auth setup
     const authHeader = req.headers.get('Authorization');
     let token: string | null = null;
