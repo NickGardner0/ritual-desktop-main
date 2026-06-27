@@ -2,7 +2,7 @@
 
 import { Blocks, ListCollapse, Palette, Plug2, Plus, Settings, Upload } from 'lucide-react';
 import { RitualWordmark } from '@/components/ritual-wordmark';
-import { StartCommand, StartSectionHeader } from './OverviewStartCommands';
+import { StartCommand } from './OverviewStartCommands';
 
 interface OverviewEmptyStateProps {
   onOpenSelectionModal: () => void;
@@ -21,7 +21,7 @@ export function OverviewEmptyState({
 }: OverviewEmptyStateProps) {
   return (
     <div className="absolute inset-x-0 top-[clamp(0px,2vh,28px)] flex justify-center px-6">
-      <div className="flex w-full max-w-[512px] flex-col gap-5">
+      <div className="flex w-full max-w-[468px] flex-col gap-5">
         <div className="mb-6 flex w-full justify-center">
           <div className="inline-flex items-center gap-[3px] text-[#111827]">
             <img
@@ -34,28 +34,19 @@ export function OverviewEmptyState({
           </div>
         </div>
 
-        <div className="w-full">
-          <StartSectionHeader title="Get Started" />
-          <div className="space-y-1.5">
-            <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
-            <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
-            <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
-            <StartCommand
-              icon={ListCollapse}
-              label="Open Command Palette"
-              shortcut="⌘K"
-              onClick={onOpenCommandPalette}
-            />
-          </div>
-        </div>
-
-        <div className="w-full">
-          <StartSectionHeader title="Configure" />
-          <div className="space-y-1.5">
-            <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
-            <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
-            <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />
-          </div>
+        <div className="w-full space-y-1.5">
+          <StartCommand icon={Plus} label="New Tracker" onClick={onOpenSelectionModal} />
+          <StartCommand icon={Upload} label="Import Data" onClick={onOpenImportModal} />
+          <StartCommand icon={Plug2} label="Connect Devices" onClick={onOpenIntegrations} />
+          <StartCommand
+            icon={ListCollapse}
+            label="Open Command Palette"
+            shortcut="⌘K"
+            onClick={onOpenCommandPalette}
+          />
+          <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
+          <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
+          <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />
         </div>
       </div>
     </div>

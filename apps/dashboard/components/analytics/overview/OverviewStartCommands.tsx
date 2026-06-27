@@ -2,17 +2,6 @@
 
 import React from 'react';
 
-export function StartSectionHeader({ title }: { title: string }) {
-  return (
-    <div className="mb-2.5 flex items-center gap-2 px-2">
-      <span className="text-[11px] font-normal uppercase leading-none tracking-normal text-[#85898f]">
-        {title}
-      </span>
-      <div className="h-px flex-1 bg-[rgba(15,23,42,0.075)]" />
-    </div>
-  );
-}
-
 export function StartCommand({
   icon: Icon,
   label,
@@ -28,7 +17,7 @@ export function StartCommand({
     <button
       type="button"
       onClick={onClick}
-      className="ritual-snappy-row group flex h-9 w-full items-center justify-between rounded-sm bg-[rgba(39,37,30,0.018)] px-3 text-left [--ritual-snappy-row-active:rgba(39,37,30,0.04)] [--ritual-snappy-row-hover:rgba(39,37,30,0.032)] focus-visible:outline-none"
+      className="ritual-snappy-row group flex h-9 w-full items-center justify-between rounded-sm bg-[rgba(39,37,30,0.011)] px-3 text-left [--ritual-snappy-row-active:rgba(39,37,30,0.032)] [--ritual-snappy-row-hover:rgba(39,37,30,0.024)] focus-visible:outline-none"
     >
       <span className="flex min-w-0 items-center gap-2.5">
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[#6b7077] transition-none group-hover:text-[#3f444a]">
