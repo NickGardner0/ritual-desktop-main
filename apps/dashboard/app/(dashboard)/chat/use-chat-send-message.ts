@@ -17,6 +17,11 @@ import {
   extractCanvasData,
   getToolLabel,
 } from './chat-client.shared';
+import {
+  CHAT_STREAM_FLUSH_INTERVAL_MS,
+  getNextStreamingFlushDelay,
+  shouldFlushStreamingContent,
+} from './chat-stream-buffer';
 import type { Message } from './chat-client.shared';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 
@@ -121,6 +126,8 @@ export function useChatSendMessage({
         : null;
     }
     
+    let cancelStreamingFlushTimer: (() => void) | null = null;
+
     try {
       const token = await getToken();
       if (shouldPreflightLocationForChat(text)) {
@@ -155,6 +162,44 @@ export function useChatSendMessage({
       let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
       let streamBuffer = '';
       let toolMarkedDone = false;
+      let pendingStreamingContent = '';
+      let lastStreamingFlushAt = 0;
+      let streamingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const clearStreamingFlushTimer = () => {
+        if (streamingFlushTimer) {
+          clearTimeout(streamingFlushTimer);
+          streamingFlushTimer = null;
+        }
+      };
+      cancelStreamingFlushTimer = clearStreamingFlushTimer;
+
+      const flushStreamingContent = (force = false) => {
+        const now = Date.now();
+        if (shouldFlushStreamingContent({ force, lastFlushAt: lastStreamingFlushAt, now })) {
+          clearStreamingFlushTimer();
+          lastStreamingFlushAt = now;
+          setStreamingContent(pendingStreamingContent);
+          return;
+        }
+
+        if (!streamingFlushTimer) {
+          streamingFlushTimer = setTimeout(
+            () => flushStreamingContent(true),
+            getNextStreamingFlushDelay({
+              lastFlushAt: lastStreamingFlushAt,
+              now,
+              intervalMs: CHAT_STREAM_FLUSH_INTERVAL_MS,
+            }),
+          );
+        }
+      };
+
+      const appendStreamingDelta = (delta: string) => {
+        fullResponse += delta;
+        pendingStreamingContent = fullResponse;
+        flushStreamingContent(false);
+      };
 
       const processStreamLine = (rawLine: string) => {
         const line = rawLine.replace(/\r$/, '');
@@ -195,22 +240,19 @@ export function useChatSendMessage({
           try {
             const data = JSON.parse(line.substring(2).trim());
             if (typeof data === 'string') {
-              fullResponse += data;
-              setStreamingContent(fullResponse);
+              appendStreamingDelta(data);
             }
           } catch {
             const lineText = line.substring(2).trim();
             if (lineText && !lineText.startsWith('{')) {
-              fullResponse += lineText;
-              setStreamingContent(fullResponse);
+              appendStreamingDelta(lineText);
             }
           }
         } else if (line.startsWith('data:')) {
           try {
             const data = JSON.parse(line.substring(5).trim());
             if (data.type === 'text-delta' && data.delta) {
-              fullResponse += data.delta;
-              setStreamingContent(fullResponse);
+              appendStreamingDelta(data.delta);
             }
           } catch {}
         }
@@ -235,6 +277,8 @@ export function useChatSendMessage({
           processStreamLine(line);
         }
       }
+
+      flushStreamingContent(true);
       
       // Build canvas data - prefer tool data, then optional text extraction fallback.
       let extractedCanvas = buildCanvasFromToolData(toolData, text);
@@ -272,11 +316,14 @@ export function useChatSendMessage({
       };
       
       setMessages([...newMessages, assistantMessage]);
+      clearStreamingFlushTimer();
       setStreamingContent('');
       void loadMemoryFacts();
       return true;
     } catch (error) {
       console.error('Chat error:', error);
+      cancelStreamingFlushTimer?.();
+      setStreamingContent('');
       setMessages([...newMessages, {
         id: `error-${Date.now()}`,
         role: 'assistant',
@@ -285,6 +332,7 @@ export function useChatSendMessage({
       return false;
     } finally {
       setIsLoading(false);
+      cancelStreamingFlushTimer?.();
       setCurrentQuestion('');
       setToolStatus(null);
     }

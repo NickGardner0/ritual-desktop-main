@@ -254,11 +254,11 @@ export function createChatLayoutRenderers(ctx: Record<string, any>) {
     <AnimatePresence>
       {!isSidebarCollapsed && (
         <motion.aside
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 272, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-          className="h-full shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)]"
+          initial={{ x: -18, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: -18, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+          className="h-full w-[272px] shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)] will-change-transform"
         >
           <div className="px-3 pt-1.5 pb-2">
             <div className="flex items-center justify-between">

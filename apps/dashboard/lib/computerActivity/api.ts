@@ -29,10 +29,11 @@ import {
   dailyCache,
   domainsCache,
   fetchWatcherStatsJson,
-  normalizeAggregatedPayload,
   normalizeDailyRows,
   summaryCache,
 } from './backend-read'
+import { fetchBackendAggregatedComputerStats } from './aggregate-backend'
+import { tryGetDesktopLocalFirstAggregate } from './aggregate-local-first'
 import {
   applyDesktopRecentSummaryCorrection,
   getDesktopLocalAggregatedStats,
@@ -624,18 +625,22 @@ export async function getAggregatedComputerStats(
     limit,
   })
 
-  try {
-    const payload = await fetchWatcherStatsJson<{ data?: any }>(
-      '/api/watcher/stats/aggregate',
-      {
-        start_date: params.startDate,
-        end_date: params.endDate,
-        limit,
-      },
-    )
-    const result = normalizeAggregatedPayload(payload)
-    cacheAggregatedResult(cacheKey, params, limit, result)
+  const localFirstAggregate = await tryGetDesktopLocalFirstAggregate(params, limit, cacheKey)
+  if (localFirstAggregate) {
+    stopTimer({
+      success: true,
+      source: localFirstAggregate.source,
+      state: localFirstAggregate.state,
+      summary_active_ms: localFirstAggregate.summary.total_active_ms,
+      daily_rows: localFirstAggregate.daily.length,
+      app_rows: localFirstAggregate.apps.length,
+      domain_rows: localFirstAggregate.domains.length,
+    })
+    return localFirstAggregate
+  }
 
+  try {
+    const result = await fetchBackendAggregatedComputerStats(params, limit, cacheKey)
     const hasAnyData = aggregateHasAnyData(result)
 
     if (isDesktopRuntime() && shouldAllowDesktopAggregateLocalFallback(params)) {

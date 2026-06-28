@@ -2,7 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, AudioLines, Check, Plus, X } from 'lucide-react';
+import { ArrowUp, AudioLines, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
@@ -11,14 +11,10 @@ import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { HabitCanvas } from '@/components/chat/habit-canvas';
 import { ViewModeToggle } from '@/components/analytics/view-mode-toggle';
 import {
-  CHAT_PAGE_CARD_BG,
-  ConnectAppsBar,
-  Response,
   SidebarToggleIcon,
-  TextShimmer,
-  cleanContentForDisplay,
   cn,
 } from './chat-client.shared';
+import { ChatMessageList } from './chat-message-list';
 import type { ChatLayoutContext } from './chat-client.layout.types';
 
 export function buildRenderActiveChat(ctx: ChatLayoutContext) {
@@ -99,11 +95,11 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
     <AnimatePresence>
       {!isSidebarCollapsed && (
         <motion.aside
-          initial={{ width: 0, opacity: 0 }}
-          animate={{ width: 272, opacity: 1 }}
-          exit={{ width: 0, opacity: 0 }}
-          transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-          className="h-full shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)]"
+          initial={{ x: -18, opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: -18, opacity: 0 }}
+          transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+          className="h-full w-[272px] shrink-0 border-r border-[rgba(15,23,42,0.045)] flex flex-col overflow-hidden bg-[#f4f4f3] shadow-[inset_-1px_0_0_rgba(15,23,42,0.02)] will-change-transform"
         >
           <div className="px-3 pt-1.5 pb-2">
             <div className="flex items-center justify-between">
@@ -252,100 +248,37 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
 
       {/* Chat Area */}
       <div className={cn(
-        "flex-1 min-w-0 overflow-x-hidden flex flex-col transition-all duration-300 ease-out",
+        "flex-1 min-w-0 overflow-x-hidden flex flex-col transition-[padding] duration-200 ease-out",
         canvasData ? "pr-0" : ""
       )}>
         <div ref={scrollRef} className="flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 
           {/* Chat content - centered in available space */}
           <div className={cn(
-            "pb-32 min-w-0 transition-all duration-300 mx-auto px-8 pt-8",
+            "pb-32 min-w-0 transition-[max-width] duration-200 mx-auto px-8 pt-8",
             canvasData ? "w-full max-w-none" : "max-w-[680px]"
           )}>
-            {messages.map((message: any, messageIndex: number) => {
-              // Find if this is the last user message
-              const isLastUserMessage = message.role === 'user' && !messages.slice(messageIndex + 1).some((m: any) => m.role === 'user');
-              return (
-              <div key={message.id} ref={isLastUserMessage ? latestUserMessageRef : undefined}>
-                {message.role === 'user' ? (
-                  <h1 className="text-2xl font-medium text-gray-900 leading-snug mb-6">
-                    {message.content}
-                  </h1>
-                ) : (
-                  <div className="mb-8">
-                    <Response className="text-[14px] leading-[1.55] text-[#535353]">
-                      {message.content}
-                    </Response>
-                    {/* Reply Chips (Phase 4A) - Only show for last assistant message in voice mode */}
-                    {voiceStyleEnabled && 
-                     message.replyChips && 
-                     message.replyChips.length > 0 && 
-                     messageIndex === messages.length - 1 && (
-                      <div className="flex flex-wrap gap-2 mt-4">
-                        {message.replyChips.map((chip: string, chipIndex: number) => (
-                          <div key={chipIndex} className="flex items-center overflow-hidden rounded-full bg-gray-100">
-                            <button
-                              onClick={() => {
-                                setInput(chip);
-                                sendMessage(chip);
-                              }}
-                              disabled={isLoading}
-                              className="px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200 hover:text-gray-800 transition-colors disabled:opacity-50"
-                            >
-                              {chip}
-                            </button>
-                            <button
-                              onClick={() => void queuePrompt(chip, 'reply_chip')}
-                              disabled={!conversationId}
-                              className="border-l border-gray-200 px-2 py-1.5 text-[11px] text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-700 disabled:opacity-40"
-                            >
-                              Queue
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-            })}
-
-            {streamingContent && (
-              <div className="mb-8">
-                <Response className="text-[14px] leading-[1.55] text-[#535353]">
-                  {canvasData ? cleanContentForDisplay(streamingContent) : streamingContent}
-                </Response>
-              </div>
-            )}
-            
-            {isLoading && !streamingContent && (
-              <div className="flex items-center gap-2 py-2">
-                {toolStatus ? (
-                  toolStatus.done ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-emerald-500" />
-                      <span className="text-sm text-neutral-500">{toolStatus.label.replace('...', '')}</span>
-                    </>
-                  ) : (
-                    <TextShimmer className="text-sm" duration={0.75}>
-                      {toolStatus.label}
-                    </TextShimmer>
-                  )
-                ) : (
-                  <TextShimmer className="text-sm" duration={1.5}>
-                    {'Thinking...'}
-                  </TextShimmer>
-                )}
-              </div>
-            )}
+            <ChatMessageList
+              canvasData={canvasData}
+              conversationId={conversationId}
+              isLoading={isLoading}
+              latestUserMessageRef={latestUserMessageRef}
+              messages={messages}
+              queuePrompt={queuePrompt}
+              scrollRef={scrollRef}
+              sendMessage={sendMessage}
+              setInput={setInput}
+              streamingContent={streamingContent}
+              toolStatus={toolStatus}
+              voiceStyleEnabled={voiceStyleEnabled}
+            />
           </div>
         </div>
 
         {/* Input */}
         <div className="sticky bottom-0 left-0 right-0 pb-6 pt-4 bg-gradient-to-t from-white/80 to-transparent backdrop-blur-lg">
           <div className={cn(
-            "mx-auto px-8 transition-all duration-300",
+            "mx-auto px-8 transition-[max-width] duration-200",
             canvasData ? "w-full max-w-none" : "max-w-[680px]"
           )}>
             <form onSubmit={handleSubmit}>
