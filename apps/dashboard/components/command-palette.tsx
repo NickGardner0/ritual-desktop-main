@@ -28,7 +28,6 @@ import {
   Clock,
   Hash,
   LayoutDashboard,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
@@ -103,9 +102,6 @@ interface SearchResults {
   logs: { hits: LogResult[]; found: number };
   conversations: { hits: any[]; found: number };
   activity: { hits: any[]; found: number };
-  artifacts: { hits: any[]; found: number };
-  workflows: { hits: any[]; found: number };
-  facts: { hits: any[]; found: number };
   fallback?: boolean;
 }
 
@@ -147,6 +143,42 @@ interface CommandPaletteProps {
   onOpenImport?: () => void;
   onOpenSettings?: () => void;
   density?: "default" | "tight";
+}
+
+function getLocalQuickActions(q: string): QuickAction[] {
+  const actions: QuickAction[] = [
+    { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
+    { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
+    { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
+    { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
+    { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
+    { id: "open-reports", name: "Open reports", keywords: ["reports"], action: "navigate", path: "/reports", icon: "file" },
+    { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
+    { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+    { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
+  ];
+
+  if (!q) return actions;
+  const qLower = q.toLowerCase();
+  return actions.filter(a =>
+    a.name.toLowerCase().includes(qLower) ||
+    a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
+  );
+}
+
+function getFallbackResults(q: string): SearchResults {
+  const filteredActions = getLocalQuickActions(q);
+
+  return {
+    query: q,
+    quick_actions: filteredActions.slice(0, 6),
+    habits: { hits: [], found: 0 },
+    logs: { hits: [], found: 0 },
+    conversations: { hits: [], found: 0 },
+    activity: { hits: [], found: 0 },
+    fallback: true,
+  };
 }
 
 // ================================
@@ -194,7 +226,7 @@ export default function CommandPalette({
   // ================================
   // SEARCH API
   // ================================
-  
+
   React.useEffect(() => {
     const fetchResults = async () => {
       setIsLoading(true);
@@ -225,53 +257,6 @@ export default function CommandPalette({
       fetchResults();
     }
   }, [debouncedQuery, open]);
-
-  // ================================
-  // FALLBACK RESULTS
-  // ================================
-  
-  const getLocalQuickActions = (q: string): QuickAction[] => {
-    const actions: QuickAction[] = [
-      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
-      { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
-      { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
-      { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
-      { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
-      { id: "open-reports", name: "Open reports", keywords: ["reports", "artifacts", "notebooks", "plans"], action: "navigate", path: "/reports", icon: "file" },
-      { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
-      { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
-      { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
-      { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
-    ];
-    
-    let filteredActions = actions;
-    if (q) {
-      const qLower = q.toLowerCase();
-      filteredActions = actions.filter(a => 
-        a.name.toLowerCase().includes(qLower) ||
-        a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
-      );
-    }
-
-    return filteredActions;
-  };
-
-  const getFallbackResults = (q: string): SearchResults => {
-    const filteredActions = getLocalQuickActions(q);
-    
-    return {
-      query: q,
-      quick_actions: filteredActions.slice(0, 6),
-      habits: { hits: [], found: 0 },
-      logs: { hits: [], found: 0 },
-      conversations: { hits: [], found: 0 },
-      activity: { hits: [], found: 0 },
-      artifacts: { hits: [], found: 0 },
-      workflows: { hits: [], found: 0 },
-      facts: { hits: [], found: 0 },
-      fallback: true,
-    };
-  };
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();
@@ -386,27 +371,6 @@ export default function CommandPalette({
     router.push(`/chat?conversation=${conv.conversation_id}`);
   };
 
-  const handleArtifactSelect = (artifact: any) => {
-    track('search_artifact_selected', { artifactId: artifact.id, kind: artifact.kind });
-    setOpen(false);
-    setQuery("");
-    router.push(`/reports?artifactId=${artifact.id}`);
-  };
-
-  const handleWorkflowSelect = (workflow: any) => {
-    track('search_workflow_selected', { workflowId: workflow.id, kind: workflow.kind });
-    setOpen(false);
-    setQuery("");
-    router.push(`/reports?definitionId=${workflow.id}`);
-  };
-
-  const handleFactSelect = (fact: any) => {
-    track('search_fact_selected', { factId: fact.id, predicate: fact.predicate });
-    setOpen(false);
-    setQuery("");
-    router.push(`/reports?memory=1&factId=${fact.id}`);
-  };
-
   // ================================
   // RENDER HELPERS
   // ================================
@@ -464,9 +428,7 @@ export default function CommandPalette({
     results.habits.found > 0 ||
     results.logs.found > 0 ||
     results.conversations.found > 0 ||
-    results.artifacts.found > 0 ||
-    results.workflows.found > 0 ||
-    results.facts.found > 0
+    results.activity.found > 0
   );
 
   return (
@@ -617,89 +579,6 @@ export default function CommandPalette({
                         <span className="text-sm text-gray-700 truncate flex-1">
                           {conv.content_preview || conv.content?.slice(0, 60)}...
                         </span>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Artifacts */}
-                {results?.artifacts && results.artifacts.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Artifacts</span>
-                      <span className="text-gray-300 text-xs">{results.artifacts.found} found</span>
-                    </div>
-                    {results.artifacts.hits.slice(0, 4).map((artifact: any) => (
-                      <Command.Item
-                        key={artifact.id}
-                        value={`artifact-${artifact.id}`}
-                        onSelect={() => handleArtifactSelect(artifact)}
-                        onClick={() => handleArtifactSelect(artifact)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <FileText className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{artifact.title}</span>
-                          <span className="text-xs text-gray-400 truncate block">{artifact.kind?.replace?.(/_/g, ' ') || 'artifact'}</span>
-                        </div>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Workflows */}
-                {results?.workflows && results.workflows.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Routines & Ambient</span>
-                      <span className="text-gray-300 text-xs">{results.workflows.found} found</span>
-                    </div>
-                    {results.workflows.hits.slice(0, 4).map((workflow: any) => (
-                      <Command.Item
-                        key={workflow.id}
-                        value={`workflow-${workflow.id}`}
-                        onSelect={() => handleWorkflowSelect(workflow)}
-                        onClick={() => handleWorkflowSelect(workflow)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <Sparkles className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{workflow.name}</span>
-                          <span className="text-xs text-gray-400 truncate block">
-                            {(workflow.definition_family || workflow.kind || 'workflow').replace?.(/_/g, ' ')}
-                          </span>
-                        </div>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Facts */}
-                {results?.facts && results.facts.found > 0 && (
-                  <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
-                      <span>Memory & Rules</span>
-                      <span className="text-gray-300 text-xs">{results.facts.found} found</span>
-                    </div>
-                    {results.facts.hits.slice(0, 4).map((fact: any) => (
-                      <Command.Item
-                        key={fact.id}
-                        value={`fact-${fact.id}`}
-                        onSelect={() => handleFactSelect(fact)}
-                        onClick={() => handleFactSelect(fact)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <ShieldCheck className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700 truncate block">{fact.predicate || fact.category}</span>
-                          <span className="text-xs text-gray-400 truncate block">{fact.category || 'fact'}</span>
-                        </div>
                       </Command.Item>
                     ))}
                   </>

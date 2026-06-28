@@ -4,9 +4,13 @@ import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
-import { isTauri } from '@/lib/tauri-utils';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { TeamDropdown } from '@/components/team-dropdown';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
+import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
+import { useSidebarMode } from '@/contexts/SidebarModeContext';
+import { ContentSurface, Titlebar, ToolbarButton } from '@/components/ui/ritual-system';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -20,11 +24,12 @@ const CommandPalette = dynamic(
 
 /** Syncs route to detached sidebar - uses useSearchParams so must be in Suspense */
 function SidebarRouteSync({ detachedSidebarMode }: { detachedSidebarMode: boolean }) {
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
     (async () => {
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const route = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ''}`;
@@ -41,11 +46,14 @@ interface DashboardLayoutProps {
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
+  const { isDesktop } = useDesktopCapabilities();
   const [shouldOpenWhoopModal, setShouldOpenWhoopModal] = useState(false);
   const [detachedSidebarMode, setDetachedSidebarMode] = useState(false);
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(76);
   const { isFullScreenChat } = useAI();
   const pathname = usePathname();
+  const router = useRouter();
+  const { mode, setMode } = useSidebarMode();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
@@ -76,7 +84,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, []);
 
   useEffect(() => {
-    if (!detachedSidebarMode || !isTauri()) return;
+    if (!detachedSidebarMode || !isDesktop) return;
 
     let unlisten: (() => void) | null = null;
     (async () => {
@@ -109,7 +117,17 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [detachedSidebarMode]);
 
-  const shouldHideAppSidebar = isFullScreenChat || isChatRoute;
+  const shouldHideAppSidebarForRoute = isFullScreenChat || isChatRoute;
+  const shouldHideAppSidebarForMode = mode === 'hidden';
+  const shouldHideAppSidebar = shouldHideAppSidebarForRoute || shouldHideAppSidebarForMode;
+  const shouldShowTitlebarSidebarControls = !shouldHideAppSidebarForRoute && !detachedSidebarMode;
+
+  const handleChromeToggle = () => {
+    setMode(mode === 'hidden' ? 'expanded' : mode === 'expanded' ? 'compact' : 'hidden');
+  };
+
+  const sidebarToggleLabel =
+    mode === 'hidden' ? 'Show sidebar' : mode === 'expanded' ? 'Collapse sidebar' : 'Hide sidebar';
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -133,59 +151,133 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </Suspense>
       ) : null}
       
-      {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-      {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
-
-      {/* Main Content Area */}
-      <div className="content-opaque flex-1 flex flex-col overflow-hidden border-0 bg-[var(--content-bg)]">
-        {/* Top Header — the header itself is the draggable toolbar chrome.
-            Interactive controls opt out via no-drag so blank space still drags
-            like a native macOS titlebar. */}
+      <div className={`app-window-shell relative flex h-full min-w-0 flex-1 flex-col overflow-hidden ${!shouldHideAppSidebar && !detachedSidebarMode ? 'has-shell-sidebar-divider' : ''}`}>
+        {/* Native window chrome. Keep this row focused on window/navigation controls. */}
         {!isFullScreenChat && (
-        <header
-          data-tauri-drag-region
-          className="content-opaque titlebar-region tauri-drag-region relative px-5 h-[52px] flex items-center bg-[var(--content-bg)] overflow-hidden"
-        >
-          {isChatRoute && (
-            <div
-              data-tauri-drag-region
-              className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.03)] bg-[#f4f4f3]"
-            />
-          )}
-          <div
-            data-tauri-drag-region
-            className="relative flex items-center w-full translate-y-[4px]"
-          >
-            {/* Left zone — Search + page-specific left actions */}
-            <div
-              className="no-drag flex items-center space-x-2.5 min-w-0"
-            >
-              {!isChatRoute && (
-                <div>
-                  <CommandPalette
-                    className="h-8 w-auto px-3 py-1.5 text-[13px] text-gray-600 flex items-center gap-2 focus-visible:outline-none focus-visible:ring-0 border border-gray-200/90 bg-white shadow-sm hover:bg-gray-50 rounded-sm"
-                    initialOpen={shouldOpenWhoopModal}
-                  />
-                </div>
+          <>
+            <Titlebar>
+              <div
+                data-tauri-drag-region
+                aria-hidden="true"
+                className="titlebar-glass-layer pointer-events-none absolute inset-0"
+              />
+              {isChatRoute && (
+                <div
+                  data-tauri-drag-region
+                  className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
+                />
               )}
-              <div id="header-left-slot" className="flex items-center space-x-2.5" />
-            </div>
+              <div
+                data-tauri-drag-region
+                className={`dashboard-top-chrome-row relative flex h-full w-full items-center gap-2 ${shouldShowTitlebarSidebarControls ? 'has-titlebar-sidebar-lane' : ''}`}
+              >
+                <div
+                  data-tauri-drag-region
+                  className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
+                >
+                  {shouldShowTitlebarSidebarControls ? (
+                    <div className="no-drag flex h-full items-center pl-[72px]">
+                      <ToolbarButton
+                        type="button"
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleChromeToggle();
+                        }}
+                        className="titlebar-icon-button mr-3"
+                        aria-label={sidebarToggleLabel}
+                        title={sidebarToggleLabel}
+                      >
+                        <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
+                      </ToolbarButton>
+                      <div className="flex items-center gap-0">
+                        <ToolbarButton
+                          type="button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            if (window.history.length > 1) {
+                              router.back();
+                            }
+                          }}
+                          className="titlebar-icon-button"
+                          aria-label="Go back"
+                          title="Go back"
+                        >
+                          <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+                        </ToolbarButton>
+                        <ToolbarButton
+                          type="button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            router.forward();
+                          }}
+                          className="titlebar-icon-button"
+                          aria-label="Go forward"
+                          title="Go forward"
+                        >
+                          <ChevronRight className="h-4 w-4 stroke-[2.05]" />
+                        </ToolbarButton>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
 
-            {/* Center zone — Primary navigation tabs (Chat · Overview · Metrics) */}
-            <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-              <div id="header-center-slot" className="pointer-events-auto no-drag flex items-center" />
-            </div>
+                <div
+                  data-tauri-drag-region
+                  className="flex h-full min-w-0 flex-1 items-center justify-end"
+                >
+                  <div className="no-drag flex items-center gap-1">
+                    <TeamDropdown isExpanded={false} placement="header" />
+                  </div>
+                </div>
+              </div>
+            </Titlebar>
 
-            {/* Right zone — Date picker, + button, etc. */}
-            <div id="header-right-slot" className="no-drag ml-auto flex items-center gap-2 min-w-0" />
-          </div>
-        </header>
+          </>
         )}
 
-        {/* Main Content */}
-        <main className={`content-opaque flex flex-col flex-1 overflow-auto border-0 bg-[var(--content-bg)]`}>
-          {children}
-        </main>
+        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
+          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
+
+          {/* Main Content Area */}
+          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
+            {!isFullScreenChat && (
+              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] px-6 pt-2.5">
+                <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
+                  <div className="flex min-w-0 items-center gap-1">
+                    {!isChatRoute && (
+                      <CommandPalette
+                        className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-0"
+                        initialOpen={shouldOpenWhoopModal}
+                        density="tight"
+                      />
+                    )}
+                    <div id="header-left-slot" className="flex items-center gap-1" />
+                  </div>
+
+                  <div
+                    id="header-center-slot"
+                    className="flex min-w-0 items-center justify-center"
+                  />
+
+                  <div className="flex min-w-0 items-center justify-end gap-1">
+                    <div
+                      id="header-right-slot"
+                      className="flex min-w-0 items-center gap-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+            {/* Main Content */}
+            <ContentSurface className="content-opaque flex flex-col flex-1 overflow-auto border-0">
+              {children}
+            </ContentSurface>
+          </div>
+        </div>
       </div>
     </div>
   );

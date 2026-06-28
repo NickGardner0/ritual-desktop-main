@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 interface RouteParams {
   params: Promise<{
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const { runId } = await params;
     const body = await request.json();
     
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
     
     const response = await fetch(`${backendUrl}/api/import/runs/${runId}/start`, {
       method: "POST",
@@ -57,4 +58,3 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     );
   }
 }
-

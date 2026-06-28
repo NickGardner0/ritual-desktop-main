@@ -149,7 +149,7 @@ def _analyze_with_gemini(
         
         elapsed = time.time() - start_time
         raw_content = response.text
-        logger.info(f"🚀 Gemini Flash response ({elapsed:.2f}s): {raw_content}")
+        logger.info("Gemini Flash screenshot analysis completed in %.2fs", elapsed)
         
         return _parse_analysis_response(raw_content, available_habits)
         
@@ -207,7 +207,7 @@ def _analyze_with_openai(
 
         elapsed = time.time() - start_time
         raw_content = completion.choices[0].message.content
-        logger.info(f"🔍 OpenAI vision response ({elapsed:.2f}s): {raw_content}")
+        logger.info("OpenAI Vision screenshot analysis completed in %.2fs", elapsed)
         
         return _parse_analysis_response(raw_content, available_habits)
         

@@ -7,12 +7,14 @@ import { useEffect, useMemo, useState } from "react";
 interface BrailleSpinnerProps {
   name?: BrailleSpinnerName;
   className?: string;
+  intervalMs?: number;
   "aria-label"?: string;
 }
 
 export function BrailleSpinner({
   name = "braille",
   className,
+  intervalMs,
   "aria-label": ariaLabel = "Loading",
 }: BrailleSpinnerProps) {
   const spinner = useMemo(() => spinners[name] ?? spinners.braille, [name]);
@@ -21,10 +23,10 @@ export function BrailleSpinner({
   useEffect(() => {
     const id = window.setInterval(() => {
       setFrameIndex((current) => (current + 1) % spinner.frames.length);
-    }, spinner.interval);
+    }, Math.max(20, intervalMs ?? spinner.interval));
 
     return () => window.clearInterval(id);
-  }, [spinner]);
+  }, [intervalMs, spinner]);
 
   return (
     <span

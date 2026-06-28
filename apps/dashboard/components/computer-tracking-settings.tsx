@@ -446,227 +446,189 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   // ------ render ------
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-8">
       {error && (
-        <div className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2.5 text-[13px] text-red-600">
+        <div className="flex items-center gap-2 rounded-[13px] bg-red-50 px-4 py-3 text-[13px] text-red-600">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error}
         </div>
       )}
 
-      {/* Enable Watcher — hero toggle */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-900">Screen tracking</p>
-          <p className="mt-0.5 text-[13px] text-gray-500">
-            {isRunning ? 'Tracking your computer usage' : 'Track which apps you use and for how long'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {isRunning && !isStatusLoading && (
-            <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-          )}
-          {isStatusLoading && !cachedState.current ? (
-            <div className="flex h-[22px] w-[40px] items-center justify-center">
-              <BrailleSpinner className="text-sm text-gray-400" />
-            </div>
-          ) : (
-            <button
-              onClick={toggleWatcher}
-              disabled={isStatusLoading}
-              className={cn(
-                'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-                isEnabled ? 'bg-gray-900' : 'bg-gray-200',
-                isStatusLoading && 'opacity-50',
+      <NativeSection title="Tracking">
+        <NativeRow
+          icon={<Monitor className="h-4 w-4" />}
+          title="Screen tracking"
+          description={isRunning ? 'Tracking your computer usage' : 'Track which apps you use and for how long'}
+          control={(
+            <div className="flex items-center gap-2">
+              {isRunning && !isStatusLoading && (
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               )}
-            >
-              <span
-                className={cn(
-                  'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
-                  isEnabled ? 'translate-x-[20px]' : 'translate-x-[2px]',
-                )}
-              />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Accessibility — only show if not granted */}
-      {!accessibilityGranted && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div>
-            <p className="text-[13px] font-medium text-amber-900">Accessibility permission required</p>
-            <p className="mt-0.5 text-[13px] text-amber-700">Grant access so Ritual can read window titles.</p>
-          </div>
-          <button
-            onClick={openAccessibilitySettings}
-            className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-[13px] font-medium text-amber-900 transition-colors hover:bg-amber-50"
-          >
-            Open Settings
-          </button>
-        </div>
-      )}
-
-      {/* Divider */}
-      <div className="border-t border-gray-100" />
-
-      {/* Sync to Habit */}
-      {isEnabled && (
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <RefreshCw className={cn('h-4 w-4 text-gray-400', isSyncing && 'animate-spin')} />
-            <div>
-              <p className="text-sm text-gray-900">Sync to habit</p>
-              {lastSyncTime && (
-                <p className="text-[13px] text-gray-400">
-                  Last synced {lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
+              {isStatusLoading && !cachedState.current ? (
+                <div className="flex h-[22px] w-[42px] items-center justify-center">
+                  <BrailleSpinner className="text-sm text-gray-400" />
+                </div>
+              ) : (
+                <NativeToggle checked={isEnabled} onClick={toggleWatcher} disabled={isStatusLoading} />
               )}
             </div>
-          </div>
-          <button
-            onClick={syncToHabit}
-            disabled={isSyncing}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-[13px] font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
-          >
-            {isSyncing ? 'Syncing...' : 'Sync Now'}
-          </button>
-        </div>
-      )}
-
-      {/* Window Titles */}
-      <div>
-        <div className="mb-2.5 flex items-center gap-2.5">
-          {titleMode === 'off' ? (
-            <EyeOff className="h-4 w-4 text-gray-400" />
-          ) : (
-            <Eye className="h-4 w-4 text-gray-400" />
           )}
-          <p className="text-sm font-medium text-gray-900">Window titles</p>
-        </div>
-        <div className="flex gap-1.5">
-          {TITLE_MODE_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              onClick={() => setTitleMode(option.value)}
-              className={cn(
-                'flex-1 rounded-lg border py-2 text-center text-[13px] font-medium transition-all',
-                titleMode === option.value
-                  ? 'border-gray-900 bg-gray-900 text-white'
-                  : 'border-gray-200 bg-white text-gray-500 hover:bg-gray-50',
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Idle Timeout */}
-      <div>
-        <div className="mb-2.5 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <Clock className="h-4 w-4 text-gray-400" />
-            <p className="text-sm font-medium text-gray-900">Idle timeout</p>
-          </div>
-          <span className="text-[13px] text-gray-500">
-            {afkTimeout >= 60 ? `${Math.round(afkTimeout / 60)} min` : `${afkTimeout} sec`}
-          </span>
-        </div>
-        <input
-          type="range"
-          min="300"
-          max="3600"
-          step="60"
-          value={afkTimeout}
-          onChange={(e) => setAfkTimeout(parseInt(e.target.value))}
-          className="w-full h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer accent-gray-900"
         />
-        <div className="mt-1.5 flex justify-between text-[12px] text-gray-400">
-          <span>5 min</span>
-          <span>15 min</span>
-          <span>30 min</span>
-          <span>60 min</span>
-        </div>
-        <p className="mt-2 text-[13px] text-gray-500">
-          Time without input before marking as idle. Longer = captures reading/thinking time.
-        </p>
-      </div>
 
-      {/* Excluded Apps */}
-      <div>
-        <div className="mb-2.5 flex items-center gap-2.5">
-          <Shield className="h-4 w-4 text-gray-400" />
-          <p className="text-sm font-medium text-gray-900">Excluded apps</p>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-2">
-          {SENSITIVE_APPS.map((app) => {
-            const isExcluded = excludedApps.includes(app.bundle_id);
-            return (
-              <label
-                key={app.bundle_id}
-                className="flex cursor-pointer items-center gap-2"
+        {!accessibilityGranted && (
+          <NativeRow
+            icon={<AlertCircle className="h-4 w-4 text-amber-600" />}
+            title="Accessibility permission"
+            description="Grant access so Ritual can read window titles."
+            control={(
+              <button
+                onClick={openAccessibilitySettings}
+                className="rounded-[10px] bg-white/80 px-3 py-1.5 text-[13px] font-medium text-amber-900 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.1)] transition-colors hover:bg-white"
               >
-                <button
-                  type="button"
-                  onClick={() => toggleAppExclusion(app.bundle_id)}
-                  className={cn(
-                    'flex h-4 w-4 items-center justify-center rounded border transition-colors',
-                    isExcluded ? 'border-gray-900 bg-gray-900' : 'border-gray-300 bg-white',
-                  )}
-                >
-                  {isExcluded && <Check className="h-3 w-3 text-white" />}
-                </button>
-                <span className="text-[13px] text-gray-700">{app.name}</span>
-              </label>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="border-t border-gray-100" />
-
-      {/* Sync Analytics */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-900">Sync analytics to cloud</p>
-        <button
-          onClick={() => setSyncAnalytics(!syncAnalytics)}
-          className={cn(
-            'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-            syncAnalytics ? 'bg-gray-900' : 'bg-gray-200',
-          )}
-        >
-          <span
-            className={cn(
-              'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
-              syncAnalytics ? 'translate-x-[20px]' : 'translate-x-[2px]',
+                Open Settings
+              </button>
             )}
           />
-        </button>
-      </div>
+        )}
+
+        {isEnabled && (
+          <NativeRow
+            icon={<RefreshCw className={cn('h-4 w-4', isSyncing && 'animate-spin')} />}
+            title="Sync to habit"
+            description={
+              lastSyncTime
+                ? `Last synced ${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : 'Update your Computer Time habit from the local watcher.'
+            }
+            control={(
+              <button
+                onClick={syncToHabit}
+                disabled={isSyncing}
+                className="settings-value-button disabled:opacity-50"
+              >
+                {isSyncing ? 'Syncing...' : 'Sync Now'}
+              </button>
+            )}
+          />
+        )}
+      </NativeSection>
+
+      <NativeSection title="Privacy">
+        <div className="px-5 py-4">
+          <div className="mb-3 flex items-center gap-3">
+            {titleMode === 'off' ? (
+              <EyeOff className="h-4 w-4 text-[#6f6f6f]" />
+            ) : (
+              <Eye className="h-4 w-4 text-[#6f6f6f]" />
+            )}
+            <p className="text-[15px] font-medium leading-tight text-[#252525]">Window titles</p>
+          </div>
+          <div className="grid grid-cols-4 gap-1.5 rounded-[11px] bg-white/55 p-1 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">
+            {TITLE_MODE_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setTitleMode(option.value)}
+                className={cn(
+                  'h-8 rounded-[8px] text-center text-[13px] font-medium transition-all',
+                  titleMode === option.value
+                    ? 'bg-[#0f7f86] text-white shadow-sm'
+                    : 'text-[#6f6f6f] hover:bg-black/[0.04]',
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-5 py-4">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Clock className="h-4 w-4 text-[#6f6f6f]" />
+              <div>
+                <p className="text-[15px] font-medium leading-tight text-[#252525]">Idle timeout</p>
+                <p className="mt-1 text-[13px] leading-snug text-[#7a7a7a]">
+                  Longer values capture reading and thinking time.
+                </p>
+              </div>
+            </div>
+            <span className="shrink-0 text-[13px] font-medium text-[#6f6f6f]">
+              {afkTimeout >= 60 ? `${Math.round(afkTimeout / 60)} min` : `${afkTimeout} sec`}
+            </span>
+          </div>
+          <input
+            type="range"
+            min="300"
+            max="3600"
+            step="60"
+            value={afkTimeout}
+            onChange={(e) => setAfkTimeout(parseInt(e.target.value))}
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[#d9d9d7] accent-[#0f7f86]"
+          />
+          <div className="mt-1.5 flex justify-between text-[12px] text-[#8a8a8a]">
+            <span>5 min</span>
+            <span>15 min</span>
+            <span>30 min</span>
+            <span>60 min</span>
+          </div>
+        </div>
+
+        <div className="px-5 py-4">
+          <div className="mb-3 flex items-center gap-3">
+            <Shield className="h-4 w-4 text-[#6f6f6f]" />
+            <p className="text-[15px] font-medium leading-tight text-[#252525]">Excluded apps</p>
+          </div>
+          <div className="grid grid-cols-2 gap-x-5 gap-y-2">
+            {SENSITIVE_APPS.map((app) => {
+              const isExcluded = excludedApps.includes(app.bundle_id);
+              return (
+                <label
+                  key={app.bundle_id}
+                  className="flex cursor-pointer items-center gap-2"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleAppExclusion(app.bundle_id)}
+                    className={cn(
+                      'flex h-4 w-4 items-center justify-center rounded-[5px] border transition-colors',
+                      isExcluded ? 'border-[#0f7f86] bg-[#0f7f86]' : 'border-black/20 bg-white/75',
+                    )}
+                  >
+                    {isExcluded && <Check className="h-3 w-3 text-white" />}
+                  </button>
+                  <span className="text-[13px] text-[#4a4a4a]">{app.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        <NativeRow
+          title="Sync analytics to cloud"
+          description="Send summarized activity analytics to Ritual."
+          control={<NativeToggle checked={syncAnalytics} onClick={() => setSyncAnalytics(!syncAnalytics)} />}
+        />
+      </NativeSection>
 
       {/* ================================================================ */}
       {/* Developer-only: Attribution Health diagnostics                   */}
       {/* ================================================================ */}
       {showAttributionHealth && (
-        <>
-          <div className="border-t border-gray-100" />
-          <div>
+        <NativeSection title="Attribution Health">
+          <div className="px-5 py-4">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Database className="h-4 w-4 text-gray-400" />
-                <p className="text-sm font-medium text-gray-900">Attribution Health</p>
+                <Database className="h-4 w-4 text-[#6f6f6f]" />
+                <p className="text-[15px] font-medium text-[#252525]">Diagnostics</p>
               </div>
               <div className={cn('rounded-full border px-2.5 py-0.5 text-[11px] font-medium', attributionHealthStatusClass((attributionHealth?.session_count ?? 0) > 0 ? 'healthy' : 'Unavailable'))}>
                 {attributionHealthLoading ? 'Loading...' : ((attributionHealth?.session_count ?? 0) > 0 ? 'Healthy' : 'Unavailable')}
               </div>
             </div>
 
-            {/* Browser Extension diagnostics (dev only) */}
             {browserDiagnostics && (
-              <div className="mb-3 rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-1.5">
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Browser Extension</div>
+              <div className="mb-3 rounded-[12px] border border-black/10 bg-white/55 p-3 space-y-1.5">
+                <div className="mb-2 text-[11px] font-medium uppercase text-[#8a8a8a]">Browser Extension</div>
                 <DiagRow label="Extension installed" value={browserDiagnostics.extension_installed ? 'Detected' : 'Unknown'} ok={browserDiagnostics.extension_installed} />
                 <DiagRow label="Watcher reachable" value={browserDiagnostics.watcher_reachable ? `Yes (${browserDiagnostics.watcher_server_url ?? 'localhost'})` : 'No'} ok={browserDiagnostics.watcher_reachable} />
                 <DiagRow label="Listener port / PID" value={`${browserDiagnostics.current_listener_port ?? '-'} / ${browserDiagnostics.watcher_pid ?? '-'}`} />
@@ -676,30 +638,27 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
                 <DiagRow label="Context enabled" value={browserDiagnostics.context_enabled ? `Yes (${browserDiagnostics.context_quality})` : (browserDiagnostics.context_quality || 'Unknown')} ok={browserDiagnostics.context_enabled} />
                 <DiagRow label="Recent snapshots" value={String(browserDiagnostics.recent_context_snapshot_count ?? 0)} />
                 <DiagRow label="Browser / native / fallback" value={`${browserDiagnostics.recent_browser_snapshot_count ?? 0} / ${browserDiagnostics.recent_accessibility_snapshot_count ?? 0} / ${browserDiagnostics.recent_metadata_fallback_count ?? 0}`} />
-                {browserDiagnostics.detection_note && <p className="text-[11px] text-gray-500">{browserDiagnostics.detection_note}</p>}
-                {browserDiagnostics.context_note && <p className="text-[11px] text-gray-500">{browserDiagnostics.context_note}</p>}
+                {browserDiagnostics.detection_note && <p className="text-[11px] text-[#7a7a7a]">{browserDiagnostics.detection_note}</p>}
+                {browserDiagnostics.context_note && <p className="text-[11px] text-[#7a7a7a]">{browserDiagnostics.context_note}</p>}
               </div>
             )}
 
-            <div className="space-y-2.5">
-              <div className="rounded-xl border border-gray-200 bg-gray-50/70 p-3 space-y-1.5">
-                <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Project Time Attribution</div>
-                <DiagRow label="Latest session" value={formatDebugTimestamp(attributionHealth?.latest_session_ts)} />
-                <DiagRow label="Latest rollup update" value={formatDebugTimestamp(attributionHealth?.latest_rollup_updated_at)} />
-                <DiagRow label="Sessions / rollups" value={`${attributionHealth?.session_count ?? 0} / ${attributionHealth?.rollup_count ?? 0}`} />
-                <DiagRow label="Unclassified sessions" value={String(attributionHealth?.unclassified_session_count ?? 0)} />
-              </div>
+            <div className="rounded-[12px] border border-black/10 bg-white/55 p-3 space-y-1.5">
+              <div className="mb-2 text-[11px] font-medium uppercase text-[#8a8a8a]">Project Time Attribution</div>
+              <DiagRow label="Latest session" value={formatDebugTimestamp(attributionHealth?.latest_session_ts)} />
+              <DiagRow label="Latest rollup update" value={formatDebugTimestamp(attributionHealth?.latest_rollup_updated_at)} />
+              <DiagRow label="Sessions / rollups" value={`${attributionHealth?.session_count ?? 0} / ${attributionHealth?.rollup_count ?? 0}`} />
+              <DiagRow label="Unclassified sessions" value={String(attributionHealth?.unclassified_session_count ?? 0)} />
             </div>
           </div>
-        </>
+        </NativeSection>
       )}
 
-      {/* Save / Cancel */}
       <div className="flex items-center justify-end gap-2 pt-1">
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-[13px] text-gray-500 transition-colors hover:text-gray-700"
+            className="rounded-[10px] px-4 py-2 text-[13px] font-medium text-[#6f6f6f] transition-colors hover:bg-black/[0.04] hover:text-[#252525]"
           >
             Cancel
           </button>
@@ -707,12 +666,13 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         <button
           onClick={saveSettings}
           disabled={isSaving}
-          className="flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-gray-800 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-[10px] bg-[#0f7f86] px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#0b6f76] disabled:opacity-50"
         >
           {isSaving && <BrailleSpinner className="text-xs text-white" />}
           Save
         </button>
       </div>
+
     </div>
   );
 }
@@ -749,4 +709,71 @@ function attributionHealthStatusClass(status?: string): string {
   if (normalized === 'catching up') return 'border-amber-200 bg-amber-50 text-amber-700';
   if (normalized === 'degraded but usable') return 'border-orange-200 bg-orange-50 text-orange-700';
   return 'border-red-200 bg-red-50 text-red-700';
+}
+
+function NativeSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h2 className="mb-3 text-[15px] font-semibold leading-none text-[#2b2b2b]">{title}</h2>
+      <div className="divide-y divide-black/[0.07] overflow-hidden rounded-[15px] bg-[#f4f4f3] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.018)]">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function NativeRow({
+  icon,
+  title,
+  description,
+  control,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  description?: React.ReactNode;
+  control: React.ReactNode;
+}) {
+  return (
+    <div className="grid min-h-[58px] grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-5 py-3.5">
+      <div className="flex min-w-0 items-start gap-3">
+        {icon ? <div className="mt-0.5 shrink-0 text-[#6f6f6f]">{icon}</div> : null}
+        <div className="min-w-0">
+          <p className="text-[15px] font-medium leading-tight text-[#252525]">{title}</p>
+          {description ? (
+            <p className="mt-1 max-w-[460px] text-[13px] leading-snug text-[#7a7a7a]">{description}</p>
+          ) : null}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center justify-end">{control}</div>
+    </div>
+  );
+}
+
+function NativeToggle({
+  checked,
+  onClick,
+  disabled,
+}: {
+  checked: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={checked}
+      className={cn(
+        'relative inline-flex h-[22px] w-[42px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)] disabled:opacity-50',
+        checked ? 'bg-[#0f7f86]' : 'bg-[#d9d9d7]',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
+          checked ? 'translate-x-[22px]' : 'translate-x-[2px]',
+        )}
+      />
+    </button>
+  );
 }

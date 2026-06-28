@@ -2,7 +2,7 @@ import type { ComputerSnapshot } from '@/hooks/use-computer-snapshot-query';
 import type {
   ComputerDailyResponseRow as ComputerDailyRow,
   ComputerSummaryResponse as ComputerSummaryState,
-} from '@/lib/computerActivity/client';
+} from '@/lib/computerActivity';
 
 export interface MetricLogEntry {
   habitId: string;

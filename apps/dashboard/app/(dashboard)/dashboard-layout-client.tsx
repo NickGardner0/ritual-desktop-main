@@ -10,22 +10,16 @@
 
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import { DashboardLayout } from '@/components/dashboard-layout';
 import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { AIProvider } from '@/contexts/AIContext';
 import { FontProvider } from '@/contexts/FontContext';
 import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { needsPermissionsOnboarding } from '@/lib/onboarding-flow';
-import { setDashboardWindowSize } from '@/lib/tauri-utils';
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { isLoaded, user } = useUser();
-  const permissionGatePending = isLoaded && needsPermissionsOnboarding(user?.id);
   
   // Prefetch critical routes on mount for instant navigation
   useEffect(() => {
@@ -36,26 +30,6 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     router.prefetch('/calendar');
     router.prefetch('/integrations');
   }, [router]);
-
-  // Guard dashboard until first-run permission onboarding is completed.
-  useEffect(() => {
-    if (permissionGatePending) {
-      router.replace('/onboarding/permissions');
-    }
-  }, [permissionGatePending, router]);
-
-  // Resize window to dashboard size
-  useEffect(() => {
-    setDashboardWindowSize();
-  }, []);
-
-  if (permissionGatePending) {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <BrailleSpinner className="text-2xl text-gray-900" />
-      </div>
-    );
-  }
   
   return (
     <FontProvider>

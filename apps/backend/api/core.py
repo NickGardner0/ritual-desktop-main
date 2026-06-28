@@ -1,5 +1,6 @@
 """Core API router extracted from main.py (user, habits, calendar, batch logging)."""
 
+import asyncio
 import logging
 import os
 import uuid
@@ -14,10 +15,25 @@ from database.connection import force_local_replica_sync, get_db_session
 from database.models import ScheduledBlockDB
 from database.helpers import user_db_to_profile
 from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitUpdate
-from models.user_models import OnboardingData, UserProfile
+from models.user_models import (
+    BootstrapProfileUpdate,
+    ChecklistUpdateRequest,
+    FirstBehaviorRequest,
+    OnboardingData,
+    UserBootstrapResponse,
+    UserProfile,
+)
+from services.activation_service import activation_service
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 from services.turso_user_service import TursoProvisioningError, turso_user_service
 
 logger = logging.getLogger(__name__)
+
+BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS = 2.5
 
 
 def _env_flag(name: str) -> bool:
@@ -98,6 +114,38 @@ async def _maybe_force_fresh_read(request: Request):
         await force_local_replica_sync()
 
 
+async def _ensure_activity_metadata_for_bootstrap(user_id: str) -> None:
+    """Best-effort provisioning guard for login/bootstrap.
+
+    Per-user activity databases are useful for local watcher sync, but a slow
+    Turso platform call should never trap an authenticated user on the desktop
+    setup spinner.
+    """
+    try:
+        await asyncio.wait_for(
+            turso_user_service.ensure_user_activity_metadata(user_id),
+            timeout=BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Timed out provisioning per-user activity metadata during bootstrap for user %s after %.1fs",
+            user_id,
+            BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
+        )
+    except TursoProvisioningError:
+        logger.warning(
+            "Failed provisioning per-user activity metadata during bootstrap for user %s",
+            user_id,
+            exc_info=True,
+        )
+    except Exception:
+        logger.warning(
+            "Unexpected error provisioning per-user activity metadata during bootstrap for user %s",
+            user_id,
+            exc_info=True,
+        )
+
+
 def create_core_router(
     *,
     limiter: Any,
@@ -133,9 +181,137 @@ def create_core_router(
             logger.exception("Error getting user profile")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
-    @router.get("/api/user/turso-sync-config", response_model=TursoSyncConfigResponse)
-    async def get_turso_sync_config(current_user=Depends(get_current_user)):
+    @router.get("/api/user/bootstrap", response_model=UserBootstrapResponse)
+    async def get_user_bootstrap(
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
         try:
+            await _maybe_force_fresh_read(request)
+            user = await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            await _ensure_activity_metadata_for_bootstrap(user.id)
+            return await activation_service.get_bootstrap(current_user["id"])
+        except TursoProvisioningError as exc:
+            logger.exception("Error provisioning per-user Turso database during bootstrap")
+            raise HTTPException(status_code=500, detail=str(exc))
+        except Exception:
+            logger.exception("Error getting user bootstrap")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.patch("/api/user/bootstrap/profile", response_model=UserBootstrapResponse)
+    async def update_user_bootstrap_profile(
+        profile_data: BootstrapProfileUpdate,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            return await activation_service.update_profile(
+                user_id=current_user["id"],
+                full_name=profile_data.fullName,
+                timezone=profile_data.timezone,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            logger.exception("Error updating bootstrap profile")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.post("/api/user/activation/first-behavior")
+    @limiter.limit("20/minute")
+    async def create_first_behavior(
+        activation_data: FirstBehaviorRequest,
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            return await activation_service.create_first_behavior(
+                user_id=current_user["id"],
+                request=activation_data,
+                habits_service=habits_service,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            logger.exception("Error creating first behavior")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.patch("/api/user/activation/checklist", response_model=UserBootstrapResponse)
+    async def update_activation_checklist(
+        checklist_data: ChecklistUpdateRequest,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            return await activation_service.update_checklist(
+                user_id=current_user["id"],
+                request=checklist_data,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            logger.exception("Error updating activation checklist")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.patch("/api/user/activation/permissions-seen", response_model=UserBootstrapResponse)
+    async def mark_activation_permissions_seen(current_user=Depends(get_current_user)):
+        try:
+            await user_service.ensure_user_exists(
+                user_id=current_user["id"],
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+            )
+            return await activation_service.mark_permissions_seen(user_id=current_user["id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except Exception:
+            logger.exception("Error marking activation setup seen")
+            raise HTTPException(status_code=500, detail="Request could not be processed.")
+
+    @router.get("/api/user/turso-sync-config", response_model=TursoSyncConfigResponse)
+    async def get_turso_sync_config(
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            decision = can_send_to_cloud(
+                data_class="computer_activity",
+                destination="turso_cloud",
+                purpose="plaintext_sync",
+                mode=request_privacy_mode(request.headers),
+                consents=request_cloud_consents(request.headers),
+            )
+            if not decision.allowed:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "Cloud consent required",
+                        "privacy_blocked": True,
+                        "reason": decision.reason,
+                        "required_consent": "plaintext_sync",
+                    },
+                )
             await user_service.ensure_user_exists(
                 user_id=current_user["id"],
                 email=current_user.get("email") or "",

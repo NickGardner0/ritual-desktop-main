@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 /**
  * Legacy Apple Health import endpoint.
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid metrics payload" }, { status: 400 });
     }
 
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:8000";
+    const backendUrl = getServerBackendBaseUrl();
 
     const options: Record<string, unknown> = {
       selected_metrics: selectedMetrics,

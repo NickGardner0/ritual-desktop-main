@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
+import { ensureMicrophonePermission } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import {
   clearNativeDesktopSpeechState,
   formatNativeSpeechError,
@@ -18,6 +20,7 @@ interface UseChatVoiceInputParams {
 }
 
 export function useChatVoiceInput({ setInput, textareaRef }: UseChatVoiceInputParams) {
+  const { isDesktop, supportsNativeVoice } = useDesktopCapabilities();
 // Voice mode state (transcription)
 const [isListening, setIsListening] = useState(false);
 const [isProcessingVoice, setIsProcessingVoice] = useState(false);
@@ -308,7 +311,11 @@ const startWhisperRecording = async () => {
       const ext = mimeType.includes('webm') ? 'webm' : mimeType.includes('mp4') ? 'mp4' : 'wav';
       formData.append('file', audioBlob, `audio.${ext}`);
 
-      const response = await fetch('/api/whisper', { method: 'POST', body: formData });
+      const response = await fetch('/api/whisper', {
+        method: 'POST',
+        body: formData,
+        headers: privacySettingsHeaders(),
+      });
 
       if (response.ok) {
         const result = await response.json();
@@ -418,7 +425,7 @@ const startVoiceRecognition = async () => {
       setIsProcessingVoice(false);
     }
   }
-  if (isTauri() && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
+  if (isDesktop && whisperVoiceEnabled && typeof MediaRecorder !== 'undefined') {
     try {
       await startWhisperRecording();
       return;
@@ -429,7 +436,7 @@ const startVoiceRecognition = async () => {
     }
   }
 
-  if (isTauri()) {
+  if (isDesktop) {
     try {
       await startNativeVoiceRecognition();
       return;

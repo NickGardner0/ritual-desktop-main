@@ -11,8 +11,10 @@ import { PlatformDetector } from '@/components/platform-detector';
 import { TransparencyProbe } from '@/components/transparency-probe';
 import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-bridge';
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
+import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
+import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
-import { isTauri, showMainWindow } from '@/lib/tauri-utils';
+import { showMainWindow } from '@/lib/tauri-utils';
 
 /**
  * Root Providers Wrapper
@@ -21,9 +23,23 @@ import { isTauri, showMainWindow } from '@/lib/tauri-utils';
  * Separated from layout.tsx to allow the layout to remain a Server Component.
  */
 export function RootProviders({ children }: { children: ReactNode }) {
+  return (
+    <DesktopCapabilitiesProvider>
+      <RootProvidersInner>{children}</RootProvidersInner>
+    </DesktopCapabilitiesProvider>
+  );
+}
+
+function RootProvidersInner({ children }: { children: ReactNode }) {
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
-  const isDesktopShell = typeof window !== 'undefined' && isTauri();
+  const isDesktopShell = typeof window !== 'undefined' && isDesktop;
+  const isAuxiliaryDesktopWindow = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ritual_sidebar_window') === '1' || params.get('ritual_settings_window') === '1';
+  };
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_transparency_probe');
@@ -32,9 +48,21 @@ export function RootProviders({ children }: { children: ReactNode }) {
   });
   const [isMainGlassEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
+    if (isAuxiliaryDesktopWindow()) return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
     const storageValue = window.sessionStorage.getItem('ritual_main_glass');
-    return isTauri() || queryValue === '1' || storageValue === '1';
+    return getDesktopCapabilities().isDesktop || queryValue === '1' || storageValue === '1';
+  });
+  const [isGlassChromeEnabled] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (isAuxiliaryDesktopWindow()) return false;
+    const params = new URLSearchParams(window.location.search);
+    const queryValue = params.get('ritual_glass_chrome');
+    const storageValue = window.sessionStorage.getItem('ritual_glass_chrome');
+    if (queryValue === '0') return false;
+    if (getDesktopCapabilities().isDesktop) return true;
+    if (queryValue === '1' || storageValue === '1') return true;
+    return params.get('ritual_main_glass') === '1' || window.sessionStorage.getItem('ritual_main_glass') === '1';
   });
   const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -50,11 +78,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
     if (isDesktopBootstrap) {
@@ -73,11 +98,8 @@ export function RootProviders({ children }: { children: ReactNode }) {
       return;
     }
 
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
-        return;
-      }
+    if (isAuxiliaryDesktopWindow()) {
+      return;
     }
 
     void desktopFrontendReady();
@@ -113,6 +135,35 @@ export function RootProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    if (isGlassChromeEnabled) {
+      window.sessionStorage.setItem('ritual_glass_chrome', '1');
+      document.documentElement.dataset.glassChrome = '1';
+    } else {
+      window.sessionStorage.removeItem('ritual_glass_chrome');
+      delete document.documentElement.dataset.glassChrome;
+    }
+  }, [isGlassChromeEnabled]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const setWindowActive = () => {
+      document.documentElement.dataset.windowActive = document.hasFocus() ? '1' : '0';
+    };
+
+    setWindowActive();
+    window.addEventListener('focus', setWindowActive);
+    window.addEventListener('blur', setWindowActive);
+    return () => {
+      window.removeEventListener('focus', setWindowActive);
+      window.removeEventListener('blur', setWindowActive);
+      delete document.documentElement.dataset.windowActive;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
     if (isSidebarCaptureMode) {
       document.documentElement.dataset.sidebarCapture = '1';
     } else {
@@ -138,15 +189,17 @@ export function RootProviders({ children }: { children: ReactNode }) {
   }, []);
 
   const content = (
-    <OpenPanelProvider>
-      <QueryProvider>
-        <HabitsProvider>
-          <DesktopAssetRecoveryBridge />
-          <DesktopAuthDeepLinkBridge />
-          {children}
-        </HabitsProvider>
-      </QueryProvider>
-    </OpenPanelProvider>
+    <ChromeAppearanceProvider>
+      <OpenPanelProvider>
+        <QueryProvider>
+          <HabitsProvider>
+            <DesktopAssetRecoveryBridge />
+            <DesktopAuthDeepLinkBridge />
+            {children}
+          </HabitsProvider>
+        </QueryProvider>
+      </OpenPanelProvider>
+    </ChromeAppearanceProvider>
   );
 
   return (

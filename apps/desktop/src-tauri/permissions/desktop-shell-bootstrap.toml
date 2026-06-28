@@ -5,4 +5,5 @@ commands.allow = [
   "get_desktop_shell_bootstrap_config",
   "check_desktop_hosted_app_reachable",
   "desktop_record_shell_event",
+  "open_settings_window",
 ]

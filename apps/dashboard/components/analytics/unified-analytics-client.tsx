@@ -25,7 +25,7 @@ import {
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
-import { ViewModeToggle, ViewMode } from './view-mode-toggle';
+import type { ViewMode } from './view-mode-toggle';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
@@ -112,11 +112,6 @@ const AIHabitChat = dynamic(
   { ssr: false }
 );
 
-const ConnectedDevicesBar = dynamic(
-  () => import("@/components/connected-devices-modal").then(m => ({ default: m.ConnectedDevicesBar })),
-  { ssr: false }
-);
-
 // Loading fallback for lazy-loaded views
 function ViewLoadingFallback() {
   return (
@@ -172,7 +167,8 @@ function UnifiedAnalyticsContent({
     enabled: viewMode === 'metrics',
   });
   const metricsReadModel = metricsSnapshot ?? dashboardSnapshot;
-  const shellMountTimeRef = useRef(typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const [shellMountTime] = useState(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()));
+  const shellMountTimeRef = useRef(shellMountTime);
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
   const lastDateFilteredLogRefreshAtRef = useRef(0);
@@ -312,7 +308,7 @@ function UnifiedAnalyticsContent({
   // Sync view mode with URL
   useEffect(() => {
     const viewParam = searchParams.get('view');
-    if (viewParam === 'chat' || viewParam === 'overview' || viewParam === 'metrics') {
+    if (viewParam === 'overview' || viewParam === 'metrics') {
       setViewMode(viewParam);
     }
   }, [searchParams, setViewMode]);
@@ -321,8 +317,10 @@ function UnifiedAnalyticsContent({
     const shouldOpenImport = searchParams.get('openImport') === '1';
     if (!shouldOpenImport) return;
 
-    setViewMode('overview');
-    setShowImportModal(true);
+    queueMicrotask(() => {
+      setViewMode('overview');
+      setShowImportModal(true);
+    });
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete('openImport');
@@ -374,21 +372,6 @@ function UnifiedAnalyticsContent({
     };
   }, [dashboardSnapshot.overviewStats, habits.length, metricsReadModel.metricsAnalyticsData, viewMode]);
   
-  // Update URL when view mode changes
-  const handleViewChange = useCallback((newView: ViewMode) => {
-    if (newView === 'chat') {
-      // Navigate to the dedicated full chat page
-      router.push('/chat');
-      return;
-    }
-    setViewMode(newView);
-
-    // Update URL without triggering navigation
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('view', newView);
-    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-  }, [setViewMode, router, pathname, searchParams]);
-
   // Handle habit creation
   const handleHabitCreated = useCallback(async () => {
     try {
@@ -405,26 +388,16 @@ function UnifiedAnalyticsContent({
   // fires *after* paint, finds the freshly-mounted nodes, and triggers a
   // re-render that wires up the portals.
   const [headerRightSlot, setHeaderRightSlot] = useState<HTMLElement | null>(null);
-  const [headerCenterSlot, setHeaderCenterSlot] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     const right = document.getElementById('header-right-slot');
-    const center = document.getElementById('header-center-slot');
-    setHeaderRightSlot(right);
-    setHeaderCenterSlot(center);
+    queueMicrotask(() => {
+      setHeaderRightSlot(right);
+    });
   }, [isFullScreenChat]);
 
   return (
-    <div className="space-y-3">
-      {/* Tab bar — portalled into header center slot */}
-      {!isFullScreenChat && headerCenterSlot && createPortal(
-        <ViewModeToggle
-          currentView={viewMode}
-          onViewChange={handleViewChange}
-        />,
-        headerCenterSlot
-      )}
-
+    <div className="relative h-full min-h-0 overflow-hidden">
       {/* + button (overview) + Date picker — portalled into header right slot, hidden in chat mode */}
       {!isFullScreenChat && viewMode !== 'chat' && headerRightSlot && createPortal(
         <>
@@ -432,8 +405,9 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="h-8 w-8 border border-gray-300 shadow-sm bg-white text-gray-500 hover:text-gray-900 hover:bg-[#F5F5F5] transition-colors flex items-center justify-center rounded-sm focus:outline-none"
-                  aria-label="Overview menu"
+                  className="flex h-7 w-7 items-center justify-center rounded-sm border border-gray-300 bg-white text-gray-500 shadow-sm transition-colors hover:bg-[#F5F5F5] hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1"
+                  aria-label="Add habit"
+                  title="Add habit"
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -465,7 +439,8 @@ function UnifiedAnalyticsContent({
             </DropdownMenu>
           )}
           <DateRangePicker
-            className="w-auto"
+            className="w-[128px]"
+            variant="titlebar"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}
           />
@@ -474,7 +449,7 @@ function UnifiedAnalyticsContent({
       )}
 
       {/* Content Area with smooth view switching */}
-      <div className="relative min-h-[400px] pt-1">
+      <div className="relative h-full min-h-0 pt-1">
         {/* Overview View - Lazy loaded */}
         <div 
           role="tabpanel"
@@ -543,10 +518,10 @@ function UnifiedAnalyticsContent({
       {/* AI Habit Chat - Fixed near bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
         <div
-          className="fixed bottom-[32px] right-0 flex justify-center px-4 sm:px-6 lg:px-8 pb-3 pt-3 bg-gradient-to-t from-white/95 via-white/70 to-transparent pointer-events-none"
+          className="pointer-events-none fixed bottom-[24px] right-0 flex justify-center px-4 pb-2 pt-2 sm:px-6 lg:px-8"
           style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
         >
-          <div className="w-full max-w-2xl pointer-events-auto">
+          <div className="pointer-events-auto w-full max-w-[640px]">
                 <AIHabitChat
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
@@ -590,10 +565,6 @@ function UnifiedAnalyticsContent({
         </div>
       )}
 
-      {/* Connected devices button below chat bar */}
-      {viewMode === 'overview' && (
-        <ConnectedDevicesBar />
-      )}
     </div>
   );
 }

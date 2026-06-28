@@ -2,38 +2,33 @@
 
 import { cn } from "@/lib/utils";
 
-import Link from "next/link";
-import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { startTransition, useState, useRef, useCallback, useEffect } from "react";
 import { MainMenu } from "./main-menu";
-import { TeamDropdown } from "./team-dropdown";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+import { Settings } from "lucide-react";
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
+import { NavRowSurface, SidebarShell } from "@/components/ui/ritual-system";
+
+const SettingsModal = dynamic(
+  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
+  { ssr: false }
+);
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
-function SidebarChromeToggleIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className={className}
-      aria-hidden="true"
-    >
-      <g fill="none" stroke="currentColor" strokeWidth="2">
-        <rect width="20" height="18" x="2" y="3" rx="2" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9 3v18" />
-      </g>
-    </svg>
-  );
-}
-
 export function Sidebar() {
+  const { isDesktop } = useDesktopCapabilities();
+  const { mode } = useSidebarMode();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const { mode, setMode } = useSidebarMode();
   const [isHovered, setIsHovered] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsInitialView, setSettingsInitialView] = useState<DesktopSettingsView | undefined>(undefined);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = useCallback(() => {
@@ -49,8 +44,6 @@ export function Sidebar() {
   // Determine visual expansion state based on mode
   const isExpanded =
     mode === "expanded" ? true : mode === "hover" ? isHovered : false;
-  const showExpandedChrome = mode === "expanded";
-  const showSidebarLogo = mode !== "expanded";
 
   // Only attach hover handlers in hover mode
   const hoverProps =
@@ -59,14 +52,7 @@ export function Sidebar() {
       : {};
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerWidth = showExpandedChrome ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const headerHeight = showExpandedChrome ? 52 : 80;
-  const navTopPadding = showExpandedChrome ? 78 : 84;
-
-  const handleChromeToggle = useCallback(() => {
-    setIsHovered(false);
-    setMode(mode === "expanded" ? "compact" : "expanded");
-  }, [mode, setMode]);
+  const navTopPadding = mode === "expanded" ? 54 : 58;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -77,96 +63,106 @@ export function Sidebar() {
     };
   }, [width]);
 
+  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
+  useEffect(() => {
+    const view = searchParams.get('openSettings');
+    if (
+      view === 'account' ||
+      view === 'privacy' ||
+      view === 'computer-tracking' ||
+      view === 'place-tagging' ||
+      view === 'apple-health'
+    ) {
+      if (isDesktop) {
+        void openDesktopSettingsWindow(view).catch((error) => {
+          console.error('Failed to open native settings window:', error);
+          startTransition(() => {
+            setSettingsInitialView(view);
+            setShowSettingsModal(true);
+          });
+        });
+        startTransition(() => setIsHovered(false));
+      } else {
+        startTransition(() => {
+          setSettingsInitialView(view);
+          setShowSettingsModal(true);
+        });
+      }
+      const params = new URLSearchParams(searchParams.toString());
+      params.delete('openSettings');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
+    }
+  }, [searchParams, pathname, router]);
+
+  const handleSettingsClick = async () => {
+    if (isDesktop) {
+      setIsHovered(false);
+      try {
+        await openDesktopSettingsWindow('account');
+      } catch (error) {
+        console.error('Failed to open native settings window:', error);
+        setSettingsInitialView('account');
+        setShowSettingsModal(true);
+      }
+      return;
+    }
+    setShowSettingsModal(true);
+  };
+
   return (
-    <aside
-      className={cn(
-        "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between pb-4 items-stretch overflow-hidden hidden md:flex",
-      )}
+    <SidebarShell
       style={{
         width,
         transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       {...hoverProps}
     >
-      {/* Logo Header — keep a taller reserved band so the logo sits cleanly
-          below the macOS traffic lights without overlap. */}
-      <div
-        data-tauri-drag-region
-        className="sidebar-header tauri-drag-region absolute top-0 left-0 z-[2] flex items-start"
-        style={{ width: headerWidth, height: headerHeight }}
-      >
-        {showExpandedChrome ? (
-          <div className="no-drag absolute left-[82px] top-[3px] z-10 flex items-center">
-            <button
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                handleChromeToggle();
-              }}
-              className="mr-[28px] flex h-[20px] w-[20px] items-center justify-center rounded-[4px] text-[rgb(143,146,151)] transition-colors hover:text-[#666a70]"
-              aria-label={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-              title={mode === "expanded" ? "Collapse sidebar" : "Expand sidebar"}
-            >
-              <SidebarChromeToggleIcon className="h-[16px] w-[16px]" />
-            </button>
-            <div className="flex items-center gap-[10px]">
-              <button
-                type="button"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (window.history.length > 1) {
-                    router.back();
-                  }
-                }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
-                aria-label="Go back"
-                title="Go back"
-              >
-                <ChevronLeft className="h-[14px] w-[14px] stroke-[2.15]" />
-              </button>
-              <button
-                type="button"
-                onMouseDown={(event) => event.stopPropagation()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  router.forward();
-                }}
-                className="flex h-[18px] w-[18px] items-center justify-center rounded-[4px] text-[rgb(146,149,154)] transition-colors hover:text-[#56595f]"
-                aria-label="Go forward"
-                title="Go forward"
-              >
-                <ChevronRight className="h-[14px] w-[14px] stroke-[2.15]" />
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {showSidebarLogo ? (
-          <Link href="/" className="no-drag flex h-full w-full items-start justify-start pl-[24px] pt-[22px] transition-none">
-            <img
-              src="/images/eclipse.svg"
-              alt="Ritual Logo"
-              className="h-[24px] w-[24px] flex-shrink-0 opacity-[0.74]"
-            />
-          </Link>
-        ) : (
-          <div className="no-drag relative h-full w-full" />
-        )}
-      </div>
-
-      {/* Main Navigation — top padding accounts for the dedicated titlebar lane above the logo. */}
+      {/* Main Navigation — top padding starts below the global titlebar row. */}
       <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
-          onCloseSidebar={() => setIsHovered(false)}
         />
       </div>
 
-      {/* Bottom: User Avatar */}
-      <div className="flex flex-col items-center w-full gap-2 px-[15px]">
-        <TeamDropdown isExpanded={isExpanded} placement="sidebar" />
+      {/* Bottom: Settings */}
+      <div className="flex w-full flex-col items-stretch px-[15px]">
+        <button
+          type="button"
+          onClick={handleSettingsClick}
+          className={cn("group/settings-row relative h-[var(--sidebar-row-height)]", isExpanded ? "w-full" : "w-[40px]")}
+          aria-label="Settings"
+          title="Settings"
+        >
+          <NavRowSurface active={false} expanded={isExpanded} className={isExpanded ? "!ml-0 !mr-0 !w-full" : "!ml-0"} />
+          <span
+            className={cn(
+              "ritual-nav-icon absolute top-1/2 left-0 flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center",
+            )}
+            data-collapsed={!isExpanded ? "true" : undefined}
+          >
+            <Settings className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={2.1} />
+          </span>
+          {isExpanded && (
+            <span className="ritual-nav-label absolute top-1/2 left-[40px] right-[4px] flex h-[var(--sidebar-row-height)] -translate-y-1/2 items-center text-sm leading-none">
+              Settings
+            </span>
+          )}
+        </button>
       </div>
-    </aside>
+
+      {showSettingsModal && (
+        <SettingsModal
+          isOpen={showSettingsModal}
+          onClose={() => {
+            setShowSettingsModal(false);
+            setSettingsInitialView(undefined);
+            setIsHovered(false);
+          }}
+          onOpen={() => setIsHovered(false)}
+          initialView={settingsInitialView}
+        />
+      )}
+    </SidebarShell>
   );
 }

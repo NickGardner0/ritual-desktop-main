@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 
-const budget = Number(process.env.RITUAL_DASHBOARD_FILE_LINE_BUDGET || 1900);
+const budget = Number(process.env.RITUAL_DASHBOARD_FILE_LINE_BUDGET || 800);
 const files = execFileSync("find", [
   "apps/dashboard",
   "-path",

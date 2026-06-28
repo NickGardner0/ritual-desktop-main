@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { addDays, format, subDays } from 'date-fns';
-import { API_CONFIG } from '@/lib/api-config';
+import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 import {
   getWearableMetricCategory,
@@ -313,7 +313,7 @@ async function fetchIphoneTimeFactLogs({
     start_date: startDate,
     end_date: endDate,
   });
-  const response = await fetch(`${API_CONFIG.PYTHON_API_URL}/api/metrics/facts/daily?${params.toString()}`, {
+  const response = await fetch(`${getServerBackendBaseUrl()}/api/metrics/facts/daily?${params.toString()}`, {
     headers: buildBackendAuthHeaders({ userId, token }),
     cache: 'no-store',
     signal: AbortSignal.timeout(15000),
@@ -400,13 +400,13 @@ export async function GET(request: NextRequest) {
     const includeManualLogs = !sources.length || sources.some((source) => source.toLowerCase() === 'manual');
 
     const [habitsResponse, timelineResponse] = await Promise.all([
-      fetch(`${API_CONFIG.PYTHON_API_URL}/api/habits`, {
+      fetch(`${getServerBackendBaseUrl()}/api/habits`, {
         headers: buildBackendAuthHeaders({ userId, token }),
         cache: 'no-store',
         signal: AbortSignal.timeout(15000),
       }),
       fetch(
-        `${API_CONFIG.PYTHON_API_URL}/api/wearables/timeline?start_time=${encodeURIComponent(`${queryStartDate}T00:00:00Z`)}&end_time=${encodeURIComponent(`${queryEndDate}T23:59:59Z`)}&include_manual_logs=${includeManualLogs ? 'true' : 'false'}&limit=5000`,
+        `${getServerBackendBaseUrl()}/api/wearables/timeline?start_time=${encodeURIComponent(`${queryStartDate}T00:00:00Z`)}&end_time=${encodeURIComponent(`${queryEndDate}T23:59:59Z`)}&include_manual_logs=${includeManualLogs ? 'true' : 'false'}&limit=5000`,
         {
           headers: buildBackendAuthHeaders({ userId, token }),
           cache: 'no-store',

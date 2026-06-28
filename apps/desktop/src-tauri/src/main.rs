@@ -5,13 +5,16 @@
 mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
+mod desktop_runtime_types;
+mod local_vault;
 mod native_widget;
+mod privacy_policy;
 mod ritual_database;
 mod watcher;
+mod watcher_activity;
 
-use std::collections::HashMap;
 use std::env;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -45,6 +48,9 @@ const STAGING_APP_URL: &str = "https://staging.ritual.app";
 const PROD_APP_URL: &str = "https://desktop.ritualdb.com";
 const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
+const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1330.0;
+const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 820.0;
+const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1330x820_v1.done";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -118,6 +124,40 @@ fn read_nonempty_env(name: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
+    let Some(ritual_dir) = dirs::home_dir().map(|home| home.join(".ritual")) else {
+        return;
+    };
+    let marker_path = ritual_dir.join(MAIN_WINDOW_DEFAULT_SIZE_MARKER);
+    if marker_path.exists() {
+        return;
+    }
+
+    if let Err(error) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: MAIN_WINDOW_DEFAULT_WIDTH,
+        height: MAIN_WINDOW_DEFAULT_HEIGHT,
+    })) {
+        warn!(error = %error, "Failed to apply one-time main window default size");
+        return;
+    }
+
+    if let Err(error) = window.center() {
+        warn!(error = %error, "Failed to center main window after default size migration");
+    }
+
+    if let Err(error) = std::fs::create_dir_all(&ritual_dir) {
+        warn!(error = %error, "Failed to create Ritual config directory for window size marker");
+        return;
+    }
+    if let Err(error) = std::fs::write(&marker_path, b"ok\n") {
+        warn!(
+            error = %error,
+            marker_path = %marker_path.display(),
+            "Failed to write main window default size marker"
+        );
+    }
 }
 
 fn configured_ritual_env() -> String {
@@ -218,6 +258,7 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
 
     if main_glass_enabled {
         bootstrap_url = with_query_param(&bootstrap_url, "ritual_main_glass=1");
+        bootstrap_url = with_query_param(&bootstrap_url, "ritual_glass_chrome=1");
     }
 
     if transparency_probe {
@@ -364,7 +405,7 @@ fn join_url_path(base: &str, path: &str) -> String {
 }
 
 fn shutdown_background_helpers() {
-    if let Err(err) = tauri::async_runtime::block_on(watcher::stop_watcher()) {
+    if let Err(err) = tauri::async_runtime::block_on(watcher::lifecycle::stop_watcher()) {
         eprintln!(
             "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
             err
@@ -381,7 +422,7 @@ fn spawn_watcher_watchdog() {
         interval.tick().await;
         loop {
             interval.tick().await;
-            match watcher::check_and_restart_watcher_if_hung(60).await {
+            match watcher::diagnostics::check_and_restart_watcher_if_hung(60).await {
                 Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
                 Ok(false) => {}
                 Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
@@ -400,9 +441,11 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
         "Auto-starting Ritual Watcher"
     );
 
-    if watcher::check_accessibility_permission() {
-        match tauri::async_runtime::spawn_blocking(move || watcher::start_watcher_sync(config))
-            .await
+    if watcher::permissions::check_accessibility_permission() {
+        match tauri::async_runtime::spawn_blocking(move || {
+            watcher::lifecycle::start_watcher_sync(config)
+        })
+        .await
         {
             Ok(Ok(status)) => {
                 info!(
@@ -587,7 +630,30 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
 
+            let current_style_mask: u64 = msg_send![ns_win, styleMask];
+            // Preserve normal document-window behavior after Tauri's overlay
+            // titlebar customization. In production builds the overlay/full-size
+            // content style can be applied after the builder's `resizable(true)`,
+            // so make the AppKit resizable bit explicit here.
+            let titled_mask = 1_u64 << 0; // NSWindowStyleMaskTitled
+            let closable_mask = 1_u64 << 1; // NSWindowStyleMaskClosable
+            let miniaturizable_mask = 1_u64 << 2; // NSWindowStyleMaskMiniaturizable
+            let resizable_mask = 1_u64 << 3; // NSWindowStyleMaskResizable
+            let full_size_content_view_mask = 1_u64 << 15; // NSWindowStyleMaskFullSizeContentView
+                                                           // NSWindowStyleMaskFullSizeContentView lets the webview render under
+                                                           // the titlebar, which is required for the thin Atlas-style glass chrome.
+            let desired_style_mask = current_style_mask
+                | titled_mask
+                | closable_mask
+                | miniaturizable_mask
+                | resizable_mask
+                | full_size_content_view_mask;
+            let _: () = msg_send![
+                ns_win,
+                setStyleMask: desired_style_mask
+            ];
             let _: () = msg_send![ns_win, setHasShadow: YES];
+            let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
@@ -599,7 +665,7 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
             }
 
-            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar)");
+            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
@@ -613,6 +679,8 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
     use objc::{msg_send, sel, sel_impl};
 
     println!("🔧 Configuring macOS window transparency + liquid glass…");
+
+    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
 
     match window.ns_window() {
         Ok(raw_window) => unsafe {
@@ -678,133 +746,6 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
         },
         Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
     }
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Clone, Copy, Debug)]
-struct TrafficLightBaseline {
-    close_y: f64,
-    step: f64,
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baselines() -> &'static Mutex<HashMap<String, TrafficLightBaseline>> {
-    static TRAFFIC_LIGHT_BASELINES: OnceLock<Mutex<HashMap<String, TrafficLightBaseline>>> =
-        OnceLock::new();
-    TRAFFIC_LIGHT_BASELINES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-#[cfg(target_os = "macos")]
-fn traffic_light_baseline_key(window: &tauri::WebviewWindow) -> String {
-    let scale_factor = window.scale_factor().unwrap_or(1.0);
-    format!("{}@{scale_factor:.2}", window.label())
-}
-
-#[cfg(target_os = "macos")]
-fn resolve_traffic_light_baseline(
-    window: &tauri::WebviewWindow,
-    close_frame: cocoa::foundation::NSRect,
-    minimize_frame: cocoa::foundation::NSRect,
-    zoom_frame: cocoa::foundation::NSRect,
-) -> TrafficLightBaseline {
-    let native_step_a = minimize_frame.origin.x - close_frame.origin.x;
-    let native_step_b = zoom_frame.origin.x - minimize_frame.origin.x;
-    let native_step = if native_step_a > 0.0 && native_step_b > 0.0 {
-        (native_step_a + native_step_b) / 2.0
-    } else {
-        close_frame.size.width + 6.0
-    };
-
-    let key = traffic_light_baseline_key(window);
-    let default_baseline = TrafficLightBaseline {
-        close_y: close_frame.origin.y,
-        step: native_step,
-    };
-
-    let baselines = traffic_light_baselines();
-    let mut guard = match baselines.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-    *guard.entry(key).or_insert(default_baseline)
-}
-
-/// Reposition macOS traffic lights (close/minimize/zoom) into the sidebar region.
-/// Called after window creation and on every resize, since macOS resets button
-/// positions when the window frame changes.
-#[cfg(target_os = "macos")]
-fn reposition_traffic_lights(window: &tauri::WebviewWindow) {
-    use cocoa::base::id;
-    use objc::{msg_send, sel, sel_impl};
-
-    let Ok(raw) = window.ns_window() else { return };
-    unsafe {
-        let ns_win: id = raw as id;
-        // Button constants: Close=0, Miniaturize=1, Zoom=2
-        let close: id = msg_send![ns_win, standardWindowButton: 0_u64];
-        let minimize: id = msg_send![ns_win, standardWindowButton: 1_u64];
-        let zoom: id = msg_send![ns_win, standardWindowButton: 2_u64];
-
-        if close.is_null() || minimize.is_null() || zoom.is_null() {
-            return;
-        }
-
-        let close_frame: cocoa::foundation::NSRect = msg_send![close, frame];
-        let minimize_frame: cocoa::foundation::NSRect = msg_send![minimize, frame];
-        let zoom_frame: cocoa::foundation::NSRect = msg_send![zoom, frame];
-        let baseline =
-            resolve_traffic_light_baseline(window, close_frame, minimize_frame, zoom_frame);
-
-        // Reuse the first clean native AppKit layout as the stable baseline and
-        // only reapply frame origins from it. Re-deriving target geometry from
-        // mutable container frames caused vertical drift after repeated resizes.
-        let left_inset: f64 = 14.0;
-        let vertical_nudge: f64 = 1.0;
-        let target_y = (baseline.close_y + vertical_nudge).max(0.0);
-
-        let _: () = msg_send![
-            close,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset, target_y)
-        ];
-        let _: () = msg_send![
-            minimize,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(left_inset + baseline.step, target_y)
-        ];
-        let _: () = msg_send![
-            zoom,
-            setFrameOrigin: cocoa::foundation::NSPoint::new(
-                left_inset + baseline.step * 2.0,
-                target_y
-            )
-        ];
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn schedule_reposition_traffic_lights(window: tauri::WebviewWindow) {
-    let immediate_window = window.clone();
-    let immediate_target = immediate_window.clone();
-    let _ = immediate_window.run_on_main_thread(move || {
-        reposition_traffic_lights(&immediate_target);
-    });
-
-    let short_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(40));
-        let delayed_target = short_delay_window.clone();
-        let _ = short_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
-
-    let long_delay_window = window.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(140));
-        let delayed_target = long_delay_window.clone();
-        let _ = long_delay_window.run_on_main_thread(move || {
-            reposition_traffic_lights(&delayed_target);
-        });
-    });
 }
 
 /// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
@@ -1175,6 +1116,131 @@ struct SidebarMainState {
     width: f64,
 }
 
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SettingsWindowPayload {
+    initial_view: String,
+}
+
+const SETTINGS_WINDOW_WIDTH: f64 = 760.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 500.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 680.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 420.0;
+
+fn normalize_settings_view(view: Option<String>) -> String {
+    match view.as_deref().unwrap_or("account") {
+        "account" | "computer-tracking" | "place-tagging" | "apple-health" => {
+            view.unwrap_or_else(|| "account".to_string())
+        }
+        _ => "account".to_string(),
+    }
+}
+
+fn build_settings_window_url(initial_view: &str) -> String {
+    let ritual_env = configured_ritual_env();
+    let app_origin = get_app_url();
+    let mut settings_url = join_url_path(&app_origin, "/settings-window");
+    settings_url = with_query_param(&settings_url, "ritual_settings_window=1");
+    settings_url = with_query_param(&settings_url, &format!("ritual_desktop_env={ritual_env}"));
+    with_query_param(&settings_url, &format!("view={initial_view}"))
+}
+
+fn resize_settings_window(settings: &tauri::WebviewWindow) {
+    let _ = settings.set_size(tauri::Size::Logical(tauri::LogicalSize {
+        width: SETTINGS_WINDOW_WIDTH,
+        height: SETTINGS_WINDOW_HEIGHT,
+    }));
+}
+
+fn center_settings_window_over_main(
+    app: &tauri::AppHandle,
+    settings: &tauri::WebviewWindow,
+) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let main_pos = main
+        .outer_position()
+        .map_err(|e| format!("Failed to read main window position: {e}"))?;
+    let main_size = main
+        .outer_size()
+        .map_err(|e| format!("Failed to read main window size: {e}"))?;
+    let settings_size = settings
+        .outer_size()
+        .map_err(|e| format!("Failed to read settings window size: {e}"))?;
+
+    let x = main_pos.x + ((main_size.width as i32 - settings_size.width as i32) / 2);
+    let y = main_pos.y + ((main_size.height as i32 - settings_size.height as i32) / 2);
+    settings
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }))
+        .map_err(|e| format!("Failed to position settings window: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> Result<(), String> {
+    let initial_view = normalize_settings_view(initial_view);
+    let payload = SettingsWindowPayload {
+        initial_view: initial_view.clone(),
+    };
+
+    if let Some(settings) = app.get_webview_window("settings") {
+        resize_settings_window(&settings);
+        if center_settings_window_over_main(&app, &settings).is_err() {
+            let _ = settings.center();
+        }
+        let _ = settings.show();
+        let _ = settings.unminimize();
+        let _ = settings.set_focus();
+        let _ = settings.emit("settings:show", payload);
+        return Ok(());
+    }
+
+    let settings_url = build_settings_window_url(&initial_view);
+    let settings_external_url = settings_url
+        .parse()
+        .map_err(|error| format!("Invalid settings window URL: {error}"))?;
+
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "settings",
+        tauri::WebviewUrl::External(settings_external_url),
+    )
+    .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+    .title("Settings")
+    .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
+    .min_inner_size(SETTINGS_WINDOW_MIN_WIDTH, SETTINGS_WINDOW_MIN_HEIGHT)
+    .resizable(true)
+    .decorations(true)
+    .transparent(false)
+    .shadow(true)
+    .visible(true)
+    .focused(true);
+
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+
+    let settings = builder
+        .build()
+        .map_err(|error| format!("Failed to create settings window: {error}"))?;
+    if center_settings_window_over_main(&app, &settings).is_err() {
+        let _ = settings.center();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        configure_macos_native_window_chrome(&settings);
+    }
+
+    let _ = settings.emit("settings:show", payload);
+    Ok(())
+}
+
 #[tauri::command]
 fn sidebar_get_main_state(
     app: tauri::AppHandle,
@@ -1257,8 +1323,8 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
     config.user_id = trimmed_user_id.to_string();
     save_watcher_config_cmd(config.clone())?;
 
-    if watcher::check_accessibility_permission() {
-        match watcher::start_watcher_sync(config) {
+    if watcher::permissions::check_accessibility_permission() {
+        match watcher::lifecycle::start_watcher_sync(config) {
             Ok(status) => {
                 info!(
                     pid = status.pid,
@@ -1302,6 +1368,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             // Window management
             show_main_window,
+            open_settings_window,
             sidebar_set_width,
             sidebar_navigate,
             sidebar_get_main_state,
@@ -1320,23 +1387,29 @@ fn main() {
             native_widget::get_native_speech_state,
             native_widget::clear_native_speech_state,
             // Ritual Watcher commands for computer activity tracking
-            watcher::check_accessibility_permission,
-            watcher::request_accessibility_permission,
-            watcher::start_watcher,
-            watcher::stop_watcher,
-            watcher::get_watcher_status,
-            watcher::open_accessibility_settings,
+            watcher::permissions::check_accessibility_permission,
+            watcher::permissions::request_accessibility_permission,
+            watcher::lifecycle::start_watcher,
+            watcher::lifecycle::stop_watcher,
+            watcher::lifecycle::get_watcher_status,
+            watcher::permissions::open_accessibility_settings,
+            watcher::permissions::open_full_disk_access_settings,
+            watcher::permissions::open_microphone_settings,
+            watcher::permissions::open_speech_recognition_settings,
+            watcher::permissions::open_screen_recording_settings,
+            watcher::permissions::open_input_monitoring_settings,
+            watcher::permissions::open_location_settings,
             // Local activity queries (for detailed view with full URLs/titles)
-            watcher::get_detailed_activity,
-            watcher::get_daily_summaries,
+            watcher::queries::get_detailed_activity,
+            watcher::queries::get_daily_summaries,
             // Real-time status
-            watcher::get_watcher_extended_status,
-            watcher::get_browser_extension_diagnostics,
+            watcher::queries::get_watcher_extended_status,
+            watcher::diagnostics::get_browser_extension_diagnostics,
             // Watchdog - auto-restart hung watcher
-            watcher::check_and_restart_watcher_if_hung,
+            watcher::diagnostics::check_and_restart_watcher_if_hung,
             // App icon extraction
-            watcher::get_app_icon,
-            watcher::get_app_icons_batch,
+            watcher::icons::get_app_icon,
+            watcher::icons::get_app_icons_batch,
             // Watcher config persistence for auto-start
             save_watcher_config_cmd,
             clear_watcher_config_cmd,
@@ -1347,15 +1420,26 @@ fn main() {
             desktop_observability::desktop_record_shell_event,
             desktop_observability::desktop_capture_sentry_smoke,
             // Desktop runtime / updater commands
-            desktop_runtime::get_desktop_runtime_info,
+            desktop_runtime::updater::get_desktop_runtime_info,
             desktop_runtime::get_desktop_runtime_state,
-            desktop_runtime::desktop_set_auth_token,
-            desktop_runtime::desktop_frontend_ready,
-            desktop_runtime::desktop_manual_update_check,
-            desktop_runtime::desktop_install_update,
+            desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::updater::desktop_frontend_ready,
+            desktop_runtime::updater::desktop_manual_update_check,
+            desktop_runtime::updater::desktop_install_update,
             desktop_runtime::get_biome_iphone_diagnostics,
             desktop_runtime::desktop_trigger_biome_iphone_sync,
             desktop_runtime::import_biome_iphone_export,
+            // Local encrypted vault commands
+            local_vault::vault_initialize,
+            local_vault::vault_get_status,
+            local_vault::vault_put_record,
+            local_vault::vault_get_record,
+            local_vault::vault_list_records,
+            local_vault::vault_tombstone_record,
+            local_vault::vault_put_migration_manifest,
+            local_vault::vault_list_migration_manifests,
+            local_vault::vault_put_deletion_receipt,
+            local_vault::vault_list_deletion_receipts,
             // Ritual Database commands (unified libSQL)
             ritual_database::init_ritual_database,
             ritual_database::get_ritual_db_stats,
@@ -1439,6 +1523,7 @@ fn main() {
                 transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
             if main_glass_enabled {
                 app_url = with_query_param(&app_url, "ritual_main_glass=1");
+                app_url = with_query_param(&app_url, "ritual_glass_chrome=1");
             }
             if transparency_probe {
                 info!("Transparency probe mode enabled");
@@ -1452,11 +1537,12 @@ fn main() {
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
-                        .inner_size(1150.0, 800.0)
+                        .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)
                         .transparent(main_glass_enabled)
+                        .shadow(true)
                         .visible(true);
 
                 #[cfg(target_os = "macos")]
@@ -1473,11 +1559,6 @@ fn main() {
 
             // Configure window after creation
             {
-                let _ = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-                    width: 1150.0,
-                    height: 800.0,
-                }));
-                let _ = window.center();
                 #[cfg(target_os = "macos")]
                 {
                     configure_macos_native_window_chrome(&window);
@@ -1490,8 +1571,9 @@ fn main() {
                         info!("Main window glass disabled for stable production rendering");
                     }
 
-                    // Position traffic lights into the sidebar region (macOS native feel).
-                    schedule_reposition_traffic_lights(window.clone());
+                    if let Err(error) = window.set_resizable(true) {
+                        warn!(error = %error, "Failed to force main window resizable");
+                    }
 
                     let detached_sidebar_enabled = !transparency_probe
                         && env::var("RITUAL_DETACHED_SIDEBAR")
@@ -1514,53 +1596,33 @@ fn main() {
                         let _ = window.emit("sidebar:width", sidebar_state.get_width());
 
                         let app_handle_for_sync = app.handle().clone();
-                        let traffic_light_window = window.clone();
-                        window.on_window_event(move |event| {
-                            match event {
-                                tauri::WindowEvent::Moved(_)
-                                | tauri::WindowEvent::Resized(_)
-                                | tauri::WindowEvent::ScaleFactorChanged { .. } => {
-                                    // Re-position traffic lights after native relayout settles.
-                                    schedule_reposition_traffic_lights(
-                                        traffic_light_window.clone(),
-                                    );
-                                    let state = app_handle_for_sync.state::<SidebarWindowState>();
-                                    let width = state.get_width();
-                                    let _ =
-                                        sync_detached_sidebar_window(&app_handle_for_sync, width);
-                                    if let Some(main_window) =
-                                        app_handle_for_sync.get_webview_window("main")
-                                    {
-                                        let _ = main_window.emit("sidebar:width", width);
-                                    }
+                        window.on_window_event(move |event| match event {
+                            tauri::WindowEvent::Moved(_)
+                            | tauri::WindowEvent::Resized(_)
+                            | tauri::WindowEvent::ScaleFactorChanged { .. } => {
+                                let state = app_handle_for_sync.state::<SidebarWindowState>();
+                                let width = state.get_width();
+                                let _ = sync_detached_sidebar_window(&app_handle_for_sync, width);
+                                if let Some(main_window) =
+                                    app_handle_for_sync.get_webview_window("main")
+                                {
+                                    let _ = main_window.emit("sidebar:width", width);
                                 }
-                                tauri::WindowEvent::CloseRequested { .. } => {
-                                    if let Some(sidebar_window) =
-                                        app_handle_for_sync.get_webview_window("sidebar")
-                                    {
-                                        let _ = sidebar_window.close();
-                                    }
-                                }
-                                _ => {}
                             }
+                            tauri::WindowEvent::CloseRequested { .. } => {
+                                if let Some(sidebar_window) =
+                                    app_handle_for_sync.get_webview_window("sidebar")
+                                {
+                                    let _ = sidebar_window.close();
+                                }
+                            }
+                            _ => {}
                         });
                     } else {
                         sidebar_state.set_detached_enabled(false);
                         if let Some(sidebar_window) = app.get_webview_window("sidebar") {
                             let _ = sidebar_window.close();
                         }
-                        // Non-detached mode: still re-position traffic lights on resize or
-                        // display scale changes (moving between monitors can reset them).
-                        let traffic_light_window = window.clone();
-                        window.on_window_event(move |event| {
-                            if matches!(
-                                event,
-                                tauri::WindowEvent::Resized(_)
-                                    | tauri::WindowEvent::ScaleFactorChanged { .. }
-                            ) {
-                                schedule_reposition_traffic_lights(traffic_light_window.clone());
-                            }
-                        });
                     }
                 }
 
@@ -1574,6 +1636,7 @@ fn main() {
                         bootstrap_url_json
                     ));
                 }
+                apply_one_time_main_window_default_size(&window);
                 let _ = window.show();
                 let _ = window.set_focus();
             }

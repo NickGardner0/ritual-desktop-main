@@ -160,6 +160,93 @@
         "title": "ActionProfileUpdate",
         "type": "object"
       },
+      "ActivationChecklistItem": {
+        "properties": {
+          "key": {
+            "enum": [
+              "mac_activity",
+              "apple_health",
+              "oura",
+              "whoop",
+              "garmin",
+              "ai_voice",
+              "place_tagging",
+              "reminders"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "status": {
+            "enum": [
+              "not_started",
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "ActivationChecklistItem",
+        "type": "object"
+      },
+      "ActivationState": {
+        "properties": {
+          "activationCompleted": {
+            "default": false,
+            "title": "Activationcompleted",
+            "type": "boolean"
+          },
+          "checklist": {
+            "items": {
+              "$ref": "#/components/schemas/ActivationChecklistItem"
+            },
+            "title": "Checklist",
+            "type": "array"
+          },
+          "firstHabitId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firsthabitid"
+          },
+          "firstLogId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Firstlogid"
+          }
+        },
+        "title": "ActivationState",
+        "type": "object"
+      },
       "ActivityEventCreate": {
         "properties": {
           "app_bundle_id": {
@@ -2621,6 +2708,110 @@
         "title": "Body_preview_screenshot_analysis_api_screenshot_preview_post",
         "type": "object"
       },
+      "BootstrapProfileUpdate": {
+        "properties": {
+          "fullName": {
+            "title": "Fullname",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fullName",
+          "timezone"
+        ],
+        "title": "BootstrapProfileUpdate",
+        "type": "object"
+      },
+      "BootstrapUser": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "fullName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fullname"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ],
+        "title": "BootstrapUser",
+        "type": "object"
+      },
+      "ChecklistUpdateRequest": {
+        "properties": {
+          "key": {
+            "enum": [
+              "mac_activity",
+              "apple_health",
+              "oura",
+              "whoop",
+              "garmin",
+              "ai_voice",
+              "place_tagging",
+              "reminders"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "status": {
+            "enum": [
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "ChecklistUpdateRequest",
+        "type": "object"
+      },
       "ColumnMapping": {
         "description": "Mapping configuration for a single column in CSV import",
         "properties": {
@@ -3062,6 +3253,60 @@
         "title": "DeleteResult",
         "type": "object"
       },
+      "DeletionExecuteRequest": {
+        "properties": {
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Categories",
+            "type": "array"
+          },
+          "confirm_behavioral_cloud_deletion": {
+            "default": false,
+            "title": "Confirm Behavioral Cloud Deletion",
+            "type": "boolean"
+          },
+          "deletion_id": {
+            "minLength": 1,
+            "title": "Deletion Id",
+            "type": "string"
+          },
+          "local_receipt_id": {
+            "minLength": 1,
+            "title": "Local Receipt Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "deletion_id",
+          "categories",
+          "local_receipt_id"
+        ],
+        "title": "DeletionExecuteRequest",
+        "type": "object"
+      },
+      "DeletionPlanRequest": {
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          }
+        },
+        "title": "DeletionPlanRequest",
+        "type": "object"
+      },
       "DeviceRegisterResponse": {
         "description": "Response from device registration",
         "properties": {
@@ -3142,6 +3387,60 @@
           "platform"
         ],
         "title": "DeviceResponse",
+        "type": "object"
+      },
+      "ExternalErasureExecuteRequest": {
+        "properties": {
+          "confirm_external_erasure": {
+            "default": false,
+            "title": "Confirm External Erasure",
+            "type": "boolean"
+          },
+          "erasure_id": {
+            "minLength": 1,
+            "title": "Erasure Id",
+            "type": "string"
+          },
+          "local_receipt_id": {
+            "minLength": 1,
+            "title": "Local Receipt Id",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "erasure_id",
+          "targets",
+          "local_receipt_id"
+        ],
+        "title": "ExternalErasureExecuteRequest",
+        "type": "object"
+      },
+      "ExternalErasurePlanRequest": {
+        "properties": {
+          "targets": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Targets"
+          }
+        },
+        "title": "ExternalErasurePlanRequest",
         "type": "object"
       },
       "FinancialAccountPreferenceUpdateRequest": {
@@ -3534,6 +3833,85 @@
         "title": "FinancialSyncSettingsUpdateRequest",
         "type": "object"
       },
+      "FirstBehaviorRequest": {
+        "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "clientEventId": {
+            "title": "Clienteventid",
+            "type": "string"
+          },
+          "completedAt": {
+            "title": "Completedat",
+            "type": "string"
+          },
+          "customName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customname"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "duration": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "templateKey": {
+            "enum": [
+              "sleep",
+              "exercise",
+              "focus",
+              "mood",
+              "custom"
+            ],
+            "title": "Templatekey",
+            "type": "string"
+          }
+        },
+        "required": [
+          "templateKey",
+          "date",
+          "completedAt",
+          "clientEventId"
+        ],
+        "title": "FirstBehaviorRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3799,6 +4177,94 @@
           "id": {
             "title": "Id",
             "type": "string"
+          },
+          "location_accuracy_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Accuracy M"
+          },
+          "location_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Confidence"
+          },
+          "location_lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Lat"
+          },
+          "location_lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Lon"
+          },
+          "location_place_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Place Label"
+          },
+          "location_resolved_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Resolved At"
+          },
+          "location_signal_age_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Signal Age Ms"
+          },
+          "location_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location Source"
           },
           "log_metadata": {
             "anyOf": [
@@ -5805,6 +6271,24 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "IntegrationActivationStatus": {
+        "properties": {
+          "status": {
+            "default": "not_started",
+            "enum": [
+              "not_started",
+              "seen",
+              "skipped",
+              "completed",
+              "needs_attention"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "IntegrationActivationStatus",
+        "type": "object"
+      },
       "LiveBiometricsOut": {
         "properties": {
           "connection_state": {
@@ -6223,6 +6707,77 @@
         ],
         "title": "MetricType",
         "type": "string"
+      },
+      "MigrationDryRunRequest": {
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "sample_limit": {
+            "default": 5,
+            "title": "Sample Limit",
+            "type": "integer"
+          }
+        },
+        "title": "MigrationDryRunRequest",
+        "type": "object"
+      },
+      "MigrationPlanRequest": {
+        "properties": {
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          }
+        },
+        "title": "MigrationPlanRequest",
+        "type": "object"
+      },
+      "MigrationRecordsRequest": {
+        "properties": {
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "limit": {
+            "default": 250,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "category"
+        ],
+        "title": "MigrationRecordsRequest",
+        "type": "object"
       },
       "NormalizedMetricSchema": {
         "description": "Canonical normalized metric format for all wearable data sources.",
@@ -6662,6 +7217,241 @@
           "outcome"
         ],
         "title": "PolicyDecision",
+        "type": "object"
+      },
+      "PrivateSyncDeviceRegisterRequest": {
+        "properties": {
+          "device_id": {
+            "minLength": 1,
+            "title": "Device Id",
+            "type": "string"
+          },
+          "device_name": {
+            "minLength": 1,
+            "title": "Device Name",
+            "type": "string"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Key"
+          }
+        },
+        "required": [
+          "device_id",
+          "device_name"
+        ],
+        "title": "PrivateSyncDeviceRegisterRequest",
+        "type": "object"
+      },
+      "PrivateSyncEnvelopeInput": {
+        "properties": {
+          "aad": {
+            "minLength": 1,
+            "title": "Aad",
+            "type": "string"
+          },
+          "algorithm": {
+            "minLength": 1,
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "ciphertext": {
+            "minLength": 1,
+            "title": "Ciphertext",
+            "type": "string"
+          },
+          "ciphertext_sha256": {
+            "minLength": 1,
+            "title": "Ciphertext Sha256",
+            "type": "string"
+          },
+          "client_updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Updated At"
+          },
+          "collection": {
+            "minLength": 1,
+            "title": "Collection",
+            "type": "string"
+          },
+          "envelope_id": {
+            "minLength": 1,
+            "title": "Envelope Id",
+            "type": "string"
+          },
+          "key_version": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Key Version",
+            "type": "integer"
+          },
+          "nonce": {
+            "minLength": 1,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "record_id": {
+            "minLength": 1,
+            "title": "Record Id",
+            "type": "string"
+          },
+          "record_type": {
+            "minLength": 1,
+            "title": "Record Type",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1.0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "tombstone": {
+            "default": false,
+            "title": "Tombstone",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "envelope_id",
+          "collection",
+          "record_id",
+          "record_type",
+          "revision",
+          "algorithm",
+          "nonce",
+          "ciphertext",
+          "aad",
+          "ciphertext_sha256"
+        ],
+        "title": "PrivateSyncEnvelopeInput",
+        "type": "object"
+      },
+      "PrivateSyncEnvelopePutRequest": {
+        "properties": {
+          "client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Id"
+          },
+          "envelopes": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateSyncEnvelopeInput"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Envelopes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "envelopes"
+        ],
+        "title": "PrivateSyncEnvelopePutRequest",
+        "type": "object"
+      },
+      "PrivateSyncKeyGrantInput": {
+        "properties": {
+          "aad": {
+            "minLength": 1,
+            "title": "Aad",
+            "type": "string"
+          },
+          "algorithm": {
+            "minLength": 1,
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "ciphertext": {
+            "minLength": 1,
+            "title": "Ciphertext",
+            "type": "string"
+          },
+          "ciphertext_sha256": {
+            "minLength": 1,
+            "title": "Ciphertext Sha256",
+            "type": "string"
+          },
+          "grant_id": {
+            "minLength": 1,
+            "title": "Grant Id",
+            "type": "string"
+          },
+          "key_version": {
+            "minimum": 1.0,
+            "title": "Key Version",
+            "type": "integer"
+          },
+          "nonce": {
+            "minLength": 1,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "recipient_device_id": {
+            "minLength": 1,
+            "title": "Recipient Device Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_id",
+          "recipient_device_id",
+          "key_version",
+          "algorithm",
+          "nonce",
+          "ciphertext",
+          "aad",
+          "ciphertext_sha256"
+        ],
+        "title": "PrivateSyncKeyGrantInput",
+        "type": "object"
+      },
+      "PrivateSyncKeyGrantPutRequest": {
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/PrivateSyncKeyGrantInput"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Grants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "grants"
+        ],
+        "title": "PrivateSyncKeyGrantPutRequest",
         "type": "object"
       },
       "ProactiveTriggerRequest": {
@@ -7880,6 +8670,55 @@
         "title": "Unit",
         "type": "string"
       },
+      "UserBootstrapResponse": {
+        "properties": {
+          "activation": {
+            "$ref": "#/components/schemas/ActivationState"
+          },
+          "firstBehaviorLogged": {
+            "title": "Firstbehaviorlogged",
+            "type": "boolean"
+          },
+          "integrations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/IntegrationActivationStatus"
+            },
+            "title": "Integrations",
+            "type": "object"
+          },
+          "nextRoute": {
+            "title": "Nextroute",
+            "type": "string"
+          },
+          "permissionsSeen": {
+            "title": "Permissionsseen",
+            "type": "boolean"
+          },
+          "profileComplete": {
+            "title": "Profilecomplete",
+            "type": "boolean"
+          },
+          "user": {
+            "$ref": "#/components/schemas/BootstrapUser"
+          },
+          "userExists": {
+            "default": true,
+            "title": "Userexists",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "profileComplete",
+          "firstBehaviorLogged",
+          "permissionsSeen",
+          "user",
+          "activation",
+          "integrations",
+          "nextRoute"
+        ],
+        "title": "UserBootstrapResponse",
+        "type": "object"
+      },
       "UserProfile": {
         "description": "User profile response",
         "properties": {
@@ -7962,6 +8801,17 @@
               }
             ],
             "title": "Phone Number"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
           },
           "tracking_interests": {
             "anyOf": [
@@ -8692,14 +9542,12 @@
           "selected_source": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/WearableSourceSummaryRead"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Selected Source"
+            ]
           },
           "unit": {
             "anyOf": [
@@ -8723,7 +9571,28 @@
         "title": "WearableDailyMetricValueRead",
         "type": "object"
       },
-      "WearableDailyTotalRead": {
+      "WearableDailyTotalRead-Input": {
+        "properties": {
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "metrics": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/WearableDailyMetricValueRead"
+            },
+            "title": "Metrics",
+            "type": "object"
+          }
+        },
+        "required": [
+          "date",
+          "metrics"
+        ],
+        "title": "WearableDailyTotalRead",
+        "type": "object"
+      },
+      "WearableDailyTotalRead-Output": {
         "properties": {
           "date": {
             "title": "Date",
@@ -8748,7 +9617,7 @@
         "properties": {
           "days": {
             "items": {
-              "$ref": "#/components/schemas/WearableDailyTotalRead"
+              "$ref": "#/components/schemas/WearableDailyTotalRead-Output"
             },
             "title": "Days",
             "type": "array"
@@ -9308,14 +10177,12 @@
           "selected_source": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/WearableSourceSummaryRead"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Selected Source"
+            ]
           },
           "source_device_name": {
             "anyOf": [
@@ -9398,14 +10265,12 @@
           "selected_source": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/WearableSourceSummaryRead"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Selected Source"
+            ]
           }
         },
         "required": [
@@ -9428,6 +10293,102 @@
         ],
         "title": "WearableSource",
         "type": "string"
+      },
+      "WearableSourceSummaryRead": {
+        "description": "Compact source payload embedded in query results.",
+        "properties": {
+          "device_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Model"
+          },
+          "device_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Name"
+          },
+          "device_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Type"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Platform"
+          },
+          "priority_rank": {
+            "title": "Priority Rank",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source_bundle_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Bundle Id"
+          },
+          "source_kind": {
+            "title": "Source Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "provider",
+          "source_kind",
+          "priority_rank"
+        ],
+        "title": "WearableSourceSummaryRead",
+        "type": "object"
       },
       "WearableSyncPlanRead": {
         "properties": {
@@ -16741,6 +17702,700 @@
         ]
       }
     },
+    "/api/privacy/deletion-execute": {
+      "post": {
+        "operationId": "deletion_execute_api_privacy_deletion_execute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletionExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deletion Execute",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/deletion-plan": {
+      "post": {
+        "operationId": "deletion_plan_api_privacy_deletion_plan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeletionPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Deletion Plan",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/e2ee/devices": {
+      "get": {
+        "operationId": "list_e2ee_devices_api_privacy_e2ee_devices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List E2Ee Devices",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "post": {
+        "operationId": "register_e2ee_device_api_privacy_e2ee_devices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateSyncDeviceRegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register E2Ee Device",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/e2ee/devices/{device_id}/revoke": {
+      "post": {
+        "operationId": "revoke_e2ee_device_api_privacy_e2ee_devices__device_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke E2Ee Device",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/e2ee/envelopes": {
+      "delete": {
+        "operationId": "delete_e2ee_envelopes_api_privacy_e2ee_envelopes_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete E2Ee Envelopes",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "get": {
+        "operationId": "get_e2ee_envelopes_api_privacy_e2ee_envelopes_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since_server_revision",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Since Server Revision",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get E2Ee Envelopes",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "post": {
+        "operationId": "put_e2ee_envelopes_api_privacy_e2ee_envelopes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateSyncEnvelopePutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put E2Ee Envelopes",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/e2ee/key-grants": {
+      "get": {
+        "operationId": "list_e2ee_key_grants_api_privacy_e2ee_key_grants_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List E2Ee Key Grants",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "post": {
+        "operationId": "put_e2ee_key_grants_api_privacy_e2ee_key_grants_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrivateSyncKeyGrantPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put E2Ee Key Grants",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/external-erasure-execute": {
+      "post": {
+        "operationId": "external_erasure_execute_api_privacy_external_erasure_execute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalErasureExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "External Erasure Execute",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/external-erasure-plan": {
+      "post": {
+        "operationId": "external_erasure_plan_api_privacy_external_erasure_plan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalErasurePlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "External Erasure Plan",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/migration-dry-run": {
+      "get": {
+        "operationId": "migration_dry_run_get_api_privacy_migration_dry_run_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "categories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Categories"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sample_limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 25,
+              "minimum": 1,
+              "title": "Sample Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Migration Dry Run Get",
+        "tags": [
+          "privacy"
+        ]
+      },
+      "post": {
+        "operationId": "migration_dry_run_api_privacy_migration_dry_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationDryRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Migration Dry Run",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/migration-inventory": {
+      "get": {
+        "operationId": "migration_inventory_api_privacy_migration_inventory_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Migration Inventory",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/migration-plan": {
+      "post": {
+        "operationId": "migration_plan_api_privacy_migration_plan_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationPlanRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Migration Plan",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
+    "/api/privacy/migration-records": {
+      "post": {
+        "operationId": "migration_records_api_privacy_migration_records_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MigrationRecordsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Migration Records",
+        "tags": [
+          "privacy"
+        ]
+      }
+    },
     "/api/reports/blueprint": {
       "get": {
         "operationId": "get_report_blueprint_api_reports_blueprint_get",
@@ -18112,6 +19767,194 @@
           }
         ],
         "summary": "Update Ui Preferences"
+      }
+    },
+    "/api/user/activation/checklist": {
+      "patch": {
+        "operationId": "update_activation_checklist_api_user_activation_checklist_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecklistUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Activation Checklist",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/activation/first-behavior": {
+      "post": {
+        "operationId": "create_first_behavior_api_user_activation_first_behavior_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirstBehaviorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create First Behavior",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/activation/permissions-seen": {
+      "patch": {
+        "operationId": "mark_activation_permissions_seen_api_user_activation_permissions_seen_patch",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Mark Activation Permissions Seen",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/bootstrap": {
+      "get": {
+        "operationId": "get_user_bootstrap_api_user_bootstrap_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get User Bootstrap",
+        "tags": [
+          "core"
+        ]
+      }
+    },
+    "/api/user/bootstrap/profile": {
+      "patch": {
+        "operationId": "update_user_bootstrap_profile_api_user_bootstrap_profile_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserBootstrapResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update User Bootstrap Profile",
+        "tags": [
+          "core"
+        ]
       }
     },
     "/api/user/location-pings": {
@@ -25103,7 +26946,6 @@
     },
     "/health": {
       "get": {
-        "description": "Health check endpoint with dependency connectivity checks.",
         "operationId": "health_check_health_get",
         "responses": {
           "200": {
@@ -25120,7 +26962,6 @@
     },
     "/ready": {
       "get": {
-        "description": "Lightweight readiness probe for platform health checks.",
         "operationId": "ready_check_ready_get",
         "responses": {
           "200": {

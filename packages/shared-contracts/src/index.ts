@@ -50,6 +50,12 @@ export type {
   UsageBreakdownKind,
   BreakdownPoint,
   BreakdownResponse,
+  ComputerActivityRangeParams,
+  ComputerSummaryResponse,
+  ComputerDailyResponseRow,
+  TopAppResponseRow,
+  TopDomainResponseRow,
+  AggregatedComputerStatsResponse,
 } from "./computer-activity";
 export {
   KIND_COLORS,
@@ -69,3 +75,24 @@ export type {
   WearableConnectionActionResponse,
   WearableSyncResponse,
 } from "./wearables-unified";
+
+export type { CreateHabitInput, HabitRecord } from "./habits";
+
+export {
+  CLOUD_CONSENTS,
+  CLOUD_DESTINATIONS,
+  DATA_CLASSES,
+  PRIVACY_MODES,
+  canSendToCloud,
+  isSensitiveDataClass,
+  redactAnalyticsProperties,
+  shouldRedactAnalyticsProperty,
+} from "./privacy";
+export type {
+  CloudConsent,
+  CloudDestination,
+  PrivacyDataClass,
+  PrivacyDecision,
+  PrivacyMode,
+  PrivacyPolicyInput,
+} from "./privacy";

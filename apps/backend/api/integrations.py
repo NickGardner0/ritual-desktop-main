@@ -6,15 +6,45 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from database.connection import get_db_session
 from database.models import WearableEventDB, WhoopIntegrationDB
 from services.unified_wearables_service import wearable_connection_service
+from services.activation_service import activation_service
+from services.wearable_provider_sync_registry import (
+    WearableProviderSyncServices,
+    sync_wearable_provider_account,
+)
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _enforce_provider_sync_consent(request: Request, *, data_class: str = "health_metric") -> None:
+    decision = can_send_to_cloud(
+        data_class=data_class,
+        destination="provider_api",
+        purpose="provider_sync",
+        mode=request_privacy_mode(request.headers),
+        consents=request_cloud_consents(request.headers),
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "Cloud consent required",
+                "privacy_blocked": True,
+                "reason": decision.reason,
+                "required_consent": "provider_sync",
+            },
+        )
 
 
 class WhoopSyncHourUpdate(BaseModel):
@@ -40,6 +70,29 @@ def create_whoop_router(
 ) -> APIRouter:
     """Build Whoop integration router with injected dependencies."""
     router = APIRouter(prefix="/api/integrations/whoop", tags=["integrations"])
+
+    async def _sync_whoop_via_registry(
+        user_id: str,
+        *,
+        days_back: Optional[int] = None,
+        force_full_sync: bool = False,
+        full_history: bool = False,
+    ) -> dict[str, Any]:
+        result = await sync_wearable_provider_account(
+            provider="whoop",
+            user_id=user_id,
+            services=WearableProviderSyncServices(
+                whoop_service=whoop_service,
+                oura_service=None,
+                garmin_service=None,
+            ),
+            days_back=days_back,
+            force_full_sync=force_full_sync,
+            full_history=full_history,
+        )
+        if result.status in {"retryable_failed", "terminal_failed"}:
+            raise RuntimeError((result.error or {}).get("message") or result.message)
+        return result.data
 
     async def _whoop_sleep_status(user_id: str, canonical: Any = None) -> dict[str, Any]:
         settings = {}
@@ -118,6 +171,11 @@ def create_whoop_router(
                 whoop_user_id=str(user_info["user_id"]),
                 scope=token_data.get("scope"),
             )
+            await activation_service.mark_checklist_completed(
+                user_id=user_id,
+                key="whoop",
+                metadata={"source": "whoop_callback"},
+            )
             logger.info("Whoop integration saved for user %s", user_id)
 
             return {
@@ -169,12 +227,14 @@ def create_whoop_router(
 
     @router.post("/sync")
     async def whoop_sync(
+        request: Request,
         days_back: Optional[int] = None,
         force_full_sync: bool = False,
         full_history: bool = False,
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_provider_sync_consent(request)
             sync_type = "smart incremental"
             if full_history:
                 sync_type = "full history"
@@ -188,7 +248,7 @@ def create_whoop_router(
                 sync_type,
                 current_user["id"],
             )
-            result = await whoop_service.sync_whoop_data(
+            result = await _sync_whoop_via_registry(
                 current_user["id"],
                 days_back=days_back,
                 force_full_sync=force_full_sync,
@@ -226,10 +286,12 @@ def create_whoop_router(
 
     @router.post("/sync-all")
     async def whoop_sync_all(
+        request: Request,
         payload: Optional[WhoopBulkSyncRequest] = None,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
         try:
+            _enforce_provider_sync_consent(request)
             expected_internal_key = os.getenv("INTERNAL_API_KEY")
             if not expected_internal_key:
                 logger.error("INTERNAL_API_KEY is not configured")
@@ -261,7 +323,7 @@ def create_whoop_router(
                 if payload and payload.hour is not None and int(configured_hour) != int(payload.hour):
                     continue
                 try:
-                    result = await whoop_service.sync_whoop_data(
+                    result = await _sync_whoop_via_registry(
                         integration.user_id,
                         days_back=payload.daysBack if payload else None,
                         force_full_sync=payload.forceFullSync if payload else False,
@@ -448,8 +510,12 @@ def create_tesla_router(
             raise HTTPException(status_code=500, detail="Request could not be processed.")
 
     @router.post("/sync")
-    async def tesla_sync(current_user=Depends(get_current_user)):
+    async def tesla_sync(
+        request: Request,
+        current_user=Depends(get_current_user),
+    ):
         try:
+            _enforce_provider_sync_consent(request, data_class="financial")
             logger.info("Starting Tesla odometer sync for user %s", current_user["id"])
             result = await tesla_service.sync_odometer(current_user["id"])
             return result
@@ -460,10 +526,12 @@ def create_tesla_router(
 
     @router.post("/backfill-odometer")
     async def tesla_backfill_odometer(
+        request: Request,
         payload: "TeslaBackfillRequest",
         current_user=Depends(get_current_user),
     ):
         try:
+            _enforce_provider_sync_consent(request, data_class="financial")
             logger.info(
                 "Tesla backfill for user %s: previous_odometer=%.1f, date=%s",
                 current_user["id"],
@@ -482,10 +550,12 @@ def create_tesla_router(
 
     @router.post("/sync-all")
     async def tesla_sync_all(
+        request: Request,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
         """Bulk sync all active Tesla connections (called by Trigger.dev)."""
         try:
+            _enforce_provider_sync_consent(request, data_class="financial")
             expected_internal_key = os.getenv("INTERNAL_API_KEY")
             if not expected_internal_key:
                 raise HTTPException(status_code=503, detail="INTERNAL_API_KEY not configured")

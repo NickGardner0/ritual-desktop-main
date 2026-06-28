@@ -2,25 +2,20 @@
 
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { usePathname, useSearchParams, useRouter } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   FlaskConical,
-  Settings,
   Plug2,
   ChevronDown,
+  Repeat2,
   TableProperties,
   CalendarDays,
   ChartNoAxesCombined,
 } from "lucide-react";
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
-import dynamic from 'next/dynamic';
-
-const SettingsModal = dynamic(
-  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
-  { ssr: false }
-);
+import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -67,14 +62,15 @@ const MiddayInvoiceIcon = ({
 
 const icons = {
   "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
+  "/dashboard?view=metrics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
   "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
+  "/reports?view=routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
   "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
-  "/settings": (props: React.SVGProps<SVGSVGElement>) => <Settings {...props} />,
 } as const;
 
 const items = [
@@ -82,13 +78,17 @@ const items = [
     path: "/dashboard",
     name: "Index",
   },
-  // {
-  //   path: "/tasks",
-  //   name: "Tasks",
-  // },
+  {
+    path: "/dashboard?view=metrics",
+    name: "Metrics",
+  },
   {
     path: "/activity",
     name: "Logs",
+  },
+  {
+    path: "/tasks",
+    name: "Tasks",
   },
   {
     path: "/calendar",
@@ -97,6 +97,10 @@ const items = [
   {
     path: "/reports",
     name: "Reports",
+  },
+  {
+    path: "/reports?view=routines",
+    name: "Routines",
   },
   {
     path: "/experiments",
@@ -108,15 +112,6 @@ const items = [
     children: [
       { path: "/integrations?tab=available", name: "Available" },
       { path: "/integrations?tab=connected", name: "Connected" },
-    ],
-  },
-  {
-    path: "/settings",
-    name: "Settings",
-    children: [
-      { path: "/settings", name: "General" },
-      { path: "/settings/account", name: "Account" },
-      { path: "/settings/notifications", name: "Notifications" },
     ],
   },
 ];
@@ -160,16 +155,15 @@ const ChildItem = ({
     >
       <div
         className={cn(
-          "relative ml-[35px] mr-[15px] rounded-sm transition-colors duration-150 ease-standard",
-          "hover:bg-black/[0.04]",
-          isActive && "bg-black/[0.055]",
+          "ritual-snappy-row group/child relative ml-[35px] mr-[15px] rounded-sm",
+          isActive && "bg-[var(--row-active)]",
         )}
       >
         {/* Child item text */}
         <div
           className={cn(
             "h-[32px] flex items-center",
-            "border-l border-[#DCDAD2] dark:border-[#2C2C2C] pl-3",
+            "border-l border-[var(--border-muted)] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
@@ -183,10 +177,10 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-colors duration-200",
-              "text-[#7a7a7a] group-hover/child:text-[#343434]",
+              "text-xs font-[450] transition-none",
+              "text-[var(--text-muted)] group-hover/child:text-[var(--text-primary)]",
               "whitespace-nowrap overflow-hidden",
-              isActive && "text-[#111111]",
+              isActive && "text-[var(--text-primary)]",
             )}
           >
             {child.name}
@@ -204,8 +198,7 @@ const Item = ({
   isItemExpanded,
   onToggle,
   onSelect,
-  onSettingsClick,
-}: ItemProps & { onSettingsClick?: () => void }) => {
+}: ItemProps) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
@@ -219,6 +212,7 @@ const Item = ({
   const getPrefetchProps = () => {
     switch (item.path) {
       case '/dashboard': return prefetchDashboard;
+      case '/dashboard?view=metrics': return prefetchAnalytics;
       case '/analytics': return prefetchAnalytics;
       default: return {};
     }
@@ -234,10 +228,7 @@ const Item = ({
   };
 
   const handleItemClick = (e: React.MouseEvent) => {
-    if (item.path === "/settings") {
-      e.preventDefault();
-      onSettingsClick?.();
-    } else if (item.path === "/experiments") {
+    if (item.path === "/experiments") {
       e.preventDefault();
       onSelect?.();
     } else {
@@ -250,42 +241,40 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/settings" || item.path === "/experiments" ? "#" : item.path}
+        href={item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
         className="group/nav-item block"
         prefetch={true}
         {...getPrefetchProps()}
       >
         <div className="relative">
-          <div
+          <NavRowSurface
             className={cn(
-              "h-[40px] rounded-sm transition-all duration-150 ease-standard",
-              "group-hover/nav-item:bg-black/[0.045]",
-              isActive && "bg-black/[0.065] group-hover/nav-item:bg-black/[0.075]",
-              isExpanded 
-                ? "ml-[15px] mr-[15px] w-[calc(100%-30px)]" 
-                : "ml-[15px] w-[40px]",
+              "transition-[width,margin] duration-90 ease-out",
             )}
+            active={isActive}
+            expanded={isExpanded}
           />
 
           <div className={cn(
-            "absolute top-1/2 left-[15px] flex h-[40px] w-[40px] -translate-y-1/2 items-center justify-center transition-[color,transform] duration-200 pointer-events-none",
-            "text-[#5f6368] group-hover/nav-item:text-[#252525]",
-            isActive && "text-[#111111]",
+            "ritual-nav-icon absolute top-1/2 left-[var(--sidebar-icon-x)] flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center pointer-events-none",
             isCollapsedActive && "scale-[1.04]"
-          )}>
+          )}
+            data-active={isActive ? "true" : undefined}
+            data-collapsed={!isExpanded ? "true" : undefined}
+          >
             <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
           </div>
 
           {isExpanded && (
-            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[40px] -translate-y-1/2 items-center pointer-events-none">
+            <div className="absolute top-1/2 left-[55px] right-[4px] flex h-[var(--sidebar-row-height)] -translate-y-1/2 items-center pointer-events-none">
               <span
                 className={cn(
-                  "text-sm font-[450] leading-none transition-colors duration-200 text-[#666] group-hover/nav-item:text-[#252525]",
+                  "ritual-nav-label text-sm leading-none",
                   "whitespace-nowrap overflow-hidden",
                   hasChildren ? "pr-2" : "",
-                  isActive && "font-[560] text-[#111111]",
                 )}
+                data-active={isActive ? "true" : undefined}
               >
                 {item.name}
               </span>
@@ -294,9 +283,9 @@ const Item = ({
                   type="button"
                   onClick={handleChevronClick}
                   className={cn(
-                    "w-8 h-8 flex items-center justify-center transition-all duration-200 ml-auto mr-3",
-                    "text-[#888] hover:text-[#111111] pointer-events-auto",
-                    isActive && "text-[#111111]",
+                    "w-8 h-8 flex items-center justify-center transition-all duration-90 ml-auto mr-3",
+                    "text-[var(--icon-muted)] hover:text-[var(--text-primary)] pointer-events-auto",
+                    isActive && "text-[var(--text-primary)]",
                     shouldShowChildren && "rotate-180",
                   )}
                 >
@@ -339,49 +328,48 @@ const Item = ({
 type Props = {
   onSelect?: () => void;
   isExpanded?: boolean;
-  onCloseSidebar?: () => void;
 };
 
-export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props) {
+export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const router = useRouter();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<'account' | 'computer-tracking' | 'apple-health' | undefined>(undefined);
-
-  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
-  useEffect(() => {
-    const view = searchParams.get('openSettings');
-    if (
-      view === 'account' ||
-      view === 'computer-tracking' ||
-      view === 'apple-health'
-    ) {
-      setSettingsInitialView(view);
-      setShowSettingsModal(true);
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('openSettings');
-      const qs = params.toString();
-      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
-    }
-  }, [searchParams, pathname, router]);
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
-    setExpandedItem(null);
+    queueMicrotask(() => setExpandedItem(null));
   }, [isExpanded]);
 
   return (
     <div className="mt-3 w-full">
       <nav className="w-full">
-        <div className="flex flex-col gap-1.5">
+        <NavList>
           {items.map((item) => {
-            const isActive = pathname === item.path || 
-              pathname === item.path + "/" ||
-              (pathname === "/" && item.path === "/dashboard") ||
-              (pathname === "/dashboard/" && item.path === "/dashboard") ||
-              (pathname?.startsWith(item.path) && item.path !== "/dashboard");
+            const [itemBasePath, itemQuery] = item.path.split("?");
+            const itemQueryParams = new URLSearchParams(itemQuery || "");
+            const matchingQueryItem = items.some((candidate) => {
+              const [candidateBasePath, candidateQuery] = candidate.path.split("?");
+              if (candidateBasePath !== item.path || !candidateQuery) return false;
+              const candidateParams = new URLSearchParams(candidateQuery);
+              return Array.from(candidateParams.entries()).every(
+                ([key, value]) => searchParams.get(key) === value,
+              );
+            });
+            const isQueryActive = itemQuery
+              ? pathname === itemBasePath &&
+                Array.from(itemQueryParams.entries()).every(
+                  ([key, value]) => searchParams.get(key) === value,
+                )
+              : false;
+            const isActive = isQueryActive || (
+              !itemQuery &&
+              !matchingQueryItem &&
+              (pathname === item.path ||
+                pathname === item.path + "/" ||
+                (pathname === "/" && item.path === "/dashboard") ||
+                (pathname === "/dashboard/" && item.path === "/dashboard") ||
+                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
+            );
 
             return (
               <Item
@@ -394,26 +382,11 @@ export function MainMenu({ onSelect, isExpanded = false, onCloseSidebar }: Props
                   setExpandedItem(expandedItem === path ? null : path);
                 }}
                 onSelect={onSelect}
-                onSettingsClick={() => setShowSettingsModal(true)}
               />
             );
           })}
-        </div>
+        </NavList>
       </nav>
-      
-      {/* Settings Modal */}
-      {showSettingsModal && (
-        <SettingsModal 
-          isOpen={showSettingsModal} 
-          onClose={() => {
-            setShowSettingsModal(false);
-            setSettingsInitialView(undefined);
-            onCloseSidebar?.();
-          }}
-          onOpen={onCloseSidebar}
-          initialView={settingsInitialView}
-        />
-      )}
     </div>
   );
 }

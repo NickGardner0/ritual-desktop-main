@@ -54,8 +54,20 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 
-const DEFAULT_WINDOW_WIDTH = 1150;
-const DEFAULT_WINDOW_HEIGHT = 800;
+const DEFAULT_WINDOW_WIDTH = 1330;
+const DEFAULT_WINDOW_HEIGHT = 820;
+export const ONBOARDING_WINDOW_WIDTH = 800;
+export const ONBOARDING_WINDOW_HEIGHT = 530;
+export const ONBOARDING_HOME_WINDOW_WIDTH = 860;
+export const ONBOARDING_HOME_WINDOW_HEIGHT = 570;
+export const ONBOARDING_WELCOME_WINDOW_WIDTH = 860;
+export const ONBOARDING_WELCOME_WINDOW_HEIGHT = 658;
+export const ONBOARDING_SETUP_WINDOW_WIDTH = 800;
+export const ONBOARDING_SETUP_WINDOW_HEIGHT = 612;
+export const ONBOARDING_SIGNUP_WINDOW_WIDTH = 720;
+export const ONBOARDING_SIGNUP_WINDOW_HEIGHT = 690;
+export const ONBOARDING_CARD_WINDOW_WIDTH = 720;
+export const ONBOARDING_CARD_WINDOW_HEIGHT = 500;
 
 /**
  * Show the main Tauri window (called after React app is ready)
@@ -115,6 +127,12 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
+export type DesktopSettingsView = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+
+export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
+  await invokeDesktopCommand('open_settings_window', { initialView });
+}
+
 /**
  * Resize the Tauri window
  */
@@ -133,6 +151,21 @@ export async function resizeWindow(width: number, height: number): Promise<void>
   }
 }
 
+export async function restoreDashboardWindowSize(): Promise<void> {
+  if (!isTauri()) {
+    return;
+  }
+
+  try {
+    const { getCurrentWindow, LogicalSize } = await import('@tauri-apps/api/window');
+    const appWindow = getCurrentWindow();
+    await appWindow.setSize(new LogicalSize(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT));
+    await appWindow.center();
+  } catch (error) {
+    console.error('Failed to restore dashboard window size:', error);
+  }
+}
+
 /**
  * Set window to standard size (used across all pages)
  */
@@ -143,8 +176,8 @@ export async function setStandardWindowSize(): Promise<void> {
 /**
  * Set window to compact size for onboarding
  */
-export async function setOnboardingWindowSize(): Promise<void> {
-  await resizeWindow(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
+export async function setOnboardingWindowSize(height = ONBOARDING_WINDOW_HEIGHT, width = ONBOARDING_WINDOW_WIDTH): Promise<void> {
+  await resizeWindow(width, height);
 }
 
 /**

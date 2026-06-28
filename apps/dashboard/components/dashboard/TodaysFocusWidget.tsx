@@ -37,7 +37,7 @@ export function TodaysFocusWidget() {
           <Link
             key={card.id}
             href="/tasks"
-            className="flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm hover:bg-muted/30 transition-colors"
+            className="ritual-snappy-row flex items-center justify-between gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm"
           >
             <span className="font-medium truncate flex-1">{card.title}</span>
             <div className="flex items-center gap-1.5 shrink-0">

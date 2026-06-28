@@ -4,6 +4,8 @@ from .common import *
 from .normalization import WearableNormalizationService
 
 class WearableProjectionService:
+    SLEEP_PROJECTION_PROVIDERS = ["whoop", "apple_health", "oura", "garmin", "fitbit"]
+
     LEGACY_METRIC_EQUIVALENTS: Dict[str, set[str]] = {
         "sleep_total": {"sleep_total", "sleep_session", "sleep_duration", "sleep", "in_bed"},
         "sleep_light": {"sleep_light", "sleep_core"},
@@ -94,13 +96,47 @@ class WearableProjectionService:
         canonical_metric_type = self._default_canonical_metric_type_for_habit(habit)
         integration_source = (getattr(habit, "integration_source", None) or "manual").strip().lower()
 
-        if canonical_metric_type == "sleep_total" and integration_source == "whoop":
-            return ["whoop", "apple_health"]
+        if canonical_metric_type == "sleep_total":
+            if integration_source in self.SLEEP_PROJECTION_PROVIDERS:
+                return [
+                    integration_source,
+                    *[
+                        provider
+                        for provider in self.SLEEP_PROJECTION_PROVIDERS
+                        if provider != integration_source
+                    ],
+                ]
+            return list(self.SLEEP_PROJECTION_PROVIDERS)
         if canonical_metric_type == "workout" and integration_source == "manual":
             return ["manual"]
         if integration_source:
             return [integration_source]
         return ["manual"]
+
+    def _effective_projection_source_priority(
+        self,
+        habit: HabitDB,
+        policy: Optional[HabitProjectionPolicyDB] = None,
+    ) -> List[str]:
+        default_priority = self._default_projection_source_priority_for_habit(habit)
+        priority = self._normalize_projection_source_priority(
+            self._decode_projection_source_priority(
+                policy.projection_source_priority_json if policy else None
+            ),
+            default=default_priority,
+        )
+        canonical_metric_type = (
+            self._canonical_metric_type(policy.canonical_metric_type if policy else None)
+            or self._default_canonical_metric_type_for_habit(habit)
+        )
+        if canonical_metric_type == "sleep_total":
+            # Preserve the existing primary provider, but make sleep projection resilient
+            # when users connect a second sleep source later. Metric facts still choose
+            # one provider per day, so accepting secondary sleep logs does not double-count.
+            for provider in default_priority:
+                if provider not in priority:
+                    priority.append(provider)
+        return priority
 
     def _decode_projection_source_priority(
         self,
@@ -122,13 +158,7 @@ class WearableProjectionService:
         policy: Optional[HabitProjectionPolicyDB] = None,
     ) -> Dict[str, Any]:
         default_canonical_metric_type = self._default_canonical_metric_type_for_habit(habit)
-        default_priority = self._default_projection_source_priority_for_habit(habit)
-        projection_source_priority = self._normalize_projection_source_priority(
-            self._decode_projection_source_priority(
-                policy.projection_source_priority_json if policy else None
-            ),
-            default=default_priority,
-        )
+        projection_source_priority = self._effective_projection_source_priority(habit, policy)
         return {
             "habit_id": habit.id,
             "canonical_metric_type": (
@@ -171,6 +201,10 @@ class WearableProjectionService:
             self._decode_projection_source_priority(policy.projection_source_priority_json),
             default=default_priority,
         )
+        if default_canonical_metric_type == "sleep_total":
+            for provider in default_priority:
+                if provider not in normalized_priority:
+                    normalized_priority.append(provider)
         normalized_priority_json = json.dumps(normalized_priority)
         if policy.projection_source_priority_json != normalized_priority_json:
             policy.projection_source_priority_json = normalized_priority_json
@@ -245,7 +279,25 @@ class WearableProjectionService:
             return False
 
         projection_source_priority = serialized_policy["projection_source_priority"]
-        return bool(projection_source_priority) and provider.strip().lower() == projection_source_priority[0]
+        return self._provider_allowed_by_projection_priority(
+            canonical_metric_type=canonical_metric_type,
+            provider=provider,
+            projection_source_priority=projection_source_priority,
+        )
+
+    def _provider_allowed_by_projection_priority(
+        self,
+        *,
+        canonical_metric_type: Optional[str],
+        provider: str,
+        projection_source_priority: List[str],
+    ) -> bool:
+        normalized_provider = (provider or "").strip().lower()
+        if not normalized_provider or not projection_source_priority:
+            return False
+        if canonical_metric_type == "sleep_total":
+            return normalized_provider in projection_source_priority
+        return normalized_provider == projection_source_priority[0]
 
     async def project_sample(
         self,
@@ -509,4 +561,3 @@ class WearableProjectionService:
                         )
                 except Exception as exc:
                     logger.warning("Tinybird sync failed for projected wearable logs: %s", exc)
-

@@ -34,6 +34,7 @@ def user_db_to_profile(user: UserDB) -> UserProfile:
         email=user.email,
         full_name=user.full_name or "",
         phone_number=user.phone_number,
+        timezone=user.timezone,
         age_bracket=user.age_bracket,
         gender=user.gender,
         country=user.country,
@@ -77,5 +78,12 @@ def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
         notes=log.notes,
         source=log.source,
         log_metadata=log.log_metadata,
+        location_lat=getattr(log, "location_lat", None),
+        location_lon=getattr(log, "location_lon", None),
+        location_accuracy_m=getattr(log, "location_accuracy_m", None),
+        location_source=getattr(log, "location_source", None),
+        location_place_label=getattr(log, "location_place_label", None),
+        location_confidence=getattr(log, "location_confidence", None),
+        location_resolved_at=getattr(log, "location_resolved_at", None),
+        location_signal_age_ms=getattr(log, "location_signal_age_ms", None),
     )
-

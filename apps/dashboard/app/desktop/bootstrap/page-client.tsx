@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
-import { isTauri, showMainWindow } from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { showMainWindow } from '@/lib/tauri-utils';
+import { apiFetch } from '@/lib/api/client';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+const BFF_API_BASE = 'BFF /api';
 
 type BackendStatus = 'checking' | 'ready' | 'error';
 
@@ -52,10 +54,12 @@ export function DesktopBootstrapClient({
 }: {
   searchParams?: SearchParamsInput;
 }) {
+  const { isDesktop } = useDesktopCapabilities();
   const [backendStatus, setBackendStatus] = useState<BackendStatus>('checking');
   const [backendMessage, setBackendMessage] = useState<string>('Checking backend readiness...');
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [isNavigating, setIsNavigating] = useState(false);
+  const navigationStartedRef = useRef(false);
 
   const targetPath = useMemo(
     () => buildDesktopTarget(searchParams),
@@ -63,10 +67,10 @@ export function DesktopBootstrapClient({
   );
 
   useEffect(() => {
-    if (!isTauri()) {
+    if (!isDesktop) {
       window.location.replace('/desktop-only');
     }
-  }, []);
+  }, [isDesktop]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -74,17 +78,14 @@ export function DesktopBootstrapClient({
 
     async function checkBackend() {
       try {
-        const response = await fetch(`${PYTHON_API_BASE}/ready`, {
-          method: 'GET',
-          signal: controller.signal,
-        });
+        const response = await apiFetch('/api/ready', { signal: controller.signal });
 
         if (!response.ok) {
           setBackendStatus('error');
           setBackendMessage(`Backend readiness returned HTTP ${response.status}.`);
           void recordDesktopShellEvent('desktop.bootstrap.backend_not_ready', 'warn', {
             status: response.status,
-            backendBase: PYTHON_API_BASE,
+            backendBase: BFF_API_BASE,
           });
           return;
         }
@@ -92,7 +93,7 @@ export function DesktopBootstrapClient({
         setBackendStatus('ready');
         setBackendMessage('Backend reported ready.');
         void recordDesktopShellEvent('desktop.bootstrap.backend_ready', 'info', {
-          backendBase: PYTHON_API_BASE,
+          backendBase: BFF_API_BASE,
           targetPath,
         });
       } catch (error) {
@@ -101,7 +102,7 @@ export function DesktopBootstrapClient({
         setBackendStatus('error');
         setBackendMessage(message);
         void recordDesktopShellEvent('desktop.bootstrap.backend_check_failed', 'warn', {
-          backendBase: PYTHON_API_BASE,
+          backendBase: BFF_API_BASE,
           error: message,
         });
       } finally {
@@ -118,25 +119,27 @@ export function DesktopBootstrapClient({
   }, []);
 
   useEffect(() => {
-    if (!isTauri() || backendStatus !== 'ready' || isNavigating) {
+    if (!isDesktop || navigationStartedRef.current) {
       return;
     }
 
+    navigationStartedRef.current = true;
     setIsNavigating(true);
     const timer = window.setTimeout(() => {
       const nextTarget = new URL(targetPath, window.location.origin);
-      void recordDesktopShellEvent('desktop.bootstrap.redirect_home', 'info', {
+      void recordDesktopShellEvent('desktop.bootstrap.redirect_dashboard', 'info', {
         targetPath,
         redirectUrl: `${nextTarget.pathname}${nextTarget.search}`,
+        backendStatus: 'not_waited',
       });
       window.location.replace(`${nextTarget.pathname}${nextTarget.search}`);
-    }, 150);
+    }, 25);
 
     return () => window.clearTimeout(timer);
-  }, [backendStatus, isNavigating, targetPath]);
+  }, [targetPath]);
 
   useEffect(() => {
-    if (backendStatus === 'ready' || isNavigating) {
+    if (backendStatus === 'ready') {
       setShowDiagnostics(false);
       return;
     }
@@ -152,7 +155,7 @@ export function DesktopBootstrapClient({
     }, 8000);
 
     return () => window.clearTimeout(timer);
-  }, [backendStatus, isNavigating]);
+  }, [backendMessage, backendStatus, targetPath]);
 
   if (!showDiagnostics) {
     return <main className="min-h-screen bg-transparent" aria-hidden="true" />;
@@ -175,11 +178,15 @@ export function DesktopBootstrapClient({
         <dl className="mt-8 space-y-3 text-sm text-[#2e2a25]">
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Tauri detected</dt>
-            <dd>{String(typeof window !== 'undefined' ? isTauri() : false)}</dd>
+            <dd>{String(typeof window !== 'undefined' ? isDesktop : false)}</dd>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Auth handoff</dt>
             <dd>Bootstrap no longer waits on Clerk before redirecting.</dd>
+          </div>
+          <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
+            <dt className="min-w-[170px] font-medium text-[#8a6f47]">Dashboard redirect</dt>
+            <dd>Bootstrap redirects immediately; backend readiness is diagnostics-only.</dd>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Backend readiness</dt>
@@ -187,7 +194,7 @@ export function DesktopBootstrapClient({
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Backend API</dt>
-            <dd className="break-all">{PYTHON_API_BASE}</dd>
+            <dd className="break-all">{BFF_API_BASE}</dd>
           </div>
           <div className="flex flex-col gap-1 sm:flex-row sm:gap-3">
             <dt className="min-w-[170px] font-medium text-[#8a6f47]">Current URL</dt>

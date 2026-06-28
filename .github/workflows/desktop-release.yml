@@ -140,11 +140,6 @@ jobs:
           SENTRY_RELEASE: ${{ github.sha }}
         run: npm run desktop:release:mac
 
-      - name: Publish assets to public desktop releases repo
-        env:
-          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
-        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
-
       - name: Upload local release artifacts to workflow run
         uses: actions/upload-artifact@v4
         with:
@@ -156,6 +151,11 @@ jobs:
             apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
             apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
             apps/desktop/src-tauri/target/release/bundle/macos/latest.json
+
+      - name: Publish assets to public desktop releases repo
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
+        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
 
       - name: Cleanup temporary signing keychain
         if: always()

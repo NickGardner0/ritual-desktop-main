@@ -17,7 +17,7 @@ class WearableWhoopSyncMixin:
         access_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
         token_expires_at: Optional[datetime] = None,
-    ) -> Dict[str, int]:
+    ) -> Dict[str, Any]:
         connection = await self.connection_service.get_or_create_connection(
             user_id=user_id,
             provider="whoop",
@@ -51,6 +51,12 @@ class WearableWhoopSyncMixin:
             external_id=provider_user_id,
         )
         counts = {"samples": 0, "events": 0}
+        affected_dates = self._whoop_affected_dates(
+            recovery_data=recovery_data,
+            sleep_data=sleep_data,
+            workout_data=workout_data,
+            cycle_data=cycle_data,
+        )
 
         if recovery_data and recovery_data.get("records"):
             for record in recovery_data["records"]:
@@ -84,8 +90,66 @@ class WearableWhoopSyncMixin:
                 )
                 counts["events"] += created
 
-        await self.update_connection_sync_state(connection_id=connection.id)
-        return counts
+        projected_records = counts["samples"] + counts["events"]
+        post_ingest = await self.post_ingest_service.run_for_provider_dates(
+            user_id=user_id,
+            provider="whoop",
+            affected_dates=affected_dates,
+            projected_records=projected_records,
+        )
+        if post_ingest.success:
+            await self.update_connection_sync_state(connection_id=connection.id)
+        else:
+            await self.update_connection_sync_state(
+                connection_id=connection.id,
+                error={
+                    "message": "Whoop post-ingest failed",
+                    "detail": post_ingest.error,
+                    "affected_dates": post_ingest.affected_dates,
+                },
+            )
+
+        return {
+            **counts,
+            "post_ingest": post_ingest.as_dict(),
+            "post_ingest_success": post_ingest.success,
+            "metric_facts": post_ingest.metric_facts,
+            "metric_facts_error": post_ingest.error,
+        }
+
+    def _whoop_affected_dates(
+        self,
+        *,
+        recovery_data: Optional[Dict[str, Any]],
+        sleep_data: Optional[Dict[str, Any]],
+        workout_data: Optional[Dict[str, Any]],
+        cycle_data: Optional[Dict[str, Any]],
+    ) -> List[str]:
+        dates: List[str] = []
+        for record in (recovery_data or {}).get("records") or []:
+            date = self._whoop_date_prefix(record.get("created_at"))
+            if date:
+                dates.append(date)
+        for record in (sleep_data or {}).get("records") or []:
+            date = self._whoop_date_prefix(record.get("end") or record.get("start"))
+            if date:
+                dates.append(date)
+        for record in (workout_data or {}).get("records") or []:
+            date = self._whoop_date_prefix(record.get("start") or record.get("end"))
+            if date:
+                dates.append(date)
+        for record in (cycle_data or {}).get("records") or []:
+            date = self._whoop_date_prefix(record.get("start") or record.get("end"))
+            if date:
+                dates.append(date)
+        return sorted(set(dates))
+
+    @staticmethod
+    def _whoop_date_prefix(value: Any) -> Optional[str]:
+        if not value:
+            return None
+        text = str(value)
+        return text[:10] if len(text) >= 10 else None
 
     async def _ingest_whoop_recovery_record(
         self,
@@ -170,6 +234,11 @@ class WearableWhoopSyncMixin:
             + stage_summary.get("total_slow_wave_sleep_time_milli", 0)
             + stage_summary.get("total_light_sleep_time_milli", 0)
         ) / 60000.0
+        sleep_external_id = (
+            record.get("id")
+            or record.get("cycle_id")
+            or f"{start_raw}:{end_raw}"
+        )
         event_id, created = await self._upsert_event(
             user_id=user_id,
             connection_id=connection_id,
@@ -177,7 +246,7 @@ class WearableWhoopSyncMixin:
             provider="whoop",
             event_type="sleep_total",
             provider_event_type="sleep_session",
-            external_id=record.get("id"),
+            external_id=str(sleep_external_id),
             start_time=start_time,
             end_time=end_time,
             attributed_date=end_time.strftime("%Y-%m-%d"),
@@ -246,4 +315,3 @@ class WearableWhoopSyncMixin:
             created=created,
         )
         return 1 if created else 0
-

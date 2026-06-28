@@ -7,7 +7,7 @@ import type { HabitStats } from '@/lib/services/analytics-api';
 import { dashboardSnapshotKeys } from '@/lib/dashboard/dashboard-snapshot';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import { mergeOverviewStatsPreservingKnownValues } from '@/lib/dashboard/overview-snapshot-merge';
-import { clearComputerActivityClientCaches } from '@/lib/computerActivity/client';
+import { clearComputerActivityClientCaches } from '@/lib/computerActivity';
 
 export const ritualQueryKeys = dashboardQueryKeys;
 

@@ -1,0 +1,1 @@
+"""Wearables route registration modules."""

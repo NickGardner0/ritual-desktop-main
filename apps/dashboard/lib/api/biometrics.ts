@@ -1,4 +1,4 @@
-import { API_CONFIG } from "@/lib/api-config";
+import { apiJsonWithAuth } from "@/lib/api/client";
 import type {
   HeartRateDaySummary,
   HeartRateRangeParams,
@@ -6,28 +6,14 @@ import type {
   LiveBiometrics,
 } from "@/lib/types/biometrics";
 
-async function request<T>(path: string, token: string): Promise<T> {
-  const response = await fetch(`${API_CONFIG.PYTHON_API_URL}${path}`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-    cache: "no-store",
-  });
+type GetToken = (opts?: { skipCache?: boolean }) => Promise<string | null>;
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `Request failed (${response.status})`);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-export function getLiveBiometrics(token: string): Promise<LiveBiometrics> {
-  return request<LiveBiometrics>("/api/v1/biometrics/live", token);
+export function getLiveBiometrics(getToken: GetToken): Promise<LiveBiometrics> {
+  return apiJsonWithAuth<LiveBiometrics>("/api/v1/biometrics/live", getToken);
 }
 
 export function getHeartRateRange(
-  token: string,
+  getToken: GetToken,
   params: HeartRateRangeParams,
 ): Promise<HeartRateRangeResponse> {
   const query = new URLSearchParams({
@@ -40,20 +26,19 @@ export function getHeartRateRange(
     query.set("source_type", params.sourceType);
   }
 
-  return request<HeartRateRangeResponse>(
+  return apiJsonWithAuth<HeartRateRangeResponse>(
     `/api/v1/biometrics/heart-rate/range?${query.toString()}`,
-    token,
+    getToken,
   );
 }
 
 export function getHeartRateDaySummary(
-  token: string,
+  getToken: GetToken,
   day: string,
 ): Promise<HeartRateDaySummary> {
   const query = new URLSearchParams({ day });
-  return request<HeartRateDaySummary>(
+  return apiJsonWithAuth<HeartRateDaySummary>(
     `/api/v1/biometrics/heart-rate/day-summary?${query.toString()}`,
-    token,
+    getToken,
   );
 }
-

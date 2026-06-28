@@ -8,6 +8,11 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
+from services.privacy_policy import (
+    current_privacy_mode,
+    should_redact_observability_key,
+)
+
 try:
     import sentry_sdk
     from sentry_sdk import logger as sentry_logger
@@ -45,7 +50,7 @@ def set_user_context(user: Optional[Mapping[str, Any]], *, auth_surface: str = "
         return
     sentry_user: dict[str, Any] = {"id": user_id}
     email = str(user.get("email") or "").strip()
-    if email:
+    if email and current_privacy_mode() == "cloud_intelligence":
         sentry_user["email"] = email
     sentry_sdk.set_user(sentry_user)
     sentry_sdk.set_tag("auth_surface", auth_surface)
@@ -71,9 +76,9 @@ def set_request_context(
         normalized_key = str(key).strip().lower()
         if not normalized_key or normalized_key in SENSITIVE_QUERY_KEYS:
             continue
-        if normalized_key in OBSERVABILITY_QUERY_TAGS and value is not None:
+        if normalized_key in OBSERVABILITY_QUERY_TAGS and value is not None and current_privacy_mode() == "cloud_intelligence":
             sentry_sdk.set_tag(normalized_key, str(value)[:128])
-        if len(safe_query) < 20:
+        if current_privacy_mode() == "cloud_intelligence" and len(safe_query) < 20:
             safe_query[normalized_key] = str(value)[:256]
 
     if safe_query:
@@ -85,6 +90,8 @@ def set_domain_tags(**tags: Any) -> None:
         return
     for key, value in tags.items():
         if value is None:
+            continue
+        if current_privacy_mode() != "cloud_intelligence" and should_redact_observability_key(str(key)):
             continue
         sentry_sdk.set_tag(key, str(value)[:128])
 
@@ -101,6 +108,9 @@ def _clean_log_attributes(attributes: Mapping[str, Any]) -> dict[str, str | int 
     for key, value in attributes.items():
         normalized_key = str(key).strip()
         if not normalized_key:
+            continue
+        if current_privacy_mode() != "cloud_intelligence" and should_redact_observability_key(normalized_key):
+            clean[normalized_key] = "[redacted]"
             continue
         if value is None or isinstance(value, (bool, int, float)):
             clean[normalized_key] = value

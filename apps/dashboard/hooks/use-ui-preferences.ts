@@ -3,8 +3,7 @@
 import { useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { apiFetchWithAuth } from '@/lib/api/client';
 const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
@@ -60,9 +59,7 @@ export function useUIPreferences() {
     queryFn: async () => {
       const token = await getToken();
       if (!token) throw new Error('Missing auth token');
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiFetchWithAuth('/api/ui-preferences', getToken);
       if (!response.ok) {
         throw new Error(`Failed to load UI preferences (${response.status})`);
       }
@@ -99,12 +96,8 @@ export function useUIPreferences() {
       const token = await getToken();
       if (!token) return;
 
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
+      const response = await apiFetchWithAuth('/api/ui-preferences', getToken, {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ habit_text_color: color }),
       });
 
@@ -129,12 +122,8 @@ export function useUIPreferences() {
       const token = await getToken();
       if (!token) return;
 
-      const response = await fetch(`${API_BASE_URL}/api/ui-preferences`, {
+      const response = await apiFetchWithAuth('/api/ui-preferences', getToken, {
         method: 'PATCH',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
         body: JSON.stringify({ overview_view_mode: mode }),
       });
 

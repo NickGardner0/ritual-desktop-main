@@ -29,8 +29,8 @@ export default async function DashboardPage({
   const initialData = await loadDashboardInitialData(searchParams);
 
   return (
-    <div className="flex-1 overflow-auto bg-[var(--content-bg)] relative">
-      <div className="max-w-7xl mx-auto px-6 lg:px-8 pt-7 pb-72">
+    <div className="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--content-bg)]">
+      <div className="mx-auto h-full w-full max-w-7xl px-6 pt-7 lg:px-8">
         <HydrationBoundary state={initialData.dehydratedState}>
           <ClientDashboard
             initialViewMode={initialData.initialViewMode}

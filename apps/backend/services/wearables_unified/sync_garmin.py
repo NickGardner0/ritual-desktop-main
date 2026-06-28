@@ -14,7 +14,7 @@ class WearableGarminSyncMixin:
         access_token: Optional[str],
         refresh_token: Optional[str],
         token_expires_at: Optional[datetime],
-    ) -> Dict[str, int]:
+    ) -> Dict[str, Any]:
         connection = await self.connection_service.get_or_create_connection(
             user_id=user_id,
             provider="garmin",
@@ -43,6 +43,7 @@ class WearableGarminSyncMixin:
         )
 
         counts = {"samples": 0, "events": 0}
+        affected_dates = self._garmin_affected_dates(payload)
         for record in self._extract_collection(payload, "dailySummaries", "summaries", "daily_summary", "daily_summaries"):
             sample_count, event_count = await self._ingest_garmin_daily_summary_record(
                 user_id=user_id,
@@ -63,8 +64,46 @@ class WearableGarminSyncMixin:
                 raw_payload_id=raw_payload.id,
             )
 
-        await self.update_connection_sync_state(connection_id=connection.id)
-        return counts
+        projected_records = counts["samples"] + counts["events"]
+        post_ingest = await self.post_ingest_service.run_for_provider_dates(
+            user_id=user_id,
+            provider="garmin",
+            affected_dates=affected_dates,
+            projected_records=projected_records,
+        )
+        if post_ingest.success:
+            await self.update_connection_sync_state(connection_id=connection.id)
+        else:
+            await self.update_connection_sync_state(
+                connection_id=connection.id,
+                error={
+                    "message": "Garmin post-ingest failed",
+                    "detail": post_ingest.error,
+                    "affected_dates": post_ingest.affected_dates,
+                },
+            )
+        return {
+            **counts,
+            "post_ingest": post_ingest.as_dict(),
+            "post_ingest_success": post_ingest.success,
+            "metric_facts": post_ingest.metric_facts,
+            "metric_facts_error": post_ingest.error,
+        }
+
+    def _garmin_affected_dates(self, payload: Dict[str, Any]) -> List[str]:
+        dates: List[str] = []
+        for record in self._extract_collection(payload, "dailySummaries", "summaries", "daily_summary", "daily_summaries"):
+            date_value = self._extract_date_value(record)
+            if date_value:
+                dates.append(str(date_value)[:10])
+            sleep_end = self._get_first(record, "sleepEndTimestampGMT", "sleepEndTimeGmt", "sleepEnd")
+            if sleep_end:
+                dates.append(str(sleep_end)[:10])
+        for record in self._extract_collection(payload, "activities", "activityDetails", "activity_details"):
+            start_raw = self._get_first(record, "activityStartTimeGMT", "startTimeGMT", "startTimeLocal", "startTime")
+            if start_raw:
+                dates.append(str(start_raw)[:10])
+        return sorted({date for date in dates if len(date) >= 10})
 
     async def _ingest_garmin_daily_summary_record(
         self,
@@ -194,5 +233,3 @@ class WearableGarminSyncMixin:
             created=created,
         )
         return 1 if created else 0
-
-

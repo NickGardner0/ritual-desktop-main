@@ -199,3 +199,63 @@ export const KIND_COLORS_ACCENT: Record<SessionKind, string> = {
   idle: '#D1D5DB',   // gray-300
   other: '#9CA3AF',  // gray-400
 }
+
+// ============================================================
+// 2.0 Backend watcher stats API responses
+// ============================================================
+
+export interface ComputerActivityRangeParams {
+  startDate: string
+  endDate: string
+}
+
+export interface ComputerSummaryResponse {
+  total_active_ms: number
+  total_afk_ms: number
+  total_hours?: number
+  total_events?: number
+  days_tracked?: number
+  unique_apps?: number
+  unique_domains?: number
+  avg_daily_hours?: number
+  source?: string
+}
+
+export interface ComputerDailyResponseRow {
+  day: string
+  active_hours: number
+  active_ms: number
+  events_count: number
+  apps_count?: number
+  domains_count?: number
+  source?: string
+}
+
+export interface TopAppResponseRow {
+  app_bundle_id: string
+  app_name: string
+  total_active_ms: number
+  total_events: number
+  hours: number
+  source?: string
+}
+
+export interface TopDomainResponseRow {
+  domain: string
+  total_active_ms: number
+  total_events: number
+  hours: number
+  minutes?: number
+  source?: string
+}
+
+export interface AggregatedComputerStatsResponse {
+  summary: ComputerSummaryResponse
+  daily: ComputerDailyResponseRow[]
+  apps: TopAppResponseRow[]
+  domains: TopDomainResponseRow[]
+  source?: string
+  state?: string
+  sync_pending?: boolean
+  empty_reason?: string
+}

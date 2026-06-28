@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
 
-const BACKEND_URL =
-  process.env.NEXT_PUBLIC_PYTHON_API_URL || "http://127.0.0.1:8000";
+const FORCE_FRESH_COOKIE = "ritual_force_fresh_until";
+const FORCE_FRESH_WINDOW_MS = 10_000;
 
 interface ProxyOptions {
   /** HTTP method override (defaults to request method) */
@@ -36,7 +37,9 @@ export async function forwardProxyRequest(
     let userId: string | null = null;
 
     const authHeader = request.headers.get("authorization") ?? "";
-    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1";
+    const forceFreshUntil = Number(request.cookies.get(FORCE_FRESH_COOKIE)?.value ?? 0);
+    const forceFreshFromCookie = Number.isFinite(forceFreshUntil) && forceFreshUntil > Date.now();
+    const forceFresh = request.headers.get("x-ritual-force-fresh") === "1" || forceFreshFromCookie;
     if (authHeader.toLowerCase().startsWith("bearer ")) {
       // Tauri / programmatic caller — skip Clerk entirely
       token = authHeader.slice(7);
@@ -53,12 +56,15 @@ export async function forwardProxyRequest(
     }
 
     // --- Forward to backend ---
-    const url = `${BACKEND_URL}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const url = `${getServerBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
 
     const fetchInit: RequestInit = {
       method,
       cache: "no-store",
-      headers: buildBackendAuthHeaders({ userId, token, forceFresh }),
+      headers: {
+        ...buildBackendAuthHeaders({ userId, token, forceFresh }),
+        ...forwardPrivacyHeaders(request),
+      },
       signal: AbortSignal.timeout(timeout),
     };
 
@@ -97,9 +103,18 @@ export async function forwardProxyRequest(
       duration_ms: Date.now() - startedAt,
       count: Array.isArray(data) ? data.length : undefined,
     });
-    return NextResponse.json(data, {
+    const nextResponse = NextResponse.json(data, {
       headers: { "Cache-Control": "no-store, max-age=0" },
     });
+    if (shouldSetForceFreshCookie(method, backendPath)) {
+      nextResponse.cookies.set(FORCE_FRESH_COOKIE, String(Date.now() + FORCE_FRESH_WINDOW_MS), {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        maxAge: Math.ceil(FORCE_FRESH_WINDOW_MS / 1000),
+      });
+    }
+    return nextResponse;
   } catch (error) {
     if (opts.errorFallback !== undefined) {
       console.warn(`[Ritual][${tag}-proxy] exception-fallback`, {
@@ -120,4 +135,27 @@ export async function forwardProxyRequest(
       { status: 500 },
     );
   }
+}
+
+function forwardPrivacyHeaders(request: NextRequest): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const mode = request.headers.get("x-ritual-privacy-mode");
+  const consents = request.headers.get("x-ritual-cloud-consents");
+  if (mode) headers["X-Ritual-Privacy-Mode"] = mode;
+  if (consents) headers["X-Ritual-Cloud-Consents"] = consents;
+  return headers;
+}
+
+function shouldSetForceFreshCookie(method: string, backendPath: string): boolean {
+  if (method === "GET" || method === "HEAD") {
+    return false;
+  }
+
+  return (
+    backendPath === "/api/user/bootstrap/profile"
+    || backendPath === "/api/user/activation/first-behavior"
+    || backendPath === "/api/user/activation/permissions-seen"
+    || backendPath.startsWith("/api/habits")
+    || backendPath === "/api/logs/batch"
+  );
 }

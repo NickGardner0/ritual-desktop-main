@@ -112,6 +112,24 @@ class WearableSourceRead(BaseModel):
     metadata_json: Optional[Dict[str, Any]] = None
 
 
+class WearableSourceSummaryRead(BaseModel):
+    """Compact source payload embedded in query results."""
+
+    id: str
+    provider: str
+    source_kind: str
+    device_name: Optional[str] = None
+    device_model: Optional[str] = None
+    device_type: Optional[str] = None
+    platform: Optional[str] = None
+    priority_rank: int
+    source_bundle_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
 class WearableSampleRead(BaseModel):
     id: str
     provider: WearableProviderName
@@ -240,14 +258,14 @@ class WearableSeriesPointRead(BaseModel):
     rollup_window_minutes: Optional[int] = None
     attributed_date: Optional[str] = None
     source_device_name: Optional[str] = None
-    selected_source: Optional[Dict[str, Any]] = None
+    selected_source: Optional[WearableSourceSummaryRead] = None
 
 
 class WearableSeriesResponse(BaseModel):
     metric_type: str
     resolution: str
     resolved_resolution: Optional[str] = None
-    selected_source: Optional[Dict[str, Any]] = None
+    selected_source: Optional[WearableSourceSummaryRead] = None
     points: List[WearableSeriesPointRead]
 
 
@@ -256,7 +274,7 @@ class WearableDailyMetricValueRead(BaseModel):
     unit: Optional[str] = None
     aggregation: Optional[str] = None
     provider: Optional[str] = None
-    selected_source: Optional[Dict[str, Any]] = None
+    selected_source: Optional[WearableSourceSummaryRead] = None
 
 
 class WearableDailyTotalRead(BaseModel):

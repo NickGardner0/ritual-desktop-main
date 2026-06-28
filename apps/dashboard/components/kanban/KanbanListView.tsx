@@ -83,7 +83,7 @@ export function KanbanListView({
               {!isCollapsed && colCards.map((card) => (
                 <button key={card.id} type="button"
                   onClick={() => onCardClick(card)}
-                  className="group/row flex w-full items-center gap-3 border-b border-[#f5f5f5] px-5 py-[7px] text-left transition-colors hover:bg-[#fafafa]">
+                  className="group/row flex w-full items-center gap-3 border-b border-[#f5f5f5] px-5 py-[7px] text-left ritual-snappy-row">
                   <NoPriorityIcon size={14} className="shrink-0" />
                   <StatusIcon columnId={card.columnId} size={14} className="shrink-0" />
                   <span className={cn(

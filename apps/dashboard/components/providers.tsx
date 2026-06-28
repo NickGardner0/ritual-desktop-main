@@ -8,18 +8,12 @@ import { queryClient } from '@/lib/query-client';
 import { ReactNode, useEffect, useState } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';
 import { clearPersistedHabitSnapshots } from '@/hooks/use-habits-query';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 const QUERY_CACHE_STORAGE_KEY = 'ritual:react-query-cache:v1';
 const QUERY_CACHE_MAX_AGE_MS = 1000 * 60 * 60 * 12;
 const MAX_PERSISTED_QUERY_BYTES = 75_000;
 const ACTIVE_QUERY_CACHE_USER_KEY = 'ritual:active-query-cache-user:v1';
-
-function isDesktopRuntime(): boolean {
-  if (typeof window === 'undefined') return false;
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
-  const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
-  return Boolean(w.__TAURI__ || w.__TAURI_IPC__ || userAgent.includes('RitualDesktop/'));
-}
 
 function getDesktopVersion(): string | undefined {
   if (typeof navigator === 'undefined') return undefined;
@@ -147,6 +141,7 @@ function clearPersistedQueryCache() {
  */
 export function QueryProvider({ children }: { children: ReactNode }) {
   const { isLoaded, user } = useUser();
+  const { isDesktop } = useDesktopCapabilities();
   const pathname = usePathname();
   const [cacheRestored] = useState(() => {
     restorePersistedQueryCache();
@@ -156,7 +151,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!isLoaded) return;
 
-    const runtime = isDesktopRuntime() ? 'desktop' : 'web';
+    const runtime = isDesktop ? 'desktop' : 'web';
     const desktopVersion = getDesktopVersion();
     Sentry.setTag('runtime', runtime);
     Sentry.setTag('surface', runtime === 'desktop' ? 'desktop-webview' : 'web-client');
@@ -173,7 +168,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
     } else {
       Sentry.setUser(null);
     }
-  }, [isLoaded, pathname, user?.id, user?.primaryEmailAddress?.emailAddress]);
+  }, [isDesktop, isLoaded, pathname, user?.id, user?.primaryEmailAddress?.emailAddress]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !isLoaded) return;

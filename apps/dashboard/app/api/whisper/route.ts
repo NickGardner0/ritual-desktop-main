@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { logger } from '@/lib/logger';
+import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 
 const HABIT_LOGGING_TRANSCRIPTION_PROMPT = [
   'This is a verbatim transcription for a personal habit logging app.',
@@ -13,6 +14,13 @@ const HABIT_LOGGING_TRANSCRIPTION_PROMPT = [
 
 export async function POST(req: NextRequest) {
   try {
+    const privacyBlock = privacyBlockResponse(req, {
+      dataClass: 'ai_content',
+      destination: process.env.GROQ_API_KEY ? 'groq' : 'openai',
+      purpose: 'voice',
+    });
+    if (privacyBlock) return privacyBlock;
+
     // Require authentication
     const { userId } = await auth();
     

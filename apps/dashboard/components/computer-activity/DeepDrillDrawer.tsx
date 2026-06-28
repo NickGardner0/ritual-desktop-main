@@ -30,11 +30,9 @@ export function DeepDrillDrawer({
 }: DeepDrillDrawerProps) {
   if (!data && !isLoading) return null
   
-  const { segment, events, totalDurationMs } = data || {
-    segment: null,
-    events: [],
-    totalDurationMs: 0,
-  }
+  const segment: SessionSegment | null = data?.segment ?? null
+  const events: ActivityEvent[] = data?.events ?? []
+  const totalDurationMs = data?.totalDurationMs ?? 0
   
   // Filter out titles/URLs based on privacy mode
   const shouldShowTitles = privacyMode === 'full' || privacyMode === 'truncate'

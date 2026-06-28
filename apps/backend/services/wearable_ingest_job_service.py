@@ -403,6 +403,13 @@ class WearableIngestJobService:
                     full_history=bool(metric_scope.get("full_history", False)),
                     unsupported_as_partial=False,
                 )
+                if provider_result.status in {"retryable_failed", "terminal_failed"}:
+                    failure_message = (
+                        (provider_result.error or {}).get("message")
+                        or provider_result.message
+                        or f"{job.provider} sync failed"
+                    )
+                    raise RuntimeError(failure_message)
                 result = provider_result.data
                 counts = {
                     "items_seen": provider_result.items_seen,

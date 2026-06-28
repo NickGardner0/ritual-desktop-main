@@ -13,8 +13,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-
-const PYTHON_API_URL = process.env.PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { serverBackendFetch } from '@/lib/api/server-client';
 
 /**
  * Get auth token for server-side requests
@@ -66,7 +65,7 @@ export async function createHabit(input: CreateHabitInput) {
   console.log('🔄 [Server Action] Creating habit:', input);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits`, {
+    const response = await serverBackendFetch('/api/habits', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -107,7 +106,7 @@ export async function updateHabit(habitId: string, updates: Partial<CreateHabitI
   console.log('🔄 [Server Action] Updating habit:', habitId);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits/${habitId}`, {
+    const response = await serverBackendFetch(`/api/habits/${habitId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -144,7 +143,7 @@ export async function deleteHabit(habitId: string) {
   console.log('🔄 [Server Action] Deleting habit:', habitId);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits/${habitId}`, {
+    const response = await serverBackendFetch(`/api/habits/${habitId}`, {
       method: 'DELETE',
       headers: {
         ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -180,7 +179,7 @@ export async function reorderHabits(habitIds: string[]) {
   try {
     // Update display_order for each habit
     const updates = habitIds.map((habitId, index) =>
-      fetch(`${PYTHON_API_URL}/api/habits/${habitId}`, {
+      serverBackendFetch(`/api/habits/${habitId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -228,7 +227,7 @@ export async function logHabit(input: LogHabitInput) {
   console.log('🔄 [Server Action] Logging habit:', input);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits/${input.habit_id}/logs`, {
+    const response = await serverBackendFetch(`/api/habits/${input.habit_id}/logs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -269,7 +268,7 @@ export async function updateHabitLog(logId: string, habitId: string, updates: Pa
   console.log('🔄 [Server Action] Updating habit log:', logId);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits/${habitId}/logs/${logId}`, {
+    const response = await serverBackendFetch(`/api/habits/${habitId}/logs/${logId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -306,7 +305,7 @@ export async function deleteHabitLog(logId: string, habitId: string) {
   console.log('🔄 [Server Action] Deleting habit log:', logId);
 
   try {
-    const response = await fetch(`${PYTHON_API_URL}/api/habits/${habitId}/logs/${logId}`, {
+    const response = await serverBackendFetch(`/api/habits/${habitId}/logs/${logId}`, {
       method: 'DELETE',
       headers: {
         ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -329,4 +328,3 @@ export async function deleteHabitLog(logId: string, habitId: string) {
     return { success: false, error: String(error) };
   }
 }
-

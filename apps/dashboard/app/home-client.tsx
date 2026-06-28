@@ -1,30 +1,26 @@
 "use client";
 
-import { useUser, useAuth, SignIn, SignUp } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useRef, type CSSProperties } from 'react';
 import Link from 'next/link';
-import { setStandardWindowSize, setOnboardingWindowSize } from '@/lib/tauri-utils';
-import { isTauri } from '@/lib/tauri-utils';
-import { ArrowRight } from 'lucide-react';
-import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
+import {
+  ONBOARDING_HOME_WINDOW_HEIGHT,
+  ONBOARDING_HOME_WINDOW_WIDTH,
+  restoreDashboardWindowSize,
+  setOnboardingWindowSize,
+} from '@/lib/tauri-utils';
+import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
-  clearBackendOnboardingCompleted,
-  clearFromWelcomeFlow,
-  getPostOnboardingRoute,
-  hasCompletedBackendOnboarding,
-  hasCompletedOnboarding,
   hasDeviceAuthenticated,
   hasPendingSignUpIntent,
   markDeviceAuthenticated,
-  markFromWelcomeFlow,
-  markOnboardingCompleted,
-  markPermissionsOnboardingRequired,
 } from '@/lib/onboarding-flow';
+import { resolveSsoRedirectRoute } from '@/lib/activation-flow.mjs';
 
-const PYTHON_API_BASE = process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
-const TOTAL_PAGES = 4;
+const BFF_API_BASE = 'BFF /api';
+const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step';
 
 /** Shared “Welcome to Ritual” hero on Get Started + Sign In home */
 const HOME_WELCOME_LOGO_PX = 36;
@@ -37,6 +33,7 @@ const homeWelcomeHeadingStyle: CSSProperties = {
 };
 
 export function HomeClient() {
+  const { isDesktop } = useDesktopCapabilities();
   const { isSignedIn, isLoaded, user } = useUser();
   const { getToken } = useAuth();
   const router = useRouter();
@@ -49,24 +46,17 @@ export function HomeClient() {
   // Welcome flow state
   const pageParam = searchParams.get('page');
   const authMode = searchParams.get('mode');
-  const [currentPage, setCurrentPage] = useState(pageParam ? parseInt(pageParam) : 1);
-  const [showSignUp, setShowSignUp] = useState(authMode === 'signup');
-  const [isNewUser, setIsNewUser] = useState<boolean | null>(null);
+  const [isNewUser, setIsNewUser] = useState<boolean | null>(() => (hasDeviceAuthenticated() ? null : true));
   const [showStartupDiagnostics, setShowStartupDiagnostics] = useState(false);
   const [desktopLaunchGraceExpired, setDesktopLaunchGraceExpired] = useState(false);
-  const desktopApp = typeof window !== 'undefined' && isTauri();
+  const desktopApp = typeof window !== 'undefined' && isDesktop;
   const isDesktopLaunch = desktopApp && Boolean(searchParams.get('ritual_desktop_env'));
-
-  // Update showSignUp when URL changes
-  useEffect(() => {
-    setShowSignUp(authMode === 'signup');
-  }, [authMode]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     if (isLoaded && !isChecking) {
-      setShowStartupDiagnostics(false);
+      queueMicrotask(() => setShowStartupDiagnostics(false));
       return;
     }
 
@@ -75,7 +65,7 @@ export function HomeClient() {
     }, 8000);
 
     return () => window.clearTimeout(timer);
-  }, [isLoaded, isChecking]);
+  }, [isDesktop, isLoaded, isChecking]);
 
   useEffect(() => {
     const hasExplicitWelcomeIntent = Boolean(pageParam) || authMode === 'signup' || hasPendingSignUpIntent();
@@ -88,7 +78,7 @@ export function HomeClient() {
     );
 
     if (!shouldHoldReturningDesktopHome) {
-      setDesktopLaunchGraceExpired(false);
+      queueMicrotask(() => setDesktopLaunchGraceExpired(false));
       return;
     }
 
@@ -114,12 +104,11 @@ export function HomeClient() {
     return () => logo.removeEventListener('click', handleLogoClick, true);
   }, []);
 
-  // Set window size based on current state
+  // Only the guided onboarding flow owns window sizing. Returning users keep
+  // whatever dashboard size they chose.
   useEffect(() => {
     if (isNewUser) {
-      setOnboardingWindowSize();
-    } else {
-      setStandardWindowSize();
+      void setOnboardingWindowSize(ONBOARDING_HOME_WINDOW_HEIGHT, ONBOARDING_HOME_WINDOW_WIDTH);
     }
   }, [isNewUser]);
 
@@ -144,11 +133,11 @@ export function HomeClient() {
     if (!isSignedIn) {
       // New user - show welcome flow
       if (!hasSeenWelcome || hasExplicitWelcomeIntent) {
-        setIsNewUser(true);
+        queueMicrotask(() => setIsNewUser(true));
         return;
       }
       // Returning user - show simple home page
-      setIsNewUser(false);
+      queueMicrotask(() => setIsNewUser(false));
       return;
     }
 
@@ -161,19 +150,10 @@ export function HomeClient() {
       return;
     }
 
-    const hasCompletedWelcomeFlow = hasCompletedOnboarding(user.id);
-    const hasCompletedBackendStep = hasCompletedBackendOnboarding(user.id);
-
-    if (desktopApp && !hasExplicitWelcomeIntent && (hasCompletedWelcomeFlow || hasCompletedBackendStep)) {
-      lastCheckedUserIdRef.current = user.id;
-      setIsNewUser(false);
-      setIsChecking(false);
-      router.replace(getPostOnboardingRoute('/dashboard', user.id));
-      return;
-    }
-
     lastCheckedUserIdRef.current = user.id;
-    setIsChecking(true);
+    queueMicrotask(() => setIsChecking(true));
+
+    const restoreDashboardOnRedirect = isNewUser === true;
 
     const checkAndRedirect = async () => {
       try {
@@ -185,107 +165,57 @@ export function HomeClient() {
         });
 
         if (!token) {
-          router.replace('/onboarding');
+          router.replace('/sign-in');
           return;
         }
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        const response = await fetch(`${PYTHON_API_BASE}/api/user/profile`, {
+        const response = await fetch('/api/user/bootstrap', {
+          cache: 'no-store',
           headers: {
             'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-Ritual-Force-Fresh': '1',
           },
           signal: controller.signal
         }).catch((err) => {
-          console.error('Profile fetch error:', err);
+          console.error('Bootstrap fetch error:', err);
           return null;
         }).finally(() => clearTimeout(timeoutId));
 
         if (response && response.ok) {
-          const profile = await response.json();
-          const localOnboardingCompleted = hasCompletedBackendOnboarding(user.id);
-
-          if (profile.onboarding_completed || localOnboardingCompleted) {
-            markOnboardingCompleted(user.id);
-            router.replace(getPostOnboardingRoute('/dashboard', user.id));
-          } else {
-            try {
-              const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              if (habitsResponse.ok) {
-                const habits = await habitsResponse.json();
-                if (habits && habits.length > 0) {
-                  markOnboardingCompleted(user.id);
-                  router.replace(getPostOnboardingRoute('/dashboard', user.id));
-                  return;
-                }
-              }
-            } catch (e) {
-              console.log('Could not check habits, proceeding with onboarding check');
-            }
-            router.replace('/onboarding');
+          const bootstrap = await response.json();
+          const redirectRoute = resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined);
+          if (restoreDashboardOnRedirect && redirectRoute.startsWith('/dashboard')) {
+            await restoreDashboardWindowSize();
           }
+          router.replace(redirectRoute);
         } else {
-          router.replace(getPostOnboardingRoute('/dashboard', user.id));
+          router.replace('/sign-in');
         }
       } catch (error) {
-        console.error('Error checking profile:', error);
-        router.replace(getPostOnboardingRoute('/dashboard', user.id));
+        console.error('Error checking bootstrap:', error);
+        router.replace('/sign-in');
       }
     };
 
     checkAndRedirect();
-  }, [authMode, getToken, isLoaded, isSignedIn, pageParam, router, user]);
+  }, [authMode, getToken, isLoaded, isNewUser, isSignedIn, pageParam, router, user]);
 
-  // Handle signed in users during welcome flow
-  useEffect(() => {
-    if (isLoaded && isSignedIn && isNewUser) {
-      const hasCompletedWelcomeFlow = hasCompletedOnboarding(user?.id);
-      const hasCompletedBackendStep = hasCompletedBackendOnboarding(user?.id);
-
-      // If returning from backend onboarding, continue to page 4
-      if (hasCompletedBackendStep && pageParam === '4') {
-        return;
-      }
-
-      // If fully completed, go to dashboard
-      if (hasCompletedWelcomeFlow) {
-        router.replace(getPostOnboardingRoute('/dashboard', user?.id));
-      }
+  const startSignup = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'setup');
     }
-  }, [isSignedIn, isLoaded, isNewUser, router, pageParam, user?.id]);
-
-  // Set flag when user reaches page 3 (auth page)
-  useEffect(() => {
-    if (currentPage === 3) {
-      markFromWelcomeFlow();
-    }
-  }, [currentPage]);
-
-  const handleNext = () => {
-    if (currentPage === TOTAL_PAGES) {
-      markOnboardingCompleted(user?.id);
-      clearFromWelcomeFlow();
-      clearBackendOnboardingCompleted(user?.id);
-      markPermissionsOnboardingRequired(user?.id);
-      router.push(getPostOnboardingRoute('/dashboard', user?.id));
-      return;
-    }
-    setCurrentPage(prev => Math.min(prev + 1, TOTAL_PAGES));
-  };
-
-  const handleDotClick = (page: number) => {
-    setCurrentPage(page);
+    router.push('/onboarding?s=signup');
   };
 
   // Show loading while checking auth state for signed-in users
   if (isSignedIn && isChecking) {
     if (showStartupDiagnostics) {
       return (
-        <div className="min-h-screen bg-white flex items-center justify-center px-6">
+        <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center px-6">
           <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
             <h1 className="text-xl font-medium text-gray-900">Desktop startup is still waiting.</h1>
             <p className="mt-3 text-sm leading-6 text-gray-600">
@@ -306,7 +236,7 @@ export function HomeClient() {
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Backend API</dt>
-                <dd className="break-all">{PYTHON_API_BASE}</dd>
+                <dd className="break-all">{BFF_API_BASE}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
@@ -337,7 +267,7 @@ export function HomeClient() {
     }
 
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
         <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     );
@@ -347,7 +277,7 @@ export function HomeClient() {
   if (isNewUser === null) {
     if (showStartupDiagnostics) {
       return (
-        <div className="min-h-screen bg-white flex items-center justify-center px-6">
+        <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center px-6">
           <div className="w-full max-w-xl rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
             <h1 className="text-xl font-medium text-gray-900">Desktop auth did not finish loading.</h1>
             <p className="mt-3 text-sm leading-6 text-gray-600">
@@ -364,7 +294,7 @@ export function HomeClient() {
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Tauri detected</dt>
-                <dd>{String(typeof window !== 'undefined' ? isTauri() : false)}</dd>
+                <dd>{String(typeof window !== 'undefined' ? isDesktop : false)}</dd>
               </div>
               <div className="flex gap-2">
                 <dt className="min-w-[150px] font-medium text-gray-500">Current URL</dt>
@@ -395,21 +325,16 @@ export function HomeClient() {
     }
 
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
         <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     );
   }
 
-  // NEW USER: Show 4-page welcome flow
+  // NEW USER: Show the first welcome screen, then continue into the v3 onboarding signup/card sequence.
   if (isNewUser) {
     return (
-      <div className="min-h-screen bg-white flex flex-col relative welcome-page" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
-        <ClerkOAuthHandler
-          enabled={currentPage === 3}
-          mode={showSignUp ? 'sign_up' : 'sign_in'}
-          desktopMode={desktopApp}
-        />
+      <div className="min-h-screen bg-white glass-opaque-screen flex flex-col relative welcome-page" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
         <style jsx global>{`
           .welcome-page [class*="user"], 
           .welcome-page [class*="profile"],
@@ -426,163 +351,51 @@ export function HomeClient() {
 
         {/* Main Content */}
         <div className="flex-1 flex items-center justify-center">
-          <div className={`w-full text-center ${currentPage === 2 ? 'max-w-none px-0' : currentPage === 3 ? 'max-w-none px-0' : 'max-w-2xl px-8'}`}>
-            
-            {/* Page 1: Welcome */}
-            {currentPage === 1 && (
-              <div className="animate-in fade-in duration-500 flex flex-col items-center">
-                <div className="mb-5">
-                  <img
-                    ref={logoRef}
-                    src="/images/eclipse.svg"
-                    alt="Ritual Logo"
-                    width={HOME_WELCOME_LOGO_PX}
-                    height={HOME_WELCOME_LOGO_PX}
-                    className="cursor-pointer"
-                    style={{
-                      transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
-                      transition: 'transform 500ms ease-in-out'
-                    }}
-                  />
-                </div>
-                <h1 className="text-gray-900 mb-8" style={homeWelcomeHeadingStyle}>
-                  Welcome to Ritual
-                </h1>
+          <div className="w-full max-w-2xl px-8 text-center">
+            <div className="animate-in fade-in duration-500 flex flex-col items-center">
+              <div className="mb-5">
+                <img
+                  ref={logoRef}
+                  src="/images/eclipse.svg"
+                  alt="Ritual Logo"
+                  width={HOME_WELCOME_LOGO_PX}
+                  height={HOME_WELCOME_LOGO_PX}
+                  className="cursor-pointer"
+                  style={{
+                    transform: isLogoSpinning ? 'rotate(360deg)' : 'rotate(0deg)',
+                    transition: 'transform 500ms ease-in-out'
+                  }}
+                />
               </div>
-            )}
+              <h1 className="text-gray-900 mb-8" style={homeWelcomeHeadingStyle}>
+                Welcome to Ritual
+              </h1>
+            </div>
 
-            {/* Page 2: Why Ritual */}
-            {currentPage === 2 && (
-              <div className="animate-in fade-in duration-500">
-                <div className="max-w-xl mx-auto text-left text-gray-900 px-8">
-                  <p className="text-xl leading-snug">
-                    Ritual is a collection of self-tracking and observability tools used to measure and quantify your behavior.
-                  </p>
-                  <p className="text-xl leading-snug mt-6">
-                    As you connect your wearable devices and create logs in the app, the system quietly generates metadata. Over time, your scattered behavior and patterns become structured data that start to form a model of your life.
-                  </p>
-                  <div className="mt-10 flex flex-col items-center gap-4">
-                    <button
-                      onClick={handleNext}
-                      className="px-4 py-2 bg-black text-white rounded-sm transition-colors flex items-center gap-2 text-sm font-medium"
-                    >
-                      Next
-                      <ArrowRight className="w-4 h-4" />
-                    </button>
-                    <div className="flex items-center gap-2">
-                      {Array.from({ length: TOTAL_PAGES }).map((_, index) => (
-                        <button
-                          key={index}
-                          onClick={() => handleDotClick(index + 1)}
-                          className={`w-[7px] h-[7px] rounded-full transition-all ${currentPage === index + 1
-                              ? 'bg-gray-900'
-                              : 'bg-gray-300 hover:bg-gray-400'
-                            }`}
-                          aria-label={`Go to page ${index + 1}`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Page 3: Clerk Auth Components */}
-            {currentPage === 3 && (
-              <div className="animate-in fade-in duration-500 flex justify-center">
-                {showSignUp ? (
-                  <SignUp
-                    routing="virtual"
-                    signInUrl="/?page=3&mode=signin"
-                    forceRedirectUrl="/auth/sso-callback"
-                    fallbackRedirectUrl="/auth/sso-callback"
-                    oauthFlow={desktopApp ? 'redirect' : 'auto'}
-                    oidcPrompt={desktopApp ? 'select_account' : undefined}
-                    appearance={{
-                      elements: {
-                        socialButtonsBlockButton: {
-                          '&:hover': {
-                            cursor: 'pointer'
-                          }
-                        },
-                        dividerRow: '',
-                      }
-                    }}
-                  />
-                ) : (
-                  <SignIn
-                    routing="virtual"
-                    signUpUrl="/?page=3&mode=signup"
-                    forceRedirectUrl="/auth/sso-callback"
-                    fallbackRedirectUrl="/auth/sso-callback"
-                    oauthFlow={desktopApp ? 'redirect' : 'auto'}
-                    oidcPrompt={desktopApp ? 'select_account' : undefined}
-                    appearance={{
-                      elements: {
-                        socialButtonsBlockButton: {
-                          '&:hover': {
-                            cursor: 'pointer'
-                          }
-                        },
-                        dividerRow: '',
-                      }
-                    }}
-                  />
-                )}
-              </div>
-            )}
-
-            {/* Page 4: You're all set */}
-            {currentPage === 4 && (
-              <div className="animate-in fade-in duration-500">
-                <div className="flex justify-center mb-8">
-                  <img
-                    src="/images/eclipse.svg"
-                    alt="Ritual Logo"
-                    width={50}
-                    height={50}
-                  />
-                </div>
-                <h1 className="text-4xl font-medium text-gray-900 mb-4">
-                  You&apos;re all set!
-                </h1>
-                <p className="text-lg text-gray-600 max-w-md mx-auto">
-                  Let&apos;s start building your first ritual.
-                </p>
-              </div>
-            )}
-
-            {/* Navigation Buttons - Pages 1 and 4 */}
-            {(currentPage === 1 || currentPage === 4) && (
-              <div className="flex items-center justify-center">
-                <button
-                  onClick={handleNext}
-                  className="px-10 py-2 bg-black text-white rounded-sm shadow transition-colors duration-200 flex items-center justify-center text-sm font-medium hover:bg-[#27251E]"
-                  style={{ fontWeight: 500 }}
-                >
-                  {currentPage === 1 && 'Get Started'}
-                  {currentPage === TOTAL_PAGES && 'Go to Dashboard'}
-                </button>
-              </div>
-            )}
+            <div className="flex items-center justify-center">
+              <button
+                onClick={startSignup}
+                className="inline-flex items-center justify-center bg-black text-white px-10 py-2 rounded-sm shadow transition-colors duration-200 text-sm font-medium hover:bg-[#27251E]"
+                style={{ fontWeight: 500 }}
+              >
+                Get Started
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Terms of Service - Page 1 only */}
-        {currentPage === 1 && (
-          <footer className="py-8 text-center">
-            <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
-              By signing in you agree to our{' '}
-              <a href="/terms" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
-                Terms of service
-              </a>
-              {' '}&{' '}
-              <a href="/privacy" className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200">
-                Privacy policy
-              </a>
-            </p>
-          </footer>
-        )}
+        <footer className="py-8 text-center">
+          <p className="text-sm text-[#737373]" style={{ fontWeight: 400 }}>
+            By signing in you agree to our{' '}
+            <a href="/terms" className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200">
+              Terms of service
+            </a>
+            {' '}&{' '}
+            <a href="/privacy" className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200">
+              Privacy policy
+            </a>
+          </p>
+        </footer>
       </div>
     );
   }
@@ -594,7 +407,7 @@ export function HomeClient() {
     && !isSignedIn
   ) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
         <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     );
@@ -602,7 +415,7 @@ export function HomeClient() {
 
   // RETURNING USER: Show simple home page with Sign In
   return (
-    <div className="min-h-screen bg-white relative flex flex-col" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
+    <div className="min-h-screen bg-white glass-opaque-screen relative flex flex-col" style={{ fontFamily: "var(--ritual-selected-font-family)" }}>
       {/* Window Drag Region */}
       <div
         data-tauri-drag-region
@@ -647,18 +460,18 @@ export function HomeClient() {
 
       {/* Terms of Service - Fixed at bottom */}
       <footer className="py-8 text-center">
-        <p className="text-sm text-gray-400" style={{ fontWeight: 400 }}>
+        <p className="text-sm text-[#737373]" style={{ fontWeight: 400 }}>
           By signing in you agree to our{' '}
           <a
             href="/terms"
-            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
           >
             Terms of service
           </a>
           {' '}&{' '}
           <a
             href="/privacy"
-            className="underline text-gray-400 hover:text-gray-600 transition-colors duration-200"
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
           >
             Privacy policy
           </a>
