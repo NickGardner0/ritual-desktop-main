@@ -3,11 +3,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, CalendarClock, Check, Circle, Inbox, ListFilter, Plus, RotateCw, SkipForward } from 'lucide-react';
+import { Archive, CalendarClock, Check, Circle, Folder, Inbox, ListFilter, Plus, RotateCw, SkipForward } from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { apiJsonWithAuth } from '@/lib/api/client';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { cn } from '@/lib/utils';
@@ -25,6 +23,16 @@ import {
   mergeTasksWithOutbox,
 } from '@/lib/tasks/local-first-writes';
 import { applyTaskOptimisticPatch } from '@/lib/tasks/optimistic';
+import {
+  FilterChip,
+  IconButton,
+  ReferenceHeader,
+  ReferencePage,
+  SegmentedTabs,
+  controlClass,
+  priorityBars,
+  subtleBorderClass,
+} from '@/lib/tasks/reference-task-shell';
 import type { Task, TaskCreateInput, TaskListResponse, TaskPriority, TaskUpdateInput } from '@/lib/tasks/types';
 
 const VIEWS = [
@@ -76,24 +84,6 @@ function isTaskInView(task: Task, view: (typeof VIEWS)[number]['id']): boolean {
 
 function filterTasksForView(tasks: Task[], view: (typeof VIEWS)[number]['id'], category: string): Task[] {
   return tasks.filter((task) => isTaskInView(task, view) && (category === 'All' || task.category === category));
-}
-
-function priorityBars(priority: TaskPriority) {
-  const count = priority === 'high' ? 3 : priority === 'medium' ? 2 : priority === 'low' ? 1 : 0;
-  return (
-    <span className="flex h-4 w-5 items-end gap-[2px]" aria-label={`Priority ${priority}`}>
-      {[0, 1, 2].map((index) => (
-        <span
-          key={index}
-          className={cn(
-            'w-[3px] rounded-full',
-            index === 0 ? 'h-1.5' : index === 1 ? 'h-2.5' : 'h-3.5',
-            index < count ? 'bg-[#ef6c2f]' : 'bg-[#d4d8d2]',
-          )}
-        />
-      ))}
-    </span>
-  );
 }
 
 function groupTasks(tasks: Task[], groupMode: GroupMode) {
@@ -248,110 +238,88 @@ export function TasksClient() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#f7f8f5]">
-      <div className="shrink-0 border-b border-[rgba(15,23,42,0.08)] bg-white/88 px-8 py-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-[700] uppercase tracking-[0.16em] text-[#6b7280]">
-              <Inbox className="h-4 w-4" />
-              Tasks
-            </div>
-            <h1 className="mt-2 text-[34px] font-[650] tracking-[-0.04em] text-[#111827]">
-              {VIEWS.find((item) => item.id === view)?.label}
-            </h1>
-          </div>
-
-          <form onSubmit={handleQuickAdd} className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
+    <ReferencePage>
+      <ReferenceHeader
+        title={VIEWS.find((item) => item.id === view)?.label || 'Tasks'}
+        eyebrow={<><Inbox className="h-4 w-4" /> Tasks</>}
+        actions={(
+          <form onSubmit={handleQuickAdd} className="flex min-w-0 items-center gap-2">
             <input
               value={quickTitle}
               onChange={(event) => setQuickTitle(event.target.value)}
               placeholder="Add a task..."
-              className="h-10 min-w-[280px] rounded-sm border border-[rgba(15,23,42,0.12)] bg-white px-3 text-sm text-[#111827] outline-none placeholder:text-[#9ca3af] focus:border-[#111827]"
+              className={cn('h-10 w-[min(34vw,430px)] min-w-[220px] px-3 text-[14px] placeholder:text-[#9ca3af]', controlClass)}
             />
             <select
               value={quickCategory}
               onChange={(event) => setQuickCategory(event.target.value)}
-              className="h-10 rounded-sm border border-[rgba(15,23,42,0.12)] bg-white px-3 text-sm text-[#4b5563] outline-none"
+              className={cn('h-10 w-[138px] px-3 text-[14px]', controlClass)}
             >
               {CATEGORY_FILTERS.filter((item) => item !== 'All').map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
-            <Button type="submit" className="h-10 bg-[#111827] text-white hover:bg-[#1f2937]" disabled={createTaskMutation.isPending}>
+            <button
+              type="submit"
+              className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#111827] px-3.5 text-[14px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-55"
+              disabled={createTaskMutation.isPending}
+            >
               <Plus className="h-4 w-4" />
               Add
-            </Button>
+            </button>
           </form>
-        </div>
-
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {VIEWS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setView(item.id)}
-              className={cn(
-                'h-8 rounded-sm px-3 text-sm font-[600] transition',
-                view === item.id ? 'bg-[#111827] text-white' : 'bg-white text-[#4b5563] hover:bg-[#eef1ea]',
-              )}
-            >
-              {item.label}
-            </button>
-          ))}
-          <span className="mx-1 h-5 w-px bg-[rgba(15,23,42,0.12)]" />
-          <ListFilter className="h-4 w-4 text-[#6b7280]" />
+        )}
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedTabs value={view} options={VIEWS} onChange={setView} />
+          <span className="mx-1 hidden h-5 w-px bg-[rgba(15,23,42,0.12)] md:block" />
+          <ListFilter className="h-4 w-4 text-[#777f89]" />
           {CATEGORY_FILTERS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setCategory(item)}
-              className={cn(
-                'h-8 rounded-sm px-3 text-sm font-[600] transition',
-                category === item ? 'bg-[#e4eadf] text-[#111827]' : 'text-[#6b7280] hover:bg-white',
-              )}
-            >
+            <FilterChip key={item} active={category === item} onClick={() => setCategory(item)}>
               {item}
-            </button>
+            </FilterChip>
           ))}
           <select
             value={groupMode}
             onChange={(event) => setGroupMode(event.target.value as GroupMode)}
-            className="h-8 rounded-sm border border-[rgba(15,23,42,0.12)] bg-white px-2 text-sm font-[600] text-[#4b5563] outline-none"
+            className={cn('ml-auto h-8 px-2.5 text-[13px] font-[640]', controlClass)}
             aria-label="Group tasks"
           >
             {GROUP_MODES.map((item) => (
-              <option key={item.id} value={item.id}>Group: {item.label}</option>
+              <option key={item.id} value={item.id}>View by {item.label}</option>
             ))}
           </select>
-          <Button
+          <button
             type="button"
-            variant="outline"
-            className="ml-auto h-8 rounded-sm"
+            className="inline-flex h-8 items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/80 px-3 text-[13px] font-[640] text-[#2f3743] transition hover:bg-[#f3f5f0] disabled:opacity-55"
             onClick={() => generateDueMutation.mutate()}
             disabled={generateDueMutation.isPending}
           >
             <RotateCw className={cn('h-4 w-4', generateDueMutation.isPending && 'animate-spin')} />
             Sync routines
-          </Button>
+          </button>
         </div>
-      </div>
+      </ReferenceHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto px-8 py-6">
+      <div className="min-h-0 flex-1 overflow-auto px-9 py-7">
         {tasksQuery.isLoading ? (
-          <div className="space-y-3">
+          <div className="mx-auto max-w-[980px] space-y-2">
             {[0, 1, 2, 3].map((item) => (
-              <div key={item} className="h-14 animate-pulse rounded-sm bg-white" />
+              <div key={item} className="h-11 animate-pulse rounded-sm bg-[#f1f3ef]" />
             ))}
           </div>
         ) : groups.length ? (
-          <div className="mx-auto max-w-5xl space-y-7">
+          <div className="mx-auto max-w-[980px] space-y-8">
             {groups.map(([group, groupTasksValue]) => (
               <section key={group}>
-                <div className="mb-2 flex items-center gap-3 border-b border-[rgba(15,23,42,0.10)] pb-2">
-                  <div className="text-[18px] font-[650] tracking-[-0.02em] text-[#111827]">{group}</div>
-                  <div className="text-sm text-[#6b7280]">{groupTasksValue.length}</div>
+                <div className={cn('mb-2 flex items-center gap-2 border-b pb-2', subtleBorderClass)}>
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(15,23,42,0.14)] bg-white">
+                    <Folder className="h-3.5 w-3.5 text-[#707984]" />
+                  </span>
+                  <h2 className="truncate text-[18px] font-[680] tracking-[-0.02em] text-[#151922]">{group}</h2>
+                  <span className="text-[13px] font-[560] text-[#8b929b]">{groupTasksValue.length}</span>
                 </div>
-                <div className="divide-y divide-[rgba(15,23,42,0.06)] overflow-hidden rounded-sm border border-[rgba(15,23,42,0.08)] bg-white">
+                <div className="space-y-0.5">
                   {groupTasksValue.map((task) => (
                     <div
                       key={task.id}
@@ -370,78 +338,84 @@ export function TasksClient() {
                           updateTaskMutation.mutate({ id: task.id, patch: { status: 'archived' } });
                         }
                       }}
-                      className="grid min-h-[54px] grid-cols-[32px_minmax(0,1fr)_auto_auto_auto] items-center gap-3 px-3 py-2 outline-none hover:bg-[#fbfcfb] focus-visible:bg-[#fbfcfb] focus-visible:ring-2 focus-visible:ring-[#111827]"
+                      className="group/row grid min-h-[44px] grid-cols-[28px_22px_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2.5 outline-none transition hover:bg-[#f3f5f0] focus-visible:bg-[#f3f5f0] focus-visible:ring-2 focus-visible:ring-[#111827]"
                     >
-                      <Checkbox
-                        checked={task.status === 'completed'}
-                        onCheckedChange={(checked) => updateTaskMutation.mutate({
+                      <button
+                        type="button"
+                        onClick={() => updateTaskMutation.mutate({
                           id: task.id,
-                          patch: { status: checked ? 'completed' : 'open' },
+                          patch: { status: task.status === 'completed' ? 'open' : 'completed' },
                         })}
+                        className={cn(
+                          'flex h-[19px] w-[19px] items-center justify-center rounded-[5px] border transition',
+                          task.status === 'completed'
+                            ? 'border-[#111827] bg-[#111827] text-white'
+                            : 'border-[rgba(15,23,42,0.22)] bg-white text-transparent hover:border-[#111827]',
+                        )}
                         aria-label={`Complete ${task.title}`}
-                      />
+                        aria-pressed={task.status === 'completed'}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      {priorityBars(task.priority, true)}
                       <div className="min-w-0">
-                        <div className={cn('truncate text-sm font-[600] text-[#111827]', task.status === 'completed' && 'text-[#9ca3af] line-through')}>
+                        <div className={cn('truncate text-[15px] font-[590] text-[#20242c]', task.status === 'completed' && 'text-[#9aa1aa] line-through')}>
                           {task.title}
                         </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-[#6b7280]">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] font-[520] text-[#7a828c]">
                           <span>{task.source}</span>
                           {task.due_at || task.scheduled_for ? (
-                            <span className="inline-flex items-center gap-1 text-[#b45309]">
+                            <span className="inline-flex items-center gap-1 text-[#b15d2b]">
                               <CalendarClock className="h-3.5 w-3.5" />
                               {formatTaskDate(task.scheduled_for || task.due_at)}
                             </span>
                           ) : null}
-                          {task.tags.map((tag) => <span key={tag}>#{tag}</span>)}
+                          {task.tags.slice(0, 3).map((tag) => <span key={tag}>#{tag}</span>)}
                         </div>
                       </div>
-                      <div className="hidden items-center gap-2 md:flex">
-                        {priorityBars(task.priority)}
+                      <div className="flex items-center gap-1">
                         <select
                           value={task.priority}
                           onChange={(event) => updateTaskMutation.mutate({
                             id: task.id,
                             patch: { priority: event.target.value as TaskPriority },
                           })}
-                          className="h-8 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white px-2 text-xs text-[#4b5563] outline-none"
+                          className="hidden h-7 w-[78px] rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] font-[560] text-[#6e7680] outline-none transition hover:bg-white focus:bg-white md:block md:opacity-0 md:group-hover/row:opacity-100 md:focus:opacity-100"
+                          aria-label={`Priority for ${task.title}`}
                         >
                           {PRIORITIES.map((item) => (
                             <option key={item} value={item}>{item}</option>
                           ))}
                         </select>
-                      </div>
-                      <input
-                        type="date"
-                        value={dateInputValue(task.scheduled_for || task.due_at)}
-                        onChange={(event) => {
-                          const next = event.target.value ? new Date(`${event.target.value}T09:00:00`).toISOString() : null;
-                          updateTaskMutation.mutate({ id: task.id, patch: { scheduled_for: next, due_at: next } });
-                        }}
-                        className="hidden h-8 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white px-2 text-xs text-[#4b5563] outline-none lg:block"
-                      />
-                      <div className="flex items-center gap-1">
+                        <input
+                          type="date"
+                          value={dateInputValue(task.scheduled_for || task.due_at)}
+                          onChange={(event) => {
+                            const next = event.target.value ? new Date(`${event.target.value}T09:00:00`).toISOString() : null;
+                            updateTaskMutation.mutate({ id: task.id, patch: { scheduled_for: next, due_at: next } });
+                          }}
+                          className="hidden h-7 w-[126px] rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] font-[560] text-[#6e7680] outline-none transition hover:bg-white focus:bg-white lg:block lg:opacity-0 lg:group-hover/row:opacity-100 lg:focus:opacity-100"
+                          aria-label={`Date for ${task.title}`}
+                        />
                         {task.status === 'open' ? (
-                          <button
-                            type="button"
+                          <IconButton
                             onClick={() => updateTaskMutation.mutate({ id: task.id, patch: { status: 'skipped' } })}
-                            className="flex h-8 w-8 items-center justify-center rounded-sm text-[#6b7280] hover:bg-[#f1f3ef] hover:text-[#111827]"
+                            className="opacity-0 group-hover/row:opacity-100 focus:opacity-100"
                             aria-label={`Skip ${task.title}`}
                           >
                             <SkipForward className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         ) : null}
                         {task.status !== 'archived' ? (
-                          <button
-                            type="button"
+                          <IconButton
                             onClick={() => updateTaskMutation.mutate({ id: task.id, patch: { status: 'archived' } })}
-                            className="flex h-8 w-8 items-center justify-center rounded-sm text-[#6b7280] hover:bg-[#f1f3ef] hover:text-[#111827]"
+                            className="opacity-0 group-hover/row:opacity-100 focus:opacity-100"
                             aria-label={`Archive ${task.title}`}
                           >
                             <Archive className="h-4 w-4" />
-                          </button>
+                          </IconButton>
                         ) : null}
                         {task.status === 'skipped' ? <Circle className="h-4 w-4 text-[#9ca3af]" /> : null}
-                        {task.status === 'completed' ? <Check className="h-4 w-4 text-[#16a34a]" /> : null}
                       </div>
                     </div>
                   ))}
@@ -452,13 +426,13 @@ export function TasksClient() {
         ) : (
           <div className="flex h-full items-center justify-center text-center">
             <div>
-              <Circle className="mx-auto h-8 w-8 text-[#9ca3af]" />
-              <div className="mt-3 text-[20px] font-[650] tracking-[-0.02em] text-[#111827]">No tasks here</div>
-              <p className="mt-2 text-sm text-[#6b7280]">Create one above or sync due routines.</p>
+              <Circle className="mx-auto h-8 w-8 text-[#a0a7b0]" />
+              <div className="mt-3 text-[20px] font-[680] tracking-[-0.02em] text-[#141922]">No tasks here</div>
+              <p className="mt-2 text-[14px] text-[#737b86]">Create one above or sync due routines.</p>
             </div>
           </div>
         )}
       </div>
-    </div>
+    </ReferencePage>
   );
 }
