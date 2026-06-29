@@ -28,6 +28,8 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     router.prefetch('/analytics');
     router.prefetch('/chat');
     router.prefetch('/calendar');
+    router.prefetch('/tasks');
+    router.prefetch('/routines');
     router.prefetch('/integrations');
   }, [router]);
   

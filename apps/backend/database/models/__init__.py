@@ -55,6 +55,12 @@ from database.models.sms import (
     SmsCopilotEventDB,
     BehaviorBaselineSnapshotDB,
 )
+from database.models.tasks import (
+    RoutineDB,
+    RoutineRunDB,
+    TaskDB,
+    TaskEventDB,
+)
 from database.models.user import (
     UserDB,
     UserActivationStateDB,
@@ -148,10 +154,14 @@ __all__ = [
     "ReportNotificationDB",
     "ReportRunDB",
     "ReportScheduleDB",
+    "RoutineDB",
+    "RoutineRunDB",
     "ScheduledBlockDB",
     "ScreenTimeRollupDB",
     "SmsCopilotEventDB",
     "SmsPreferencesDB",
+    "TaskDB",
+    "TaskEventDB",
     "UserActivationChecklistItemDB",
     "UserActivationStateDB",
     "UserDB",
