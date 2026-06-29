@@ -26,10 +26,11 @@ import { applyTaskOptimisticPatch } from '@/lib/tasks/optimistic';
 import {
   FilterChip,
   IconButton,
+  OptionMenu,
   ReferenceHeader,
   ReferencePage,
   SegmentedTabs,
-  controlClass,
+  quietRowClass,
   priorityBars,
   subtleBorderClass,
 } from '@/lib/tasks/reference-task-shell';
@@ -52,6 +53,11 @@ const GROUP_MODES = [
   { id: 'date', label: 'Date' },
 ] as const;
 type GroupMode = (typeof GROUP_MODES)[number]['id'];
+const TASK_CATEGORY_OPTIONS = CATEGORY_FILTERS
+  .filter((item) => item !== 'All')
+  .map((item) => ({ value: item, label: item }));
+const GROUP_MODE_OPTIONS = GROUP_MODES.map((item) => ({ value: item.id, label: `View by ${item.label}` }));
+const TASK_PRIORITY_OPTIONS = PRIORITIES.map((priority) => ({ value: priority, label: priority }));
 
 function formatTaskDate(value: string | null): string {
   if (!value) return '';
@@ -108,7 +114,7 @@ export function TasksClient() {
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [groupMode, setGroupMode] = useState<GroupMode>('category');
   const [quickTitle, setQuickTitle] = useState('');
-  const [quickCategory, setQuickCategory] = useState('Personal');
+  const [quickCategory, setQuickCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('Personal');
 
   const queryKey = ['tasks', user?.id, view, category];
 
@@ -240,58 +246,53 @@ export function TasksClient() {
   return (
     <ReferencePage>
       <ReferenceHeader
+        className="mx-auto w-full max-w-[980px] px-6 pt-7 lg:px-8"
         title={VIEWS.find((item) => item.id === view)?.label || 'Tasks'}
         eyebrow={<><Inbox className="h-4 w-4" /> Tasks</>}
         actions={(
-          <form onSubmit={handleQuickAdd} className="flex min-w-0 items-center gap-2">
+          <form onSubmit={handleQuickAdd} className={cn('flex h-10 min-w-[360px] max-w-[520px] flex-1 items-center gap-1.5 px-2', quietRowClass)}>
             <input
               value={quickTitle}
               onChange={(event) => setQuickTitle(event.target.value)}
               placeholder="Add a task..."
-              className={cn('h-10 w-[min(34vw,430px)] min-w-[220px] px-3 text-[14px] placeholder:text-[#9ca3af]', controlClass)}
+              className="min-w-0 flex-1 bg-transparent px-1 text-[15px] font-normal text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
-            <select
+            <OptionMenu
               value={quickCategory}
-              onChange={(event) => setQuickCategory(event.target.value)}
-              className={cn('h-10 w-[138px] px-3 text-[14px]', controlClass)}
-            >
-              {CATEGORY_FILTERS.filter((item) => item !== 'All').map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#111827] px-3.5 text-[14px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-55"
+              options={TASK_CATEGORY_OPTIONS}
+              onChange={setQuickCategory}
+              className="h-8 w-[118px] bg-white/60"
+              ariaLabel="Task category"
+            />
+            <IconButton
+              className="h-8 w-8 bg-[rgba(39,37,30,0.045)] text-[var(--text-primary)] disabled:opacity-55"
               disabled={createTaskMutation.isPending}
+              aria-label="Add task"
             >
               <Plus className="h-4 w-4" />
-              Add
-            </button>
+            </IconButton>
           </form>
         )}
       >
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
           <SegmentedTabs value={view} options={VIEWS} onChange={setView} />
-          <span className="mx-1 hidden h-5 w-px bg-[rgba(15,23,42,0.12)] md:block" />
-          <ListFilter className="h-4 w-4 text-[#777f89]" />
+          <span className="mx-1 hidden h-4 w-px bg-[var(--border-subtle)] md:block" />
+          <ListFilter className="h-4 w-4 text-[var(--icon-muted)]" />
           {CATEGORY_FILTERS.map((item) => (
             <FilterChip key={item} active={category === item} onClick={() => setCategory(item)}>
               {item}
             </FilterChip>
           ))}
-          <select
+          <OptionMenu
             value={groupMode}
-            onChange={(event) => setGroupMode(event.target.value as GroupMode)}
-            className={cn('ml-auto h-8 px-2.5 text-[13px] font-[640]', controlClass)}
-            aria-label="Group tasks"
-          >
-            {GROUP_MODES.map((item) => (
-              <option key={item.id} value={item.id}>View by {item.label}</option>
-            ))}
-          </select>
+            options={GROUP_MODE_OPTIONS}
+            onChange={setGroupMode}
+            className="ml-auto w-[142px] text-[13px]"
+            ariaLabel="Group tasks"
+          />
           <button
             type="button"
-            className="inline-flex h-8 items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/80 px-3 text-[13px] font-[640] text-[#2f3743] transition hover:bg-[#f3f5f0] disabled:opacity-55"
+            className="inline-flex h-8 items-center gap-2 rounded-sm bg-[rgba(39,37,30,0.024)] px-2.5 text-[13px] font-normal text-[var(--text-primary)] transition hover:bg-[var(--row-hover)] disabled:opacity-55"
             onClick={() => generateDueMutation.mutate()}
             disabled={generateDueMutation.isPending}
           >
@@ -301,11 +302,11 @@ export function TasksClient() {
         </div>
       </ReferenceHeader>
 
-      <div className="min-h-0 flex-1 overflow-auto px-9 py-7">
+      <div className="min-h-0 flex-1 overflow-auto px-6 py-6 lg:px-8">
         {tasksQuery.isLoading ? (
           <div className="mx-auto max-w-[980px] space-y-2">
             {[0, 1, 2, 3].map((item) => (
-              <div key={item} className="h-11 animate-pulse rounded-sm bg-[#f1f3ef]" />
+              <div key={item} className="h-10 animate-pulse rounded-sm bg-[rgba(39,37,30,0.024)]" />
             ))}
           </div>
         ) : groups.length ? (
@@ -313,11 +314,11 @@ export function TasksClient() {
             {groups.map(([group, groupTasksValue]) => (
               <section key={group}>
                 <div className={cn('mb-2 flex items-center gap-2 border-b pb-2', subtleBorderClass)}>
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full border border-[rgba(15,23,42,0.14)] bg-white">
-                    <Folder className="h-3.5 w-3.5 text-[#707984]" />
+                  <span className="flex h-5 w-5 items-center justify-center text-[var(--icon-muted)]">
+                    <Folder className="h-3.5 w-3.5" />
                   </span>
-                  <h2 className="truncate text-[18px] font-[680] tracking-[-0.02em] text-[#151922]">{group}</h2>
-                  <span className="text-[13px] font-[560] text-[#8b929b]">{groupTasksValue.length}</span>
+                  <h2 className="truncate text-sm font-normal text-[var(--text-primary)]">{group}</h2>
+                  <span className="text-[12px] font-normal text-[var(--text-muted)]">{groupTasksValue.length}</span>
                 </div>
                 <div className="space-y-0.5">
                   {groupTasksValue.map((task) => (
@@ -338,7 +339,7 @@ export function TasksClient() {
                           updateTaskMutation.mutate({ id: task.id, patch: { status: 'archived' } });
                         }
                       }}
-                      className="group/row grid min-h-[44px] grid-cols-[28px_22px_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2.5 outline-none transition hover:bg-[#f3f5f0] focus-visible:bg-[#f3f5f0] focus-visible:ring-2 focus-visible:ring-[#111827]"
+                      className="group/row grid min-h-[42px] grid-cols-[28px_22px_minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2.5 outline-none transition hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-1 focus-visible:ring-[rgba(15,23,42,0.18)]"
                     >
                       <button
                         type="button"
@@ -349,8 +350,8 @@ export function TasksClient() {
                         className={cn(
                           'flex h-[19px] w-[19px] items-center justify-center rounded-[5px] border transition',
                           task.status === 'completed'
-                            ? 'border-[#111827] bg-[#111827] text-white'
-                            : 'border-[rgba(15,23,42,0.22)] bg-white text-transparent hover:border-[#111827]',
+                            ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-white'
+                            : 'border-[rgba(15,23,42,0.22)] bg-white text-transparent hover:border-[var(--text-primary)]',
                         )}
                         aria-label={`Complete ${task.title}`}
                         aria-pressed={task.status === 'completed'}
@@ -359,10 +360,10 @@ export function TasksClient() {
                       </button>
                       {priorityBars(task.priority, true)}
                       <div className="min-w-0">
-                        <div className={cn('truncate text-[15px] font-[590] text-[#20242c]', task.status === 'completed' && 'text-[#9aa1aa] line-through')}>
+                        <div className={cn('truncate text-[15px] font-normal text-[var(--text-primary)]', task.status === 'completed' && 'text-[var(--text-muted)] line-through')}>
                           {task.title}
                         </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] font-[520] text-[#7a828c]">
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] font-normal text-[var(--text-muted)]">
                           <span>{task.source}</span>
                           {task.due_at || task.scheduled_for ? (
                             <span className="inline-flex items-center gap-1 text-[#b15d2b]">
@@ -374,19 +375,17 @@ export function TasksClient() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <select
+                        <OptionMenu
                           value={task.priority}
-                          onChange={(event) => updateTaskMutation.mutate({
+                          options={TASK_PRIORITY_OPTIONS}
+                          onChange={(priority) => updateTaskMutation.mutate({
                             id: task.id,
-                            patch: { priority: event.target.value as TaskPriority },
+                            patch: { priority },
                           })}
-                          className="hidden h-7 w-[78px] rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] font-[560] text-[#6e7680] outline-none transition hover:bg-white focus:bg-white md:block md:opacity-0 md:group-hover/row:opacity-100 md:focus:opacity-100"
+                          className="hidden h-7 w-[84px] bg-transparent px-1.5 text-[12px] text-[var(--text-secondary)] md:inline-flex md:opacity-0 md:group-hover/row:opacity-100 md:focus:opacity-100"
+                          contentClassName="min-w-[120px]"
                           aria-label={`Priority for ${task.title}`}
-                        >
-                          {PRIORITIES.map((item) => (
-                            <option key={item} value={item}>{item}</option>
-                          ))}
-                        </select>
+                        />
                         <input
                           type="date"
                           value={dateInputValue(task.scheduled_for || task.due_at)}
@@ -394,7 +393,7 @@ export function TasksClient() {
                             const next = event.target.value ? new Date(`${event.target.value}T09:00:00`).toISOString() : null;
                             updateTaskMutation.mutate({ id: task.id, patch: { scheduled_for: next, due_at: next } });
                           }}
-                          className="hidden h-7 w-[126px] rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] font-[560] text-[#6e7680] outline-none transition hover:bg-white focus:bg-white lg:block lg:opacity-0 lg:group-hover/row:opacity-100 lg:focus:opacity-100"
+                          className="hidden h-7 w-[126px] rounded-sm border border-transparent bg-transparent px-1.5 text-[12px] font-normal text-[var(--text-secondary)] outline-none transition hover:bg-white focus:bg-white lg:block lg:opacity-0 lg:group-hover/row:opacity-100 lg:focus:opacity-100"
                           aria-label={`Date for ${task.title}`}
                         />
                         {task.status === 'open' ? (
@@ -415,7 +414,7 @@ export function TasksClient() {
                             <Archive className="h-4 w-4" />
                           </IconButton>
                         ) : null}
-                        {task.status === 'skipped' ? <Circle className="h-4 w-4 text-[#9ca3af]" /> : null}
+                        {task.status === 'skipped' ? <Circle className="h-4 w-4 text-[var(--icon-muted)]" /> : null}
                       </div>
                     </div>
                   ))}
@@ -426,9 +425,9 @@ export function TasksClient() {
         ) : (
           <div className="flex h-full items-center justify-center text-center">
             <div>
-              <Circle className="mx-auto h-8 w-8 text-[#a0a7b0]" />
-              <div className="mt-3 text-[20px] font-[680] tracking-[-0.02em] text-[#141922]">No tasks here</div>
-              <p className="mt-2 text-[14px] text-[#737b86]">Create one above or sync due routines.</p>
+              <Circle className="mx-auto h-7 w-7 text-[var(--icon-muted)]" strokeWidth={1.5} />
+              <div className="mt-3 text-[17px] font-semibold text-[var(--text-primary)]">No tasks here</div>
+              <p className="mt-2 text-sm text-[var(--text-muted)]">Create one above or sync due routines.</p>
             </div>
           </div>
         )}

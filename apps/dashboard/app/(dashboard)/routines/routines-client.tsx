@@ -36,9 +36,10 @@ import {
   FieldRow,
   IconButton,
   InlineControl,
-  InlineSelect,
+  OptionMenu,
   ReferencePage,
   SegmentedTabs,
+  quietRowClass,
   priorityBars,
   subtleBorderClass,
 } from '@/lib/tasks/reference-task-shell';
@@ -66,6 +67,19 @@ const ROUTINE_TABS = [
   { id: 'templates', label: 'Templates' },
   { id: 'runs', label: 'Runs' },
 ] as const;
+const TRIGGER_OPTIONS = TRIGGERS.map((trigger) => ({ value: trigger, label: trigger.replace(/_/g, ' ') }));
+const KIND_OPTIONS = KINDS.map((kind) => ({ value: kind, label: kind.replace(/_/g, ' ') }));
+const PRIORITY_OPTIONS = PRIORITIES.map((priority) => ({ value: priority, label: priority }));
+const UNIT_OPTIONS = [
+  { value: 'days', label: 'days after' },
+  { value: 'weeks', label: 'weeks after' },
+  { value: 'months', label: 'months after' },
+] as const;
+const MONTHLY_MODE_OPTIONS = [
+  { value: 'day_of_month', label: 'day of month' },
+  { value: 'nth_weekday', label: 'nth weekday' },
+] as const;
+const WEEKDAY_OPTIONS = WEEKDAYS.map((day) => ({ value: String(day.value), label: day.label }));
 
 export function RoutinesClient() {
   const { getToken } = useAuth();
@@ -285,23 +299,22 @@ export function RoutinesClient() {
 
   return (
     <ReferencePage>
-      <div className="grid h-full min-h-0 grid-cols-[minmax(284px,360px)_minmax(520px,1fr)]">
-        <aside className={cn('flex min-h-0 flex-col border-r bg-white/42', subtleBorderClass)}>
+      <div className="grid h-full min-h-0 grid-cols-[minmax(260px,330px)_minmax(500px,1fr)]">
+        <aside className={cn('flex min-h-0 flex-col border-r bg-[var(--surface-content)]', subtleBorderClass)}>
           <div className="shrink-0 px-6 pb-4 pt-7">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="text-[12px] font-[650] uppercase tracking-[0.16em] text-[#737b86]">Ritual rules</div>
-                <h1 className="mt-2 truncate text-[36px] font-[680] leading-none tracking-[-0.035em] text-[#10141d]">Routines</h1>
+                <div className="text-[12px] font-normal uppercase tracking-[0.13em] text-[var(--text-muted)]">Ritual rules</div>
+                <h1 className="mt-2 truncate text-[30px] font-semibold leading-none tracking-normal text-[var(--text-primary)]">Routines</h1>
               </div>
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-3 text-[14px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-55"
+              <IconButton
+                className="h-8 w-8 bg-[rgba(39,37,30,0.045)] text-[var(--text-primary)] disabled:opacity-55"
                 onClick={() => createRoutineMutation.mutate(defaultRoutineInput())}
                 disabled={createRoutineMutation.isPending}
+                aria-label="Create routine"
               >
                 <Plus className="h-4 w-4" />
-                New
-              </button>
+              </IconButton>
             </div>
             <SegmentedTabs
               value={activeTab}
@@ -315,7 +328,7 @@ export function RoutinesClient() {
             {activeTab === 'mine' ? (
               <div className="space-y-1">
                 {routinesQuery.isLoading ? [0, 1, 2].map((item) => (
-                  <div key={item} className="h-14 animate-pulse rounded-sm bg-[#f1f3ef]" />
+                  <div key={item} className="h-12 animate-pulse rounded-sm bg-[rgba(39,37,30,0.024)]" />
                 )) : routines.length ? routines.map((routine) => (
                   <button
                     key={routine.id}
@@ -326,21 +339,21 @@ export function RoutinesClient() {
                       setActiveTab('mine');
                     }}
                     className={cn(
-                      'grid w-full grid-cols-[22px_minmax(0,1fr)] gap-3 rounded-sm px-3 py-2.5 text-left transition',
-                      selectedRoutineId === routine.id ? 'bg-[#e6ecdf]' : 'hover:bg-[#f1f3ef]',
+                      'grid w-full grid-cols-[22px_minmax(0,1fr)] gap-3 rounded-sm px-3 py-2 text-left transition',
+                      selectedRoutineId === routine.id ? 'bg-[rgba(39,37,30,0.045)]' : 'hover:bg-[var(--row-hover)]',
                     )}
                   >
-                    <RotateCw className="mt-0.5 h-4 w-4 text-[#69727d]" />
+                    <RotateCw className="mt-0.5 h-4 w-4 text-[var(--icon-muted)]" strokeWidth={1.7} />
                     <span className="min-w-0">
-                      <span className="block truncate text-[15px] font-[640] text-[#1f242d]">{routine.title}</span>
-                      <span className="mt-1 flex items-center justify-between gap-3 text-[12px] font-[520] text-[#737b86]">
+                      <span className="block truncate text-[14px] font-normal text-[var(--text-primary)]">{routine.title}</span>
+                      <span className="mt-1 flex items-center justify-between gap-3 text-[12px] font-normal text-[var(--text-muted)]">
                         <span className="truncate">{routine.cadence_summary}</span>
-                        <span className={cn('shrink-0', routine.status === 'paused' ? 'text-[#b45309]' : 'text-[#167046]')}>{routine.status}</span>
+                        <span className="shrink-0">{routine.status}</span>
                       </span>
                     </span>
                   </button>
                 )) : (
-                  <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">No routines yet.</div>
+                  <div className="px-3 py-8 text-center text-sm text-[var(--text-muted)]">No routines yet.</div>
                 )}
               </div>
             ) : activeTab === 'templates' ? (
@@ -348,24 +361,24 @@ export function RoutinesClient() {
                 {AI_ROUTINE_TEMPLATES.map((template) => {
                   const existing = workflows.find((workflow) => workflow.config?.ai_routine_template_key === template.id);
                   return (
-                    <div key={template.id} className="rounded-sm px-3 py-3 transition hover:bg-[#f1f3ef]">
+                    <div key={template.id} className="rounded-sm px-3 py-3 transition hover:bg-[var(--row-hover)]">
                       <div className="flex items-start gap-3">
-                        <Sparkles className="mt-0.5 h-4 w-4 text-[#20242c]" />
+                        <Sparkles className="mt-0.5 h-4 w-4 text-[var(--icon-muted)]" strokeWidth={1.7} />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="truncate text-[14px] font-[650] text-[#1f242d]">{template.title}</div>
-                              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#737b86]">{template.description}</div>
+                              <div className="truncate text-[14px] font-normal text-[var(--text-primary)]">{template.title}</div>
+                              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--text-muted)]">{template.description}</div>
                             </div>
-                            {existing ? <span className="shrink-0 text-[12px] font-[650] text-[#167046]">ready</span> : null}
+                            {existing ? <span className="shrink-0 text-[12px] font-normal text-[var(--text-muted)]">ready</span> : null}
                           </div>
                           <div className="mt-3 flex items-center justify-between gap-3">
-                            <span className="text-[12px] text-[#737b86]">
+                            <span className="text-[12px] text-[var(--text-muted)]">
                               {template.cadence} {String(template.hour).padStart(2, '0')}:{String(template.minute).padStart(2, '0')}
                             </span>
                             <button
                               type="button"
-                              className="inline-flex h-8 items-center gap-1.5 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/85 px-2.5 text-[12px] font-[640] text-[#2f3743] hover:bg-white disabled:opacity-55"
+                              className="inline-flex h-8 items-center gap-1.5 rounded-sm bg-[rgba(39,37,30,0.024)] px-2.5 text-[12px] font-normal text-[var(--text-primary)] hover:bg-[var(--row-hover)] disabled:opacity-55"
                               onClick={() => setupAiTemplateMutation.mutate(template)}
                               disabled={setupAiTemplateMutation.isPending}
                             >
@@ -384,32 +397,32 @@ export function RoutinesClient() {
                       <button
                         key={workflow.id}
                         type="button"
-                        className="grid w-full grid-cols-[22px_minmax(0,1fr)_auto] gap-3 rounded-sm px-3 py-2.5 text-left transition hover:bg-[#f1f3ef]"
+                        className="grid w-full grid-cols-[22px_minmax(0,1fr)_auto] gap-3 rounded-sm px-3 py-2.5 text-left transition hover:bg-[var(--row-hover)]"
                         onClick={() => createRoutineMutation.mutate(workflowRoutineInput(workflow))}
                         disabled={createRoutineMutation.isPending}
                       >
-                        <Bot className="mt-0.5 h-4 w-4 text-[#69727d]" />
+                        <Bot className="mt-0.5 h-4 w-4 text-[var(--icon-muted)]" strokeWidth={1.7} />
                         <span className="min-w-0">
-                          <span className="block truncate text-[14px] font-[650] text-[#1f242d]">{workflow.name}</span>
-                          <span className="mt-1 block text-[12px] text-[#737b86]">{workflow.kind.replace(/_/g, ' ')}</span>
+                          <span className="block truncate text-[14px] font-normal text-[var(--text-primary)]">{workflow.name}</span>
+                          <span className="mt-1 block text-[12px] text-[var(--text-muted)]">{workflow.kind.replace(/_/g, ' ')}</span>
                         </span>
-                        <Sparkles className="mt-0.5 h-4 w-4 text-[#69727d]" />
+                        <Sparkles className="mt-0.5 h-4 w-4 text-[var(--icon-muted)]" strokeWidth={1.7} />
                       </button>
                     ))}
                   </div>
                 ) : workflowsQuery.isLoading ? (
-                  <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">Workflow templates are loading.</div>
+                  <div className="px-3 py-8 text-center text-sm text-[var(--text-muted)]">Workflow templates are loading.</div>
                 ) : null}
               </div>
             ) : (
               <div className="space-y-1">
                 {(runsQuery.data || []).map((run) => (
-                  <div key={run.id} className="rounded-sm px-3 py-2.5 transition hover:bg-[#f1f3ef]">
+                  <div key={run.id} className="rounded-sm px-3 py-2.5 transition hover:bg-[var(--row-hover)]">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-[14px] font-[650] text-[#1f242d]">{run.status}</span>
-                      <span className="text-[12px] text-[#737b86]">{formatDateTime(run.scheduled_for)}</span>
+                      <span className="text-[14px] font-normal text-[var(--text-primary)]">{run.status}</span>
+                      <span className="text-[12px] text-[var(--text-muted)]">{formatDateTime(run.scheduled_for)}</span>
                     </div>
-                    <div className="mt-1 text-[12px] text-[#737b86]">
+                    <div className="mt-1 text-[12px] text-[var(--text-muted)]">
                       {[
                         run.generated_task_id ? 'Generated task' : null,
                         run.generated_scheduled_block_id ? 'Scheduled block' : null,
@@ -418,16 +431,16 @@ export function RoutinesClient() {
                     </div>
                   </div>
                 ))}
-                {!(runsQuery.data || []).length && <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">No runs for this routine.</div>}
+                {!(runsQuery.data || []).length && <div className="px-3 py-8 text-center text-sm text-[var(--text-muted)]">No runs for this routine.</div>}
               </div>
             )}
           </div>
         </aside>
 
         <section className="flex min-h-0 flex-col">
-          <div className={cn('flex h-12 shrink-0 items-center border-b px-6', subtleBorderClass)}>
-            <ChevronsRight className="h-4 w-4 text-[#8a929c]" />
-            <div className="min-w-0 flex-1 text-center text-[13px] font-[640] text-[#737b86]">Routine</div>
+          <div className={cn('flex h-11 shrink-0 items-center border-b px-6', subtleBorderClass)}>
+            <ChevronsRight className="h-4 w-4 text-[var(--icon-muted)]" strokeWidth={1.7} />
+            <div className="min-w-0 flex-1 text-center text-[13px] font-normal text-[var(--text-muted)]">Routine</div>
             <IconButton className="h-7 w-7">
               <MoreHorizontal className="h-4 w-4" />
             </IconButton>
@@ -435,17 +448,17 @@ export function RoutinesClient() {
 
           <div className="min-h-0 flex-1 overflow-auto px-8 py-7">
             {editor ? (
-              <div className="mx-auto max-w-[760px]">
-                <div className="mb-7 flex items-start justify-between gap-5">
+              <div className="mx-auto max-w-[700px]">
+                <div className="mb-6 flex items-start justify-between gap-5">
                   <input
                     value={editor.title}
                     onChange={(event) => setEditor({ ...editor, title: event.target.value })}
-                    className="min-w-0 flex-1 bg-transparent text-[34px] font-[680] leading-tight tracking-[-0.035em] text-[#111827] outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-[30px] font-semibold leading-tight tracking-normal text-[var(--text-primary)] outline-none"
                   />
                   <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/80 px-3 text-[13px] font-[640] text-[#2f3743] hover:bg-[#f3f5f0] disabled:opacity-55"
+                      className={cn('inline-flex h-8 items-center gap-1.5 px-2.5 text-[13px] font-normal text-[var(--text-primary)] disabled:opacity-55', quietRowClass)}
                       onClick={() => generateDueMutation.mutate()}
                       disabled={generateDueMutation.isPending}
                     >
@@ -454,7 +467,7 @@ export function RoutinesClient() {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-3 text-[13px] font-[650] text-white hover:bg-[#202938] disabled:opacity-55"
+                      className={cn('inline-flex h-8 items-center gap-1.5 px-2.5 text-[13px] font-normal text-[var(--text-primary)] disabled:opacity-55', quietRowClass)}
                       onClick={saveEditor}
                       disabled={saveRoutineMutation.isPending}
                     >
@@ -467,25 +480,24 @@ export function RoutinesClient() {
                 <div className="space-y-4">
                   <FieldGroup>
                     <FieldRow label="Kind">
-                      <InlineSelect
+                      <OptionMenu
                         value={editor.kind}
-                        onChange={(event) => setEditor({ ...editor, kind: event.target.value as RoutineKind })}
-                        className="w-[170px]"
-                      >
-                        {KINDS.map((kind) => <option key={kind} value={kind}>{kind.replace(/_/g, ' ')}</option>)}
-                      </InlineSelect>
+                        options={KIND_OPTIONS}
+                        onChange={(kind) => setEditor({ ...editor, kind })}
+                        className="w-[170px] bg-white/60"
+                        ariaLabel="Routine kind"
+                      />
                     </FieldRow>
                     <FieldRow label="Trigger">
-                      <InlineSelect
+                      <OptionMenu
                         value={editor.trigger_type}
-                        onChange={(event) => {
-                          const trigger = event.target.value as RoutineTriggerType;
+                        options={TRIGGER_OPTIONS}
+                        onChange={(trigger) => {
                           setEditor({ ...editor, trigger_type: trigger, trigger_config: triggerDefaults(trigger) });
                         }}
-                        className="w-[170px]"
-                      >
-                        {TRIGGERS.map((trigger) => <option key={trigger} value={trigger}>{trigger.replace(/_/g, ' ')}</option>)}
-                      </InlineSelect>
+                        className="w-[170px] bg-white/60"
+                        ariaLabel="Routine trigger"
+                      />
                     </FieldRow>
                     <FieldRow label="Paused">
                       <Switch
@@ -504,7 +516,7 @@ export function RoutinesClient() {
                         onChange={(event) => updateConfig({ interval: Number(event.target.value) || 1 })}
                         className="w-16 text-right"
                       />
-                      <span className="text-[14px] font-[560] text-[#6a717b]">
+                      <span className="text-sm font-normal text-[var(--text-secondary)]">
                         {editor.trigger_type === 'daily' ? 'days' : editor.trigger_type === 'weekly' ? 'weeks' : editor.trigger_type === 'monthly' ? 'months' : editor.trigger_type === 'yearly' ? 'years' : String(editor.trigger_config.unit || 'weeks')}
                       </span>
                     </FieldRow>
@@ -522,15 +534,13 @@ export function RoutinesClient() {
                       </FieldRow>
                     ) : (
                       <FieldRow label="After completion">
-                        <InlineSelect
+                        <OptionMenu
                           value={String(editor.trigger_config.unit || 'weeks')}
-                          onChange={(event) => updateConfig({ unit: event.target.value })}
-                          className="w-[190px]"
-                        >
-                          <option value="days">days after</option>
-                          <option value="weeks">weeks after</option>
-                          <option value="months">months after</option>
-                        </InlineSelect>
+                          options={UNIT_OPTIONS}
+                          onChange={(unit) => updateConfig({ unit })}
+                          className="w-[190px] bg-white/60"
+                          ariaLabel="Completion interval unit"
+                        />
                       </FieldRow>
                     )}
                     {editor.kind === 'calendar_block' || editor.kind === 'mixed' ? (
@@ -543,7 +553,7 @@ export function RoutinesClient() {
                           onChange={(event) => updateConfig({ duration_minutes: Number(event.target.value) || 60 })}
                           className="w-20 text-right"
                         />
-                        <span className="text-[14px] font-[560] text-[#6a717b]">minutes</span>
+                        <span className="text-sm font-normal text-[var(--text-secondary)]">minutes</span>
                       </FieldRow>
                     ) : null}
                     {editor.trigger_type === 'weekly' ? (
@@ -560,8 +570,8 @@ export function RoutinesClient() {
                                   weekdays: active ? weekdays.filter((value) => value !== day.value) : [...weekdays, day.value].sort(),
                                 })}
                                 className={cn(
-                                  'h-7 rounded-sm px-2 text-[12px] font-[640]',
-                                  active ? 'bg-[#111827] text-white' : 'bg-white/82 text-[#626a75] hover:bg-white',
+                                  'h-7 rounded-sm px-2 text-[12px] font-normal transition',
+                                  active ? 'bg-[rgba(39,37,30,0.055)] text-[var(--text-primary)]' : 'bg-white/60 text-[var(--text-secondary)] hover:bg-white',
                                 )}
                               >
                                 {day.label.slice(0, 3)}
@@ -586,14 +596,13 @@ export function RoutinesClient() {
                           </FieldRow>
                         ) : null}
                         <FieldRow label="On the">
-                          <InlineSelect
+                          <OptionMenu
                             value={String(editor.trigger_config.mode || 'day_of_month')}
-                            onChange={(event) => updateConfig({ mode: event.target.value })}
-                            className="w-[170px]"
-                          >
-                            <option value="day_of_month">day of month</option>
-                            <option value="nth_weekday">nth weekday</option>
-                          </InlineSelect>
+                            options={MONTHLY_MODE_OPTIONS}
+                            onChange={(mode) => updateConfig({ mode })}
+                            className="w-[170px] bg-white/60"
+                            ariaLabel="Monthly schedule mode"
+                          />
                         </FieldRow>
                         {editor.trigger_config.mode === 'nth_weekday' ? (
                           <FieldRow label="When">
@@ -605,13 +614,13 @@ export function RoutinesClient() {
                               onChange={(event) => updateConfig({ ordinal: Number(event.target.value) || 1 })}
                               className="w-14 text-right"
                             />
-                            <InlineSelect
-                              value={Number(editor.trigger_config.weekday || 0)}
-                              onChange={(event) => updateConfig({ weekday: Number(event.target.value) })}
-                              className="w-[132px]"
-                            >
-                              {WEEKDAYS.map((day) => <option key={day.value} value={day.value}>{day.label}</option>)}
-                            </InlineSelect>
+                            <OptionMenu
+                              value={String(Number(editor.trigger_config.weekday || 0))}
+                              options={WEEKDAY_OPTIONS}
+                              onChange={(weekday) => updateConfig({ weekday: Number(weekday) })}
+                              className="w-[132px] bg-white/60"
+                              ariaLabel="Weekday"
+                            />
                           </FieldRow>
                         ) : (
                           <FieldRow label="Day">
@@ -645,7 +654,7 @@ export function RoutinesClient() {
                     </FieldRow>
                   </FieldGroup>
 
-                  <div className="px-4 text-[14px] leading-6 text-[#737b86]">
+                  <div className="px-3.5 text-sm leading-6 text-[var(--text-muted)]">
                     <div>Last: {formatDateTime(editor.last_run_at)}</div>
                     <div>Next: {preview.dates.map((date) => formatDateTime(date)).slice(0, 4).join(', ') || formatDateTime(editor.next_run_at)}</div>
                   </div>
@@ -653,13 +662,13 @@ export function RoutinesClient() {
                   <FieldGroup>
                     <FieldRow label="Priority">
                       {priorityBars(editor.priority, true)}
-                      <InlineSelect
+                      <OptionMenu
                         value={editor.priority}
-                        onChange={(event) => setEditor({ ...editor, priority: event.target.value as TaskPriority })}
-                        className="w-[120px]"
-                      >
-                        {PRIORITIES.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-                      </InlineSelect>
+                        options={PRIORITY_OPTIONS}
+                        onChange={(priority) => setEditor({ ...editor, priority })}
+                        className="w-[120px] bg-white/60"
+                        ariaLabel="Routine priority"
+                      />
                     </FieldRow>
                     <FieldRow label="Template title">
                       <InlineControl
@@ -716,7 +725,7 @@ export function RoutinesClient() {
                     onChange={(event) => setEditor({ ...editor, description: event.target.value })}
                     placeholder="Routine notes..."
                     rows={4}
-                    className="w-full resize-none rounded-[8px] border border-[rgba(15,23,42,0.07)] bg-[#f4f5f2] px-4 py-3 text-[15px] font-[520] text-[#252a32] outline-none placeholder:text-[#8d949d] focus:border-[rgba(15,23,42,0.18)]"
+                    className="w-full resize-none rounded-sm border border-[var(--border-muted)] bg-[rgba(39,37,30,0.014)] px-3.5 py-3 text-[15px] font-normal text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[rgba(15,23,42,0.12)] focus:bg-white"
                   />
 
                   <textarea
@@ -724,10 +733,10 @@ export function RoutinesClient() {
                     onChange={(event) => setEditor({ ...editor, task_template: { ...editor.task_template, notes: event.target.value } })}
                     placeholder="Generated task notes or AI prompt context..."
                     rows={4}
-                    className="w-full resize-none rounded-[8px] border border-[rgba(15,23,42,0.07)] bg-[#f4f5f2] px-4 py-3 text-[15px] font-[520] text-[#252a32] outline-none placeholder:text-[#8d949d] focus:border-[rgba(15,23,42,0.18)]"
+                    className="w-full resize-none rounded-sm border border-[var(--border-muted)] bg-[rgba(39,37,30,0.014)] px-3.5 py-3 text-[15px] font-normal text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus:border-[rgba(15,23,42,0.12)] focus:bg-white"
                   />
 
-                  <div className="rounded-[8px] border border-dashed border-[rgba(15,23,42,0.14)] px-4 py-3 text-[13px] text-[#737b86]">
+                  <div className="rounded-sm border border-dashed border-[var(--border-subtle)] px-3.5 py-3 text-[13px] text-[var(--text-muted)]">
                     <CalendarClock className="mr-2 inline h-4 w-4 align-[-3px]" />
                     {preview.summary || 'No recurrence configured.'}
                   </div>
@@ -736,9 +745,9 @@ export function RoutinesClient() {
             ) : (
               <div className="flex h-full items-center justify-center text-center">
                 <div>
-                  <RotateCw className="mx-auto h-8 w-8 text-[#a0a7b0]" />
-                  <div className="mt-3 text-[20px] font-[680] text-[#141922]">Select or create a routine</div>
-                  <p className="mt-2 text-[14px] text-[#737b86]">Rules can generate tasks or queue AI workflow runs.</p>
+                  <RotateCw className="mx-auto h-7 w-7 text-[var(--icon-muted)]" strokeWidth={1.5} />
+                  <div className="mt-3 text-[17px] font-semibold text-[var(--text-primary)]">Select or create a routine</div>
+                  <p className="mt-2 text-sm text-[var(--text-muted)]">Rules can generate tasks or queue AI workflow runs.</p>
                 </div>
               </div>
             )}
