@@ -1,6 +1,5 @@
 use std::process::Command;
 
-
 #[tauri::command]
 pub fn check_accessibility_permission() -> bool {
     #[cfg(target_os = "macos")]
@@ -52,7 +51,9 @@ pub fn request_accessibility_permission() -> bool {
 pub fn open_accessibility_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        open_macos_settings_url("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        open_macos_settings_url(
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        )
     }
     #[cfg(not(target_os = "macos"))]
     {

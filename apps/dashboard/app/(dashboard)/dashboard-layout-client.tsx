@@ -17,7 +17,6 @@ import { FontProvider } from '@/contexts/FontContext';
 import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { restoreDashboardWindowSize } from '@/lib/tauri-utils';
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -31,11 +30,6 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     router.prefetch('/calendar');
     router.prefetch('/integrations');
   }, [router]);
-
-  // Start each desktop dashboard session from the standard launch size.
-  useEffect(() => {
-    void restoreDashboardWindowSize();
-  }, []);
   
   return (
     <FontProvider>

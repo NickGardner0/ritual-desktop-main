@@ -1,12 +1,18 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { Check } from "lucide-react"
+import { Check, FolderOpen } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { getDesktopCapabilities } from "@/lib/desktop-capabilities"
 import { getLocationPermissionState, openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
+import {
+  chooseRitualVaultFolder,
+  readRitualVaultFolderSettings,
+  writeRitualVaultFolderSettings,
+} from "@/lib/privacy/ritual-vault-folder-settings"
+import { writeRitualVaultFolderMirror } from "@/lib/privacy/ritual-vault-export"
 import { cn } from "@/lib/utils"
 
 type PermissionKey =
@@ -83,12 +89,17 @@ function GrantButton({
 export function OnboardingSetupStep({
   busy,
   onFinish,
+  userId,
 }: {
   busy?: boolean
   onFinish: () => void
+  userId?: string | null
 }) {
   const [permissions, setPermissions] = useState<PermissionState>(DEFAULT_PERMISSION_STATE)
   const [workingKey, setWorkingKey] = useState<PermissionKey | null>(null)
+  const [vaultFolderPath, setVaultFolderPath] = useState<string | null>(null)
+  const [vaultFolderMessage, setVaultFolderMessage] = useState("")
+  const [vaultFolderWorking, setVaultFolderWorking] = useState(false)
 
   const refreshPermissions = useCallback(async () => {
     const invoke = await getInvoke()
@@ -112,6 +123,7 @@ export function OnboardingSetupStep({
 
   useEffect(() => {
     void refreshPermissions()
+    setVaultFolderPath(readRitualVaultFolderSettings().folderPath)
     const interval = window.setInterval(() => {
       void refreshPermissions()
     }, 2500)
@@ -176,6 +188,42 @@ export function OnboardingSetupStep({
       schedulePermissionRefresh()
     } finally {
       setWorkingKey(null)
+    }
+  }
+
+  async function handleChooseVaultFolder() {
+    if (vaultFolderWorking) return
+    if (!getDesktopCapabilities().isDesktop) {
+      setVaultFolderMessage("Folder selection is available in Ritual Desktop.")
+      return
+    }
+    setVaultFolderWorking(true)
+    try {
+      setVaultFolderMessage("Choosing folder...")
+      const selected = await chooseRitualVaultFolder()
+      if (!selected?.folderPath) {
+        setVaultFolderMessage("Folder selection cancelled.")
+        return
+      }
+      setVaultFolderPath(selected.folderPath)
+      if (!userId) {
+        setVaultFolderMessage("Folder selected.")
+        return
+      }
+      const mirrored = await writeRitualVaultFolderMirror({
+        userId,
+        folderPath: selected.folderPath,
+      })
+      writeRitualVaultFolderSettings({
+        folderPath: mirrored.folderPath,
+        lastMirroredAt: mirrored.mirroredAt,
+        lastRecordCount: mirrored.recordCount,
+      })
+      setVaultFolderMessage(`Folder ready with ${mirrored.recordCount} records.`)
+    } catch {
+      setVaultFolderMessage("Folder selected; mirror will run from Settings.")
+    } finally {
+      setVaultFolderWorking(false)
     }
   }
 
@@ -249,6 +297,28 @@ export function OnboardingSetupStep({
               Everything stays on your Mac — encrypted, never used for training.
             </p>
           </section>
+
+          <div className="flex min-h-8 items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-medium text-[#18181b]">Ritual Vault folder</p>
+              <p className="truncate text-[11px] text-[#71717a]">
+                {vaultFolderPath || "No folder selected"}
+              </p>
+              {vaultFolderMessage ? (
+                <p className="truncate text-[11px] text-[#71717a]">{vaultFolderMessage}</p>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy || vaultFolderWorking}
+              onClick={() => void handleChooseVaultFolder()}
+              className="h-8 shrink-0 rounded-sm border-[#dfe1e5] bg-white px-3 text-[13px] font-medium text-[#18181b] shadow-none transition-colors duration-75 hover:bg-[#f5f5f5]"
+            >
+              {vaultFolderWorking ? <BrailleSpinner className="text-sm" intervalMs={45} /> : <FolderOpen className="h-3.5 w-3.5" />}
+              <span className="ml-1.5">Choose</span>
+            </Button>
+          </div>
 
           <div className="flex flex-wrap gap-1.5">
             {PRIVACY_BADGES.map((badge) => (

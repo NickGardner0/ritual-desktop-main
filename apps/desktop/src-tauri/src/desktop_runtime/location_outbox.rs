@@ -247,7 +247,6 @@ pub fn register_location_outbox_drain_worker<R: Runtime + 'static>(app: AppHandl
     });
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

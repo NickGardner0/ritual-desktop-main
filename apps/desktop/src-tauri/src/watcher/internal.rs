@@ -9,8 +9,10 @@ pub(crate) static WATCHER_PROCESS: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mut
 
 /// Stored device ID from the most recent watcher start
 pub(crate) static DEVICE_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
-pub(crate) static WATCHER_LAST_STARTED_AT: Lazy<Mutex<Option<Instant>>> = Lazy::new(|| Mutex::new(None));
-pub(crate) static WATCHER_LAST_RESTART_REASON: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+pub(crate) static WATCHER_LAST_STARTED_AT: Lazy<Mutex<Option<Instant>>> =
+    Lazy::new(|| Mutex::new(None));
+pub(crate) static WATCHER_LAST_RESTART_REASON: Lazy<Mutex<Option<String>>> =
+    Lazy::new(|| Mutex::new(None));
 pub(crate) static WATCHER_RESTART_COUNT: AtomicU64 = AtomicU64::new(0);
 pub(crate) static WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS: AtomicU64 = AtomicU64::new(0);
 

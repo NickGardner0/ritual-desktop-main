@@ -15,8 +15,8 @@ use tracing::{info, instrument, warn};
 use crate::desktop_observability::redact_sensitive_url_for_log;
 use crate::desktop_runtime_types::{
     BiomeDeviceDiagnostics, BiomeDrainSnapshot, BiomeIngestResponse, BiomeIphoneDiagnostics,
-    BiomeOutboxDiagnostics, DesktopBiomeActivityEvent, DesktopLocationPing,
-    LocationIngestResponse, TursoSyncConfigResponse, UpdateStatusPayload,
+    BiomeOutboxDiagnostics, DesktopBiomeActivityEvent, DesktopLocationPing, LocationIngestResponse,
+    TursoSyncConfigResponse, UpdateStatusPayload,
 };
 
 pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
@@ -396,7 +396,6 @@ pub fn register_runtime_signal_monitor<R: Runtime + 'static>(app: AppHandle<R>) 
     });
 }
 
-
 pub mod auth_handoff;
 pub mod biome_outbox;
 pub mod location_outbox;
@@ -405,9 +404,7 @@ pub mod updater;
 
 pub use biome_outbox::{register_biome_outbox_drain_worker, BiomeImportResult};
 pub use location_outbox::register_location_outbox_drain_worker;
-pub use updater::{
-    register_startup_update_check, tray_check_for_updates,
-};
+pub use updater::{register_startup_update_check, tray_check_for_updates};
 
 #[tauri::command]
 #[instrument(skip(app))]

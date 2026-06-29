@@ -3,6 +3,12 @@
  * Handles dual-write operations: Supabase (transactional) + Tinybird (analytics)
  */
 
+import {
+  canSendToCloud,
+  type CloudConsent,
+  type PrivacyDataClass,
+} from '@ritual/shared-contracts';
+
 interface HabitLogData {
   id: string;
   habit_id: string;
@@ -73,23 +79,49 @@ class TinybirdService {
     const envName = mode === 'cloud' ? 'TINYBIRD_TOKEN' : 'TINYBIRD_LOCAL_TOKEN';
     throw new Error(`${envName} environment variable is required for Tinybird ${mode} mode.`);
   }
+
+  private cloudConsents(): Partial<Record<CloudConsent, boolean>> {
+    return (process.env.RITUAL_CLOUD_CONSENTS || '')
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .reduce<Partial<Record<CloudConsent, boolean>>>((acc, item) => {
+        acc[item as CloudConsent] = true;
+        return acc;
+      }, {});
+  }
+
+  private privacyMode() {
+    const mode = process.env.RITUAL_PRIVACY_MODE;
+    return mode === 'private_sync' || mode === 'cloud_intelligence' ? mode : 'local_only';
+  }
+
+  private canUseTinybird(dataClass: PrivacyDataClass) {
+    return canSendToCloud({
+      mode: this.privacyMode(),
+      consents: this.cloudConsents(),
+      dataClass,
+      destination: 'tinybird',
+      purpose: 'analytics',
+    });
+  }
   
   /**
    * Ingest events to Tinybird Events API
    */
   private async ingestEvents(datasource: string, events: any[]): Promise<{ success: boolean; error?: string }> {
     try {
+      const decision = this.canUseTinybird(datasource === 'habit_logs' ? 'habit_log' : 'health_metric');
+      if (!decision.allowed) {
+        return { success: true };
+      }
+
       // Convert events to NDJSON format (newline-delimited JSON)
       const ndjson = events.map(e => JSON.stringify(e)).join('\n');
       
       const url = `${this.config.baseUrl}/v0/events?name=${datasource}`;
       
-      console.log('🔍 Tinybird ingest:', {
-        datasource,
-        url,
-        eventCount: events.length,
-        firstEvent: events[0],
-      });
+      console.log('Tinybird ingest:', { datasource, eventCount: events.length });
       
       const response = await fetch(url, {
         method: 'POST',
@@ -102,10 +134,7 @@ class TinybirdService {
       
       const responseText = await response.text();
       
-      console.log('🔍 Tinybird response:', {
-        status: response.status,
-        body: responseText,
-      });
+      console.log('Tinybird response:', { status: response.status });
       
       if (response.status === 202) {
         return { success: true };
@@ -196,6 +225,11 @@ class TinybirdService {
    */
   async queryPipe(pipeName: string, params: Record<string, any> = {}): Promise<any> {
     try {
+      const decision = this.canUseTinybird(pipeName.includes('whoop') ? 'health_metric' : 'habit_log');
+      if (!decision.allowed) {
+        return { data: [], meta: { privacyBlocked: true, reason: decision.reason } };
+      }
+
       const queryString = new URLSearchParams(params).toString();
       const url = `${this.config.baseUrl}/v0/pipes/${pipeName}.json?${queryString}`;
       
@@ -285,7 +319,10 @@ class TinybirdService {
    */
   async executeSql(query: string): Promise<any> {
     try {
-      console.log('🔍 Executing SQL query:', query);
+      const decision = this.canUseTinybird('habit_log');
+      if (!decision.allowed) {
+        return { data: [], meta: { privacyBlocked: true, reason: decision.reason } };
+      }
       
       const url = `${this.config.baseUrl}/v0/sql`;
       

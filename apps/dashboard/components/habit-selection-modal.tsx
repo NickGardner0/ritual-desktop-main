@@ -566,17 +566,17 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       data-tauri-drag-region="false"
     >
       <div 
-        className="absolute inset-0 bg-[#f6f6f3]/60 dark:bg-[#121212]/80" 
+        className="absolute inset-0 bg-[#f7f6f2]/55 dark:bg-[#121212]/80"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         data-tauri-drag-region="false"
         style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
       />
       <div 
         ref={cardRef}
-        className={`relative z-10 flex w-[90vw] max-w-lg flex-col rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_18px_50px_-35px_rgba(15,23,42,0.55)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
+        className={`relative z-10 flex w-[90vw] max-w-[560px] flex-col overflow-hidden rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
       >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
-        <div className="flex flex-shrink-0 items-center justify-between px-5 pb-2 pt-5">
+        <div className="flex flex-shrink-0 items-center justify-between px-6 pb-2.5 pt-6">
           {showComputerTracking ? (
             <div className="flex items-center gap-3">
               <button
@@ -633,7 +633,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Description */}
         {!selectedCategory && !showComputerTracking && (
-          <div className="flex-shrink-0 px-5 pb-4">
+          <div className="flex-shrink-0 px-6 pb-5">
             <p className="text-sm leading-6 text-[var(--text-secondary)]">
               Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
@@ -642,20 +642,20 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
         {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="px-4 pb-1.5 flex-shrink-0">
+          <div className="px-6 pb-2 flex-shrink-0">
             <input
               type="text"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-4 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-muted)] focus:outline-none"
+              className="h-9 w-full rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-3 text-[13.5px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-muted)] focus:outline-none"
             />
           </div>
         )}
 
         {/* Content Area - Scrollable */}
 
-        <div className={`min-h-0 overflow-y-auto px-5 pb-5 ${showCustomization ? 'max-h-[440px]' : 'max-h-[380px]'}`}>
+        <div className={`min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[440px]' : 'max-h-[430px]'}`}>
           {showComputerTracking ? (
             <div className="py-2">
               {resolvedUserId ? (

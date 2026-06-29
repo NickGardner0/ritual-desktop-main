@@ -1,7 +1,7 @@
 use super::*;
-use tracing::instrument;
 use chrono::Utc;
 use std::sync::atomic::Ordering;
+use tracing::instrument;
 
 fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
     let trimmed_user_id = user_id.trim();
@@ -67,7 +67,11 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     if normalized_backend_base.is_some() {
         if should_skip_immediate_turso_refresh(&app) {
             if let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() {
-                super::turso_sync::schedule_turso_config_refresh(app.clone(), generation, &config.expires_at);
+                super::turso_sync::schedule_turso_config_refresh(
+                    app.clone(),
+                    generation,
+                    &config.expires_at,
+                );
                 update_auth_state(&app, |state| {
                     state.last_turso_error = None;
                 });
@@ -75,7 +79,9 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
                     "[DESKTOP_RUNTIME] reusing persisted Turso config after auth handoff; skipping immediate activity.db reload"
                 );
             }
-        } else if let Err(error) = super::turso_sync::refresh_turso_sync_config(app.clone(), generation).await {
+        } else if let Err(error) =
+            super::turso_sync::refresh_turso_sync_config(app.clone(), generation).await
+        {
             warn!(error = %error, "Desktop Turso sync refresh failed after auth handoff");
         }
     }

@@ -25,6 +25,11 @@ import typesense
 from typesense.exceptions import ObjectNotFound, TypesenseClientError
 from sqlalchemy import select
 
+from services.privacy_policy import (
+    can_send_to_cloud,
+    data_class_for_typesense_collection,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -267,6 +272,22 @@ class SearchService:
     def is_available(self) -> bool:
         """Check if search service is available"""
         return self._initialized and self.client is not None
+
+    def _can_use_collection(self, collection: str, *, purpose: str = "search") -> bool:
+        decision = can_send_to_cloud(
+            data_class=data_class_for_typesense_collection(collection),
+            destination="typesense",
+            purpose=purpose,
+        )
+        if not decision.allowed:
+            logger.info(
+                "Typesense %s blocked by privacy policy collection=%s reason=%s",
+                purpose,
+                collection,
+                decision.reason,
+            )
+            return False
+        return True
     
     # ================================
     # COLLECTION MANAGEMENT
@@ -275,6 +296,8 @@ class SearchService:
     async def ensure_collections(self):
         """Create collections if they don't exist"""
         if not self.is_available:
+            return
+        if not self._can_use_collection("habits"):
             return
         
         schemas = [
@@ -305,7 +328,7 @@ class SearchService:
     
     async def index_habit(self, habit: Dict[str, Any], user_id: str):
         """Index a single habit"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("habits"):
             return
         
         try:
@@ -349,7 +372,7 @@ class SearchService:
     
     async def index_habit_log(self, log: Dict[str, Any], user_id: str, habit_name: str = None, category: str = None):
         """Index a single habit log"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("habit_logs"):
             return
         
         try:
@@ -388,6 +411,68 @@ class SearchService:
             pass
         except Exception as e:
             logger.error(f"❌ Failed to delete log index {log_id}: {e}")
+
+    async def delete_user_indexed_documents(self, user_id: str, collections: Optional[List[str]] = None) -> Dict[str, Any]:
+        """Remove all indexed documents for a user from supported collections."""
+        if not self.is_available or not self.client:
+            return {
+                "status": "unavailable",
+                "deleted_count": 0,
+                "collections": [],
+                "error": "Typesense is not configured.",
+            }
+
+        target_collections = collections or [
+            "habits",
+            "habit_logs",
+            "ai_messages",
+            "computer_activity",
+            "artifacts",
+            "workflows",
+            "ai_facts",
+            "log_phrases",
+        ]
+        receipts: List[Dict[str, Any]] = []
+        deleted_count = 0
+        filter_value = str(user_id).replace("`", "\\`")
+        filter_by = f"user_id:=`{filter_value}`"
+
+        for collection in target_collections:
+            try:
+                result = self.client.collections[collection].documents.delete({"filter_by": filter_by})
+                count = int(
+                    result.get("num_deleted")
+                    or result.get("deleted")
+                    or result.get("count")
+                    or 0
+                ) if isinstance(result, dict) else 0
+                deleted_count += count
+                receipts.append({
+                    "collection": collection,
+                    "status": "deleted",
+                    "deleted_count": count,
+                    "result": result,
+                })
+            except ObjectNotFound:
+                receipts.append({
+                    "collection": collection,
+                    "status": "missing",
+                    "deleted_count": 0,
+                })
+            except Exception as e:
+                logger.warning("Typesense user erasure failed for %s: %s", collection, e)
+                receipts.append({
+                    "collection": collection,
+                    "status": "failed",
+                    "deleted_count": 0,
+                    "error": str(e),
+                })
+
+        return {
+            "status": "completed" if all(item["status"] in {"deleted", "missing"} for item in receipts) else "partial",
+            "deleted_count": deleted_count,
+            "collections": receipts,
+        }
     
     # ================================
     # INDEXING - AI MESSAGES
@@ -395,7 +480,7 @@ class SearchService:
     
     async def index_ai_message(self, message: Dict[str, Any], user_id: str, topics: List[str] = None):
         """Index an AI chat message"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("ai_messages"):
             return
         
         try:
@@ -421,7 +506,7 @@ class SearchService:
     
     async def index_activity(self, activity: Dict[str, Any], user_id: str):
         """Index computer activity data"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("computer_activity"):
             return
         
         try:
@@ -445,7 +530,7 @@ class SearchService:
             logger.error(f"❌ Failed to index activity: {e}")
 
     async def index_artifact(self, artifact: Dict[str, Any], user_id: str):
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("artifacts"):
             return
         try:
             doc = {
@@ -470,7 +555,7 @@ class SearchService:
             logger.error(f"❌ Failed to index artifact {artifact.get('id')}: {e}")
 
     async def index_workflow_definition(self, workflow: Dict[str, Any], user_id: str):
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("workflows"):
             return
         try:
             schedule = workflow.get("schedule") or {}
@@ -499,7 +584,7 @@ class SearchService:
             logger.error(f"❌ Failed to index workflow {workflow.get('id')}: {e}")
 
     async def index_ai_fact(self, fact: Dict[str, Any], user_id: str):
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("ai_facts"):
             return
         try:
             value = fact.get("value") or {}
@@ -540,7 +625,7 @@ class SearchService:
         to the Caffeine Consumption habit, we store the raw text. Next time
         they type "I consumed", Typesense prefix search will match it.
         """
-        if not self.is_available or not input_text:
+        if not self.is_available or not input_text or not self._can_use_collection("log_phrases"):
             return
         
         try:
@@ -570,7 +655,7 @@ class SearchService:
     
     async def bulk_index_habits(self, habits: List[Dict], user_id: str):
         """Bulk index multiple habits"""
-        if not self.is_available or not habits:
+        if not self.is_available or not habits or not self._can_use_collection("habits"):
             return
         
         docs = []
@@ -601,7 +686,7 @@ class SearchService:
     
     async def bulk_index_logs(self, logs: List[Dict], user_id: str):
         """Bulk index multiple habit logs"""
-        if not self.is_available or not logs:
+        if not self.is_available or not logs or not self._can_use_collection("habit_logs"):
             return
         
         docs = []
@@ -648,10 +733,21 @@ class SearchService:
         if not self.is_available:
             return self._fallback_search(query)
 
+        requested_collections = collections or ["habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts"]
+        allowed_collections = [
+            collection
+            for collection in requested_collections
+            if self._can_use_collection(collection)
+        ]
+        if not allowed_collections:
+            fallback = self._fallback_search(query)
+            fallback["privacy_blocked"] = True
+            return fallback
+
         if not query or len(query.strip()) == 0:
             return await self._get_recent_items(user_id, limit)
 
-        collections = collections or ["habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts"]
+        collections = allowed_collections
         
         searches = []
         
@@ -777,7 +873,7 @@ class SearchService:
         include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         """Search habits with autocomplete"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("habits"):
             return []
         
         filter_by = f"user_id:={user_id}"
@@ -826,7 +922,7 @@ class SearchService:
         limit: int = 50,
     ) -> Dict[str, Any]:
         """Search habit logs with filters"""
-        if not self.is_available:
+        if not self.is_available or not self._can_use_collection("habit_logs"):
             return {"hits": [], "found": 0}
         
         filter_by = f"user_id:={user_id}"
@@ -924,6 +1020,15 @@ class SearchService:
             "facts": {"hits": [], "found": 0},
         }
         
+        allowed_collections = {
+            collection
+            for collection in ("habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts")
+            if self._can_use_collection(collection)
+        }
+        if self.is_available and not allowed_collections:
+            result["privacy_blocked"] = True
+            return result
+
         if not self.is_available:
             try:
                 from database.connection import get_db_session
@@ -999,60 +1104,66 @@ class SearchService:
         
         try:
             # Get recent habits
-            habits_result = self.client.collections["habits"].documents.search({
-                "q": "*",
-                "query_by": "name",
-                "filter_by": f"user_id:={user_id} && is_active:=true",
-                "sort_by": "last_logged_at:desc",
-                "per_page": limit,
-            })
-            result["habits"] = self._format_results(habits_result)
+            if "habits" in allowed_collections:
+                habits_result = self.client.collections["habits"].documents.search({
+                    "q": "*",
+                    "query_by": "name",
+                    "filter_by": f"user_id:={user_id} && is_active:=true",
+                    "sort_by": "last_logged_at:desc",
+                    "per_page": limit,
+                })
+                result["habits"] = self._format_results(habits_result)
             
             # Get recent logs
-            logs_result = self.client.collections["habit_logs"].documents.search({
-                "q": "*",
-                "query_by": "habit_name",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "date_timestamp:desc",
-                "per_page": limit,
-            })
-            result["logs"] = self._format_results(logs_result)
+            if "habit_logs" in allowed_collections:
+                logs_result = self.client.collections["habit_logs"].documents.search({
+                    "q": "*",
+                    "query_by": "habit_name",
+                    "filter_by": f"user_id:={user_id}",
+                    "sort_by": "date_timestamp:desc",
+                    "per_page": limit,
+                })
+                result["logs"] = self._format_results(logs_result)
 
-            messages_result = self.client.collections["ai_messages"].documents.search({
-                "q": "*",
-                "query_by": "content",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "created_at:desc",
-                "per_page": min(limit, 5),
-            })
-            result["conversations"] = self._format_results(messages_result)
+            if "ai_messages" in allowed_collections:
+                messages_result = self.client.collections["ai_messages"].documents.search({
+                    "q": "*",
+                    "query_by": "content",
+                    "filter_by": f"user_id:={user_id}",
+                    "sort_by": "created_at:desc",
+                    "per_page": min(limit, 5),
+                })
+                result["conversations"] = self._format_results(messages_result)
 
-            artifacts_result = self.client.collections["artifacts"].documents.search({
-                "q": "*",
-                "query_by": "title",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "is_pinned:desc,updated_at:desc",
-                "per_page": limit,
-            })
-            result["artifacts"] = self._format_results(artifacts_result)
+            if "artifacts" in allowed_collections:
+                artifacts_result = self.client.collections["artifacts"].documents.search({
+                    "q": "*",
+                    "query_by": "title",
+                    "filter_by": f"user_id:={user_id}",
+                    "sort_by": "is_pinned:desc,updated_at:desc",
+                    "per_page": limit,
+                })
+                result["artifacts"] = self._format_results(artifacts_result)
 
-            workflows_result = self.client.collections["workflows"].documents.search({
-                "q": "*",
-                "query_by": "name",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "updated_at:desc",
-                "per_page": limit,
-            })
-            result["workflows"] = self._format_results(workflows_result)
+            if "workflows" in allowed_collections:
+                workflows_result = self.client.collections["workflows"].documents.search({
+                    "q": "*",
+                    "query_by": "name",
+                    "filter_by": f"user_id:={user_id}",
+                    "sort_by": "updated_at:desc",
+                    "per_page": limit,
+                })
+                result["workflows"] = self._format_results(workflows_result)
 
-            facts_result = self.client.collections["ai_facts"].documents.search({
-                "q": "*",
-                "query_by": "predicate",
-                "filter_by": f"user_id:={user_id} && status:=active",
-                "sort_by": "updated_at:desc",
-                "per_page": min(limit, 6),
-            })
-            result["facts"] = self._format_results(facts_result)
+            if "ai_facts" in allowed_collections:
+                facts_result = self.client.collections["ai_facts"].documents.search({
+                    "q": "*",
+                    "query_by": "predicate",
+                    "filter_by": f"user_id:={user_id} && status:=active",
+                    "sort_by": "updated_at:desc",
+                    "per_page": min(limit, 6),
+                })
+                result["facts"] = self._format_results(facts_result)
             
         except Exception as e:
             logger.error(f"❌ Failed to get recent items: {e}")

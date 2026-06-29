@@ -8,6 +8,7 @@ import {
   Monitor,
   MapPin,
   ChevronDown,
+  ShieldCheck,
 } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
@@ -22,12 +23,13 @@ import {
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
+import { PrivacySettingsPanel } from './privacy-settings-panel';
 
 // ---------------------------------------------------------------------------
 // Types & constants
 // ---------------------------------------------------------------------------
 
-export type SettingsTabId = 'account' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+export type SettingsTabId = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 type SettingsView = SettingsTabId;
 
@@ -53,12 +55,13 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 
 const TABS: Record<SettingsTabId, TabConfig> = {
   account: { label: 'General', icon: User2 },
+  privacy: { label: 'Privacy', icon: ShieldCheck },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
   'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
-const TAB_ORDER: SettingsTabId[] = ['account', 'computer-tracking', 'place-tagging', 'apple-health'];
+const TAB_ORDER: SettingsTabId[] = ['account', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -469,6 +472,14 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView }: Settings
                     Delete account
                   </button>
                 </SettingsSection>
+            </div>
+          )}
+
+          {/* Privacy tab */}
+          {activeTab === 'privacy' && (
+            <div className="settings-embedded-pane mx-auto w-full max-w-[760px] px-10 py-8">
+                <h1 className="mb-8 text-[20px] font-semibold leading-none text-[#4a4a4a]">Privacy</h1>
+                <PrivacySettingsPanel />
             </div>
           )}
 

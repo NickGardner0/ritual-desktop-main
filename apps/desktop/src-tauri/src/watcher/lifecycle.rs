@@ -7,11 +7,11 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use super::diagnostics::{get_browser_extension_diagnostics, watcher_server_statuses};
 use super::config::default_browser_heartbeat_port;
+use super::diagnostics::{get_browser_extension_diagnostics, watcher_server_statuses};
 use super::internal::{
-    DEVICE_ID, WATCHER_LAST_RESTART_REASON,
-    WATCHER_LAST_STARTED_AT, WATCHER_PROCESS, WATCHER_RESTART_COUNT,
+    DEVICE_ID, WATCHER_LAST_RESTART_REASON, WATCHER_LAST_STARTED_AT, WATCHER_PROCESS,
+    WATCHER_RESTART_COUNT,
 };
 use tracing::instrument;
 

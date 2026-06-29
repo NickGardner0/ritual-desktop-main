@@ -1,6 +1,6 @@
 'use client';
 
-import { Blocks, ListCollapse, Palette, Plug2, Plus, Settings, Upload } from 'lucide-react';
+import { ListCollapse, Plug2, Plus, Settings, Upload } from 'lucide-react';
 import { RitualWordmark } from '@/components/ritual-wordmark';
 import { StartCommand } from './OverviewStartCommands';
 
@@ -45,8 +45,6 @@ export function OverviewEmptyState({
             onClick={onOpenCommandPalette}
           />
           <StartCommand icon={Settings} label="Open Settings" shortcut="⌘," onClick={onOpenSettings} />
-          <StartCommand icon={Palette} label="Customize Appearance" onClick={onOpenSettings} />
-          <StartCommand icon={Blocks} label="Explore Integrations" onClick={onOpenIntegrations} />
         </div>
       </div>
     </div>

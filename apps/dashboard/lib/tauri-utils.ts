@@ -54,8 +54,8 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 
-const DEFAULT_WINDOW_WIDTH = 1150;
-const DEFAULT_WINDOW_HEIGHT = 800;
+const DEFAULT_WINDOW_WIDTH = 1330;
+const DEFAULT_WINDOW_HEIGHT = 820;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_HOME_WINDOW_WIDTH = 860;
@@ -127,7 +127,7 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
-export type DesktopSettingsView = 'account' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+export type DesktopSettingsView = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
   await invokeDesktopCommand('open_settings_window', { initialView });

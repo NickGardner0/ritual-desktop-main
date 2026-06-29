@@ -51,6 +51,10 @@ export function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRang
     && getInclusiveRangeDays(params) <= COMPUTER_ACTIVITY_POLICY.DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS
 }
 
+export function shouldReadDesktopAggregateLocalFirst(params: ComputerActivityRangeParams) {
+  return shouldPreferRecentDesktopLocalTruth(params)
+}
+
 export function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
   if (!isTauri()) return true
   return rangeIncludesLocalToday(params)

@@ -60,6 +60,7 @@
     "repo:check:generated-client": "node scripts/check-generated-backend-client.mjs",
     "repo:check:dashboard-line-budget": "node scripts/check-dashboard-line-budget.mjs && node scripts/check-performance-budgets.mjs",
     "repo:check:import-cycles": "node scripts/check-import-cycles.mjs",
+    "privacy:verify": "node scripts/verify-privacy-guardrails.mjs",
     "smoke:prod:read-models": "node scripts/smoke-production-read-models.mjs",
     "perf:baseline": "node scripts/collect-performance-baseline.mjs",
     "perf:runtime": "node scripts/measure-runtime-performance.mjs",

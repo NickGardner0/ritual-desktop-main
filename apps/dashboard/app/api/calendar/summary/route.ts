@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
 import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
+import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -30,6 +31,13 @@ function formatMs(ms: number): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const privacyBlock = privacyBlockResponse(req, {
+      dataClass: 'ai_content',
+      destination: 'openai',
+      purpose: 'ai',
+    });
+    if (privacyBlock) return privacyBlock;
+
     const { userId, getToken } = await auth();
     if (!userId) {
       return new Response('Unauthorized', { status: 401 });
@@ -46,7 +54,11 @@ export async function POST(req: NextRequest) {
       return new Response('Missing date', { status: 400 });
     }
 
-    const headers = buildBackendAuthHeaders({ userId, token });
+    const headers = {
+      ...buildBackendAuthHeaders({ userId, token }),
+      'X-Ritual-Privacy-Mode': req.headers.get('x-ritual-privacy-mode') || 'local_only',
+      'X-Ritual-Cloud-Consents': req.headers.get('x-ritual-cloud-consents') || '',
+    };
 
     // Date formatting
     const [year, month, day] = date.split('-').map(Number);

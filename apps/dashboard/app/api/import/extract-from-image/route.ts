@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import OpenAI from "openai";
+import { privacyBlockResponse } from "@/lib/privacy/server-policy";
 
 // =====================
 // TYPES
@@ -20,6 +21,13 @@ interface ExtractedData {
 
 export async function POST(request: NextRequest) {
   try {
+    const privacyBlock = privacyBlockResponse(request, {
+      dataClass: "screenshot",
+      destination: "openai",
+      purpose: "vision",
+    });
+    if (privacyBlock) return privacyBlock;
+
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -127,7 +135,6 @@ Only extract data you are confident about. Be precise with numbers.`;
     });
     
     const rawContent = response.choices[0].message.content;
-    console.log("🔍 OpenAI vision response:", rawContent);
     
     if (!rawContent) {
       return NextResponse.json({

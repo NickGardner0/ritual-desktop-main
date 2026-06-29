@@ -38,7 +38,6 @@ import type {
   ArtifactDetail,
   ArtifactKind,
   ArtifactLink,
-  ArtifactListResponse,
   ConversationQueueItem,
   ReportRun,
   ReportRunListResponse,
@@ -46,10 +45,7 @@ import type {
   ReportScheduleListResponse,
   WorkflowDefinition,
   WorkflowDefinitionFamily,
-  WorkflowDefinitionListResponse,
   WorkflowRun,
-  WorkflowRunListResponse,
-  WorkflowRunQueueResponse,
   WorkflowStatus,
 } from "@/lib/workflows/types";
 import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
@@ -69,12 +65,16 @@ import {
   KIND_STYLES,
   RUN_STATUS_STYLES,
   WORKFLOW_STATUS_STYLES,
-  buildArtifactBodyFromEditor,
   buildArtifactEditorState,
   buildDefinitionPayload,
   buildDefaultProjectTimeRange,
   buildUnifiedRuns,
+  fetchArtifactDetailForReportsSurface,
+  fetchArtifactLibraryForReportsSurface,
+  fetchArtifactsForReportsSurface,
   fetchJson,
+  fetchWorkflowDefinitionsForReportsSurface,
+  fetchWorkflowRunsForReportsSurface,
   formatDateTime,
   formatKind,
   formatLocalClock,
@@ -82,6 +82,10 @@ import {
   formatProjectDuration,
   formatScheduleSummary,
   isProfileSchedulable,
+  patchWorkflowDefinitionForReportsSurface,
+  runWorkflowForReportsSurface,
+  saveArtifactForReportsSurface,
+  saveWorkflowDefinitionForReportsSurface,
   toEditorState,
   type ArtifactEditorState,
   type ProjectTimeRollupResponse,
@@ -112,19 +116,19 @@ export function ReportsClient() {
 
   const artifactsQuery = useQuery({
     queryKey: ["artifacts", filter],
-    queryFn: () => fetchJson<ArtifactListResponse>(`/api/artifacts?limit=40${filter === "all" ? "" : `&kind=${filter}`}`),
+    queryFn: () => fetchArtifactsForReportsSurface(filter),
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const artifactLibraryQuery = useQuery({
     queryKey: ["artifacts-library"],
-    queryFn: () => fetchJson<ArtifactListResponse>("/api/artifacts?limit=80"),
+    queryFn: fetchArtifactLibraryForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const artifactDetailQuery = useQuery({
     queryKey: ["artifact-detail", selectedArtifactId],
-    queryFn: () => fetchJson<ArtifactDetail>(`/api/artifacts/${selectedArtifactId}`),
+    queryFn: () => fetchArtifactDetailForReportsSurface(selectedArtifactId),
     enabled: Boolean(selectedArtifactId),
     staleTime: QUERY_POLICY.general.staleTime,
   });
@@ -143,7 +147,7 @@ export function ReportsClient() {
 
   const workflowDefinitionsQuery = useQuery({
     queryKey: ["workflow-definitions"],
-    queryFn: async () => (await fetchJson<WorkflowDefinitionListResponse>("/api/workflows/definitions")).items || [],
+    queryFn: fetchWorkflowDefinitionsForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
@@ -167,7 +171,7 @@ export function ReportsClient() {
 
   const workflowRunsQuery = useQuery({
     queryKey: ["workflow-runs", "reports-surface"],
-    queryFn: async () => (await fetchJson<WorkflowRunListResponse>("/api/workflows/runs?limit=12")).items || [],
+    queryFn: () => fetchWorkflowRunsForReportsSurface({ limit: 12 }),
     staleTime: QUERY_POLICY.general.staleTime,
     refetchInterval: 5_000,
   });
@@ -192,7 +196,7 @@ export function ReportsClient() {
     queryKey: ["workflow-runs", selectedDefinition?.id, "detail-surface"],
     queryFn: async () => {
       if (!selectedDefinition) return [] as WorkflowRun[];
-      return (await fetchJson<WorkflowRunListResponse>(`/api/workflows/runs?definition_id=${selectedDefinition.id}&limit=12`)).items || [];
+      return fetchWorkflowRunsForReportsSurface({ definitionId: selectedDefinition.id, limit: 12 });
     },
     enabled: Boolean(selectedDefinition),
     staleTime: QUERY_POLICY.general.staleTime,
@@ -202,17 +206,13 @@ export function ReportsClient() {
   const latestWorkflowArtifactId = (selectedWorkflowRunsQuery.data || []).find((run) => run.artifact_id)?.artifact_id || null;
   const latestWorkflowArtifactQuery = useQuery({
     queryKey: ["artifact-detail", latestWorkflowArtifactId, "workflow-latest"],
-    queryFn: () => fetchJson<ArtifactDetail>(`/api/artifacts/${latestWorkflowArtifactId}`),
+    queryFn: () => fetchArtifactDetailForReportsSurface(latestWorkflowArtifactId),
     enabled: Boolean(latestWorkflowArtifactId),
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const runWorkflowMutation = useMutation({
-    mutationFn: async (definitionId: string) => {
-      return fetchJson<WorkflowRunQueueResponse>(`/api/workflows/definitions/${definitionId}/run`, {
-        method: "POST",
-      });
-    },
+    mutationFn: runWorkflowForReportsSurface,
     onSuccess: (_, definitionId) => {
       const definitionName = workflowDefinitions.find((item) => item.id === definitionId)?.name || "Workflow";
       toast.success(`${definitionName} queued.`);
@@ -229,9 +229,14 @@ export function ReportsClient() {
   const saveWorkflowMutation = useMutation({
     mutationFn: async ({ status }: { status: WorkflowStatus }) => {
       if (!editor) throw new Error("No workflow selected for editing.");
+      const payload = buildDefinitionPayload(editor, status);
+      const selected = workflowDefinitions.find((item) => item.id === editor.id);
+      if (selected) {
+        return saveWorkflowDefinitionForReportsSurface({ definition: selected, patch: payload });
+      }
       return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${editor.id}`, {
         method: "PATCH",
-        body: JSON.stringify(buildDefinitionPayload(editor, status)),
+        body: JSON.stringify(payload),
       });
     },
     onSuccess: () => {
@@ -249,31 +254,7 @@ export function ReportsClient() {
   const artifactEditorMutation = useMutation({
     mutationFn: async () => {
       if (!artifactEditor) throw new Error("No artifact editor state available.");
-      const body = {
-        kind: artifactEditor.kind,
-        title: artifactEditor.title,
-        status: "published",
-        summary: artifactEditor.summary,
-        folder_key: artifactEditor.folder_key || null,
-        is_pinned: artifactEditor.is_pinned,
-        preview_text: artifactEditor.summary,
-        body: buildArtifactBodyFromEditor(artifactEditor.body_blocks),
-        period: { start: null, end: null, timezone: "America/New_York" },
-        metadata: { edited_from: "reports_surface" },
-        source: { type: artifactEditor.id ? selectedArtifact?.source.type || "manual" : "manual", id: artifactEditor.id ? selectedArtifact?.source.id || null : null },
-      };
-
-      if (artifactEditor.id) {
-        return fetchJson<ArtifactDetail>(`/api/artifacts/${artifactEditor.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ ...body, base_version: artifactEditor.base_version }),
-        });
-      }
-
-      return fetchJson<ArtifactDetail>("/api/artifacts", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      return saveArtifactForReportsSurface({ artifactEditor, selectedArtifact });
     },
     onSuccess: (artifact) => {
       toast.success(`${formatKind(artifact.kind)} saved.`);
@@ -314,21 +295,18 @@ export function ReportsClient() {
 
   const convertAmbientMutation = useMutation({
     mutationFn: async (definition: WorkflowDefinition) => {
-      return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${definition.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          definition_family: "routine",
-          trigger_type: "schedule",
-          signal_kind: null,
-          status: "draft",
-          action_profile_id: definition.action_profile.id,
-          schedule: definition.schedule,
-          config: definition.config,
-          ranking: definition.ranking,
-          quiet_hours: definition.quiet_hours,
-          cooldown_minutes: definition.cooldown_minutes,
-          delivery: definition.delivery,
-        }),
+      return patchWorkflowDefinitionForReportsSurface(definition, {
+        definition_family: "routine",
+        trigger_type: "schedule",
+        signal_kind: null,
+        status: "draft",
+        action_profile_id: definition.action_profile.id,
+        schedule: definition.schedule,
+        config: definition.config,
+        ranking: definition.ranking,
+        quiet_hours: definition.quiet_hours,
+        cooldown_minutes: definition.cooldown_minutes,
+        delivery: definition.delivery,
       });
     },
     onSuccess: (definition) => {
@@ -345,12 +323,8 @@ export function ReportsClient() {
     mutationFn: async (definition: WorkflowDefinition) => {
       const now = new Date();
       const end = new Date(now.getTime() + 4 * 60 * 60 * 1000);
-      return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${definition.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          quiet_hours: { start: formatLocalClock(now), end: formatLocalClock(end) },
-        }),
-      });
+      const quietHours = { start: formatLocalClock(now), end: formatLocalClock(end) };
+      return patchWorkflowDefinitionForReportsSurface(definition, { quiet_hours: quietHours });
     },
     onSuccess: () => {
       toast.success("Ambient agent snoozed for 4 hours.");
@@ -363,10 +337,7 @@ export function ReportsClient() {
 
   const dismissAmbientMutation = useMutation({
     mutationFn: async (definition: WorkflowDefinition) => {
-      return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${definition.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: "paused" }),
-      });
+      return patchWorkflowDefinitionForReportsSurface(definition, { status: "paused" });
     },
     onSuccess: () => {
       toast.success("Ambient agent paused.");

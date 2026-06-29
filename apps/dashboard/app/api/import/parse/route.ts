@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import JSZip from "jszip";
 import { parseStringPromise } from "xml2js";
+import { privacyBlockResponse } from "@/lib/privacy/server-policy";
 
 // =====================
 // TYPES
@@ -223,7 +224,7 @@ function parseCSVLine(line: string): string[] {
 // SCREENSHOT PARSING (AI)
 // =====================
 
-async function parseScreenshot(file: File) {
+async function parseScreenshot(file: File, request: NextRequest) {
   // Convert file to base64
   const arrayBuffer = await file.arrayBuffer();
   const base64 = Buffer.from(arrayBuffer).toString("base64");
@@ -237,7 +238,11 @@ async function parseScreenshot(file: File) {
     // Call our AI extraction endpoint
     const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || ""}/api/import/extract-from-image`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "X-Ritual-Privacy-Mode": request.headers.get("x-ritual-privacy-mode") || "local_only",
+        "X-Ritual-Cloud-Consents": request.headers.get("x-ritual-cloud-consents") || "",
+      },
       body: JSON.stringify({
         image: `data:${mimeType};base64,${base64}`,
         filename: file.name,
@@ -658,7 +663,15 @@ export async function POST(request: NextRequest) {
         result = await parseCSV(file);
         break;
       case "screenshot":
-        result = await parseScreenshot(file);
+        {
+          const privacyBlock = privacyBlockResponse(request, {
+            dataClass: "screenshot",
+            destination: "openai",
+            purpose: "vision",
+          });
+          if (privacyBlock) return privacyBlock;
+          result = await parseScreenshot(file, request);
+        }
         break;
       case "whoop":
         result = await parseWhoopExport(file);
@@ -682,4 +695,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

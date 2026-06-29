@@ -7,9 +7,34 @@ from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from models.habit_models import HabitCreate, HabitLogCreate
+from services.privacy_policy import (
+    can_send_to_cloud,
+    request_cloud_consents,
+    request_privacy_mode,
+)
 from services.screenshot_analyzer import analyze_screenshot_for_habits
 
 logger = logging.getLogger(__name__)
+
+
+def _enforce_vision_consent(request: Request) -> None:
+    decision = can_send_to_cloud(
+        data_class="screenshot",
+        destination="openai",
+        purpose="vision",
+        mode=request_privacy_mode(request.headers),
+        consents=request_cloud_consents(request.headers),
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Cloud consent required",
+                "privacy_blocked": True,
+                "reason": decision.reason,
+                "required_consent": "vision",
+            },
+        )
 
 
 def create_screenshot_router(
@@ -46,6 +71,8 @@ def create_screenshot_router(
             - logged_at: When the log was created
         """
         try:
+            _enforce_vision_consent(request)
+
             # Validate file type
             if not file.content_type or not file.content_type.startswith("image/"):
                 raise HTTPException(
@@ -219,6 +246,8 @@ def create_screenshot_router(
             - available_habits: List of user's habits for selection
         """
         try:
+            _enforce_vision_consent(request)
+
             # Validate file type
             if not file.content_type or not file.content_type.startswith("image/"):
                 raise HTTPException(

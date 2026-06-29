@@ -10,8 +10,8 @@ use super::config::{
     EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS, WATCHER_HEARTBEAT_ENDPOINTS,
 };
 use super::internal::{
-    WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS, WATCHER_LAST_RESTART_REASON,
-    WATCHER_LAST_STARTED_AT, WATCHER_PROCESS, WATCHER_RESTART_COUNT,
+    WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS, WATCHER_LAST_RESTART_REASON, WATCHER_LAST_STARTED_AT,
+    WATCHER_PROCESS, WATCHER_RESTART_COUNT,
 };
 use super::lifecycle::{read_local_watcher_freshness, start_watcher_sync, stop_watcher};
 use super::permissions::check_accessibility_permission;

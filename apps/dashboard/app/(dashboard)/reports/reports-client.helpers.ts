@@ -2,10 +2,14 @@ import type {
   ActionProfile,
   ArtifactDetail,
   ArtifactKind,
+  ArtifactListResponse,
   ReportRun,
   ReportSchedule,
   WorkflowDefinition,
+  WorkflowDefinitionListResponse,
   WorkflowRun,
+  WorkflowRunListResponse,
+  WorkflowRunQueueResponse,
   WorkflowStatus,
 } from "@/lib/workflows/types";
 import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
@@ -105,6 +109,24 @@ export interface ProjectTimeRollupResponse {
   source?: string;
 }
 
+export type WorkflowDefinitionPatch = Partial<
+  Pick<
+    WorkflowDefinition,
+    | "definition_family"
+    | "trigger_type"
+    | "signal_kind"
+    | "status"
+    | "schedule"
+    | "config"
+    | "ranking"
+    | "quiet_hours"
+    | "cooldown_minutes"
+    | "delivery"
+  >
+> & {
+  action_profile_id?: string;
+};
+
 export const EMPTY_BLOCK: EditableArtifactBlock = {
   id: "block-new",
   type: "summary",
@@ -131,6 +153,99 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function fetchArtifactsForReportsSurface(filter: "all" | ArtifactKind): Promise<ArtifactListResponse> {
+  return fetchJson<ArtifactListResponse>(`/api/artifacts?limit=40${filter === "all" ? "" : `&kind=${filter}`}`);
+}
+
+export async function fetchArtifactLibraryForReportsSurface(): Promise<ArtifactListResponse> {
+  return fetchJson<ArtifactListResponse>("/api/artifacts?limit=80");
+}
+
+export async function fetchArtifactDetailForReportsSurface(artifactId: string | null): Promise<ArtifactDetail | null> {
+  return fetchJson<ArtifactDetail>(`/api/artifacts/${artifactId}`);
+}
+
+export async function fetchWorkflowDefinitionsForReportsSurface(): Promise<WorkflowDefinition[]> {
+  return (await fetchJson<WorkflowDefinitionListResponse>("/api/workflows/definitions")).items || [];
+}
+
+export async function fetchWorkflowRunsForReportsSurface({
+  definitionId,
+  limit = 12,
+}: {
+  definitionId?: string | null;
+  limit?: number;
+} = {}): Promise<WorkflowRun[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (definitionId) params.set("definition_id", definitionId);
+  return (await fetchJson<WorkflowRunListResponse>(`/api/workflows/runs?${params.toString()}`)).items || [];
+}
+
+export async function runWorkflowForReportsSurface(definitionId: string): Promise<WorkflowRunQueueResponse> {
+  return fetchJson<WorkflowRunQueueResponse>(`/api/workflows/definitions/${definitionId}/run`, {
+    method: "POST",
+  });
+}
+
+export async function saveWorkflowDefinitionForReportsSurface({
+  definition,
+  patch,
+}: {
+  definition: WorkflowDefinition;
+  patch: ReturnType<typeof buildDefinitionPayload>;
+}): Promise<WorkflowDefinition> {
+  return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${definition.id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function patchWorkflowDefinitionForReportsSurface(
+  definition: WorkflowDefinition,
+  patch: WorkflowDefinitionPatch,
+): Promise<WorkflowDefinition> {
+  return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${definition.id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function saveArtifactForReportsSurface({
+  artifactEditor,
+  selectedArtifact,
+}: {
+  artifactEditor: ArtifactEditorState;
+  selectedArtifact?: ArtifactDetail | null;
+}): Promise<ArtifactDetail> {
+  const body = {
+    kind: artifactEditor.kind,
+    title: artifactEditor.title,
+    status: "published" as const,
+    summary: artifactEditor.summary,
+    folder_key: artifactEditor.folder_key || null,
+    is_pinned: artifactEditor.is_pinned,
+    preview_text: artifactEditor.summary,
+    body: buildArtifactBodyFromEditor(artifactEditor.body_blocks),
+    period: { start: null, end: null, timezone: "America/New_York" },
+    metadata: { edited_from: "reports_surface" },
+    source: {
+      type: artifactEditor.id ? selectedArtifact?.source.type || "manual" : "manual",
+      id: artifactEditor.id ? selectedArtifact?.source.id || null : null,
+    },
+  };
+
+  if (artifactEditor.id) {
+    return fetchJson<ArtifactDetail>(`/api/artifacts/${artifactEditor.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ ...body, base_version: artifactEditor.base_version }),
+    });
+  }
+  return fetchJson<ArtifactDetail>("/api/artifacts", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function formatKind(kind: ArtifactKind): string {

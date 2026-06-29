@@ -145,6 +145,42 @@ interface CommandPaletteProps {
   density?: "default" | "tight";
 }
 
+function getLocalQuickActions(q: string): QuickAction[] {
+  const actions: QuickAction[] = [
+    { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
+    { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
+    { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
+    { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
+    { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
+    { id: "open-reports", name: "Open reports", keywords: ["reports"], action: "navigate", path: "/reports", icon: "file" },
+    { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
+    { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+    { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
+  ];
+
+  if (!q) return actions;
+  const qLower = q.toLowerCase();
+  return actions.filter(a =>
+    a.name.toLowerCase().includes(qLower) ||
+    a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
+  );
+}
+
+function getFallbackResults(q: string): SearchResults {
+  const filteredActions = getLocalQuickActions(q);
+
+  return {
+    query: q,
+    quick_actions: filteredActions.slice(0, 6),
+    habits: { hits: [], found: 0 },
+    logs: { hits: [], found: 0 },
+    conversations: { hits: [], found: 0 },
+    activity: { hits: [], found: 0 },
+    fallback: true,
+  };
+}
+
 // ================================
 // COMPONENT
 // ================================
@@ -190,7 +226,7 @@ export default function CommandPalette({
   // ================================
   // SEARCH API
   // ================================
-  
+
   React.useEffect(() => {
     const fetchResults = async () => {
       setIsLoading(true);
@@ -221,50 +257,6 @@ export default function CommandPalette({
       fetchResults();
     }
   }, [debouncedQuery, open]);
-
-  // ================================
-  // FALLBACK RESULTS
-  // ================================
-  
-  const getLocalQuickActions = (q: string): QuickAction[] => {
-    const actions: QuickAction[] = [
-      { id: "log-habit", name: "Log habit", keywords: ["log", "track", "add"], action: "navigate", path: "/dashboard?view=overview&compose=log", icon: "plus" },
-      { id: "search-logs", name: "Search logs", keywords: ["find", "search", "history"], action: "navigate", path: "/activity", icon: "search" },
-      { id: "view-metrics", name: "View metrics", keywords: ["stats", "charts", "analytics", "metrics"], action: "navigate", path: "/dashboard?view=metrics", icon: "bar-chart" },
-      { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
-      { id: "ai-assistant", name: "Ask AI", keywords: ["ai", "chat", "ask", "analyze"], action: "navigate", path: "/chat", icon: "bot" },
-      { id: "open-reports", name: "Open reports", keywords: ["reports"], action: "navigate", path: "/reports", icon: "file" },
-      { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
-      { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
-      { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
-      { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
-    ];
-    
-    let filteredActions = actions;
-    if (q) {
-      const qLower = q.toLowerCase();
-      filteredActions = actions.filter(a => 
-        a.name.toLowerCase().includes(qLower) ||
-        a.keywords?.some(k => k.includes(qLower) || qLower.includes(k))
-      );
-    }
-
-    return filteredActions;
-  };
-
-  const getFallbackResults = (q: string): SearchResults => {
-    const filteredActions = getLocalQuickActions(q);
-    
-    return {
-      query: q,
-      quick_actions: filteredActions.slice(0, 6),
-      habits: { hits: [], found: 0 },
-      logs: { hits: [], found: 0 },
-      conversations: { hits: [], found: 0 },
-      activity: { hits: [], found: 0 },
-      fallback: true,
-    };
-  };
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();

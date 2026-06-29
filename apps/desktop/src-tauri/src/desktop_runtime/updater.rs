@@ -1,5 +1,4 @@
 use super::*;
-use tracing::instrument;
 #[cfg(target_os = "macos")]
 use std::ffi::CString;
 #[cfg(target_os = "macos")]
@@ -7,13 +6,18 @@ use std::os::raw::c_char;
 use std::time::{Duration, Instant};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
+use tracing::instrument;
 
 #[cfg(target_os = "macos")]
 extern "C" {
     fn show_ritual_update_install_prompt(version: *const c_char) -> bool;
 }
 
-pub(crate) fn emit_update_status<R: Runtime>(app: &AppHandle<R>, status: &str, error: Option<String>) {
+pub(crate) fn emit_update_status<R: Runtime>(
+    app: &AppHandle<R>,
+    status: &str,
+    error: Option<String>,
+) {
     let _ = app.emit(
         UPDATE_STATUS_EVENT,
         UpdateStatusPayload {
@@ -23,7 +27,11 @@ pub(crate) fn emit_update_status<R: Runtime>(app: &AppHandle<R>, status: &str, e
     );
 }
 
-pub(crate) async fn show_native_message<R: Runtime>(app: AppHandle<R>, title: String, body: String) {
+pub(crate) async fn show_native_message<R: Runtime>(
+    app: AppHandle<R>,
+    title: String,
+    body: String,
+) {
     let _ = tauri::async_runtime::spawn_blocking(move || {
         app.dialog()
             .message(body)

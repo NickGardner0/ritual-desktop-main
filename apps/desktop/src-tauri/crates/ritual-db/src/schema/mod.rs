@@ -7,6 +7,7 @@ mod metadata;
 mod migrations;
 mod recorder;
 mod sync;
+pub mod vault;
 
 pub use migrations::{get_schema_version, needs_schema_update};
 

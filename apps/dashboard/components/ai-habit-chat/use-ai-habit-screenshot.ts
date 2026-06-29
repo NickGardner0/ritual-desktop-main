@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useAnalytics } from '@/lib/analytics';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import type { AIHabitChatProps, HabitOption, ScreenshotPreview } from './ai-habit-chat.types';
 
 export type UseAiHabitScreenshotOptions = {
@@ -163,6 +164,7 @@ export function useAiHabitScreenshot({
         body: formData,
         headers: {
           'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
+          ...privacySettingsHeaders(),
         },
       });
       console.log(`⏱️ API call (upload + OpenAI): ${(performance.now() - uploadStart).toFixed(0)}ms`);

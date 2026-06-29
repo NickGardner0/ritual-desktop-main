@@ -68,6 +68,7 @@ export function Sidebar() {
     const view = searchParams.get('openSettings');
     if (
       view === 'account' ||
+      view === 'privacy' ||
       view === 'computer-tracking' ||
       view === 'place-tagging' ||
       view === 'apple-health'

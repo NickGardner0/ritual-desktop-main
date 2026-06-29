@@ -68,6 +68,7 @@ const {
   rangeIncludesLocalToday,
   shouldAllowDesktopLocalFallback,
   shouldPreferRecentDesktopLocalTruth,
+  shouldReadDesktopAggregateLocalFirst,
   shouldAllowDesktopAggregateLocalFallback,
   shouldSupplementTodayFromLocal,
   shouldUseShortRangeNativeFallback,
@@ -349,6 +350,29 @@ test("shouldPreferRecentDesktopLocalTruth requires tauri and recent range includ
 
   assert.equal(shouldPreferRecentDesktopLocalTruth(params), false);
   assert.equal(desktopPolicy.shouldPreferRecentDesktopLocalTruth(params), true);
+});
+
+test("shouldReadDesktopAggregateLocalFirst mirrors recent desktop local truth policy", () => {
+  const today = new Date();
+  const endDate = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
+  const start = new Date(`${endDate}T00:00:00`);
+  start.setDate(start.getDate() - 6);
+  const startDate = [
+    start.getFullYear(),
+    String(start.getMonth() + 1).padStart(2, "0"),
+    String(start.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  assert.equal(shouldReadDesktopAggregateLocalFirst({ startDate, endDate }), false);
+  assert.equal(desktopPolicy.shouldReadDesktopAggregateLocalFirst({ startDate, endDate }), true);
+  assert.equal(
+    desktopPolicy.shouldReadDesktopAggregateLocalFirst({ startDate: "2020-01-01", endDate: "2020-01-07" }),
+    false,
+  );
 });
 
 test("shouldSupplementTodayFromLocal is desktop-only when backend today is missing", () => {

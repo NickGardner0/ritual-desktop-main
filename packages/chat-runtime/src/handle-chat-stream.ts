@@ -41,7 +41,13 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       });
     }
 
-    const { messages, timezone, conversationId: providedConversationId, responseMode = 'text', localOverviewActivity } = body;
+    const {
+      messages,
+      timezone,
+      conversationId: providedConversationId,
+      responseMode = 'text',
+      localOverviewActivity,
+    } = body;
     const prepared = await prepareChatTurnContext(token, messages, timezone, providedConversationId, responseMode);
     const {
       conversationIdPromise,
@@ -51,7 +57,6 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       latestUserContent,
       fullSystemPrompt,
     } = prepared;
-
     const route = classifyChatRoute(latestUserContent, timezone, isVoiceMode);
     console.log(`⏱️ [${elapsed(t0)}] route=${route.retrievalRoute} forced=${route.forcedToolName || 'none'} voice=${isVoiceMode}`);
 

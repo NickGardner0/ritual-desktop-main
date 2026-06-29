@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const privacyBlock = privacyBlockResponse(request, {
+    dataClass: 'ai_content',
+    destination: 'deepgram',
+    purpose: 'voice',
+  });
+  if (privacyBlock) return privacyBlock;
+
   const { userId } = await auth();
 
   if (!userId) {
