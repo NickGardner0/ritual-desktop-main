@@ -429,6 +429,18 @@
     color: var(--text-primary);
   }
 
+  .app-window-shell::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 90;
+    pointer-events: none;
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.095),
+      inset 0 1px 0 rgba(255, 255, 255, 0.78),
+      inset 0 -1px 0 rgba(15, 23, 42, 0.06);
+  }
+
   .ritual-titlebar {
     height: var(--titlebar-height);
     background: var(--surface-chrome);
@@ -465,7 +477,8 @@
     z-index: 45;
     width: 1px;
     pointer-events: none;
-    background: var(--border-subtle);
+    background: rgba(15, 23, 42, 0.074);
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.52);
   }
 
   .ritual-sidebar-list {

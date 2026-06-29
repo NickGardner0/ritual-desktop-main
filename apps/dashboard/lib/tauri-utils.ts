@@ -54,7 +54,7 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 
-const DEFAULT_WINDOW_WIDTH = 1330;
+const DEFAULT_WINDOW_WIDTH = 1300;
 const DEFAULT_WINDOW_HEIGHT = 820;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
