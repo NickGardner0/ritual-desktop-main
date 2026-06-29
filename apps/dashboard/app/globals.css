@@ -258,11 +258,11 @@
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.34);
-  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.06);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.38);
-  --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
+  --sidebar-vibrancy-bg: rgba(248, 247, 244, 0.64);
+  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.088);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.48);
+  --titlebar-glass-bg: rgba(250, 249, 247, 0.72);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.78);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
   --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.58);
   --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.74);
@@ -270,10 +270,15 @@
   --titlebar-glass-control-text: rgba(17, 24, 39, 0.66);
   --titlebar-glass-control-text-muted: rgba(17, 24, 39, 0.46);
   --titlebar-glass-control-text-active: rgba(17, 24, 39, 0.92);
-  --titlebar-glass-border: rgba(15, 23, 42, 0.052);
-  --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
+  --titlebar-glass-border: rgba(15, 23, 42, 0.082);
+  --titlebar-glass-highlight: rgba(255, 255, 255, 0.42);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
+  --window-frame-border: rgba(15, 23, 42, 0.135);
+  --window-frame-border-muted: rgba(15, 23, 42, 0.086);
+  --window-frame-bottom: rgba(15, 23, 42, 0.072);
+  --window-frame-highlight: rgba(255, 255, 255, 0.84);
+  --window-frame-inner-shadow: rgba(15, 23, 42, 0.055);
 
   /* Ritual design system v0
      Semantic app chrome tokens. Keep these as the first layer components
@@ -285,7 +290,7 @@
   --surface-panel: #f4f4f3;
   --surface-control: rgba(255, 255, 255, 0.42);
   --surface-control-hover: rgba(255, 255, 255, 0.58);
-  --border-subtle: rgba(15, 23, 42, 0.052);
+  --border-subtle: rgba(15, 23, 42, 0.074);
   --border-muted: rgba(15, 23, 42, 0.035);
   --row-hover: rgba(17, 24, 39, 0.032);
   --row-active: var(--row-hover);
@@ -429,6 +434,11 @@
     color: var(--text-primary);
   }
 
+  .app-window-shell {
+    background: var(--surface-window);
+    isolation: isolate;
+  }
+
   .app-window-shell::after {
     content: "";
     position: absolute;
@@ -436,9 +446,17 @@
     z-index: 90;
     pointer-events: none;
     box-shadow:
-      inset 0 0 0 1px rgba(15, 23, 42, 0.095),
-      inset 0 1px 0 rgba(255, 255, 255, 0.78),
-      inset 0 -1px 0 rgba(15, 23, 42, 0.06);
+      inset 0 0 0 1px var(--window-frame-border),
+      inset 0 1px 0 var(--window-frame-highlight),
+      inset 0 -1px 0 var(--window-frame-bottom),
+      inset 0 0 18px var(--window-frame-inner-shadow);
+  }
+
+  html.desktop[data-window-active="0"] .app-window-shell::after {
+    box-shadow:
+      inset 0 0 0 1px var(--window-frame-border-muted),
+      inset 0 1px 0 rgba(255, 255, 255, 0.74),
+      inset 0 -1px 0 rgba(15, 23, 42, 0.044);
   }
 
   .ritual-titlebar {
@@ -457,6 +475,7 @@
     height: 1px;
     pointer-events: none;
     background: var(--titlebar-glass-border);
+    box-shadow: 0 1px 0 rgba(255, 255, 255, 0.58);
   }
 
   .ritual-content-surface {
@@ -477,8 +496,19 @@
     z-index: 45;
     width: 1px;
     pointer-events: none;
-    background: rgba(15, 23, 42, 0.074);
-    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.52);
+    background: var(--sidebar-vibrancy-border);
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.62);
+  }
+
+  html.desktop[data-window-active="0"] .app-window-shell.has-shell-sidebar-divider::before {
+    background: rgba(15, 23, 42, 0.058);
+    box-shadow: 1px 0 0 rgba(255, 255, 255, 0.5);
+  }
+
+  html.desktop[data-window-active="0"] .ritual-titlebar,
+  html.desktop[data-window-active="0"] .ritual-sidebar-shell,
+  html.desktop[data-window-active="0"] .titlebar-sidebar-lane {
+    filter: saturate(0.88);
   }
 
   .ritual-sidebar-list {
@@ -896,11 +926,11 @@
     background:
       linear-gradient(
         180deg,
-        rgba(246, 245, 243, 0.97) 0%,
-        rgba(244, 243, 240, 0.95) 42%,
-        rgba(242, 241, 238, 0.93) 100%
+        rgba(247, 246, 243, 0.985) 0%,
+        rgba(244, 243, 240, 0.97) 42%,
+        rgba(242, 241, 238, 0.955) 100%
       );
-    background-color: rgba(244, 243, 240, 0.95);
+    background-color: rgba(244, 243, 240, 0.97);
     border-right: 0;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
@@ -964,9 +994,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-region {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.64) 0%,
-      rgba(255, 255, 255, 0.52) 48%,
-      rgba(252, 252, 250, 0.44) 100%
+      rgba(252, 251, 249, 0.82) 0%,
+      rgba(250, 249, 247, 0.74) 48%,
+      rgba(247, 246, 244, 0.68) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     border-bottom: 0;
@@ -985,9 +1015,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .titlebar-glass-layer {
     display: block;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.26) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0.0) 44%);
-    opacity: 0.9;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.12) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.96;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
   }
@@ -996,9 +1026,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .sidebar-vibrancy .sidebar-header {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.64) 0%,
-      rgba(255, 255, 255, 0.52) 48%,
-      rgba(252, 252, 250, 0.44) 100%
+      rgba(252, 251, 249, 0.82) 0%,
+      rgba(250, 249, 247, 0.74) 48%,
+      rgba(247, 246, 244, 0.68) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     box-shadow: none;
@@ -1010,9 +1040,9 @@
   html.desktop:not([data-platform])[data-glass-chrome="1"] .chat-header-sidebar-strip {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.64) 0%,
-      rgba(255, 255, 255, 0.52) 48%,
-      rgba(252, 252, 250, 0.44) 100%
+      rgba(252, 251, 249, 0.82) 0%,
+      rgba(250, 249, 247, 0.74) 48%,
+      rgba(247, 246, 244, 0.68) 100%
     ) !important;
     background-color: var(--titlebar-glass-bg) !important;
     border-color: var(--titlebar-glass-border) !important;
@@ -1021,7 +1051,7 @@
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-window-active="0"] .titlebar-glass-layer,
   html.desktop:not([data-platform])[data-glass-chrome="1"][data-window-active="0"] .titlebar-glass-layer {
-    opacity: 0.82;
+    opacity: 0.72;
   }
 
   /* Sidebar: semi-transparent overlay on the native glass.
@@ -1031,11 +1061,11 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.56) 0%,
-      rgba(255, 255, 255, 0.40) 48%,
-      rgba(252, 252, 250, 0.32) 100%
+      rgba(250, 249, 247, 0.76) 0%,
+      rgba(247, 246, 243, 0.66) 48%,
+      rgba(244, 243, 240, 0.58) 100%
     ) !important;
-    background-color: rgba(255, 255, 255, 0.36) !important;
+    background-color: rgba(247, 246, 243, 0.66) !important;
     border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -1085,9 +1115,9 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
-    opacity: 0.9;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0.1) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.24) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.96;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
