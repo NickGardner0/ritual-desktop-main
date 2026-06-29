@@ -9,15 +9,14 @@ export const metadata: Metadata = {
 
 function TasksLoading() {
   return (
-    <div className="flex h-full flex-col">
-      <div className="px-6 pb-4 pt-7 lg:px-8">
-        <div className="h-8 w-32 animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-4 h-7 w-72 animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-3 h-7 w-56 animate-pulse rounded-sm bg-[#f3f3f2]" />
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex items-center justify-between border-b border-border px-8 py-5">
+        <div className="h-8 w-40 animate-pulse rounded-sm bg-muted" />
+        <div className="h-10 w-96 animate-pulse rounded-sm bg-muted" />
       </div>
-      <div className="mx-auto w-full max-w-[720px] flex-1 space-y-2 px-6 py-4 lg:px-8">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-3 p-8">
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-8 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
+          <div key={i} className="h-14 animate-pulse rounded-sm border border-border bg-muted/20" />
         ))}
       </div>
     </div>
@@ -26,7 +25,7 @@ function TasksLoading() {
 
 export default function TasksPage() {
   return (
-    <div className="flex h-full flex-1 flex-col overflow-hidden">
+    <div className="flex h-full flex-1 flex-col overflow-hidden bg-background">
       <Suspense fallback={<TasksLoading />}>
         <TasksClient />
       </Suspense>

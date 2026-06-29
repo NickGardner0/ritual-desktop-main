@@ -10,15 +10,17 @@ export const metadata: Metadata = {
 
 function RoutinesLoading() {
   return (
-    <div className="flex h-full flex-col bg-[var(--content-bg)]">
-      <div className="mx-auto w-full max-w-[720px] px-6 pt-5 lg:px-8">
-        <div className="h-7 w-32 animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-3 h-7 w-full animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-6 space-y-2">
+    <div className="grid h-full grid-cols-[minmax(260px,420px)_minmax(360px,1fr)] bg-[#f7f8f5]">
+      <div className="border-r border-[rgba(15,23,42,0.08)] p-6">
+        <div className="h-10 w-44 animate-pulse rounded-sm bg-white" />
+        <div className="mt-6 space-y-3">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-9 animate-pulse rounded-sm bg-[#f3f3f2]" />
+            <div key={item} className="h-16 animate-pulse rounded-sm bg-white" />
           ))}
         </div>
+      </div>
+      <div className="p-6">
+        <div className="h-[640px] animate-pulse rounded-sm bg-white" />
       </div>
     </div>
   );
@@ -26,7 +28,7 @@ function RoutinesLoading() {
 
 export default function RoutinesPage() {
   return (
-    <div className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--content-bg)]">
+    <div className="flex h-full flex-1 flex-col overflow-hidden bg-[#f7f8f5]">
       <Suspense fallback={<RoutinesLoading />}>
         <RoutinesClient />
       </Suspense>
