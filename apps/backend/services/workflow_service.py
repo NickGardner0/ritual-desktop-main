@@ -38,6 +38,7 @@ from schemas.workflows import (
     InternalWorkflowExecuteResponse,
     PolicyDecision,
     ProposedAction,
+    WorkflowDefinitionCreate,
     WorkflowDefinitionListResponse,
     WorkflowDefinitionRead,
     WorkflowDefinitionUpdate,
@@ -494,6 +495,82 @@ class WorkflowService:
                 items=[self._definition_to_schema(definition, profile) for definition, profile in result.all()]
             )
 
+    async def create_definition(
+        self,
+        *,
+        user_id: str,
+        timezone_name: Optional[str],
+        payload: WorkflowDefinitionCreate,
+    ) -> WorkflowDefinitionRead:
+        name = payload.name.strip()
+        if not name:
+            raise WorkflowValidationError("name is required")
+
+        async with get_db_session() as session:
+            profiles = await self.ensure_default_action_profiles(session, user_id)
+            target_profile = None
+            if payload.action_profile_id:
+                target_profile = await session.get(ActionProfileDB, payload.action_profile_id)
+                if not target_profile or target_profile.user_id != user_id:
+                    raise WorkflowValidationError("Action profile not found")
+            if target_profile is None:
+                target_profile = next((item for item in profiles if bool(item.is_default)), None)
+            if target_profile is None:
+                target_profile = next((item for item in profiles if item.mode == "draft"), None)
+            if target_profile is None:
+                raise WorkflowValidationError("Action profile not found")
+
+            if target_profile.mode == "observe" and payload.status == "scheduled":
+                raise WorkflowValidationError("Observe profile cannot be assigned to a scheduled workflow")
+            if payload.status == "scheduled" and target_profile.mode not in {"draft", "organize", "act"}:
+                raise WorkflowValidationError("Scheduled workflows require Draft, Organize, or Act profiles")
+            if payload.definition_family == "ambient" and payload.trigger_type != "signal":
+                raise WorkflowValidationError("Ambient definitions must use signal triggers")
+            if payload.definition_family == "routine" and payload.trigger_type != "schedule":
+                raise WorkflowValidationError("Routine definitions must use schedule triggers")
+            if payload.trigger_type == "signal" and not (payload.signal_kind or "").strip():
+                raise WorkflowValidationError("Signal-triggered workflows require a signal kind")
+            if payload.delivery.channel != "in_app":
+                raise WorkflowValidationError("Only in-app delivery is supported")
+
+            definition = WorkflowDefinitionDB(
+                id=str(uuid4()),
+                user_id=user_id,
+                kind=payload.kind,
+                name=name,
+                definition_family=payload.definition_family,
+                trigger_type=payload.trigger_type,
+                signal_kind=payload.signal_kind,
+                cooldown_minutes=max(0, int(payload.cooldown_minutes or 0)),
+                quiet_hours_json=json.dumps(payload.quiet_hours),
+                status=payload.status,
+                timezone=self._normalize_timezone(payload.schedule.timezone or timezone_name),
+                cadence=payload.schedule.cadence,
+                send_hour_local=payload.schedule.send_hour_local,
+                send_minute_local=payload.schedule.send_minute_local,
+                send_weekdays_json=json.dumps(payload.schedule.send_weekdays),
+                delivery_channel=payload.delivery.channel,
+                delivery_json=json.dumps(payload.delivery.model_dump(mode="json")),
+                ranking_json=json.dumps(payload.ranking),
+                config_json=json.dumps(payload.config),
+                template_version=1,
+                action_profile_id=target_profile.id,
+                created_at=_utc_now(),
+                updated_at=_utc_now(),
+            )
+            if definition.status == "scheduled" and definition.trigger_type == "schedule":
+                definition.next_run_at = self._compute_next_run(
+                    cadence=definition.cadence,
+                    timezone_name=definition.timezone,
+                    send_hour_local=int(definition.send_hour_local or 0),
+                    send_minute_local=int(definition.send_minute_local or 0),
+                    send_weekdays=self._parse_json(definition.send_weekdays_json, []),
+                )
+            session.add(definition)
+            await session.commit()
+            await self._index_definition(definition, target_profile)
+            return self._definition_to_schema(definition, target_profile)
+
     async def update_definition(
         self,
         *,
@@ -526,6 +603,11 @@ class WorkflowService:
                 definition.send_weekdays_json = json.dumps(payload.schedule.send_weekdays)
             provided_fields = getattr(payload, "model_fields_set", set())
 
+            if "name" in provided_fields:
+                name = (payload.name or "").strip()
+                if not name:
+                    raise WorkflowValidationError("name is required")
+                definition.name = name
             if payload.definition_family is not None:
                 definition.definition_family = payload.definition_family
             if payload.trigger_type is not None:

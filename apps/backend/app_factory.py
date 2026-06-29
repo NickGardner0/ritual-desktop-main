@@ -39,6 +39,7 @@ from api.search import create_search_router
 from api.sendblue import router as sendblue_router
 from api.sms_copilot import create_sms_copilot_router
 from api.sms_preferences import create_sms_preferences_router
+from api.tasks import create_tasks_router
 from api.ui_preferences import create_ui_preferences_router
 from api.vcard import router as vcard_router
 from api.watcher import router as watcher_router
@@ -198,6 +199,7 @@ def create_app() -> FastAPI:
     app.include_router(create_search_router(get_current_user=get_current_user))
     app.include_router(create_reports_router(get_current_user=get_current_user))
     app.include_router(create_artifacts_router(get_current_user=get_current_user))
+    app.include_router(create_tasks_router(get_current_user=get_current_user))
     app.include_router(create_workflows_router(get_current_user=get_current_user))
     app.include_router(create_action_profiles_router(get_current_user=get_current_user))
     app.include_router(create_approvals_router(get_current_user=get_current_user))

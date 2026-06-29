@@ -52,6 +52,10 @@ export const SENSITIVE_RITUAL_VAULT_CATEGORIES = [
   "location_pings",
   "location_state",
   "reports",
+  "tasks",
+  "task_events",
+  "routines",
+  "routine_runs",
   "sms_copilot",
   "workflows",
 ] as const satisfies readonly RitualVaultCategory[];

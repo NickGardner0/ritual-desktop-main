@@ -472,7 +472,9 @@ export function toEditorState(definition: WorkflowDefinition): WorkflowEditorSta
     timezone: definition.schedule.timezone,
     time_value: `${String(definition.schedule.send_hour_local).padStart(2, "0")}:${String(definition.schedule.send_minute_local).padStart(2, "0")}`,
     send_weekdays: [...definition.schedule.send_weekdays],
-    config: { ...definition.config },
+    config: Object.fromEntries(
+      Object.entries(definition.config).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean"),
+    ),
   };
 }
 

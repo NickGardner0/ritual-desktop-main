@@ -25,8 +25,12 @@ from database.models import (
     ImportItemDB,
     ImportRunDB,
     ReportRunDB,
+    RoutineDB,
+    RoutineRunDB,
     ScheduledBlockDB,
     SmsCopilotEventDB,
+    TaskDB,
+    TaskEventDB,
     UserDB,
     UserLocationPingDB,
     UserLocationStateDB,
@@ -211,6 +215,52 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
                     period_start="2026-06-17",
                     period_end="2026-06-23",
                     subject="Private report",
+                )
+            )
+            session.add(
+                RoutineDB(
+                    id="routine-private",
+                    user_id="user-privacy-inventory",
+                    title="Private routine",
+                    status="scheduled",
+                    kind="task",
+                    trigger_type="daily",
+                    trigger_config_json='{"interval":1}',
+                    task_template_json='{"title":"Private task"}',
+                    tags_json='["private"]',
+                )
+            )
+            session.add(
+                TaskDB(
+                    id="task-private",
+                    user_id="user-privacy-inventory",
+                    title="Private task",
+                    status="open",
+                    priority="medium",
+                    source="routine",
+                    category="Health",
+                    tags_json='["private"]',
+                    routine_id="routine-private",
+                )
+            )
+            session.add(
+                RoutineRunDB(
+                    id="routine-run-private",
+                    routine_id="routine-private",
+                    user_id="user-privacy-inventory",
+                    scheduled_for=datetime(2026, 6, 23, 9, 0, 0),
+                    status="generated",
+                    generated_task_id="task-private",
+                    idempotency_key="routine-private:2026-06-23T09:00:00",
+                )
+            )
+            session.add(
+                TaskEventDB(
+                    id="task-event-private",
+                    task_id="task-private",
+                    user_id="user-privacy-inventory",
+                    event_type="created",
+                    payload_json='{"source":"routine"}',
                 )
             )
             session.add(

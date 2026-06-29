@@ -92,7 +92,24 @@ class WorkflowDefinitionListResponse(BaseModel):
     items: List[WorkflowDefinitionRead] = Field(default_factory=list)
 
 
+class WorkflowDefinitionCreate(BaseModel):
+    kind: WorkflowKind
+    name: str
+    definition_family: WorkflowDefinitionFamily = "routine"
+    trigger_type: WorkflowTriggerType = "schedule"
+    signal_kind: Optional[str] = None
+    status: WorkflowStatus = "draft"
+    schedule: WorkflowSchedule = Field(default_factory=WorkflowSchedule)
+    config: Dict[str, Any] = Field(default_factory=dict)
+    ranking: Dict[str, Any] = Field(default_factory=dict)
+    quiet_hours: Dict[str, Any] = Field(default_factory=dict)
+    delivery: WorkflowDelivery = Field(default_factory=WorkflowDelivery)
+    cooldown_minutes: int = 240
+    action_profile_id: Optional[str] = None
+
+
 class WorkflowDefinitionUpdate(BaseModel):
+    name: Optional[str] = None
     definition_family: Optional[WorkflowDefinitionFamily] = None
     trigger_type: Optional[WorkflowTriggerType] = None
     signal_kind: Optional[str] = None

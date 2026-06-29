@@ -147,7 +147,7 @@ export interface WorkflowDefinition {
   schedule: WorkflowSchedule;
   delivery: WorkflowDelivery;
   ranking: Record<string, unknown>;
-  config: Record<string, boolean>;
+  config: Record<string, unknown>;
   action_profile: ActionProfile;
   last_run_at: string | null;
   next_run_at: string | null;
@@ -159,6 +159,41 @@ export interface WorkflowDefinition {
 export interface WorkflowDefinitionListResponse {
   items: WorkflowDefinition[];
 }
+
+export type WorkflowDefinitionCreateInput = {
+  kind: WorkflowKind;
+  name: string;
+  definition_family?: WorkflowDefinitionFamily;
+  trigger_type?: WorkflowTriggerType;
+  signal_kind?: string | null;
+  status?: WorkflowStatus;
+  schedule?: WorkflowSchedule;
+  config?: Record<string, unknown>;
+  ranking?: Record<string, unknown>;
+  quiet_hours?: Record<string, unknown>;
+  delivery?: WorkflowDelivery;
+  cooldown_minutes?: number;
+  action_profile_id?: string | null;
+};
+
+export type WorkflowDefinitionUpdateInput = Partial<
+  Pick<
+    WorkflowDefinition,
+    | "name"
+    | "definition_family"
+    | "trigger_type"
+    | "signal_kind"
+    | "status"
+    | "schedule"
+    | "config"
+    | "ranking"
+    | "quiet_hours"
+    | "cooldown_minutes"
+    | "delivery"
+  >
+> & {
+  action_profile_id?: string | null;
+};
 
 export interface ProposedAction {
   action_kind: string;
