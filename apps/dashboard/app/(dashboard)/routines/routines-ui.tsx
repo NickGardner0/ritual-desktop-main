@@ -5,7 +5,6 @@ import {
   BriefcaseBusiness,
   CalendarClock,
   ChevronDown,
-  ChevronsRight,
   FlaskConical,
   GitPullRequest,
   HeartPulse,
@@ -130,27 +129,21 @@ export function TemplateIcon({ sourceIcon }: { sourceIcon: string }) {
   }
 }
 
-export function RoutineDetailHeader() {
+export function RoutinePanelMenu() {
   return (
-    <div className="flex h-10 shrink-0 items-center border-b border-[var(--border-subtle)] px-4">
-      <ChevronsRight className="h-4 w-4 text-[rgba(39,37,30,0.35)]" />
-      <div className="min-w-0 flex-1 text-center text-[12.5px] font-medium text-[rgba(39,37,30,0.55)]">
-        Routine
-      </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <ToolbarIconButton aria-label="Routine options" title="Routine options" className="h-7 w-7">
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </ToolbarIconButton>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" sideOffset={6} className="w-40">
-          <DropdownMenuItem disabled>Duplicate</DropdownMenuItem>
-          <DropdownMenuItem disabled className="text-[#c44d3a]">
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <ToolbarIconButton aria-label="Routine options" title="Routine options" className="h-7 w-7">
+          <MoreHorizontal className="h-3.5 w-3.5" />
+        </ToolbarIconButton>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" sideOffset={6} className="w-40 rounded-sm">
+        <DropdownMenuItem disabled>Duplicate</DropdownMenuItem>
+        <DropdownMenuItem disabled className="text-[#c44d3a]">
+          Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -172,8 +165,8 @@ export function RoutineListItem({
       type="button"
       onClick={onClick}
       className={cn(
-        "ritual-snappy-row grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left hover:bg-[#f6f6f5]",
-        selected && "bg-[rgba(59,130,246,0.08)]",
+        "ritual-snappy-row grid w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-sm px-2.5 py-2 text-left hover:bg-[#f6f6f5]",
+        selected && "bg-[#f6f6f5]",
       )}
     >
       <svg className="h-4 w-4 text-[rgba(39,37,30,0.45)]" viewBox="0 0 16 16" fill="none" aria-hidden>

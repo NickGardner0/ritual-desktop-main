@@ -36,14 +36,14 @@ export function TaskPageHeader({
   className?: string;
 }) {
   return (
-    <header className={cn('shrink-0 px-6 pb-4 pt-7 lg:px-8', className)}>
+    <header className={cn('shrink-0 pb-3', className)}>
       <div className="flex min-w-0 items-center justify-between gap-4">
-        <h1 className="truncate text-[28px] font-semibold leading-none tracking-[-0.02em] text-[#27251E]">
+        <h1 className="truncate text-[19px] font-medium leading-tight tracking-[-0.01em] text-[#27251E]">
           {title}
         </h1>
         {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {children ? <div className="mt-4 space-y-3">{children}</div> : null}
+      {children ? <div className="mt-3 space-y-3">{children}</div> : null}
     </header>
   );
 }
@@ -167,7 +167,7 @@ export function TaskRowShell({
   return (
     <div
       className={cn(
-        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,36px)] grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 rounded-[6px] px-2.5 py-0.5 outline-none hover:bg-[#f6f6f5] focus-visible:bg-[#f6f6f5] focus-visible:ring-2 focus-visible:ring-gray-300',
+        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,34px)] grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-sm px-1 py-0.5 outline-none hover:bg-[#f6f6f5] focus-visible:bg-[#f6f6f5] focus-visible:ring-2 focus-visible:ring-gray-300',
         className,
       )}
       {...props}

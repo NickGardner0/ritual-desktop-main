@@ -66,7 +66,7 @@ export function TasksFilterBar({
   onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
 }) {
   return (
-    <div className={cn(taskContentMaxClass, 'px-6 lg:px-8')}>
+    <div className="pb-4">
       <ViewPills
         value={category}
         options={CATEGORY_FILTERS}
@@ -131,15 +131,15 @@ function ProjectGroupHeader({
   overdueLabel?: string | null;
 }) {
   return (
-    <div className="mb-3 flex items-center gap-2.5">
+    <div className="mb-2.5 mt-6 flex items-center gap-2 first:mt-0">
       <span
-        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[rgba(39,37,30,0.22)]"
+        className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.2)]"
         aria-hidden
       />
-      <h2 className="shrink-0 text-[15px] font-medium tracking-[-0.01em] text-[#27251E]">{name}</h2>
-      <div className="h-px min-w-[24px] flex-1 bg-[var(--border-subtle)]" />
+      <h2 className="shrink-0 text-[13px] font-medium tracking-[-0.01em] text-[rgba(39,37,30,0.72)]">{name}</h2>
+      <div className="h-px min-w-[16px] flex-1 bg-[var(--border-subtle)]" />
       {overdueLabel ? (
-        <span className="flex shrink-0 items-center gap-1 text-[12px] text-[#c44d3a]">
+        <span className="flex shrink-0 items-center gap-1 text-[11px] text-[#c44d3a]">
           <Flag className="h-3 w-3" />
           {overdueLabel}
         </span>
@@ -262,10 +262,10 @@ export function TaskRow({
               onComplete();
             }}
             className={cn(
-              'flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border',
+              'flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-sm border',
               task.status === 'completed'
                 ? 'border-[#27251E] bg-[#27251E] text-white'
-                : 'border-[rgba(39,37,30,0.25)] bg-white text-transparent hover:border-[#27251E]',
+                : 'border-[rgba(39,37,30,0.28)] bg-white text-transparent hover:border-[#27251E]',
             )}
             aria-label={`Complete ${task.title}`}
             aria-pressed={task.status === 'completed'}
@@ -275,7 +275,7 @@ export function TaskRow({
           <div className="min-w-0">
             <div
               className={cn(
-                'truncate text-[14px] font-normal text-[#27251E]',
+                'truncate text-[14px] font-normal leading-[1.35] text-[#27251E]',
                 task.status === 'completed' && 'text-[rgba(39,37,30,0.4)] line-through',
               )}
             >
@@ -367,9 +367,9 @@ export function TaskRowMenu({
 
 export function TasksLoadingSkeleton() {
   return (
-    <div className={cn(taskContentMaxClass, 'space-y-2 px-6 py-6 lg:px-8')}>
+    <div className="space-y-2">
       {[0, 1, 2, 3].map((item) => (
-        <div key={item} className="h-9 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
+        <div key={item} className="h-8 animate-pulse rounded-sm bg-[#f3f3f2]" />
       ))}
     </div>
   );

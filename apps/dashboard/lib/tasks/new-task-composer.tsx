@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Calendar, ChevronDown, X } from 'lucide-react';
 
 import {
@@ -78,7 +79,7 @@ function ComposerPill({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-[rgba(39,37,30,0.12)] bg-white px-2.5 text-[12.5px] text-[rgba(39,37,30,0.75)] ring-1 ring-transparent hover:bg-[#f8f8f7] focus:outline-none focus-visible:ring-gray-300',
+        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-2.5 text-[12.5px] text-[rgba(39,37,30,0.75)] hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-offset-1',
         className,
       )}
     >
@@ -115,7 +116,6 @@ export function NewTaskComposer({
   const titleRef = useRef<HTMLInputElement>(null);
   const notesRef = useRef<HTMLTextAreaElement>(null);
   const dueInputRef = useRef<HTMLInputElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
   const saveTimerRef = useRef<number | null>(null);
 
   const [title, setTitle] = useState('');
@@ -223,22 +223,26 @@ export function NewTaskComposer({
     ? new Date(`${dueDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     : 'Due date';
 
-  return (
-    <>
+  const modalContent = (
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      data-tauri-drag-region="false"
+    >
       <div
-        className="fixed inset-0 z-50 bg-black/10 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-[#f7f6f2]/55 dark:bg-[#121212]/80"
         onClick={onClose}
+        data-tauri-drag-region="false"
         aria-hidden
       />
 
       <div
-        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="New task"
-        className="fixed left-1/2 top-[14%] z-50 flex w-full max-w-[560px] -translate-x-1/2 flex-col overflow-hidden rounded-xl border border-[rgba(39,37,30,0.08)] bg-[#fefefe] shadow-[0_24px_80px_rgba(15,23,42,0.12)]"
+        className="relative z-10 flex w-[90vw] max-w-[520px] flex-col overflow-hidden rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)]"
+        data-tauri-drag-region="false"
       >
-        <div className="flex items-center justify-end gap-1 px-3 pt-3">
+        <div className="flex flex-shrink-0 items-center justify-end gap-1 px-4 pb-1 pt-4">
           {(title.trim() || notes.trim()) ? (
             <button
               type="button"
@@ -246,7 +250,7 @@ export function NewTaskComposer({
                 clearTaskComposerDraft();
                 resetForm(defaultSchedule);
               }}
-              className="rounded-sm px-2 py-1 text-[12px] text-[rgba(39,37,30,0.5)] hover:bg-[#f3f3f2] hover:text-[#27251E]"
+              className="rounded-sm px-2 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
               Clear draft
             </button>
@@ -254,14 +258,14 @@ export function NewTaskComposer({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-[rgba(39,37,30,0.45)] hover:bg-[#f3f3f2] hover:text-[#27251E]"
+            className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             aria-label="Close"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="px-6 pb-2 pt-1">
+        <div className="px-6 pb-2">
           <input
             ref={titleRef}
             value={title}
@@ -273,7 +277,7 @@ export function NewTaskComposer({
               }
             }}
             placeholder="New task"
-            className="w-full bg-transparent text-[20px] font-medium leading-snug tracking-[-0.02em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
+            className="w-full bg-transparent text-[17px] font-medium leading-snug tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
           <textarea
             ref={notesRef}
@@ -281,7 +285,7 @@ export function NewTaskComposer({
             onChange={(event) => setNotes(event.target.value)}
             placeholder="Add description..."
             rows={3}
-            className="mt-3 w-full resize-none bg-transparent text-[14px] leading-relaxed text-[rgba(39,37,30,0.78)] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
+            className="mt-2.5 w-full resize-none bg-transparent text-[14px] leading-relaxed text-[rgba(39,37,30,0.78)] outline-none placeholder:text-[var(--text-muted)]"
           />
         </div>
 
@@ -290,7 +294,7 @@ export function NewTaskComposer({
             <DropdownMenuTrigger asChild>
               <ComposerPill>{PRIORITY_LABELS[priority]}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm">
               {PRIORITIES.map((item) => (
                 <DropdownMenuItem key={item} onClick={() => setPriority(item)}>
                   {PRIORITY_LABELS[item]}
@@ -303,7 +307,7 @@ export function NewTaskComposer({
             <DropdownMenuTrigger asChild>
               <ComposerPill>{category}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm">
               {CATEGORY_OPTIONS.map((item) => (
                 <DropdownMenuItem key={item} onClick={() => setCategory(item)}>
                   {item}
@@ -316,7 +320,7 @@ export function NewTaskComposer({
             <DropdownMenuTrigger asChild>
               <ComposerPill>{SCHEDULE_LABELS[schedule]}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm">
               {(Object.keys(SCHEDULE_LABELS) as ScheduleWhen[]).map((item) => (
                 <DropdownMenuItem
                   key={item}
@@ -338,7 +342,7 @@ export function NewTaskComposer({
             onClick={() => dueInputRef.current?.showPicker?.()}
             className="relative"
           >
-            <ComposerPill className={cn(dueDate && 'text-[#27251E]')}>
+            <ComposerPill className={cn(dueDate && 'text-[var(--text-primary)]')}>
               <Calendar className="h-3 w-3 opacity-60" />
               {dueLabel}
             </ComposerPill>
@@ -356,24 +360,26 @@ export function NewTaskComposer({
           </button>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[rgba(39,37,30,0.06)] px-6 py-3.5">
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--border-subtle)] px-6 py-3.5">
           <label className="mr-auto flex cursor-pointer items-center gap-2">
             <Switch checked={createMore} onCheckedChange={setCreateMore} />
-            <span className="text-[12px] text-[rgba(39,37,30,0.55)]">Create more</span>
+            <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
           </label>
           <button
             type="button"
             onClick={handleSubmit}
             disabled={!title.trim() || pending}
-            className="inline-flex items-center gap-2 rounded-lg bg-[#27251E] px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-[#3d3a32] disabled:opacity-40"
+            className="inline-flex items-center gap-2 rounded-sm border border-[#27251E] bg-[#27251E] px-3 py-1.5 text-[13px] font-medium text-white hover:bg-[#3d3a32] disabled:opacity-40"
           >
             Create task
-            <kbd className="rounded border border-white/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
+            <kbd className="rounded-sm border border-white/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
               ⌘↵
             </kbd>
           </button>
         </div>
       </div>
-    </>
+    </div>
   );
+
+  return typeof window !== 'undefined' ? createPortal(modalContent, document.body) : null;
 }

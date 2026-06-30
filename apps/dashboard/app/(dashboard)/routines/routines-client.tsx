@@ -70,14 +70,16 @@ import type {
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
 import {
-  RoutineDetailHeader,
   RoutineEditorCards,
   RoutineListItem,
+  RoutinePanelMenu,
   TemplateIcon,
   runOutputType,
   runStatusClass,
   templateScheduleSummary,
 } from './routines-ui';
+import { WindowSidePanel } from '@/lib/tasks/window-side-panel';
+import { taskContentMaxClass } from '@/lib/tasks/task-ui-shell';
 
 const ROUTINE_TABS = [
   { id: 'mine', label: 'Mine' },
@@ -367,6 +369,13 @@ export function RoutinesClient() {
     ? `If completed today -> ${formatDateTime(preview.dates[0])}`
     : null;
 
+  const panelOpen = Boolean(editor);
+
+  const closePanel = () => {
+    setSelectedId(null);
+    setEditor(null);
+  };
+
   return (
     <TaskPageShell>
       {editor ? (
@@ -399,23 +408,11 @@ export function RoutinesClient() {
         </HeaderPortal>
       ) : null}
 
-      <div
-        className={cn(
-          'grid h-full min-h-0',
-          editor
-            ? 'grid-cols-[minmax(260px,320px)_minmax(400px,1fr)]'
-            : 'grid-cols-1',
-        )}
-      >
-        <aside
-          className={cn(
-            'flex min-h-0 flex-col bg-[var(--content-bg)]',
-            editor ? 'border-r border-[var(--border-subtle)]' : 'mx-auto w-full max-w-[720px]',
-          )}
-        >
-          <div className="shrink-0 px-5 pb-3 pt-7">
+      <div className="relative h-full min-h-0">
+        <aside className={cn(taskContentMaxClass, 'relative z-0 mx-auto flex h-full min-h-0 w-full flex-col px-6 lg:px-8')}>
+          <div className="shrink-0 pb-3 pt-5">
             <div className="flex items-center justify-between gap-3">
-              <h1 className="truncate text-[28px] font-semibold leading-none tracking-[-0.02em] text-[#27251E]">
+              <h1 className="truncate text-[19px] font-medium leading-tight tracking-[-0.01em] text-[#27251E]">
                 Routines
               </h1>
               <ToolbarIconButton
@@ -431,11 +428,11 @@ export function RoutinesClient() {
               value={activeTab}
               options={ROUTINE_TABS}
               onChange={setActiveTab}
-              className="mt-4"
+              className="mt-3"
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-2 pb-5">
+          <div className="min-h-0 flex-1 overflow-auto pb-8">
             {activeTab === 'mine' ? (
               <div className="space-y-0.5">
                 {routinesQuery.isLoading ? [0, 1, 2].map((item) => (
@@ -563,31 +560,42 @@ export function RoutinesClient() {
           </div>
         </aside>
 
-        {editor ? (
-          <section className="flex min-h-0 flex-col bg-[var(--content-bg)]">
-            <RoutineDetailHeader />
-            <div className="min-h-0 flex-1 overflow-auto px-6 py-5 lg:px-8">
-              <div className="mx-auto max-w-[640px]">
-                <input
-                  value={editor.title}
-                  onChange={(event) => setEditor({ ...editor, title: event.target.value })}
-                  className="mb-5 w-full bg-transparent text-[24px] font-semibold leading-tight tracking-[-0.02em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
-                  placeholder="Routine title"
-                />
-
-                <RoutineEditorCards
-                  editor={editor}
-                  setEditor={setEditor}
-                  updateConfig={updateConfig}
-                  editorTimeValue={editorTimeValue}
-                  completionPreview={completionPreview}
-                  nextPreviewText={nextPreviewText}
-                  lastRunText={lastRunText}
-                />
-              </div>
-            </div>
-          </section>
+        {panelOpen ? (
+          <button
+            type="button"
+            className="absolute inset-0 z-10 bg-[#f7f6f2]/45 transition-opacity duration-300"
+            onClick={closePanel}
+            aria-label="Close routine panel"
+          />
         ) : null}
+
+        <WindowSidePanel
+          open={panelOpen}
+          onClose={closePanel}
+          title="Routine"
+          headerActions={<RoutinePanelMenu />}
+        >
+          {editor ? (
+            <div className="px-5 py-5 lg:px-6">
+              <input
+                value={editor.title}
+                onChange={(event) => setEditor({ ...editor, title: event.target.value })}
+                className="mb-5 w-full bg-transparent text-[20px] font-medium leading-tight tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
+                placeholder="Routine title"
+              />
+
+              <RoutineEditorCards
+                editor={editor}
+                setEditor={setEditor}
+                updateConfig={updateConfig}
+                editorTimeValue={editorTimeValue}
+                completionPreview={completionPreview}
+                nextPreviewText={nextPreviewText}
+                lastRunText={lastRunText}
+              />
+            </div>
+          ) : null}
+        </WindowSidePanel>
       </div>
     </TaskPageShell>
   );

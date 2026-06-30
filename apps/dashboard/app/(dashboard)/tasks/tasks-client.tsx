@@ -274,15 +274,15 @@ export function TasksClient() {
         syncPending={generateDueMutation.isPending}
       />
 
-      <TasksHeader title={viewTitle} />
-      <TasksFilterBar category={category} onCategoryChange={setCategory} />
+      <div className="min-h-0 flex-1 overflow-auto pb-12 pt-5">
+        <div className={cn(taskContentMaxClass, 'px-6 lg:px-8')}>
+          <TasksHeader title={viewTitle} />
+          <TasksFilterBar category={category} onCategoryChange={setCategory} />
 
-      <div className="min-h-0 flex-1 overflow-auto pb-10 pt-3">
-        {tasksQuery.isLoading ? (
-          <TasksLoadingSkeleton />
-        ) : hasTasks ? (
-          <div className={cn(taskContentMaxClass, 'px-6 lg:px-8')}>
-            {layoutMode === 'list' ? (
+          {tasksQuery.isLoading ? (
+            <TasksLoadingSkeleton />
+          ) : hasTasks ? (
+            layoutMode === 'list' ? (
               <TaskListSection tasks={tasks} {...rowHandlers} />
             ) : (
               groups.map(([group, groupTasksValue]) => (
@@ -293,11 +293,11 @@ export function TasksClient() {
                   {...rowHandlers}
                 />
               ))
-            )}
-          </div>
-        ) : (
-          <TasksEmptyState onNewTask={() => setComposerOpen(true)} />
-        )}
+            )
+          ) : (
+            <TasksEmptyState onNewTask={() => setComposerOpen(true)} />
+          )}
+        </div>
       </div>
 
       <NewTaskComposer

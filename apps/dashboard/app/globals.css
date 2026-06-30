@@ -306,7 +306,7 @@
   --sidebar-icon-box: 40px;
 
   /* Tasks / Routines layout */
-  --task-row-height: 36px;
+  --task-row-height: 34px;
   --task-group-gap: 32px;
   --task-content-max: 720px;
 }
