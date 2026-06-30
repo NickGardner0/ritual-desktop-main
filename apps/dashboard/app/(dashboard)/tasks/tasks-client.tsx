@@ -21,6 +21,11 @@ import {
   buildTaskUpdateOutboxItem,
   mergeTasksWithOutbox,
 } from '@/lib/tasks/local-first-writes';
+import { defaultScheduleForView, isTaskViewId, type TaskViewId } from '@/lib/tasks/task-constants';
+import {
+  NewTaskComposer,
+  type NewTaskComposerSubmit,
+} from '@/lib/tasks/new-task-composer';
 import { applyTaskOptimisticPatch } from '@/lib/tasks/optimistic';
 import { TaskPageShell, taskContentMaxClass } from '@/lib/tasks/task-ui-shell';
 import {
@@ -32,12 +37,11 @@ import {
   sortTasksForDisplay,
   subscribeDemoRoutineGeneration,
 } from '@/lib/tasks/seed-data';
-import type { Task, TaskCreateInput, TaskListResponse, TaskUpdateInput } from '@/lib/tasks/types';
+import type { Task, TaskListResponse, TaskUpdateInput } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
 import {
   CATEGORY_FILTERS,
-  InlineQuickAddRow,
   TASK_VIEWS,
   TaskGroupSection,
   TaskListSection,
@@ -46,9 +50,7 @@ import {
   TasksHeader,
   TasksLoadingSkeleton,
   TasksToolbarActions,
-  isTaskViewId,
   type ListLayoutMode,
-  type TaskViewId,
 } from './tasks-ui';
 
 type RoutineGenerateResponse = {
@@ -99,8 +101,7 @@ export function TasksClient() {
 
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [layoutMode, setLayoutMode] = useState<ListLayoutMode>('list');
-  const [quickTitle, setQuickTitle] = useState('');
-  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [demoGeneratedTasks, setDemoGeneratedTasks] = useState<Task[]>([]);
 
@@ -172,30 +173,30 @@ export function TasksClient() {
   });
 
   const createTaskMutation = useMutation({
-    mutationFn: async (input: TaskCreateInput) => {
+    mutationFn: async (input: NewTaskComposerSubmit) => {
+      const { createMore: _createMore, ...payload } = input;
       try {
         return await apiJsonWithAuth<Task>('/api/tasks', getToken, {
           method: 'POST',
-          body: JSON.stringify(input),
+          body: JSON.stringify(payload),
           userId: user?.id,
         });
       } catch (error) {
         if (!user?.id) throw error;
-        const optimistic = buildOptimisticTask(input, user.id);
+        const optimistic = buildOptimisticTask(payload, user.id);
         await putLocalVaultTask(user.id, optimistic);
         await putLocalVaultTaskRoutineWriteOutboxItem(
           user.id,
-          buildTaskCreateOutboxItem(user.id, input, optimistic),
+          buildTaskCreateOutboxItem(user.id, payload, optimistic),
         );
         toast.message('Task saved locally. It will sync when the backend is available.');
         return optimistic;
       }
     },
-    onSuccess: (task) => {
-      setQuickTitle('');
-      setShowQuickAdd(false);
+    onSuccess: (_task, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
-      if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
+      if (user?.id && _task) void putLocalVaultTask(user.id, _task).catch(() => undefined);
+      if (!variables.createMore) setComposerOpen(false);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create task.'),
   });
@@ -246,17 +247,8 @@ export function TasksClient() {
   }, [category, demoGeneratedTasks, tasksQuery.data, view]);
   const groups = useMemo(() => groupTasksByProject(tasks), [tasks]);
 
-  const handleQuickAdd = () => {
-    const title = quickTitle.trim();
-    if (!title) return;
-    createTaskMutation.mutate({
-      title,
-      category: 'Personal',
-      priority: 'none',
-      source: 'manual',
-      client_event_id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      scheduled_for: view === 'today' ? new Date().toISOString() : null,
-    });
+  const handleComposerSubmit = (values: NewTaskComposerSubmit) => {
+    createTaskMutation.mutate(values);
   };
 
   const viewTitle = TASK_VIEWS.find((item) => item.id === view)?.label || 'Tasks';
@@ -277,7 +269,7 @@ export function TasksClient() {
       <TasksToolbarActions
         layoutMode={layoutMode}
         onLayoutModeChange={setLayoutMode}
-        onAddClick={() => setShowQuickAdd(true)}
+        onNewTask={() => setComposerOpen(true)}
         onSyncRoutines={() => generateDueMutation.mutate()}
         syncPending={generateDueMutation.isPending}
       />
@@ -290,18 +282,6 @@ export function TasksClient() {
           <TasksLoadingSkeleton />
         ) : hasTasks ? (
           <div className={cn(taskContentMaxClass, 'px-6 lg:px-8')}>
-            {showQuickAdd ? (
-              <InlineQuickAddRow
-                value={quickTitle}
-                onChange={setQuickTitle}
-                onSubmit={handleQuickAdd}
-                onCancel={() => {
-                  setShowQuickAdd(false);
-                  setQuickTitle('');
-                }}
-                pending={createTaskMutation.isPending}
-              />
-            ) : null}
             {layoutMode === 'list' ? (
               <TaskListSection tasks={tasks} {...rowHandlers} />
             ) : (
@@ -316,9 +296,17 @@ export function TasksClient() {
             )}
           </div>
         ) : (
-          <TasksEmptyState />
+          <TasksEmptyState onNewTask={() => setComposerOpen(true)} />
         )}
       </div>
+
+      <NewTaskComposer
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        onSubmit={handleComposerSubmit}
+        pending={createTaskMutation.isPending}
+        defaultSchedule={defaultScheduleForView(view)}
+      />
     </TaskPageShell>
   );
 }

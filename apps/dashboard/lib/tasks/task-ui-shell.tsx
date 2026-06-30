@@ -167,7 +167,7 @@ export function TaskRowShell({
   return (
     <div
       className={cn(
-        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,36px)] grid-cols-[22px_20px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[6px] px-2.5 py-0.5 outline-none hover:bg-[#f6f6f5] focus-visible:bg-[#f6f6f5] focus-visible:ring-2 focus-visible:ring-gray-300',
+        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,36px)] grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3 rounded-[6px] px-2.5 py-0.5 outline-none hover:bg-[#f6f6f5] focus-visible:bg-[#f6f6f5] focus-visible:ring-2 focus-visible:ring-gray-300',
         className,
       )}
       {...props}

@@ -3,7 +3,6 @@
 import React from 'react';
 import {
   Archive,
-  CalendarClock,
   Check,
   Circle,
   Flag,
@@ -22,6 +21,15 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { dateInputValue } from '@/lib/tasks/date-format';
 import {
+  CATEGORY_FILTERS,
+  LIST_LAYOUT_MODES,
+  PRIORITIES,
+  TASK_VIEWS,
+  isTaskViewId,
+  type ListLayoutMode,
+  type TaskViewId,
+} from '@/lib/tasks/task-constants';
+import {
   GroupBySelect,
   HeaderPortal,
   InlineFieldInput,
@@ -30,31 +38,21 @@ import {
   TaskRowShell,
   ToolbarIconButton,
   ViewPills,
-  priorityBars,
   taskContentMaxClass,
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
 import { cn } from '@/lib/utils';
 
-export const TASK_VIEWS = [
-  { id: 'today', label: 'Today' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'anytime', label: 'Anytime' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'skipped', label: 'Skipped' },
-  { id: 'archived', label: 'Archived' },
-] as const;
-
-export const CATEGORY_FILTERS = ['All', 'Health', 'Work', 'Personal', 'Finance', 'Experiments', 'AI'] as const;
-export const PRIORITIES: TaskPriority[] = ['none', 'low', 'medium', 'high'];
-export const LIST_LAYOUT_MODES = [
-  { id: 'list', label: 'List' },
-  { id: 'project', label: 'Projects' },
-] as const;
-
-export type TaskViewId = (typeof TASK_VIEWS)[number]['id'];
-export type ListLayoutMode = (typeof LIST_LAYOUT_MODES)[number]['id'];
+export {
+  CATEGORY_FILTERS,
+  LIST_LAYOUT_MODES,
+  PRIORITIES,
+  TASK_VIEWS,
+  isTaskViewId,
+  type ListLayoutMode,
+  type TaskViewId,
+};
 
 export function TasksHeader({ title }: { title: string }) {
   return <TaskPageHeader title={title} />;
@@ -81,13 +79,13 @@ export function TasksFilterBar({
 export function TasksToolbarActions({
   layoutMode,
   onLayoutModeChange,
-  onAddClick,
+  onNewTask,
   onSyncRoutines,
   syncPending,
 }: {
   layoutMode: ListLayoutMode;
   onLayoutModeChange: (mode: ListLayoutMode) => void;
-  onAddClick: () => void;
+  onNewTask: () => void;
   onSyncRoutines: () => void;
   syncPending: boolean;
 }) {
@@ -112,9 +110,14 @@ export function TasksToolbarActions({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-        <ToolbarIconButton onClick={onAddClick} aria-label="Add task" title="Add task">
+        <button
+          type="button"
+          onClick={onNewTask}
+          className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-gray-300 bg-white px-2.5 text-[12.5px] font-medium text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1"
+        >
           <Plus className="h-3.5 w-3.5" />
-        </ToolbarIconButton>
+          New task
+        </button>
       </div>
     </HeaderPortal>
   );
@@ -173,7 +176,7 @@ export function TaskGroupSection({
   return (
     <section style={{ marginBottom: 'var(--task-group-gap, 32px)' }}>
       <ProjectGroupHeader name={group} overdueLabel={overdueLabel} />
-      <div className="space-y-1">
+      <div className="space-y-0.5">
         {tasks.map((task) => (
           <TaskRow
             key={task.id}
@@ -203,7 +206,7 @@ export function TaskListSection({
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
 }) {
   return (
-    <div className="space-y-1">
+    <div className="space-y-0.5">
       {tasks.map((task) => (
         <TaskRow
           key={task.id}
@@ -244,7 +247,7 @@ export function TaskRow({
             if (event.target !== event.currentTarget) return;
             if (event.key === 'Enter' || event.key === ' ') {
               event.preventDefault();
-              onComplete();
+              onMenuOpenChange(true);
             } else if (event.key.toLowerCase() === 's' && task.status === 'open') {
               onUpdate({ status: 'skipped' });
             } else if (event.key.toLowerCase() === 'a' && task.status !== 'archived') {
@@ -269,7 +272,6 @@ export function TaskRow({
           >
             <Check className="h-3 w-3" />
           </button>
-          {priorityBars(task.priority, true)}
           <div className="min-w-0">
             <div
               className={cn(
@@ -280,23 +282,15 @@ export function TaskRow({
               {task.title}
             </div>
           </div>
-          <div className="flex min-w-0 items-center justify-end gap-3 text-[12px]">
+          <div className="flex min-w-0 items-center justify-end gap-3 text-[12px] text-[rgba(39,37,30,0.42)]">
             {isOverdue && dateLabel ? (
-              <span className="hidden items-center gap-1 text-[#c44d3a] sm:inline-flex">
-                <Flag className="h-3 w-3" />
-                {dateLabel}
-              </span>
+              <span className="hidden text-[#c44d3a] sm:inline">{dateLabel}</span>
             ) : null}
             {trailingLabel ? (
-              <span className="hidden max-w-[180px] truncate text-[rgba(39,37,30,0.42)] md:block">
-                {trailingLabel}
-              </span>
+              <span className="hidden max-w-[180px] truncate md:block">{trailingLabel}</span>
             ) : null}
             {!isOverdue && dateLabel ? (
-              <span className="hidden items-center gap-1 text-[rgba(39,37,30,0.42)] sm:inline-flex">
-                <CalendarClock className="h-3 w-3" />
-                {dateLabel}
-              </span>
+              <span className="hidden sm:inline">{dateLabel}</span>
             ) : null}
             {task.status === 'skipped' ? <Circle className="h-3.5 w-3.5 text-[rgba(39,37,30,0.35)]" /> : null}
           </div>
@@ -381,7 +375,7 @@ export function TasksLoadingSkeleton() {
   );
 }
 
-export function TasksEmptyState() {
+export function TasksEmptyState({ onNewTask }: { onNewTask: () => void }) {
   return (
     <div className="flex h-full items-center justify-center text-center">
       <div>
@@ -390,56 +384,17 @@ export function TasksEmptyState() {
         </span>
         <div className="mt-3 text-[17px] font-medium text-[#27251E]">No tasks here</div>
         <p className="mt-1.5 text-[13px] text-[rgba(39,37,30,0.45)]">
-          Tap + to add a task or sync routines from the menu.
+          Create a task or sync routines from the menu.
         </p>
+        <button
+          type="button"
+          onClick={onNewTask}
+          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-sm border border-gray-300 bg-white px-3 text-[13px] font-medium text-[#27251E] shadow-sm hover:bg-[#F5F5F5]"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New task
+        </button>
       </div>
     </div>
   );
-}
-
-export function InlineQuickAddRow({
-  value,
-  onChange,
-  onSubmit,
-  onCancel,
-  pending,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  onSubmit: () => void;
-  onCancel: () => void;
-  pending: boolean;
-}) {
-  return (
-    <div className="mb-4 flex items-center gap-2">
-      <span className="flex h-[18px] w-[18px] shrink-0 rounded-[5px] border border-[rgba(39,37,30,0.2)] bg-white" />
-      <input
-        autoFocus
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            onSubmit();
-          } else if (event.key === 'Escape') {
-            onCancel();
-          }
-        }}
-        placeholder="New task..."
-        className="min-w-0 flex-1 bg-transparent text-[14px] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
-      />
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={pending || !value.trim()}
-        className="text-[12.5px] font-medium text-[#27251E] disabled:opacity-40"
-      >
-        Add
-      </button>
-    </div>
-  );
-}
-
-export function isTaskViewId(value: string | null): value is TaskViewId {
-  return TASK_VIEWS.some((item) => item.id === value);
 }
