@@ -5,14 +5,10 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bot,
-  CalendarDays,
   Check,
-  ChevronsRight,
   Loader2,
-  MoreHorizontal,
   Play,
   Plus,
-  RotateCw,
   Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -43,25 +39,21 @@ import {
   mergeRoutinesWithOutbox,
 } from '@/lib/tasks/local-first-writes';
 import { nextRoutineDates, summarizeRecurrence } from '@/lib/tasks/recurrence';
-import { PRIORITIES, defaultRoutineInput, toRoutineEditor } from '@/lib/tasks/routine-editor';
+import { defaultRoutineInput, toRoutineEditor } from '@/lib/tasks/routine-editor';
 import {
-  FieldGroup,
-  FieldRow,
-  IconButton,
-  InlineControl,
-  InlineSelect,
-  ReferencePage,
-  SegmentedTabs,
-  priorityBars,
-  subtleBorderClass,
-} from '@/lib/tasks/reference-task-shell';
+  HeaderPortal,
+  PillButton,
+  TaskPageShell,
+  ToolbarIconButton,
+  UnderlineTabs,
+  ViewPills,
+} from '@/lib/tasks/task-ui-shell';
 import {
   appendDemoRoutineGeneration,
   buildSeedRoutineRuns,
   buildSeedRoutines,
   dedupeById,
   readDemoRoutineRuns,
-  relativeDayLabel,
   subscribeDemoRoutineGeneration,
 } from '@/lib/tasks/seed-data';
 import type {
@@ -70,7 +62,6 @@ import type {
   RoutineListResponse,
   RoutineRun,
   RoutineUpdateInput,
-  TaskPriority,
 } from '@/lib/tasks/types';
 import type {
   WorkflowDefinition,
@@ -79,9 +70,10 @@ import type {
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
 import {
-  RoutineRecurrenceFields,
+  RoutineDetailHeader,
+  RoutineEditorCards,
+  RoutineListItem,
   TemplateIcon,
-  routineKindLabel,
   runOutputType,
   runStatusClass,
   templateScheduleSummary,
@@ -141,9 +133,10 @@ export function RoutinesClient() {
   });
 
   const routines = routinesQuery.data || [];
-  const selectedRoutineId = selectedId || routines[0]?.id || null;
+  const selectedRoutineId = selectedId;
   const selectedRoutine = selectedRoutineId ? routines.find((routine) => routine.id === selectedRoutineId) || null : null;
   const editor = editorDraft || (selectedRoutine ? toRoutineEditor(selectedRoutine) : null);
+  const showListCadence = !editor;
 
   const runsQuery = useQuery({
     queryKey: ['routine-runs', user?.id],
@@ -306,6 +299,7 @@ export function RoutinesClient() {
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to set up AI routine.'),
   });
+
   const preview = useMemo(() => {
     if (!editor) return { summary: '', dates: [] as Date[] };
     return {
@@ -319,11 +313,13 @@ export function RoutinesClient() {
       }),
     };
   }, [editor]);
+
   const routineById = useMemo(() => new Map(routines.map((routine) => [routine.id, routine])), [routines]);
   const displayRuns = useMemo(() => {
     const runs = dedupeById([...(demoRuns || []), ...(runsQuery.data || [])]);
     return runs.slice().sort((a, b) => new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime());
   }, [demoRuns, runsQuery.data]);
+
   const filteredTemplates = useMemo(() => {
     if (activeTemplateCategory === 'Suggested') {
       return AI_ROUTINE_TEMPLATES.filter((template) => template.category === 'Suggested').concat(
@@ -361,120 +357,151 @@ export function RoutinesClient() {
       },
     });
   };
+
   const editorTimeValue = editor
     ? `${String(Number(editor.trigger_config.hour || 9)).padStart(2, '0')}:${String(Number(editor.trigger_config.minute || 0)).padStart(2, '0')}`
     : '09:00';
   const nextPreviewText = preview.dates.map((date) => formatDateTime(date)).slice(0, 4).join(', ') || formatDateTime(editor?.next_run_at || null);
+  const lastRunText = formatDateTime(editor?.last_run_at || null);
   const completionPreview = editor?.trigger_type === 'on_completion' && preview.dates[0]
     ? `If completed today -> ${formatDateTime(preview.dates[0])}`
     : null;
 
   return (
-    <ReferencePage>
-      <div className="grid h-full min-h-0 grid-cols-[minmax(330px,410px)_minmax(520px,1fr)]">
-        <aside className={cn('flex min-h-0 flex-col border-r bg-[#fbfcfd]', subtleBorderClass)}>
-          <div className="shrink-0 px-5 pb-4 pt-6">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                <div className="text-[11px] font-[700] uppercase text-[#737b86]">Ritual rules</div>
-                <h1 className="mt-2 truncate text-[34px] font-[700] leading-none text-[#10141d]">Routines</h1>
-              </div>
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-2 rounded-[7px] bg-[#111827] px-3 text-[13px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-55"
+    <TaskPageShell>
+      {editor ? (
+        <HeaderPortal>
+          <div className="flex items-center gap-2">
+            <PillButton
+              onClick={() => generateDueMutation.mutate()}
+              disabled={generateDueMutation.isPending}
+            >
+              {generateDueMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+              Generate due
+            </PillButton>
+            <PillButton
+              onClick={saveEditor}
+              disabled={saveRoutineMutation.isPending}
+              className="border-[#27251E] bg-[#27251E] text-white hover:bg-[#1a1916]"
+            >
+              {saveRoutineMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
+              Save
+            </PillButton>
+          </div>
+        </HeaderPortal>
+      ) : null}
+
+      <div
+        className={cn(
+          'grid h-full min-h-0',
+          editor
+            ? 'grid-cols-[minmax(260px,320px)_minmax(400px,1fr)]'
+            : 'grid-cols-1',
+        )}
+      >
+        <aside
+          className={cn(
+            'flex min-h-0 flex-col bg-[var(--content-bg)]',
+            editor ? 'border-r border-[var(--border-subtle)]' : 'mx-auto w-full max-w-[720px]',
+          )}
+        >
+          <div className="shrink-0 px-5 pb-3 pt-7">
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="truncate text-[28px] font-semibold leading-none tracking-[-0.02em] text-[#27251E]">
+                Routines
+              </h1>
+              <ToolbarIconButton
                 onClick={() => createRoutineMutation.mutate(defaultRoutineInput())}
                 disabled={createRoutineMutation.isPending}
+                aria-label="New routine"
+                title="New routine"
               >
-                <Plus className="h-4 w-4" />
-                New
-              </button>
+                <Plus className="h-3.5 w-3.5" />
+              </ToolbarIconButton>
             </div>
-            <SegmentedTabs
+            <UnderlineTabs
               value={activeTab}
               options={ROUTINE_TABS}
               onChange={setActiveTab}
-              className="mt-5 w-full [&>button]:flex-1"
+              className="mt-4"
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto px-3 pb-5">
+          <div className="min-h-0 flex-1 overflow-auto px-2 pb-5">
             {activeTab === 'mine' ? (
-              <div className="space-y-1">
+              <div className="space-y-0.5">
                 {routinesQuery.isLoading ? [0, 1, 2].map((item) => (
-                  <div key={item} className="h-14 animate-pulse rounded-[7px] bg-[#edf0f4]" />
+                  <div key={item} className="mx-1 h-9 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
                 )) : routines.length ? routines.map((routine) => (
-                  <button
+                  <RoutineListItem
                     key={routine.id}
-                    type="button"
+                    title={routine.title}
+                    cadence={routine.cadence_summary}
+                    showCadence={showListCadence}
+                    selected={selectedRoutineId === routine.id}
                     onClick={() => {
                       setSelectedId(routine.id);
                       setEditor(toRoutineEditor(routine));
                       setActiveTab('mine');
                     }}
-                    className={cn(
-                      'grid w-full grid-cols-[22px_minmax(0,1fr)] gap-2.5 rounded-[7px] px-3 py-2.5 text-left transition',
-                      selectedRoutineId === routine.id ? 'bg-[#e9eef6]' : 'hover:bg-[#eef1f5]',
-                    )}
-                  >
-                    <RotateCw className="mt-0.5 h-4 w-4 text-[#69727d]" />
-                    <span className="min-w-0">
-                      <span className="block truncate text-[14px] font-[700] text-[#1f242d]">{routine.title}</span>
-                      <span className="mt-1 flex items-center justify-between gap-3 text-[12px] font-[600] text-[#737b86]">
-                        <span className="truncate">{routine.cadence_summary}</span>
-                        <span className={cn('shrink-0', routine.status === 'paused' ? 'text-[#956d2c]' : 'text-[#1f6c47]')}>{routine.status}</span>
-                      </span>
-                      <span className="mt-1 flex items-center justify-between gap-3 text-[11px] font-[650] text-[#8a929d]">
-                        <span>{routineKindLabel(routine.kind)}</span>
-                        <span>{relativeDayLabel(routine.next_run_at)}</span>
-                      </span>
-                    </span>
-                  </button>
+                  />
                 )) : (
-                  <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">No routines yet.</div>
+                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">No routines yet.</div>
                 )}
               </div>
             ) : activeTab === 'templates' ? (
-              <div className="space-y-3">
-                <div className="flex flex-wrap gap-1.5 px-1">
-                  {ROUTINE_TEMPLATE_CATEGORIES.map((categoryName) => (
-                    <button
-                      key={categoryName}
-                      type="button"
-                      onClick={() => setActiveTemplateCategory(categoryName)}
-                      className={cn(
-                        'h-7 rounded-[6px] px-2.5 text-[12px] font-[650] transition',
-                        activeTemplateCategory === categoryName ? 'bg-[#111827] text-white' : 'bg-[#eef1f5] text-[#65707c] hover:bg-[#e4e9f0]',
-                      )}
-                    >
-                      {categoryName}
-                    </button>
-                  ))}
-                </div>
+              <div className="space-y-3 px-1">
+                <ViewPills
+                  value={activeTemplateCategory}
+                  options={ROUTINE_TEMPLATE_CATEGORIES}
+                  onChange={(value) => setActiveTemplateCategory(value as RoutineTemplateCategory)}
+                />
                 {filteredTemplates.map((template) => {
                   const existing = workflows.find((workflow) => workflow.config?.ai_routine_template_key === template.id);
                   return (
-                    <div key={template.id} className="rounded-[7px] border border-[rgba(15,23,42,0.08)] bg-white/78 px-3 py-3 transition hover:bg-white">
+                    <div
+                      key={template.id}
+                      className="rounded-[6px] border border-[var(--border-subtle)] bg-white px-3 py-3 hover:bg-[#fafaf9]"
+                    >
                       <div className="flex items-start gap-3">
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-[7px] bg-[#eef1f5] text-[#20242c]">
+                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#F3F3F3] text-[#27251E]">
                           <TemplateIcon sourceIcon={template.sourceIcon} />
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="truncate text-[14px] font-[700] text-[#1f242d]">{template.title}</div>
-                              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[#737b86]">{template.description}</div>
+                              <div className="truncate text-[14px] font-medium text-[#27251E]">{template.title}</div>
+                              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[rgba(39,37,30,0.55)]">
+                                {template.description}
+                              </div>
                             </div>
-                            {existing ? <span className="shrink-0 text-[12px] font-[700] text-[#1f6c47]">ready</span> : null}
+                            {existing ? (
+                              <span className="shrink-0 text-[11px] font-medium text-[#2d6a4f]">ready</span>
+                            ) : null}
                           </div>
-                          <div className="mt-3 flex items-center justify-between gap-3">
-                            <span className="truncate text-[12px] font-[600] text-[#737b86]">{templateScheduleSummary(template)}</span>
+                          <div className="mt-2.5 flex items-center justify-between gap-3">
+                            <span className="truncate text-[12px] text-[rgba(39,37,30,0.45)]">
+                              {templateScheduleSummary(template)}
+                            </span>
                             <button
                               type="button"
-                              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[6px] border border-[rgba(15,23,42,0.10)] bg-white/90 px-2.5 text-[12px] font-[700] text-[#2f3743] hover:bg-[#f6f8fa] disabled:opacity-55"
+                              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2 text-[12px] text-[#27251E] shadow-sm hover:bg-[#F5F5F5] disabled:opacity-50"
                               onClick={() => setupAiTemplateMutation.mutate(template)}
                               disabled={setupAiTemplateMutation.isPending}
                             >
-                              {setupAiTemplateMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                              {setupAiTemplateMutation.isPending ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3 w-3" />
+                              )}
                               Set up
                             </button>
                           </div>
@@ -484,199 +511,84 @@ export function RoutinesClient() {
                   );
                 })}
                 {workflows.length ? (
-                  <div className={cn('mt-4 space-y-1 border-t pt-4', subtleBorderClass)}>
+                  <div className="space-y-0.5 border-t border-[var(--border-subtle)] pt-3">
                     {workflows.slice(0, 6).map((workflow) => (
                       <button
                         key={workflow.id}
                         type="button"
-                        className="grid w-full grid-cols-[22px_minmax(0,1fr)_auto] gap-3 rounded-[7px] px-3 py-2.5 text-left transition hover:bg-[#eef1f5]"
+                        className="ritual-snappy-row flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left hover:bg-[#f6f6f5]"
                         onClick={() => createRoutineMutation.mutate(workflowRoutineInput(workflow))}
                         disabled={createRoutineMutation.isPending}
                       >
-                        <Bot className="mt-0.5 h-4 w-4 text-[#69727d]" />
-                        <span className="min-w-0">
-                          <span className="block truncate text-[14px] font-[650] text-[#1f242d]">{workflow.name}</span>
-                          <span className="mt-1 block text-[12px] text-[#737b86]">{workflow.kind.replace(/_/g, ' ')}</span>
-                        </span>
-                        <Sparkles className="mt-0.5 h-4 w-4 text-[#69727d]" />
+                        <Bot className="h-4 w-4 shrink-0 text-[rgba(39,37,30,0.45)]" />
+                        <span className="min-w-0 truncate text-[14px] font-medium text-[#27251E]">{workflow.name}</span>
+                        <Sparkles className="ml-auto h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.35)]" />
                       </button>
                     ))}
                   </div>
                 ) : workflowsQuery.isLoading ? (
-                  <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">Workflow templates are loading.</div>
+                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">
+                    Workflow templates are loading.
+                  </div>
                 ) : null}
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-0.5 px-1">
                 {displayRuns.map((run) => {
                   const routine = routineById.get(run.routine_id);
                   return (
-                    <div key={run.id} className="rounded-[7px] px-3 py-2.5 transition hover:bg-[#eef1f5]">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="truncate text-[14px] font-[700] text-[#1f242d]">{routine?.title || 'Routine run'}</span>
-                      <span className={cn('shrink-0 text-[12px] font-[700]', runStatusClass(run.status))}>{run.status}</span>
+                    <div
+                      key={run.id}
+                      className="rounded-[6px] px-2.5 py-2.5 hover:bg-[#f6f6f5]"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-[14px] font-medium text-[#27251E]">
+                          {routine?.title || 'Routine run'}
+                        </span>
+                        <span className={cn('shrink-0 text-[12px] font-medium', runStatusClass(run.status))}>
+                          {run.status}
+                        </span>
+                      </div>
+                      <div className="mt-1 text-[12px] text-[rgba(39,37,30,0.45)]">
+                        {formatDateTime(run.scheduled_for)} · {runOutputType(run)}
+                      </div>
                     </div>
-                    <div className="mt-1 flex items-center justify-between gap-3 text-[12px] font-[600] text-[#737b86]">
-                      <span className="truncate">Scheduled {formatDateTime(run.scheduled_for)}</span>
-                      <span className="shrink-0">{run.created_at ? `Generated ${formatDateTime(run.created_at)}` : runOutputType(run)}</span>
-                    </div>
-                    <div className="mt-1 text-[11px] font-[650] uppercase text-[#8a929d]">Output: {runOutputType(run)}</div>
-                  </div>
                   );
                 })}
-                {!displayRuns.length && <div className="px-3 py-8 text-center text-[14px] text-[#737b86]">No routine runs yet.</div>}
+                {!displayRuns.length && (
+                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">No routine runs yet.</div>
+                )}
               </div>
             )}
           </div>
         </aside>
 
-        <section className="flex min-h-0 flex-col bg-[#f7f8fa]">
-          <div className={cn('flex h-12 shrink-0 items-center border-b bg-[#fbfcfd] px-6', subtleBorderClass)}>
-            <ChevronsRight className="h-4 w-4 text-[#8a929c]" />
-            <div className="min-w-0 flex-1 text-center text-[13px] font-[700] text-[#737b86]">Routine</div>
-            <IconButton className="h-7 w-7">
-              <MoreHorizontal className="h-4 w-4" />
-            </IconButton>
-          </div>
+        {editor ? (
+          <section className="flex min-h-0 flex-col bg-[var(--content-bg)]">
+            <RoutineDetailHeader />
+            <div className="min-h-0 flex-1 overflow-auto px-6 py-5 lg:px-8">
+              <div className="mx-auto max-w-[640px]">
+                <input
+                  value={editor.title}
+                  onChange={(event) => setEditor({ ...editor, title: event.target.value })}
+                  className="mb-5 w-full bg-transparent text-[24px] font-semibold leading-tight tracking-[-0.02em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
+                  placeholder="Routine title"
+                />
 
-          <div className="min-h-0 flex-1 overflow-auto px-7 py-6">
-            {editor ? (
-              <div className="mx-auto max-w-[780px]">
-                <div className="mb-5 flex items-start justify-between gap-5">
-                  <div className="min-w-0 flex-1">
-                    <div className="mb-1 text-[11px] font-[700] uppercase text-[#8a929d]">{routineKindLabel(editor.kind)}</div>
-                    <input
-                      value={editor.title}
-                      onChange={(event) => setEditor({ ...editor, title: event.target.value })}
-                      className="min-w-0 w-full bg-transparent text-[32px] font-[700] leading-tight text-[#111827] outline-none"
-                    />
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      className="inline-flex h-9 items-center gap-2 rounded-[7px] border border-[rgba(15,23,42,0.10)] bg-white/86 px-3 text-[13px] font-[700] text-[#2f3743] hover:bg-white disabled:opacity-55"
-                      onClick={() => generateDueMutation.mutate()}
-                      disabled={generateDueMutation.isPending}
-                    >
-                      {generateDueMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                      Generate due
-                    </button>
-                    <button
-                      type="button"
-                      className="inline-flex h-9 items-center gap-2 rounded-[7px] bg-[#111827] px-3 text-[13px] font-[700] text-white hover:bg-[#202938] disabled:opacity-55"
-                      onClick={saveEditor}
-                      disabled={saveRoutineMutation.isPending}
-                    >
-                      {saveRoutineMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      Save
-                    </button>
-                  </div>
-                </div>
-
-                <div className="space-y-3.5">
-                  <RoutineRecurrenceFields
-                    editor={editor}
-                    setEditor={setEditor}
-                    updateConfig={updateConfig}
-                    editorTimeValue={editorTimeValue}
-                    completionPreview={completionPreview}
-                  />
-
-                  <FieldGroup>
-                    <FieldRow label="Last">
-                      <span className="text-[13px] font-[650] text-[#737b86]">{formatDateTime(editor.last_run_at)}</span>
-                    </FieldRow>
-                    <FieldRow label="Next">
-                      <span className="max-w-[440px] truncate text-[13px] font-[650] text-[#2f3743]">{nextPreviewText}</span>
-                    </FieldRow>
-                    <FieldRow label="Summary">
-                      <span className="max-w-[440px] truncate text-[13px] font-[650] text-[#737b86]">{preview.summary || 'No recurrence configured.'}</span>
-                    </FieldRow>
-                  </FieldGroup>
-
-                  <FieldGroup>
-                    <FieldRow label="Priority">
-                      {priorityBars(editor.priority, true)}
-                      <InlineSelect
-                        value={editor.priority}
-                        onChange={(event) => setEditor({ ...editor, priority: event.target.value as TaskPriority })}
-                        className="w-[120px]"
-                      >
-                        {PRIORITIES.map((priority) => <option key={priority} value={priority}>{priority}</option>)}
-                      </InlineSelect>
-                    </FieldRow>
-                    <FieldRow label="Template title">
-                      <InlineControl
-                        value={editor.task_template.title}
-                        onChange={(event) => setEditor({ ...editor, task_template: { ...editor.task_template, title: event.target.value } })}
-                        className="w-[360px]"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Project">
-                      <InlineControl
-                        value={editor.task_template.project || ''}
-                        onChange={(event) => setEditor({ ...editor, task_template: { ...editor.task_template, project: event.target.value } })}
-                        className="w-[240px]"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Category">
-                      <InlineControl
-                        value={editor.task_template.category || ''}
-                        onChange={(event) => setEditor({ ...editor, task_template: { ...editor.task_template, category: event.target.value } })}
-                        className="w-[240px]"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Tags">
-                      <InlineControl
-                        value={editor.tags.join(', ')}
-                        onChange={(event) => setEditor({ ...editor, tags: event.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) })}
-                        className="w-[240px]"
-                      />
-                    </FieldRow>
-                    <FieldRow label="Template tags">
-                      <InlineControl
-                        value={(editor.task_template.tags || []).join(', ')}
-                        onChange={(event) => setEditor({
-                          ...editor,
-                          task_template: {
-                            ...editor.task_template,
-                            tags: event.target.value.split(',').map((tag) => tag.trim()).filter(Boolean),
-                          },
-                        })}
-                        className="w-[240px]"
-                      />
-                    </FieldRow>
-                  </FieldGroup>
-
-                  <textarea
-                    value={editor.description || ''}
-                    onChange={(event) => setEditor({ ...editor, description: event.target.value })}
-                    placeholder="Routine notes..."
-                    rows={3}
-                    className="w-full resize-none rounded-[8px] border border-[rgba(15,23,42,0.08)] bg-[#f3f5f7] px-4 py-3 text-[14px] font-[560] text-[#252a32] outline-none placeholder:text-[#8d949d] focus:border-[rgba(15,23,42,0.18)]"
-                  />
-
-                  <textarea
-                    value={editor.task_template.notes || ''}
-                    onChange={(event) => setEditor({ ...editor, task_template: { ...editor.task_template, notes: event.target.value } })}
-                    placeholder="Generated task notes or AI prompt context..."
-                    rows={3}
-                    className="w-full resize-none rounded-[8px] border border-[rgba(15,23,42,0.08)] bg-[#f3f5f7] px-4 py-3 text-[14px] font-[560] text-[#252a32] outline-none placeholder:text-[#8d949d] focus:border-[rgba(15,23,42,0.18)]"
-                  />
-                </div>
+                <RoutineEditorCards
+                  editor={editor}
+                  setEditor={setEditor}
+                  updateConfig={updateConfig}
+                  editorTimeValue={editorTimeValue}
+                  completionPreview={completionPreview}
+                  nextPreviewText={nextPreviewText}
+                  lastRunText={lastRunText}
+                />
               </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-center">
-                <div>
-                  <CalendarDays className="mx-auto h-8 w-8 text-[#a0a7b0]" />
-                  <div className="mt-3 text-[18px] font-[700] text-[#141922]">Select or create a routine</div>
-                  <p className="mt-2 text-[14px] text-[#737b86]">Rules can generate tasks or queue AI workflow runs.</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
+            </div>
+          </section>
+        ) : null}
       </div>
-    </ReferencePage>
+    </TaskPageShell>
   );
 }
