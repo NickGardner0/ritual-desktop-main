@@ -50,6 +50,6 @@ export function triggerDefaults(trigger: RoutineTriggerType): Record<string, unk
   if (trigger === 'weekly') return { interval: 1, weekdays: [0, 1, 2, 3, 4], hour: 9, minute: 0 };
   if (trigger === 'monthly') return { interval: 1, mode: 'day_of_month', day: 1, hour: 9, minute: 0 };
   if (trigger === 'yearly') return { interval: 1, mode: 'day_of_month', month: 1, day: 1, hour: 9, minute: 0 };
-  if (trigger === 'on_completion') return { interval: 1, unit: 'weeks' };
+  if (trigger === 'on_completion') return { interval: 1, unit: 'weeks', hour: 9, minute: 0 };
   return { interval: 1, hour: 9, minute: 0 };
 }
