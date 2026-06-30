@@ -103,7 +103,10 @@ export function Panel({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 export function SettingsGroup({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <Panel
-      className={cn("divide-y divide-[var(--border-subtle)] overflow-visible rounded-[10px]", className)}
+      className={cn(
+        "divide-y divide-black/[0.07] overflow-visible rounded-[15px] bg-[#f4f4f3] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.018)]",
+        className,
+      )}
       {...props}
     />
   );
@@ -116,7 +119,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "ritual-settings-row grid min-h-[44px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-3.5 py-2.5",
+        "ritual-settings-row grid min-h-[58px] grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-5 py-3.5",
         className,
       )}
       {...props}

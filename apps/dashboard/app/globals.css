@@ -1425,61 +1425,80 @@
     box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.2);
   }
 
-  .ritual-settings-window {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  .settings-frame,
+  .ritual-settings-window,
+  .settings-native-window {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
   }
 
-  .ritual-settings-window * {
+  .settings-frame *,
+  .ritual-settings-window *,
+  .settings-native-window * {
     letter-spacing: 0;
   }
 
-  .ritual-settings-window main {
+  .settings-frame main,
+  .ritual-settings-window main,
+  .settings-native-window main {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.22) transparent;
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
   }
 
-  .ritual-settings-window main::-webkit-scrollbar {
+  .settings-frame main::-webkit-scrollbar,
+  .ritual-settings-window main::-webkit-scrollbar,
+  .settings-native-window main::-webkit-scrollbar {
     width: 10px;
   }
 
-  .ritual-settings-window main::-webkit-scrollbar-thumb {
+  .settings-frame main::-webkit-scrollbar-thumb,
+  .ritual-settings-window main::-webkit-scrollbar-thumb,
+  .settings-native-window main::-webkit-scrollbar-thumb {
     border: 3px solid transparent;
     border-radius: 999px;
-    background: rgba(0, 0, 0, 0.2);
+    background: rgba(0, 0, 0, 0.18);
     background-clip: padding-box;
   }
 
-  .settings-value-button {
+  .settings-frame-sidebar {
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.62);
+  }
+
+  .settings-value-button,
+  .settings-native-value-button {
     display: inline-flex;
-    min-height: 34px;
+    min-height: 30px;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
     border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.72);
-    padding: 0.375rem 0.75rem;
+    padding: 0.375rem 0.625rem;
     color: #3f3f46;
     font-size: 13px;
     font-weight: 500;
     line-height: 1;
+    white-space: nowrap;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
     transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
   }
 
-  .settings-value-button:hover {
+  .settings-value-button:hover,
+  .settings-native-value-button:hover {
     border-color: rgba(0, 0, 0, 0.16);
     background: rgba(255, 255, 255, 0.92);
   }
 
-  .settings-value-button:focus-visible {
+  .settings-value-button:focus-visible,
+  .settings-native-value-button:focus-visible {
     outline: none;
     box-shadow: 0 0 0 3px rgba(15, 127, 134, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.7);
   }
 
-  .settings-action-row {
+  .settings-action-row,
+  .settings-native-action-row {
     display: flex;
-    min-height: 46px;
+    min-height: 58px;
     width: 100%;
     align-items: center;
     padding: 0 1.25rem;
@@ -1491,154 +1510,78 @@
     transition: none;
   }
 
-  .settings-action-row:hover {
-    background: rgba(0, 0, 0, 0.035);
-    color: #111827;
-  }
-
-  .settings-native-window {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
-  }
-
-  .settings-native-window * {
-    letter-spacing: 0;
-  }
-
-  .settings-native-window main {
-    scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-  }
-
-  .settings-native-window main::-webkit-scrollbar {
-    width: 10px;
-  }
-
-  .settings-native-window main::-webkit-scrollbar-thumb {
-    border: 3px solid transparent;
-    border-radius: 999px;
-    background: rgba(0, 0, 0, 0.18);
-    background-clip: padding-box;
-  }
-
-  .settings-native-value-button {
-    display: inline-flex;
-    min-height: 26px;
-    align-items: center;
-    justify-content: center;
-    gap: 0.375rem;
-    border: 1px solid rgba(0, 0, 0, 0.12);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.76);
-    padding: 0.25rem 0.55rem;
-    color: #3f3f46;
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
-    transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
-    white-space: nowrap;
-  }
-
-  .settings-native-value-button:hover {
-    border-color: rgba(0, 0, 0, 0.16);
-    background: rgba(255, 255, 255, 0.95);
-  }
-
-  .settings-native-action-row {
-    display: flex;
-    min-height: 38px;
-    width: 100%;
-    align-items: center;
-    padding: 0 0.875rem;
-    color: #374151;
-    font-size: 13px;
-    font-weight: 500;
-    line-height: 1;
-    text-align: left;
-    transition: none;
-  }
-
+  .settings-action-row:hover,
   .settings-native-action-row:hover {
     background: rgba(0, 0, 0, 0.035);
     color: #111827;
   }
 
+  .settings-embedded-pane,
   .settings-native-embedded {
     color: #2c2c2c;
     font-size: 13px;
   }
 
+  .settings-embedded-pane > div,
   .settings-native-embedded > div {
-    gap: 1.5rem;
-  }
-
-  .settings-native-embedded h2,
-  .settings-native-embedded h3 {
-    color: #2b2b2b;
-    font-size: 14px;
-  }
-
-  .settings-native-embedded .rounded-sm,
-  .settings-native-embedded .rounded-lg,
-  .settings-native-embedded .rounded-xl,
-  .settings-native-embedded .rounded-\[15px\] {
-    border-radius: 12px !important;
-  }
-
-  .settings-native-embedded .px-5 {
-    padding-left: 1rem !important;
-    padding-right: 1rem !important;
-  }
-
-  .settings-native-embedded .py-4,
-  .settings-native-embedded .py-3\.5 {
-    padding-top: 0.75rem !important;
-    padding-bottom: 0.75rem !important;
-  }
-
-  .settings-embedded-pane > div {
     color: #2c2c2c;
   }
 
   .settings-embedded-pane h2,
-  .settings-embedded-pane h3 {
+  .settings-embedded-pane h3,
+  .settings-native-embedded h2,
+  .settings-native-embedded h3 {
     color: #2b2b2b;
+    font-size: 15px;
+    font-weight: 600;
   }
 
-  .settings-embedded-pane .rounded-sm {
-    border-radius: 14px !important;
-  }
-
+  .settings-embedded-pane .rounded-sm,
   .settings-embedded-pane .rounded-lg,
-  .settings-embedded-pane .rounded-xl {
-    border-radius: 12px !important;
+  .settings-embedded-pane .rounded-xl,
+  .settings-embedded-pane .rounded-\[15px\],
+  .settings-native-embedded .rounded-sm,
+  .settings-native-embedded .rounded-lg,
+  .settings-native-embedded .rounded-xl,
+  .settings-native-embedded .rounded-\[15px\] {
+    border-radius: 15px !important;
   }
 
   .settings-embedded-pane .border-gray-100,
-  .settings-embedded-pane .border-gray-200 {
+  .settings-embedded-pane .border-gray-200,
+  .settings-native-embedded .border-gray-100,
+  .settings-native-embedded .border-gray-200 {
     border-color: rgba(0, 0, 0, 0.08) !important;
   }
 
-  .settings-embedded-pane .bg-white {
+  .settings-embedded-pane .bg-white,
+  .settings-native-embedded .bg-white {
     background-color: rgba(255, 255, 255, 0.62) !important;
   }
 
   .settings-embedded-pane .bg-gray-50,
   .settings-embedded-pane .bg-\[\#F5F5F4\],
-  .settings-embedded-pane .bg-gray-100 {
+  .settings-embedded-pane .bg-gray-100,
+  .settings-native-embedded .bg-gray-50,
+  .settings-native-embedded .bg-\[\#F5F5F4\],
+  .settings-native-embedded .bg-gray-100 {
     background-color: #f4f4f3 !important;
   }
 
-  .settings-embedded-pane button.bg-gray-900 {
+  .settings-embedded-pane button.bg-gray-900,
+  .settings-native-embedded button.bg-gray-900 {
     background-color: #0f7f86 !important;
   }
 
-  .settings-embedded-pane button.bg-gray-900:hover {
+  .settings-embedded-pane button.bg-gray-900:hover,
+  .settings-native-embedded button.bg-gray-900:hover {
     background-color: #0b6f76 !important;
   }
 
   .settings-embedded-pane .text-gray-500,
-  .settings-embedded-pane .text-\[\#616161\] {
+  .settings-embedded-pane .text-\[\#616161\],
+  .settings-native-embedded .text-gray-500,
+  .settings-native-embedded .text-\[\#616161\] {
     color: #7a7a7a !important;
   }
 
@@ -1708,4 +1651,10 @@
 .font-geist-sans .material-symbols-rounded,
 .font-system-ui .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;
+}
+
+/* Settings intentionally mimic native macOS preferences typography. */
+html body .settings-frame.settings-frame,
+html body .settings-frame.settings-frame *:not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
 }
