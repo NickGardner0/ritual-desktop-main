@@ -79,7 +79,7 @@ function ComposerPill({
       type="button"
       onClick={onClick}
       className={cn(
-        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-2.5 text-[12.5px] text-[rgba(39,37,30,0.75)] hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-offset-1',
+        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-sm border border-gray-300 bg-white px-2.5 text-[12.5px] text-[rgba(39,37,30,0.75)] shadow-sm hover:bg-[#F3F3F3] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-300 focus-visible:ring-offset-1',
         className,
       )}
     >
@@ -87,6 +87,11 @@ function ComposerPill({
       <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
     </button>
   );
+}
+
+function getContentPortalRoot(): Element | null {
+  if (typeof document === 'undefined') return null;
+  return document.querySelector('.content-opaque');
 }
 
 function defaultFormState(defaultSchedule: ScheduleWhen): Omit<TaskComposerDraft, 'savedAt'> {
@@ -125,6 +130,15 @@ export function NewTaskComposer({
   const [dueDate, setDueDate] = useState('');
   const [schedule, setSchedule] = useState<ScheduleWhen>(defaultSchedule);
   const [createMore, setCreateMore] = useState(false);
+  const [portalRoot, setPortalRoot] = useState<Element | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      setPortalRoot(null);
+      return;
+    }
+    setPortalRoot(getContentPortalRoot() ?? document.body);
+  }, [open]);
 
   const resetForm = useCallback(
     (nextSchedule: ScheduleWhen = defaultSchedule) => {
@@ -225,21 +239,23 @@ export function NewTaskComposer({
 
   const modalContent = (
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[9999]"
+      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
       data-tauri-drag-region="false"
     >
       <div
-        className="absolute inset-0 bg-[#f7f6f2]/55 dark:bg-[#121212]/80"
+        className="absolute inset-0 bg-[#f7f6f2]/38 dark:bg-[#121212]/70"
         onClick={onClose}
         data-tauri-drag-region="false"
         aria-hidden
+        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
 
       <div
         role="dialog"
         aria-modal="true"
         aria-label="New task"
-        className="relative z-10 flex w-[90vw] max-w-[520px] flex-col overflow-hidden rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)]"
+        className="fixed left-1/2 top-1/2 z-10 flex w-[min(640px,calc(100vw-48px))] min-h-[460px] max-h-[calc(100vh-96px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-sm border border-gray-300 bg-white text-[var(--text-primary)] shadow-[0_12px_34px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.06)]"
         data-tauri-drag-region="false"
       >
         <div className="flex flex-shrink-0 items-center justify-end gap-1 px-4 pb-1 pt-4">
@@ -265,7 +281,7 @@ export function NewTaskComposer({
           </button>
         </div>
 
-        <div className="px-6 pb-2">
+        <div className="flex-1 px-7 pb-3 pt-1">
           <input
             ref={titleRef}
             value={title}
@@ -277,24 +293,24 @@ export function NewTaskComposer({
               }
             }}
             placeholder="New task"
-            className="w-full bg-transparent text-[17px] font-medium leading-snug tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="w-full bg-transparent text-[18px] font-medium leading-snug tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
           <textarea
             ref={notesRef}
             value={notes}
             onChange={(event) => setNotes(event.target.value)}
             placeholder="Add description..."
-            rows={3}
-            className="mt-2.5 w-full resize-none bg-transparent text-[14px] leading-relaxed text-[rgba(39,37,30,0.78)] outline-none placeholder:text-[var(--text-muted)]"
+            rows={5}
+            className="mt-3 min-h-[120px] w-full resize-none bg-transparent text-[14px] leading-relaxed text-[rgba(39,37,30,0.78)] outline-none placeholder:text-[var(--text-muted)]"
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 px-6 pb-4">
+        <div className="flex flex-wrap items-center gap-2 px-7 pb-5">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <ComposerPill>{PRIORITY_LABELS[priority]}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40 rounded-sm">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm border-gray-300">
               {PRIORITIES.map((item) => (
                 <DropdownMenuItem key={item} onClick={() => setPriority(item)}>
                   {PRIORITY_LABELS[item]}
@@ -307,7 +323,7 @@ export function NewTaskComposer({
             <DropdownMenuTrigger asChild>
               <ComposerPill>{category}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40 rounded-sm">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm border-gray-300">
               {CATEGORY_OPTIONS.map((item) => (
                 <DropdownMenuItem key={item} onClick={() => setCategory(item)}>
                   {item}
@@ -320,7 +336,7 @@ export function NewTaskComposer({
             <DropdownMenuTrigger asChild>
               <ComposerPill>{SCHEDULE_LABELS[schedule]}</ComposerPill>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40 rounded-sm">
+            <DropdownMenuContent align="start" className="w-40 rounded-sm border-gray-300">
               {(Object.keys(SCHEDULE_LABELS) as ScheduleWhen[]).map((item) => (
                 <DropdownMenuItem
                   key={item}
@@ -360,7 +376,7 @@ export function NewTaskComposer({
           </button>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[var(--border-subtle)] px-6 py-3.5">
+        <div className="mt-auto flex items-center justify-end gap-3 border-t border-gray-300 px-7 py-4">
           <label className="mr-auto flex cursor-pointer items-center gap-2">
             <Switch checked={createMore} onCheckedChange={setCreateMore} />
             <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
@@ -381,5 +397,5 @@ export function NewTaskComposer({
     </div>
   );
 
-  return typeof window !== 'undefined' ? createPortal(modalContent, document.body) : null;
+  return portalRoot ? createPortal(modalContent, portalRoot) : null;
 }

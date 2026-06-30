@@ -18,7 +18,7 @@ export const taskContentMaxClass = 'mx-auto w-full max-w-[var(--task-content-max
 
 export function TaskPageShell({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden bg-[var(--content-bg)] text-[var(--text-primary)]', className)}>
+    <div className={cn('flex h-full min-h-0 flex-col overflow-hidden text-[var(--text-primary)]', className)}>
       {children}
     </div>
   );

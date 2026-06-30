@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 function TasksLoading() {
   return (
-    <div className="flex h-full flex-col bg-[var(--content-bg)]">
+    <div className="flex h-full flex-col">
       <div className="px-6 pb-4 pt-7 lg:px-8">
         <div className="h-8 w-32 animate-pulse rounded-sm bg-[#f3f3f2]" />
         <div className="mt-4 h-7 w-72 animate-pulse rounded-sm bg-[#f3f3f2]" />
@@ -26,7 +26,7 @@ function TasksLoading() {
 
 export default function TasksPage() {
   return (
-    <div className="flex h-full flex-1 flex-col overflow-hidden bg-[var(--content-bg)]">
+    <div className="flex h-full flex-1 flex-col overflow-hidden">
       <Suspense fallback={<TasksLoading />}>
         <TasksClient />
       </Suspense>
