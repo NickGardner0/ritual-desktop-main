@@ -465,7 +465,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               )}
               {isStatusLoading && !cachedState.current ? (
-                <div className="flex h-[22px] w-[42px] items-center justify-center">
+                <div className="flex h-5 w-[38px] items-center justify-center">
                   <BrailleSpinner className="text-sm text-gray-400" />
                 </div>
               ) : (
@@ -531,7 +531,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
                 className={cn(
                   'h-8 rounded-[8px] text-center text-[13px] font-medium transition-all',
                   titleMode === option.value
-                    ? 'bg-[#0f7f86] text-white shadow-sm'
+                    ? 'bg-[#306774] text-white shadow-sm'
                     : 'text-[#6f6f6f] hover:bg-black/[0.04]',
                 )}
               >
@@ -563,7 +563,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
             step="60"
             value={afkTimeout}
             onChange={(e) => setAfkTimeout(parseInt(e.target.value))}
-            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[#d9d9d7] accent-[#0f7f86]"
+            className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[#d9d9d7] accent-[#3c7783]"
           />
           <div className="mt-1.5 flex justify-between text-[12px] text-[#8a8a8a]">
             <span>5 min</span>
@@ -591,7 +591,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
                     onClick={() => toggleAppExclusion(app.bundle_id)}
                     className={cn(
                       'flex h-4 w-4 items-center justify-center rounded-[5px] border transition-colors',
-                      isExcluded ? 'border-[#0f7f86] bg-[#0f7f86]' : 'border-black/20 bg-white/75',
+                      isExcluded ? 'border-[#306774] bg-[#306774]' : 'border-black/20 bg-white/75',
                     )}
                   >
                     {isExcluded && <Check className="h-3 w-3 text-white" />}
@@ -666,7 +666,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         <button
           onClick={saveSettings}
           disabled={isSaving}
-          className="flex items-center gap-1.5 rounded-[10px] bg-[#0f7f86] px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#0b6f76] disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-[10px] bg-[#306774] px-4 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#285966] disabled:opacity-50"
         >
           {isSaving && <BrailleSpinner className="text-xs text-white" />}
           Save
@@ -714,8 +714,8 @@ function attributionHealthStatusClass(status?: string): string {
 function NativeSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-[15px] font-semibold leading-none text-[#2b2b2b]">{title}</h2>
-      <div className="divide-y divide-black/[0.07] overflow-hidden rounded-[15px] bg-[#f4f4f3] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.018)]">
+      <h2 className="mb-3 ml-[9px] text-[15px] font-semibold leading-5 text-[#1d1d1f]">{title}</h2>
+      <div className="divide-y divide-[#e6e6e6] overflow-hidden rounded-[14px] bg-[#f7f7f7] shadow-none">
         {children}
       </div>
     </section>
@@ -734,13 +734,13 @@ function NativeRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-[58px] grid-cols-[minmax(0,1fr)_auto] items-center gap-5 px-5 py-3.5">
+    <div className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[10px]">
       <div className="flex min-w-0 items-start gap-3">
-        {icon ? <div className="mt-0.5 shrink-0 text-[#6f6f6f]">{icon}</div> : null}
+        {icon ? <div className="mt-0.5 shrink-0 text-[#777]">{icon}</div> : null}
         <div className="min-w-0">
-          <p className="text-[15px] font-medium leading-tight text-[#252525]">{title}</p>
+          <p className="text-[15px] font-medium leading-5 text-[#1d1d1f]">{title}</p>
           {description ? (
-            <p className="mt-1 max-w-[460px] text-[13px] leading-snug text-[#7a7a7a]">{description}</p>
+            <p className="mt-[3px] max-w-[350px] text-[13px] leading-[17px] text-[#777]">{description}</p>
           ) : null}
         </div>
       </div>
@@ -764,14 +764,14 @@ function NativeToggle({
       disabled={disabled}
       aria-pressed={checked}
       className={cn(
-        'relative inline-flex h-[22px] w-[42px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)] disabled:opacity-50',
-        checked ? 'bg-[#0f7f86]' : 'bg-[#d9d9d7]',
+        'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)] disabled:opacity-50',
+        checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
-          checked ? 'translate-x-[22px]' : 'translate-x-[2px]',
+          'inline-block h-4 w-4 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
+          checked ? 'translate-x-5' : 'translate-x-[2px]',
         )}
       />
     </button>

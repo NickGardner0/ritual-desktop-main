@@ -1122,14 +1122,14 @@ struct SettingsWindowPayload {
     initial_view: String,
 }
 
-const SETTINGS_WINDOW_WIDTH: f64 = 760.0;
-const SETTINGS_WINDOW_HEIGHT: f64 = 500.0;
-const SETTINGS_WINDOW_MIN_WIDTH: f64 = 680.0;
-const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 420.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 780.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 552.0;
+const SETTINGS_WINDOW_MIN_WIDTH: f64 = 720.0;
+const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 500.0;
 
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
-        "account" | "computer-tracking" | "place-tagging" | "apple-health" => {
+        "account" | "privacy" | "computer-tracking" | "place-tagging" | "apple-health" => {
             view.unwrap_or_else(|| "account".to_string())
         }
         _ => "account".to_string(),

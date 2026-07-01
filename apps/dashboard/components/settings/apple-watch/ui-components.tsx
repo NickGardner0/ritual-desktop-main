@@ -32,8 +32,8 @@ export function SegmentButton({ children, active, onClick, small }: { children: 
 }
 
 /**
- * Pill toggle that turns green when on. Used for every on/off switch in this
- * panel so the visual language is consistent regardless of underlying primitive.
+ * Pill toggle shared by this settings panel so the visual language is consistent
+ * regardless of underlying primitive.
  */
 export function GreenToggle({
   checked,
@@ -52,14 +52,14 @@ export function GreenToggle({
       aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex h-[22px] w-[40px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-[#73bf1d]' : 'bg-gray-200',
+        'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
+        checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200',
-          checked ? 'translate-x-[20px]' : 'translate-x-[2px]',
+          'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+          checked ? 'translate-x-5' : 'translate-x-[2px]',
         )}
       />
     </button>
