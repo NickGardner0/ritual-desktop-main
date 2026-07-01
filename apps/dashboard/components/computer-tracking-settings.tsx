@@ -446,9 +446,9 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   // ------ render ------
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-[18px]">
       {error && (
-        <div className="flex items-center gap-2 rounded-[13px] bg-red-50 px-4 py-3 text-[13px] text-red-600">
+        <div className="flex items-center gap-2 rounded-[10px] bg-red-50 px-4 py-3 text-[13px] text-red-600">
           <AlertCircle className="h-4 w-4 flex-shrink-0" />
           {error}
         </div>
@@ -465,7 +465,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               )}
               {isStatusLoading && !cachedState.current ? (
-                <div className="flex h-5 w-[38px] items-center justify-center">
+                <div className="flex h-4 w-[28px] items-center justify-center">
                   <BrailleSpinner className="text-sm text-gray-400" />
                 </div>
               ) : (
@@ -514,25 +514,25 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       </NativeSection>
 
       <NativeSection title="Privacy">
-        <div className="px-5 py-4">
-          <div className="mb-3 flex items-center gap-3">
+        <div className="px-[18px] py-3">
+          <div className="mb-2.5 flex items-center gap-3">
             {titleMode === 'off' ? (
-              <EyeOff className="h-4 w-4 text-[#6f6f6f]" />
+              <EyeOff className="h-[15px] w-[15px] text-[#7a7a7a]" />
             ) : (
-              <Eye className="h-4 w-4 text-[#6f6f6f]" />
+              <Eye className="h-[15px] w-[15px] text-[#7a7a7a]" />
             )}
-            <p className="text-[15px] font-medium leading-tight text-[#252525]">Window titles</p>
+            <p className="text-[13px] font-medium leading-tight text-[#252525]">Window titles</p>
           </div>
-          <div className="grid grid-cols-4 gap-1.5 rounded-[11px] bg-white/55 p-1 shadow-[inset_0_0_0_1px_rgba(0,0,0,0.06)]">
+          <div className="grid grid-cols-4 gap-1 rounded-[8px] bg-black/[0.06] p-[3px]">
             {TITLE_MODE_OPTIONS.map((option) => (
               <button
                 key={option.value}
                 onClick={() => setTitleMode(option.value)}
                 className={cn(
-                  'h-8 rounded-[8px] text-center text-[13px] font-medium transition-all',
+                  'h-7 rounded-[5px] text-center text-[12px] font-medium transition-all',
                   titleMode === option.value
-                    ? 'bg-[#306774] text-white shadow-sm'
-                    : 'text-[#6f6f6f] hover:bg-black/[0.04]',
+                    ? 'bg-white text-[#1d1d1f] shadow-[0_1px_2px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.06)]'
+                    : 'text-[#6f6f6f] hover:text-[#1d1d1f]',
                 )}
               >
                 {option.label}
@@ -541,18 +541,18 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           </div>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-[18px] py-3">
           <div className="mb-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <Clock className="h-4 w-4 text-[#6f6f6f]" />
+              <Clock className="h-[15px] w-[15px] text-[#7a7a7a]" />
               <div>
-                <p className="text-[15px] font-medium leading-tight text-[#252525]">Idle timeout</p>
-                <p className="mt-1 text-[13px] leading-snug text-[#7a7a7a]">
+                <p className="text-[13px] font-medium leading-tight text-[#252525]">Idle timeout</p>
+                <p className="mt-0.5 text-[12px] leading-snug text-[#8a8a8a]">
                   Longer values capture reading and thinking time.
                 </p>
               </div>
             </div>
-            <span className="shrink-0 text-[13px] font-medium text-[#6f6f6f]">
+            <span className="shrink-0 text-[12px] font-medium text-[#6f6f6f]">
               {afkTimeout >= 60 ? `${Math.round(afkTimeout / 60)} min` : `${afkTimeout} sec`}
             </span>
           </div>
@@ -573,10 +573,10 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           </div>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-[18px] py-3">
           <div className="mb-3 flex items-center gap-3">
-            <Shield className="h-4 w-4 text-[#6f6f6f]" />
-            <p className="text-[15px] font-medium leading-tight text-[#252525]">Excluded apps</p>
+            <Shield className="h-[15px] w-[15px] text-[#7a7a7a]" />
+            <p className="text-[13px] font-medium leading-tight text-[#252525]">Excluded apps</p>
           </div>
           <div className="grid grid-cols-2 gap-x-5 gap-y-2">
             {SENSITIVE_APPS.map((app) => {
@@ -615,11 +615,11 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       {/* ================================================================ */}
       {showAttributionHealth && (
         <NativeSection title="Attribution Health">
-          <div className="px-5 py-4">
+          <div className="px-[18px] py-3">
             <div className="mb-3 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <Database className="h-4 w-4 text-[#6f6f6f]" />
-                <p className="text-[15px] font-medium text-[#252525]">Diagnostics</p>
+                <Database className="h-[15px] w-[15px] text-[#7a7a7a]" />
+                <p className="text-[13px] font-medium text-[#252525]">Diagnostics</p>
               </div>
               <div className={cn('rounded-full border px-2.5 py-0.5 text-[11px] font-medium', attributionHealthStatusClass((attributionHealth?.session_count ?? 0) > 0 ? 'healthy' : 'Unavailable'))}>
                 {attributionHealthLoading ? 'Loading...' : ((attributionHealth?.session_count ?? 0) > 0 ? 'Healthy' : 'Unavailable')}
@@ -714,8 +714,8 @@ function attributionHealthStatusClass(status?: string): string {
 function NativeSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 ml-[9px] text-[15px] font-semibold leading-5 text-[#1d1d1f]">{title}</h2>
-      <div className="divide-y divide-[#e6e6e6] overflow-hidden rounded-[14px] bg-[#f7f7f7] shadow-none">
+      <h2 className="mb-[6px] ml-[10px] text-[11px] font-semibold uppercase leading-none tracking-[0.045em] text-[#8a8a8a]">{title}</h2>
+      <div className="settings-group-card overflow-hidden">
         {children}
       </div>
     </section>
@@ -734,13 +734,13 @@ function NativeRow({
   control: React.ReactNode;
 }) {
   return (
-    <div className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[10px]">
-      <div className="flex min-w-0 items-start gap-3">
-        {icon ? <div className="mt-0.5 shrink-0 text-[#777]">{icon}</div> : null}
+    <div className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[7px]">
+      <div className="flex min-w-0 items-center gap-3">
+        {icon ? <div className="shrink-0 text-[#7a7a7a]">{icon}</div> : null}
         <div className="min-w-0">
-          <p className="text-[15px] font-medium leading-5 text-[#1d1d1f]">{title}</p>
+          <p className="text-[13px] font-medium leading-[16px] text-[#1d1d1f]">{title}</p>
           {description ? (
-            <p className="mt-[3px] max-w-[350px] text-[13px] leading-[17px] text-[#777]">{description}</p>
+            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{description}</p>
           ) : null}
         </div>
       </div>
@@ -764,14 +764,14 @@ function NativeToggle({
       disabled={disabled}
       aria-pressed={checked}
       className={cn(
-        'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)] disabled:opacity-50',
+        'relative inline-flex h-4 w-[28px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)] disabled:opacity-50',
         checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-4 w-4 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.22)] transition-transform duration-200',
-          checked ? 'translate-x-5' : 'translate-x-[2px]',
+          'inline-block h-3 w-3 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200',
+          checked ? 'translate-x-[13px]' : 'translate-x-[2px]',
         )}
       />
     </button>

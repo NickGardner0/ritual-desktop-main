@@ -84,7 +84,7 @@ export function PlaceTaggingSettings({ compact = false }: PlaceTaggingSettingsPr
   };
 
   return (
-    <div className={compact ? 'space-y-3' : 'space-y-[34px]'}>
+    <div className={compact ? 'space-y-3' : 'space-y-[18px]'}>
       <SettingsGroup>
         <div className="flex min-h-[64px] items-center justify-between gap-4 px-[18px] py-3">
           <div className="flex min-w-0 items-start gap-3">
@@ -92,8 +92,8 @@ export function PlaceTaggingSettings({ compact = false }: PlaceTaggingSettingsPr
               <MapPin className="h-4 w-4" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-[15px] font-medium leading-5 text-[#1d1d1f]">Place tagging</h3>
-              <p className="mt-[3px] max-w-[350px] text-[13px] leading-[17px] text-[#777]">
+              <h3 className="text-[13px] font-medium leading-4 text-[#1d1d1f]">Place tagging</h3>
+              <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">
                 Attach place context to habit logs from your Mac and use iPhone companion location for iMessage logs.
               </p>
             </div>
@@ -113,7 +113,7 @@ export function PlaceTaggingSettings({ compact = false }: PlaceTaggingSettingsPr
               <LocateFixed className="mt-0.5 h-4 w-4 shrink-0 text-[#777]" />
             )}
             <div className="min-w-0">
-              <p className="text-[15px] font-medium leading-5 text-[#1d1d1f]">
+              <p className="text-[13px] font-medium leading-4 text-[#1d1d1f]">
                 {permissionState === 'granted'
                   ? 'Ritual can request your current location.'
                   : permissionState === 'denied'
@@ -121,10 +121,10 @@ export function PlaceTaggingSettings({ compact = false }: PlaceTaggingSettingsPr
                     : 'Run a location test to request access.'}
               </p>
               {message ? (
-                <p className="mt-[3px] max-w-[350px] text-[13px] leading-[17px] text-[#777]">{message}</p>
+                <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{message}</p>
               ) : null}
               {openedSettings ? (
-                <p className="mt-[3px] max-w-[350px] text-[13px] leading-[17px] text-[#777]">
+                <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">
                   Opened macOS Location Services. Enable Ritual, then test again.
                 </p>
               ) : null}

@@ -104,7 +104,7 @@ export function SettingsGroup({ className, ...props }: React.HTMLAttributes<HTML
   return (
     <Panel
       className={cn(
-        "divide-y divide-[#e6e6e6] overflow-visible rounded-[14px] bg-[#f7f7f7] shadow-none",
+        "settings-group-card overflow-visible",
         className,
       )}
       {...props}
@@ -119,7 +119,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "ritual-settings-row grid min-h-[56px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[10px]",
+        "ritual-settings-row grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[7px]",
         className,
       )}
       {...props}

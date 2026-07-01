@@ -52,14 +52,14 @@ export function GreenToggle({
       aria-label={ariaLabel}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
+        'relative inline-flex h-4 w-[28px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
         checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
-          checked ? 'translate-x-5' : 'translate-x-[2px]',
+          'inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200',
+          checked ? 'translate-x-[13px]' : 'translate-x-[2px]',
         )}
       />
     </button>

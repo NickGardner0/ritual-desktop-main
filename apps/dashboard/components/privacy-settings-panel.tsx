@@ -338,7 +338,7 @@ export function PrivacySettingsPanel() {
   }, [refreshVaultStatus]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-[18px]">
       <SettingsGroup>
         <div className="flex items-start gap-3 px-3.5 py-3">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#306774]/10 text-[#306774]">
@@ -394,14 +394,14 @@ export function PrivacySettingsPanel() {
                 aria-checked={settings.consents[option.key] === true}
                 onClick={() => setConsent(option.key, settings.consents[option.key] !== true)}
                 className={cn(
-                  'relative h-5 w-[38px] rounded-full transition-colors',
+                  'relative h-4 w-[28px] rounded-full transition-colors',
                   settings.consents[option.key] === true ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
                 )}
               >
                 <span
                   className={cn(
-                    'absolute top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
-                    settings.consents[option.key] === true ? 'translate-x-5' : 'translate-x-[2px]',
+                    'absolute top-[2px] h-3 w-3 rounded-full bg-white shadow-sm transition-transform',
+                    settings.consents[option.key] === true ? 'translate-x-[13px]' : 'translate-x-[2px]',
                   )}
                 />
               </button>

@@ -39,7 +39,7 @@ export function SettingsModal({ isOpen, onClose, onOpen, initialView = 'account'
   const modalContent = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6 text-[#2c2c2c]">
       <div
-        className="absolute inset-0 bg-[#f7f6f3]/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/20 backdrop-blur-[2px]"
         onClick={handleClose}
       />
       <SettingsFrame
