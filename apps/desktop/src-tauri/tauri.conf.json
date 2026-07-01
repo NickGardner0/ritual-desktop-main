@@ -57,6 +57,7 @@
       "entitlements": "entitlements.plist",
       "exceptionDomain": "",
       "frameworks": [],
+      "minimumSystemVersion": "14.0",
       "providerShortName": null,
       "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
     },

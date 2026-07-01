@@ -11,6 +11,21 @@ if [[ ! -f "package.json" || ! -d "apps/desktop/src-tauri" ]]; then
   exit 1
 fi
 
+macos_sdk_version="$(xcrun --sdk macosx --show-sdk-version 2>/dev/null || true)"
+macos_sdk_major="${macos_sdk_version%%.*}"
+if [[ -z "${macos_sdk_version}" || ! "${macos_sdk_major}" =~ ^[0-9]+$ || "${macos_sdk_major}" -lt 26 ]]; then
+  cat <<EOF >&2
+Ritual desktop releases must be built with macOS SDK 26.x or newer.
+
+The current SDK is: ${macos_sdk_version:-unknown}
+
+This matters for the macOS-native window chrome: SDK 15.x builds expose the
+older compact traffic-light metrics, while SDK 26.x builds expose the current
+June-style 16x16 native controls.
+EOF
+  exit 1
+fi
+
 if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
   if [[ -n "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]]; then
     export TAURI_SIGNING_PRIVATE_KEY="${TAURI_SIGNING_PRIVATE_KEY_PATH}"
@@ -83,10 +98,12 @@ fi
 
 export CI="${CI:-true}"
 export RITUAL_ENV="${RITUAL_ENV:-production}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 
 echo "Building notarized Ritual desktop release..."
 echo "  RITUAL_ENV=${RITUAL_ENV}"
 echo "  CI=${CI}"
+echo "  MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET}"
 
 if [[ -n "${APPLE_PROVIDER_SHORT_NAME:-}" ]]; then
   echo "  APPLE_PROVIDER_SHORT_NAME is set"
@@ -109,6 +126,7 @@ BASE_TAURI_CONFIG="apps/desktop/src-tauri/tauri.conf.json"
 GENERATED_TAURI_CONFIG="apps/desktop/src-tauri/tauri.generated.production.conf.json"
 
 PRODUCT_NAME="$(read_tauri_config "${BASE_TAURI_CONFIG}" 'cfg.productName')"
+MAIN_BINARY_NAME="$(read_tauri_config "${BASE_TAURI_CONFIG}" 'cfg.mainBinaryName || cfg.productName')"
 VERSION="$(read_tauri_config "${BASE_TAURI_CONFIG}" 'cfg.version')"
 UPDATER_ENDPOINT="$(read_tauri_config "${GENERATED_TAURI_CONFIG}" 'cfg.plugins?.updater?.endpoints?.[0]')"
 SIGNING_IDENTITY="$(read_tauri_config "${BASE_TAURI_CONFIG}" 'process.env.APPLE_SIGNING_IDENTITY || cfg.bundle?.macOS?.signingIdentity')"
@@ -131,6 +149,7 @@ esac
 MACOS_BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle/macos"
 DMG_DIR="apps/desktop/src-tauri/target/release/bundle/dmg"
 APP_PATH="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app"
+MAIN_BINARY_PATH="${APP_PATH}/Contents/MacOS/${MAIN_BINARY_NAME}"
 APP_NOTARY_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.notary.zip"
 APP_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app.zip"
 UPDATER_TAR="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app.tar.gz"
@@ -214,6 +233,46 @@ echo "Sidecar signing complete."
 cd apps/desktop
 ../../node_modules/.bin/tauri build --config src-tauri/tauri.generated.production.conf.json --bundles app
 cd ../..
+
+if [[ ! -f "${MAIN_BINARY_PATH}" ]]; then
+  echo "Bundled app binary not found at ${MAIN_BINARY_PATH}" >&2
+  exit 1
+fi
+
+echo "Verifying packaged app macOS build metadata..."
+if ! command -v vtool >/dev/null 2>&1; then
+  echo "vtool is required to verify the packaged macOS SDK version." >&2
+  exit 1
+fi
+BUILD_VERSION_INFO="$(vtool -show-build "${MAIN_BINARY_PATH}")"
+echo "${BUILD_VERSION_INFO}"
+if ! awk '
+  / sdk / {
+    found = 1
+    split($2, parts, ".")
+    if (parts[1] !~ /^[0-9]+$/ || parts[1] < 26) bad = 1
+  }
+  END { exit(found && !bad ? 0 : 1) }
+' <<<"${BUILD_VERSION_INFO}"; then
+  echo "Packaged app binary was not built with macOS SDK 26.x or newer; native window chrome will keep the older compact metrics." >&2
+  exit 1
+fi
+if ! awk '
+  / minos / {
+    found = 1
+    split($2, parts, ".")
+    if (parts[1] !~ /^[0-9]+$/ || parts[1] < 14) bad = 1
+  }
+  END { exit(found && !bad ? 0 : 1) }
+' <<<"${BUILD_VERSION_INFO}"; then
+  echo "Packaged app binary minos must be macOS 14.0 or newer." >&2
+  exit 1
+fi
+PACKAGED_PLIST_MINOS="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "${APP_PATH}/Contents/Info.plist" 2>/dev/null || true)"
+if [[ "${PACKAGED_PLIST_MINOS}" != "14.0" ]]; then
+  echo "Packaged app Info.plist LSMinimumSystemVersion must be 14.0; got ${PACKAGED_PLIST_MINOS:-unknown}." >&2
+  exit 1
+fi
 
 if [[ ! -f "${HELPER_PATH}" ]]; then
   echo "Bundled helper not found at ${HELPER_PATH}" >&2

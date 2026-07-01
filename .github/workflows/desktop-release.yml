@@ -13,11 +13,12 @@ concurrency:
 jobs:
   macos:
     name: Build macOS desktop release
-    runs-on: macos-15
+    runs-on: macos-26
     permissions:
       contents: read
     env:
       RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
 
     steps:
       - name: Checkout
@@ -31,6 +32,17 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify macOS 26 SDK
+        run: |
+          xcodebuild -version
+          SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+          SDK_MAJOR="${SDK_VERSION%%.*}"
+          echo "macOS SDK: ${SDK_VERSION}"
+          if [[ -z "${SDK_VERSION}" || ! "${SDK_MAJOR}" =~ ^[0-9]+$ || "${SDK_MAJOR}" -lt 26 ]]; then
+            echo "Ritual desktop releases must be built with macOS SDK 26.x or newer so AppKit uses the current native window chrome metrics." >&2
+            exit 1
+          fi
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2

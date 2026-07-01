@@ -683,28 +683,9 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
 
-            let current_style_mask: u64 = msg_send![ns_win, styleMask];
-            // Preserve normal document-window behavior after Tauri's overlay
-            // titlebar customization. In production builds the overlay/full-size
-            // content style can be applied after the builder's `resizable(true)`,
-            // so make the AppKit resizable bit explicit here.
-            let titled_mask = 1_u64 << 0; // NSWindowStyleMaskTitled
-            let closable_mask = 1_u64 << 1; // NSWindowStyleMaskClosable
-            let miniaturizable_mask = 1_u64 << 2; // NSWindowStyleMaskMiniaturizable
-            let resizable_mask = 1_u64 << 3; // NSWindowStyleMaskResizable
-            let full_size_content_view_mask = 1_u64 << 15; // NSWindowStyleMaskFullSizeContentView
-                                                           // NSWindowStyleMaskFullSizeContentView lets the webview render under
-                                                           // the titlebar, which is required for the thin Atlas-style glass chrome.
-            let desired_style_mask = current_style_mask
-                | titled_mask
-                | closable_mask
-                | miniaturizable_mask
-                | resizable_mask
-                | full_size_content_view_mask;
-            let _: () = msg_send![
-                ns_win,
-                setStyleMask: desired_style_mask
-            ];
+            // Let Tauri/Tao own the NSWindow style mask. June relies on the
+            // standard decorated Overlay + hiddenTitle path, and Tao's macOS
+            // backend warns against direct style-mask mutation after creation.
             let _: () = msg_send![ns_win, setHasShadow: YES];
             let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
@@ -1540,7 +1521,7 @@ fn main() {
                 let mut builder =
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
-                        .title("")
+                        .title("Ritual")
                         .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
