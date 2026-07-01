@@ -158,6 +158,8 @@ LATEST_JSON="${MACOS_BUNDLE_DIR}/latest.json"
 DMG_PATH="${DMG_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.dmg"
 HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-watcher"
 VISION_HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-vision-helper"
+SYSTEM_AUDIO_HELPER_APP_PATH="${APP_PATH}/Contents/Resources/native/bin/Ritual.app"
+SYSTEM_AUDIO_HELPER_BIN_PATH="${SYSTEM_AUDIO_HELPER_APP_PATH}/Contents/MacOS/ritual-system-audio-recorder"
 ENTITLEMENTS_PATH="apps/desktop/src-tauri/entitlements.plist"
 KEYCHAIN_PATH="${APPLE_SIGNING_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}"
 UPDATER_ASSET_NAME="$(basename "${UPDATER_TAR}")"
@@ -284,9 +286,15 @@ if [[ ! -f "${VISION_HELPER_PATH}" ]]; then
   exit 1
 fi
 
+if [[ ! -x "${SYSTEM_AUDIO_HELPER_BIN_PATH}" ]]; then
+  echo "Bundled system audio helper not found or not executable at ${SYSTEM_AUDIO_HELPER_BIN_PATH}" >&2
+  exit 1
+fi
+
 echo "Manually signing bundled helpers and outer app..."
 sign_macos_path "${HELPER_PATH}"
 sign_macos_path "${VISION_HELPER_PATH}"
+sign_macos_path "${SYSTEM_AUDIO_HELPER_APP_PATH}"
 sign_macos_path "${APP_PATH}"
 
 echo "Verifying signed app bundle..."

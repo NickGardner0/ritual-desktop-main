@@ -26,6 +26,8 @@
 	<string>Ritual uses your location to tag habit logs with where you were when you logged them.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Ritual uses speech recognition to convert your voice to text for habit logging</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Ritual records system audio locally when you include Mac audio in a voice log.</string>
 	<key>NSQuitAlwaysKeepsWindows</key>
 	<false/>
 </dict>

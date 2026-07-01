@@ -2,6 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const SYSTEM_AUDIO_MIN_MACOS_VERSION_FILE: &str = "system-audio-min-macos-version.txt";
+
 fn binaries_match(source: &Path, destination: &Path) -> bool {
     let Ok(source_metadata) = fs::metadata(source) else {
         return false;
@@ -223,6 +225,280 @@ fn ensure_vision_helper_for_tauri() {
     }
 }
 
+fn ensure_system_audio_helper_for_tauri() {
+    if !running_on_macos_target() {
+        return;
+    }
+
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"),
+    );
+    let source = manifest_dir.join("native-system-audio").join("main.swift");
+    println!("cargo:rerun-if-changed={}", source.display());
+    if !source.exists() {
+        panic!(
+            "Ritual system audio helper source is missing at {}",
+            source.display()
+        );
+    }
+
+    let system_audio_min_macos_version = read_system_audio_min_macos_version(&manifest_dir)
+        .expect("system audio minimum macOS version should be configured");
+
+    let helper_dir = manifest_dir
+        .parent()
+        .expect("src-tauri should have a repository parent")
+        .join(".tauri-helper");
+    let app_dir = helper_dir.join("Ritual.app");
+    let contents_dir = app_dir.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    fs::create_dir_all(&macos_dir).unwrap_or_else(|err| {
+        panic!(
+            "Failed to create system audio helper app directory {}: {}",
+            macos_dir.display(),
+            err
+        )
+    });
+
+    let executable = macos_dir.join("ritual-system-audio-recorder");
+    let mut should_sign = false;
+    if !swift_helper_executable_current(&source, &executable) {
+        let built = build_universal_swift_executable(
+            "system audio helper",
+            &manifest_dir,
+            &source,
+            &executable,
+            &system_audio_min_macos_version,
+            &[
+                "Foundation",
+                "AppKit",
+                "AVFoundation",
+                "CoreAudio",
+                "AudioToolbox",
+            ],
+        );
+        if !built {
+            panic!(
+                "system audio helper could not be built; refusing to ship a fake permission row"
+            );
+        }
+        should_sign = true;
+    }
+
+    let plist = contents_dir.join("Info.plist");
+    let plist_contents = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>Ritual</string>
+  <key>CFBundleExecutable</key>
+  <string>ritual-system-audio-recorder</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.ritual.desktop.audio-capture</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Ritual</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>{system_audio_min_macos_version}</string>
+  <key>LSUIElement</key>
+  <true/>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Ritual records system audio locally when you include Mac audio in a voice log.</string>
+</dict>
+</plist>
+"#
+    );
+    if fs::read_to_string(&plist).is_ok_and(|current| current != plist_contents) {
+        fs::write(&plist, &plist_contents).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write system audio helper Info.plist {}: {}",
+                plist.display(),
+                err
+            )
+        });
+        should_sign = true;
+    } else if !plist.exists() {
+        fs::write(&plist, &plist_contents).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write system audio helper Info.plist {}: {}",
+                plist.display(),
+                err
+            )
+        });
+        should_sign = true;
+    }
+
+    if should_sign || has_signing_identity() {
+        sign_helper_app(&manifest_dir, &app_dir);
+    }
+}
+
+fn read_system_audio_min_macos_version(manifest_dir: &Path) -> Option<String> {
+    let version_file = manifest_dir.join(SYSTEM_AUDIO_MIN_MACOS_VERSION_FILE);
+    println!("cargo:rerun-if-changed={}", version_file.display());
+    let version = fs::read_to_string(version_file).ok()?;
+    let version = version.trim();
+    if version.is_empty() {
+        return None;
+    }
+    Some(version.to_string())
+}
+
+fn swift_helper_executable_current(source: &Path, executable: &Path) -> bool {
+    if !executable.exists() {
+        return false;
+    }
+
+    let source_modified = fs::metadata(source)
+        .and_then(|metadata| metadata.modified())
+        .ok();
+    let executable_fresh = source_modified
+        .and_then(|source_modified| {
+            fs::metadata(executable)
+                .and_then(|metadata| metadata.modified())
+                .ok()
+                .map(|executable_modified| executable_modified >= source_modified)
+        })
+        .unwrap_or(false);
+
+    executable_fresh && executable_has_arches(executable, &["arm64", "x86_64"])
+}
+
+fn executable_has_arches(executable: &Path, required_arches: &[&str]) -> bool {
+    let output = Command::new("lipo").arg("-archs").arg(executable).output();
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    required_arches
+        .iter()
+        .all(|required| stdout.split_whitespace().any(|arch| arch == *required))
+}
+
+fn build_universal_swift_executable(
+    helper_name: &str,
+    manifest_dir: &Path,
+    source: &Path,
+    executable: &Path,
+    macos_version: &str,
+    frameworks: &[&str],
+) -> bool {
+    let Some(executable_name) = executable.file_name().and_then(|name| name.to_str()) else {
+        println!("cargo:warning={helper_name} executable path has no file name");
+        return false;
+    };
+    let slice_dir = manifest_dir
+        .join("target")
+        .join("swift-helper-slices")
+        .join(format!("{executable_name}-{}", std::process::id()));
+    if let Err(error) = fs::create_dir_all(&slice_dir) {
+        println!("cargo:warning={helper_name} slice dir could not be created: {error}");
+        return false;
+    }
+
+    let mut slices = Vec::new();
+    for swift_arch in ["arm64", "x86_64"] {
+        let slice = slice_dir.join(format!("{executable_name}-{swift_arch}"));
+        let mut command = Command::new("swiftc");
+        configure_swift_command(&mut command, manifest_dir, swift_arch, macos_version);
+        for framework in frameworks {
+            command.arg("-framework").arg(framework);
+        }
+        let status = command.arg(source).arg("-o").arg(&slice).status();
+        if !matches!(status, Ok(status) if status.success()) {
+            println!("cargo:warning={helper_name} {swift_arch} slice could not be built");
+            let _ = fs::remove_dir_all(&slice_dir);
+            return false;
+        }
+        slices.push(slice);
+    }
+
+    let universal = slice_dir.join(format!("{executable_name}-universal"));
+    let mut lipo = Command::new("lipo");
+    lipo.arg("-create").arg("-output").arg(&universal);
+    for slice in &slices {
+        lipo.arg(slice);
+    }
+    let status = lipo.status();
+    if !matches!(status, Ok(status) if status.success()) {
+        println!("cargo:warning={helper_name} universal binary could not be created");
+        let _ = fs::remove_dir_all(&slice_dir);
+        return false;
+    }
+
+    if let Ok(permissions) = fs::metadata(&slices[0]).map(|metadata| metadata.permissions()) {
+        let _ = fs::set_permissions(&universal, permissions);
+    }
+    if let Err(error) = fs::rename(&universal, executable) {
+        println!("cargo:warning={helper_name} universal binary could not be installed: {error}");
+        let _ = fs::remove_dir_all(&slice_dir);
+        return false;
+    }
+    let _ = fs::remove_dir_all(&slice_dir);
+    true
+}
+
+fn configure_swift_command(
+    command: &mut Command,
+    manifest_dir: &Path,
+    swift_arch: &str,
+    macos_version: &str,
+) {
+    command
+        .arg("-target")
+        .arg(format!("{swift_arch}-apple-macosx{macos_version}"));
+    let module_cache = manifest_dir.join("target").join("swift-module-cache");
+    fs::create_dir_all(&module_cache).expect("swift module cache dir should be created");
+    command.arg("-module-cache-path").arg(module_cache);
+}
+
+fn has_signing_identity() -> bool {
+    std::env::var("APPLE_SIGNING_IDENTITY")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn sign_helper_app(manifest_dir: &Path, app_dir: &Path) {
+    let identity = std::env::var("APPLE_SIGNING_IDENTITY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "-".to_string());
+    let entitlements = manifest_dir.join("entitlements.plist");
+    let mut command = Command::new("codesign");
+    command
+        .arg("--force")
+        .arg("--deep")
+        .arg("--entitlements")
+        .arg(entitlements)
+        .arg("--sign")
+        .arg(&identity);
+    if identity != "-" {
+        command.arg("--timestamp").arg("--options").arg("runtime");
+    }
+    let status = command.arg(app_dir).status();
+    if !matches!(status, Ok(status) if status.success()) {
+        println!(
+            "cargo:warning=system audio helper app could not be signed: {}",
+            app_dir.display()
+        );
+    }
+}
+
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=bin/ritual-watcher/Cargo.toml");
@@ -232,12 +508,15 @@ fn main() {
     println!("cargo:rerun-if-changed=../../../scripts/build-native-vision-helper.sh");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
+    println!("cargo:rerun-if-changed=native-system-audio/main.swift");
+    println!("cargo:rerun-if-changed=system-audio-min-macos-version.txt");
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
     println!("cargo:rerun-if-changed=native-vision/main.swift");
     println!("cargo:rerun-if-env-changed=TARGET");
 
     ensure_watcher_sidecar_for_tauri();
     ensure_vision_helper_for_tauri();
+    ensure_system_audio_helper_for_tauri();
     tauri_build::build();
 
     if !running_on_macos_target() {

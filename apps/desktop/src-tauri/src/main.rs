@@ -10,6 +10,7 @@ mod local_vault;
 mod native_widget;
 mod privacy_policy;
 mod ritual_database;
+mod system_audio;
 mod watcher;
 mod watcher_activity;
 
@@ -1371,6 +1372,7 @@ fn main() {
             native_widget::stop_native_speech_recognition,
             native_widget::get_native_speech_state,
             native_widget::clear_native_speech_state,
+            system_audio::check_recording_source_readiness,
             // Ritual Watcher commands for computer activity tracking
             watcher::permissions::check_accessibility_permission,
             watcher::permissions::request_accessibility_permission,
@@ -1382,6 +1384,7 @@ fn main() {
             watcher::permissions::open_microphone_settings,
             watcher::permissions::open_speech_recognition_settings,
             watcher::permissions::open_screen_recording_settings,
+            watcher::permissions::open_system_audio_settings,
             watcher::permissions::open_input_monitoring_settings,
             watcher::permissions::open_location_settings,
             // Local activity queries (for detailed view with full URLs/titles)

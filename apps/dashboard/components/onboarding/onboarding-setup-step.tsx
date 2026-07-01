@@ -1,50 +1,64 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
-import { Check, FolderOpen } from "lucide-react"
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
+import {
+  Accessibility,
+  ArrowLeft,
+  AudioLines,
+  Check,
+  Keyboard,
+  Mic,
+  MessageCircle,
+  Speech,
+  Volume2,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { getDesktopCapabilities } from "@/lib/desktop-capabilities"
-import { getLocationPermissionState, openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import {
-  chooseRitualVaultFolder,
-  readRitualVaultFolderSettings,
-  writeRitualVaultFolderSettings,
-} from "@/lib/privacy/ritual-vault-folder-settings"
-import { writeRitualVaultFolderMirror } from "@/lib/privacy/ritual-vault-export"
+  clearNativeDesktopSpeechState,
+  formatNativeSpeechError,
+  getNativeDesktopSpeechState,
+  getNativeSpeechErrorMessage,
+  startNativeDesktopSpeechRecognition,
+  stopNativeDesktopSpeechRecognition,
+} from "@/lib/native-voice"
+import { ensureMicrophonePermission } from "@/lib/tauri-utils"
 import { cn } from "@/lib/utils"
 
-type PermissionKey =
-  | "full_disk_access"
-  | "accessibility"
-  | "microphone"
-  | "screen_recording"
-  | "location_services"
+type SetupStep = "permissions" | "practice"
+type PermissionKey = "microphone" | "speech" | "accessibility" | "systemAudio"
 
-type PermissionRow = {
-  key: PermissionKey
-  label: string
+type PermissionState = Record<PermissionKey, boolean> & {
+  checked: boolean
+  systemAudioUnsupported: boolean
+  systemAudioMessage: string
 }
 
-const PERMISSION_ROWS: PermissionRow[] = [
-  { key: "full_disk_access", label: "Full Disk Access" },
-  { key: "accessibility", label: "Accessibility" },
-  { key: "microphone", label: "Microphone" },
-  { key: "screen_recording", label: "Screen Recording" },
-  { key: "location_services", label: "Location Services" },
-]
+type SourceReadiness = {
+  source: "microphone" | "system"
+  ready: boolean
+  permissionState: string
+  recoveryAction?: string | null
+  message?: string | null
+}
 
-const PRIVACY_BADGES = ["Local-first", "Encrypted", "No training"] as const
+type RecordingSourceReadiness = {
+  ready: boolean
+  sources: SourceReadiness[]
+}
 
-type PermissionState = Record<PermissionKey, boolean>
+const SETUP_STEPS: SetupStep[] = ["permissions", "practice"]
 
 const DEFAULT_PERMISSION_STATE: PermissionState = {
-  full_disk_access: false,
-  accessibility: false,
+  checked: false,
   microphone: false,
-  screen_recording: false,
-  location_services: false,
+  speech: false,
+  accessibility: false,
+  systemAudio: false,
+  systemAudioUnsupported: false,
+  systemAudioMessage: "",
 }
 
 async function getInvoke() {
@@ -57,131 +71,688 @@ async function getInvoke() {
   }
 }
 
-function GrantButton({
-  granted,
-  loading,
-  onClick,
-  disabled,
+function StepProgress({ step }: { step: SetupStep }) {
+  const currentIndex = SETUP_STEPS.indexOf(step)
+
+  return (
+    <div className="flex items-center justify-center gap-1.5" aria-label="Setup progress">
+      {SETUP_STEPS.map((item, index) => (
+        <span
+          key={item}
+          className={cn(
+            "h-1.5 rounded-full transition-all duration-150",
+            index === currentIndex ? "w-6 bg-[#18181b]" : index < currentIndex ? "w-1.5 bg-[#a1a1aa]" : "w-1.5 bg-[#d4d4d8]",
+          )}
+        />
+      ))}
+    </div>
+  )
+}
+
+function SetupShell({
+  step,
+  children,
+  onBack,
 }: {
-  granted: boolean
-  loading?: boolean
-  onClick: () => void
+  step: SetupStep
+  children: ReactNode
+  onBack?: () => void
+}) {
+  return (
+    <div
+      className="relative flex h-[690px] w-full max-w-[800px] flex-col overflow-hidden bg-[#fafaf9] text-[#18181b]"
+      style={{ fontFamily: "var(--ritual-font-fk), 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, sans-serif" }}
+    >
+      <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-8" />
+      <div className="grid h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center px-7 pt-6">
+        <div className="flex justify-start">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[#71717a] transition-colors duration-75 hover:bg-[#f4f4f5] hover:text-[#18181b]"
+              aria-label="Back"
+            >
+              <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
+            </button>
+          ) : null}
+        </div>
+        <StepProgress step={step} />
+        <div />
+      </div>
+      <div className="flex flex-1 items-center justify-center px-7 pb-10">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function PrimarySetupButton({
+  children,
+  disabled,
+  onClick,
+}: {
+  children: ReactNode
   disabled?: boolean
+  onClick: () => void
 }) {
   return (
     <Button
       type="button"
-      variant="outline"
-      disabled={disabled || loading}
+      disabled={disabled}
       onClick={onClick}
       className={cn(
-        "h-8 min-w-[74px] shrink-0 rounded-sm border px-3 text-[13px] font-medium shadow-none transition-colors duration-75",
-        granted
-          ? "border-[#e4e4e7] bg-[#f4f4f5] text-[#52525b] hover:bg-[#f4f4f5]"
-          : "border-[#dfe1e5] bg-white text-[#18181b] hover:bg-[#f5f5f5]",
+        "h-11 w-full rounded-sm border px-4 text-[14px] font-semibold shadow-none transition-colors duration-75",
+        disabled
+          ? "border-[#e4e4e7] bg-[#eeeeef] text-[#8f8f96] hover:bg-[#eeeeef]"
+          : "border-[#18181b] bg-[#18181b] text-white hover:bg-[#2b2b2f]",
       )}
     >
-      {loading ? <BrailleSpinner className="text-sm" intervalMs={45} /> : granted ? "Granted" : "Grant"}
+      {children}
     </Button>
+  )
+}
+
+function QuietSetupButton({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: ReactNode
+  onClick: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="mx-auto block rounded-sm px-3 py-2 text-[13px] font-medium text-[#71717a] transition-colors duration-75 hover:text-[#18181b] disabled:pointer-events-none disabled:opacity-50"
+    >
+      {children}
+    </button>
+  )
+}
+
+function PermissionIcon({
+  granted,
+  children,
+}: {
+  granted: boolean
+  children: ReactNode
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full border",
+        granted
+          ? "border-[#c7d2c2] bg-[#eef3ec] text-[#3f5f38]"
+          : "border-[#e4e4e7] bg-white text-[#71717a]",
+      )}
+    >
+      {granted ? <Check className="h-4 w-4" strokeWidth={2.2} /> : children}
+    </span>
+  )
+}
+
+function PermissionRow({
+  icon,
+  title,
+  detail,
+  granted,
+  loading,
+  prompted,
+  onAllow,
+}: {
+  icon: ReactNode
+  title: string
+  detail: string
+  granted: boolean
+  loading?: boolean
+  prompted?: boolean
+  onAllow: () => void
+}) {
+  return (
+    <li className="grid min-h-[74px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 border-t border-[#e8e8ea] px-4 first:border-t-0">
+      <PermissionIcon granted={granted}>{icon}</PermissionIcon>
+      <div className="min-w-0 py-3 text-left">
+        <h2 className="text-[15px] font-semibold leading-tight text-[#18181b]">{title}</h2>
+        <p className="mt-1 text-[13px] leading-snug text-[#71717a]">{detail}</p>
+      </div>
+      {granted ? null : (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={loading}
+          onClick={onAllow}
+          className="h-8 min-w-[74px] shrink-0 rounded-sm border-[#dfe1e5] bg-white px-3 text-[13px] font-medium text-[#18181b] shadow-none transition-colors duration-75 hover:bg-[#f5f5f5]"
+          aria-label={`${prompted ? "Open settings for" : "Allow"} ${title}`}
+        >
+          {loading ? <BrailleSpinner className="text-sm" intervalMs={45} /> : prompted ? "Open" : "Allow"}
+        </Button>
+      )}
+    </li>
+  )
+}
+
+function PermissionsStep({
+  permissions,
+  workingKey,
+  prompted,
+  busy,
+  onGrant,
+  onContinue,
+  onSkip,
+}: {
+  permissions: PermissionState
+  workingKey: PermissionKey | null
+  prompted: Record<PermissionKey, boolean>
+  busy?: boolean
+  onGrant: (key: PermissionKey) => void
+  onContinue: () => void
+  onSkip: () => void
+}) {
+  const ready = permissions.microphone && permissions.speech && permissions.accessibility
+    && (permissions.systemAudio || permissions.systemAudioUnsupported)
+
+  return (
+    <SetupShell step="permissions">
+      <section className="w-full max-w-[590px] text-center">
+        <img src="/images/eclipse.svg" alt="" width={34} height={34} className="mx-auto h-[34px] w-[34px]" />
+        <h1 className="mt-5 text-[34px] font-semibold leading-tight tracking-normal text-[#18181b]">
+          Let Ritual listen and read context
+        </h1>
+        <p className="mx-auto mt-3 max-w-[430px] text-[15px] leading-snug text-[#71717a]">
+          Voice logging and desktop context need four macOS permissions.
+        </p>
+
+        {permissions.checked ? (
+          <ul
+            className="mt-8 overflow-hidden rounded-[8px] border border-[#e4e4e7] bg-white shadow-[0_12px_36px_rgba(20,24,40,0.08)]"
+            aria-busy={false}
+          >
+            <PermissionRow
+              icon={<Mic className="h-4 w-4" strokeWidth={1.8} />}
+              title="Microphone"
+              detail={
+                prompted.microphone && !permissions.microphone
+                  ? "Turn it on in System Settings, then return to Ritual."
+                  : "Hears you only when you ask Ritual to listen."
+              }
+              granted={permissions.microphone}
+              loading={workingKey === "microphone"}
+              prompted={prompted.microphone && !permissions.microphone}
+              onAllow={() => onGrant("microphone")}
+            />
+            <PermissionRow
+              icon={<Speech className="h-4 w-4" strokeWidth={1.8} />}
+              title="Speech Recognition"
+              detail={
+                prompted.speech && !permissions.speech
+                  ? "Turn it on in System Settings, then return to Ritual."
+                  : "Converts your voice into text for fast habit logging."
+              }
+              granted={permissions.speech}
+              loading={workingKey === "speech"}
+              prompted={prompted.speech && !permissions.speech}
+              onAllow={() => onGrant("speech")}
+            />
+            <PermissionRow
+              icon={<Accessibility className="h-4 w-4" strokeWidth={1.8} />}
+              title="Accessibility"
+              detail={
+                prompted.accessibility && !permissions.accessibility
+                  ? "Enable Ritual in Accessibility settings, then come back here."
+                  : "Lets Ritual read active app and window context for desktop tracking."
+              }
+              granted={permissions.accessibility}
+              loading={workingKey === "accessibility"}
+              prompted={prompted.accessibility && !permissions.accessibility}
+              onAllow={() => onGrant("accessibility")}
+            />
+            <PermissionRow
+              icon={<Volume2 className="h-4 w-4" strokeWidth={1.8} />}
+              title="System audio"
+              detail={
+                permissions.systemAudioUnsupported
+                  ? permissions.systemAudioMessage || "System audio capture is not available on this Mac."
+                  : prompted.systemAudio && !permissions.systemAudio
+                    ? permissions.systemAudioMessage || "Enable Ritual in Screen & System Audio Recording settings, then come back here."
+                    : permissions.systemAudioMessage || "Hears Mac audio only when you include system audio in a voice log."
+              }
+              granted={permissions.systemAudio || permissions.systemAudioUnsupported}
+              loading={workingKey === "systemAudio"}
+              prompted={prompted.systemAudio && !permissions.systemAudio && !permissions.systemAudioUnsupported}
+              onAllow={() => onGrant("systemAudio")}
+            />
+          </ul>
+        ) : (
+          <div className="mt-8 flex h-[300px] items-center justify-center">
+            <BrailleSpinner className="text-2xl text-[#18181b]" />
+          </div>
+        )}
+
+        <div className="mx-auto mt-8 w-full max-w-[590px] space-y-2">
+          <PrimarySetupButton disabled={busy || !ready} onClick={onContinue}>
+            Continue
+          </PrimarySetupButton>
+          <QuietSetupButton disabled={busy} onClick={onSkip}>
+            Skip for now
+          </QuietSetupButton>
+        </div>
+      </section>
+    </SetupShell>
+  )
+}
+
+function VoicePracticeStep({
+  busy,
+  onBack,
+  onFinish,
+}: {
+  busy?: boolean
+  onBack: () => void
+  onFinish: () => void
+}) {
+  const [value, setValue] = useState("")
+  const [greeted, setGreeted] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false)
+  const [partialTranscript, setPartialTranscript] = useState("")
+  const [voiceError, setVoiceError] = useState("")
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null)
+  const pollRef = useRef<number | null>(null)
+  const autoStopRef = useRef<number | null>(null)
+  const timestampRef = useRef(0)
+  const partialRef = useRef("")
+
+  const succeeded = value.trim().length > 0
+
+  const clearVoiceTimers = useCallback(() => {
+    if (pollRef.current) {
+      window.clearInterval(pollRef.current)
+      pollRef.current = null
+    }
+    if (autoStopRef.current) {
+      window.clearTimeout(autoStopRef.current)
+      autoStopRef.current = null
+    }
+  }, [])
+
+  const resetNativeVoiceSession = useCallback(async () => {
+    clearVoiceTimers()
+    timestampRef.current = 0
+    partialRef.current = ""
+    setPartialTranscript("")
+    await clearNativeDesktopSpeechState().catch(() => undefined)
+  }, [clearVoiceTimers])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGreeted(true), 650)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      clearVoiceTimers()
+      void stopNativeDesktopSpeechRecognition().catch(() => undefined)
+    }
+  }, [clearVoiceTimers])
+
+  const finishVoiceWithText = useCallback(async (text: string) => {
+    await resetNativeVoiceSession()
+    setIsListening(false)
+    setIsProcessingVoice(false)
+    if (text.trim()) {
+      setValue(text.trim())
+      window.setTimeout(() => textareaRef.current?.focus(), 80)
+    } else {
+      setVoiceError("No speech detected. Please try again.")
+    }
+  }, [resetNativeVoiceSession])
+
+  const startVoice = useCallback(async () => {
+    if (isListening) {
+      setIsProcessingVoice(true)
+      await stopNativeDesktopSpeechRecognition().catch((error) => {
+        setVoiceError(formatNativeSpeechError(getNativeSpeechErrorMessage(error)))
+        setIsListening(false)
+        setIsProcessingVoice(false)
+      })
+      return
+    }
+
+    setVoiceError("")
+    setIsProcessingVoice(false)
+    await resetNativeVoiceSession()
+
+    try {
+      if (!(await ensureMicrophonePermission())) {
+        throw new Error("microphone-permission-denied")
+      }
+
+      await startNativeDesktopSpeechRecognition()
+      setIsListening(true)
+
+      pollRef.current = window.setInterval(() => {
+        void (async () => {
+          try {
+            const state = await getNativeDesktopSpeechState()
+            if (!state.timestamp || state.timestamp <= timestampRef.current) {
+              return
+            }
+            timestampRef.current = state.timestamp
+
+            if (state.event === "ritual:speech:partial") {
+              partialRef.current = state.transcript || ""
+              setPartialTranscript(state.transcript || "")
+              return
+            }
+
+            if (state.event === "ritual:speech:final") {
+              await finishVoiceWithText(state.transcript || partialRef.current)
+              return
+            }
+
+            if (state.event === "ritual:speech:error") {
+              await resetNativeVoiceSession()
+              setIsListening(false)
+              setIsProcessingVoice(false)
+              setVoiceError(formatNativeSpeechError(state.transcript))
+              return
+            }
+
+            if (state.event === "ritual:speech:status" && state.transcript === "stopped") {
+              await finishVoiceWithText(partialRef.current)
+            }
+          } catch (error) {
+            await resetNativeVoiceSession()
+            setIsListening(false)
+            setIsProcessingVoice(false)
+            setVoiceError(formatNativeSpeechError(getNativeSpeechErrorMessage(error)))
+          }
+        })()
+      }, 90)
+
+      autoStopRef.current = window.setTimeout(() => {
+        void stopNativeDesktopSpeechRecognition().catch(() => undefined)
+      }, 10000)
+    } catch (error) {
+      await resetNativeVoiceSession()
+      setIsListening(false)
+      setIsProcessingVoice(false)
+      setVoiceError(formatNativeSpeechError(getNativeSpeechErrorMessage(error)))
+    }
+  }, [finishVoiceWithText, isListening, resetNativeVoiceSession])
+
+  return (
+    <SetupShell step="practice" onBack={onBack}>
+      <section className="w-full max-w-[590px] text-center">
+        <h1 className="text-[36px] font-semibold leading-tight tracking-normal text-[#18181b]">
+          Talk to Ritual
+        </h1>
+        <p className="mx-auto mt-3 max-w-[360px] text-[15px] leading-snug text-[#71717a]">
+          Try a first voice log, or type one if you want to keep moving.
+        </p>
+
+        <div className="mx-auto mt-8 w-full max-w-[540px]">
+          <div className="mx-7 mb-[-18px] flex items-center justify-between rounded-t-[8px] border border-[#e4e4e7] bg-white px-5 pb-7 pt-3 text-[14px] text-[#52525b]">
+            <span className="inline-flex items-center gap-2">
+              <Keyboard className="h-4 w-4 text-[#71717a]" strokeWidth={1.8} />
+              Use the microphone button to dictate
+            </span>
+            <span className="rounded-sm bg-[#f4f4f5] px-2 py-1 text-[12px] font-medium text-[#71717a]">
+              Voice
+            </span>
+          </div>
+
+          <div className="relative rounded-[12px] border border-[#e4e4e7] bg-white p-4 text-left shadow-[0_16px_44px_rgba(20,24,40,0.12)]">
+            <div className="flex items-start gap-3 px-1 pb-4">
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#18181b] text-white">
+                <MessageCircle className="h-4 w-4" strokeWidth={1.9} />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[13px] font-semibold text-[#71717a]">Ritual</div>
+                {greeted ? (
+                  <div className="text-[15px] leading-snug text-[#18181b]">What do you want to log first?</div>
+                ) : (
+                  <div className="flex h-[22px] items-center gap-1" aria-label="Ritual is typing">
+                    <span className="h-1 w-1 rounded-full bg-[#a1a1aa]" />
+                    <span className="h-1 w-1 rounded-full bg-[#a1a1aa]" />
+                    <span className="h-1 w-1 rounded-full bg-[#a1a1aa]" />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[8px] border border-[#e4e4e7] bg-[#fafafa] p-3 transition-colors duration-75 focus-within:border-[#c7c7cc] focus-within:bg-white">
+              <textarea
+                ref={textareaRef}
+                value={partialTranscript || value}
+                onChange={(event) => setValue(event.target.value)}
+                placeholder={isListening ? "Listening..." : "Tell Ritual what to log..."}
+                rows={3}
+                readOnly={isListening}
+                className="block min-h-[82px] w-full resize-none border-0 bg-transparent text-[15px] leading-6 text-[#18181b] outline-none placeholder:text-[#9ca3af]"
+              />
+              <div className="flex min-h-8 items-center justify-between gap-3 pt-2">
+                <span className="rounded-sm bg-[#eeeeef] px-2 py-1 text-[12px] font-semibold text-[#71717a]">
+                  mic
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void startVoice()}
+                  disabled={isProcessingVoice}
+                  className={cn(
+                    "inline-flex h-9 w-9 items-center justify-center rounded-sm transition-colors duration-75",
+                    isListening
+                      ? "bg-[#18181b] text-white"
+                      : "bg-[#eeeeef] text-[#52525b] hover:bg-[#e4e4e7] hover:text-[#18181b]",
+                  )}
+                  aria-label={isListening ? "Stop voice input" : "Start voice input"}
+                >
+                  {isProcessingVoice ? (
+                    <BrailleSpinner className="text-sm" intervalMs={45} />
+                  ) : isListening ? (
+                    <AudioLines className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                  ) : (
+                    <Mic className="h-[18px] w-[18px]" strokeWidth={1.8} />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {voiceError ? (
+            <p className="mt-3 rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-left text-[13px] leading-snug text-red-700">
+              {voiceError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="mx-auto mt-8 w-full max-w-[590px] space-y-2">
+          <PrimarySetupButton disabled={busy || !succeeded} onClick={onFinish}>
+            {busy ? "Starting" : "Start using Ritual"}
+          </PrimarySetupButton>
+          <QuietSetupButton disabled={busy} onClick={onFinish}>
+            Skip for now
+          </QuietSetupButton>
+        </div>
+      </section>
+    </SetupShell>
   )
 }
 
 export function OnboardingSetupStep({
   busy,
   onFinish,
-  userId,
 }: {
   busy?: boolean
   onFinish: () => void
   userId?: string | null
 }) {
+  const [step, setStep] = useState<SetupStep>("permissions")
   const [permissions, setPermissions] = useState<PermissionState>(DEFAULT_PERMISSION_STATE)
   const [workingKey, setWorkingKey] = useState<PermissionKey | null>(null)
-  const [vaultFolderPath, setVaultFolderPath] = useState<string | null>(null)
-  const [vaultFolderMessage, setVaultFolderMessage] = useState("")
-  const [vaultFolderWorking, setVaultFolderWorking] = useState(false)
+  const [prompted, setPrompted] = useState<Record<PermissionKey, boolean>>({
+    microphone: false,
+    speech: false,
+    accessibility: false,
+    systemAudio: false,
+  })
+  const autoPromptedMicrophoneRef = useRef(false)
+  const systemAudioCacheRef = useRef<{
+    at: number
+    granted: boolean
+    unsupported: boolean
+    message: string
+  } | null>(null)
+
+  const readSystemAudioPermission = useCallback(async (
+    invoke: Awaited<ReturnType<typeof getInvoke>>,
+    probeSystemAudio = false,
+  ) => {
+    if (!invoke) {
+      return {
+        granted: true,
+        unsupported: false,
+        message: "",
+      }
+    }
+
+    if (!probeSystemAudio && systemAudioCacheRef.current && Date.now() - systemAudioCacheRef.current.at < 8000) {
+      return systemAudioCacheRef.current
+    }
+
+    const readiness = await invoke<RecordingSourceReadiness>("check_recording_source_readiness", {
+      request: {
+        sourceMode: "microphonePlusSystem",
+        probeSystemAudio,
+      },
+    }).catch(() => null)
+    const system = readiness?.sources.find((source) => source.source === "system")
+    const result = {
+      at: Date.now(),
+      granted: Boolean(system?.ready && system.permissionState === "granted"),
+      unsupported: system?.permissionState === "unsupported",
+      message: system?.message || "",
+    }
+    systemAudioCacheRef.current = result
+    return result
+  }, [])
 
   const refreshPermissions = useCallback(async () => {
     const invoke = await getInvoke()
-    if (!invoke) return
+    if (!invoke) {
+      setPermissions({
+        checked: true,
+        microphone: true,
+        speech: true,
+        accessibility: true,
+        systemAudio: true,
+        systemAudioUnsupported: false,
+        systemAudioMessage: "",
+      })
+      return
+    }
 
-    const [accessibility, microphone, speech, locationState] = await Promise.all([
+    const [accessibility, microphone, speech, systemAudio] = await Promise.all([
       invoke<boolean>("check_accessibility_permission").catch(() => false),
       invoke<boolean>("check_native_microphone_permission").catch(() => false),
       invoke<boolean>("check_native_speech_recognition_permission").catch(() => false),
-      getLocationPermissionState().catch(() => "unknown"),
+      readSystemAudioPermission(invoke),
     ])
 
     setPermissions({
-      full_disk_access: false,
+      checked: true,
+      microphone,
+      speech,
       accessibility,
-      microphone: microphone && speech,
-      screen_recording: false,
-      location_services: locationState === "granted",
+      systemAudio: systemAudio.granted,
+      systemAudioUnsupported: systemAudio.unsupported,
+      systemAudioMessage: systemAudio.message,
     })
-  }, [])
+  }, [readSystemAudioPermission])
 
   useEffect(() => {
     void refreshPermissions()
-    setVaultFolderPath(readRitualVaultFolderSettings().folderPath)
     const interval = window.setInterval(() => {
       void refreshPermissions()
-    }, 2500)
-    return () => window.clearInterval(interval)
+    }, 1500)
+    window.addEventListener("focus", refreshPermissions)
+    return () => {
+      window.clearInterval(interval)
+      window.removeEventListener("focus", refreshPermissions)
+    }
   }, [refreshPermissions])
-
-  async function openSettings(command: string) {
-    const invoke = await getInvoke()
-    if (!invoke) return
-    await invoke(command).catch(() => undefined)
-  }
 
   const schedulePermissionRefresh = useCallback(() => {
     void refreshPermissions()
-    window.setTimeout(() => void refreshPermissions(), 1200)
-    window.setTimeout(() => void refreshPermissions(), 3000)
+    window.setTimeout(() => void refreshPermissions(), 900)
+    window.setTimeout(() => void refreshPermissions(), 2400)
   }, [refreshPermissions])
 
-  async function handleGrant(key: PermissionKey) {
+  const openSettings = useCallback(async (command: string) => {
+    const invoke = await getInvoke()
+    if (!invoke) return
+    await invoke(command).catch(() => undefined)
+  }, [])
+
+  const handleGrant = useCallback(async (key: PermissionKey) => {
     if (workingKey) return
+
     setWorkingKey(key)
     try {
       const invoke = await getInvoke()
+      if (!invoke) return
 
-      if (key === "full_disk_access") {
-        await openSettings("open_full_disk_access_settings")
-      }
+      const alreadyPrompted = prompted[key]
 
-      if (key === "accessibility" && invoke) {
-        const granted = await invoke<boolean>("request_accessibility_permission").catch(() => false)
-        if (!granted) {
-          await openSettings("open_accessibility_settings")
-        }
-      }
-
-      if (key === "microphone" && invoke) {
-        const microphone = await invoke<boolean>("show_native_microphone_permission_dialog").catch(() => false)
-        const speech = await invoke<boolean>("show_native_speech_recognition_permission_dialog").catch(() => false)
-        if (!microphone) {
+      if (key === "microphone") {
+        if (alreadyPrompted) {
           await openSettings("open_microphone_settings")
+        } else {
+          const granted = await invoke<boolean>("show_native_microphone_permission_dialog").catch(() => false)
+          setPrompted((current) => ({ ...current, microphone: true }))
+          if (!granted) await openSettings("open_microphone_settings")
         }
-        if (!speech) {
+      }
+
+      if (key === "speech") {
+        if (alreadyPrompted) {
           await openSettings("open_speech_recognition_settings")
+        } else {
+          const granted = await invoke<boolean>("show_native_speech_recognition_permission_dialog").catch(() => false)
+          setPrompted((current) => ({ ...current, speech: true }))
+          if (!granted) await openSettings("open_speech_recognition_settings")
         }
       }
 
-      if (key === "screen_recording") {
-        await openSettings("open_screen_recording_settings")
+      if (key === "accessibility") {
+        if (alreadyPrompted) {
+          await openSettings("open_accessibility_settings")
+        } else {
+          await invoke<boolean>("request_accessibility_permission").catch(() => false)
+          setPrompted((current) => ({ ...current, accessibility: true }))
+        }
       }
 
-      if (key === "location_services") {
-        const result = await submitCurrentLocationPing({
-          reason: "onboarding_setup_grant",
-          maxRecentAgeMs: 0,
-          timeoutMs: 8000,
-        }).catch(() => ({ status: "failed" as const }))
-        if (result.status !== "submitted") {
-          await openLocationServicesSettings()
+      if (key === "systemAudio") {
+        if (alreadyPrompted) {
+          await openSettings("open_system_audio_settings")
+        } else {
+          const result = await readSystemAudioPermission(invoke, true)
+          setPrompted((current) => ({ ...current, systemAudio: true }))
+          setPermissions((current) => ({
+            ...current,
+            checked: true,
+            systemAudio: result.granted,
+            systemAudioUnsupported: result.unsupported,
+            systemAudioMessage: result.message,
+          }))
+          if (!result.granted && !result.unsupported) {
+            await openSettings("open_system_audio_settings")
+          }
         }
       }
 
@@ -189,150 +760,39 @@ export function OnboardingSetupStep({
     } finally {
       setWorkingKey(null)
     }
-  }
+  }, [openSettings, prompted, readSystemAudioPermission, schedulePermissionRefresh, workingKey])
 
-  async function handleChooseVaultFolder() {
-    if (vaultFolderWorking) return
-    if (!getDesktopCapabilities().isDesktop) {
-      setVaultFolderMessage("Folder selection is available in Ritual Desktop.")
-      return
-    }
-    setVaultFolderWorking(true)
-    try {
-      setVaultFolderMessage("Choosing folder...")
-      const selected = await chooseRitualVaultFolder()
-      if (!selected?.folderPath) {
-        setVaultFolderMessage("Folder selection cancelled.")
-        return
-      }
-      setVaultFolderPath(selected.folderPath)
-      if (!userId) {
-        setVaultFolderMessage("Folder selected.")
-        return
-      }
-      const mirrored = await writeRitualVaultFolderMirror({
-        userId,
-        folderPath: selected.folderPath,
-      })
-      writeRitualVaultFolderSettings({
-        folderPath: mirrored.folderPath,
-        lastMirroredAt: mirrored.mirroredAt,
-        lastRecordCount: mirrored.recordCount,
-      })
-      setVaultFolderMessage(`Folder ready with ${mirrored.recordCount} records.`)
-    } catch {
-      setVaultFolderMessage("Folder selected; mirror will run from Settings.")
-    } finally {
-      setVaultFolderWorking(false)
-    }
+  useEffect(() => {
+    if (step !== "permissions") return
+    if (autoPromptedMicrophoneRef.current) return
+    if (!permissions.checked || permissions.microphone) return
+    if (!getDesktopCapabilities().isDesktop) return
+
+    autoPromptedMicrophoneRef.current = true
+    window.setTimeout(() => {
+      void handleGrant("microphone")
+    }, 250)
+  }, [handleGrant, permissions.checked, permissions.microphone, step])
+
+  if (step === "practice") {
+    return (
+      <VoicePracticeStep
+        busy={busy}
+        onBack={() => setStep("permissions")}
+        onFinish={onFinish}
+      />
+    )
   }
 
   return (
-    <div
-      className="flex h-[612px] w-full max-w-[800px] flex-col bg-white text-[#18181b]"
-      style={{ fontFamily: "var(--ritual-font-fk), 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, sans-serif" }}
-    >
-      <div className="flex flex-1 flex-col justify-center px-7 pb-8 pt-2">
-        <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-2.5">
-              <img
-                src="/images/eclipse.svg"
-                alt=""
-                width={32}
-                height={32}
-                className="h-8 w-8 shrink-0"
-              />
-              <div className="min-w-0">
-                <h1 className="text-[16px] font-semibold leading-tight text-[#18181b]">
-                  Set up Ritual
-                </h1>
-                <p className="text-[11px] leading-snug text-[#71717a] italic">
-                  Tools to measure and quantify your behavior
-                </p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={onFinish}
-              className="h-8 shrink-0 rounded-sm border-[#dfe1e5] bg-white px-3 text-[13px] font-medium text-[#18181b] shadow-none transition-colors duration-75 hover:bg-[#f5f5f5]"
-            >
-              {busy ? "Finishing" : "Finish Setup"}
-              <span className="ml-1.5 rounded border border-[#e4e4e7] bg-[#f4f4f5] px-1 text-[10px] text-[#a1a1aa]">
-                ↵
-              </span>
-            </Button>
-          </div>
-
-          <div className="h-px bg-[#e4e4e7]" />
-
-          <section className="space-y-1">
-            <h2 className="text-[13px] font-medium text-[#18181b]">Permissions</h2>
-            <p className="text-[12px] leading-snug text-[#71717a]">
-              Allow Ritual to track in the background. Change anytime in Settings.
-            </p>
-          </section>
-
-          <div className="space-y-1.5">
-            {PERMISSION_ROWS.map((row) => (
-              <div key={row.key} className="flex min-h-7 items-center justify-between gap-4">
-                <span className="truncate text-[13px] font-medium text-[#18181b]">{row.label}</span>
-                <GrantButton
-                  granted={permissions[row.key]}
-                  loading={workingKey === row.key}
-                  disabled={busy}
-                  onClick={() => void handleGrant(row.key)}
-                />
-              </div>
-            ))}
-          </div>
-
-          <div className="h-px bg-[#e4e4e7]" />
-
-          <section className="space-y-1">
-            <h2 className="text-[13px] font-medium text-[#18181b]">Privacy &amp; Storage</h2>
-            <p className="text-[12px] leading-snug text-[#71717a]">
-              Everything stays on your Mac — encrypted, never used for training.
-            </p>
-          </section>
-
-          <div className="flex min-h-8 items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-medium text-[#18181b]">Ritual Vault folder</p>
-              <p className="truncate text-[11px] text-[#71717a]">
-                {vaultFolderPath || "No folder selected"}
-              </p>
-              {vaultFolderMessage ? (
-                <p className="truncate text-[11px] text-[#71717a]">{vaultFolderMessage}</p>
-              ) : null}
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy || vaultFolderWorking}
-              onClick={() => void handleChooseVaultFolder()}
-              className="h-8 shrink-0 rounded-sm border-[#dfe1e5] bg-white px-3 text-[13px] font-medium text-[#18181b] shadow-none transition-colors duration-75 hover:bg-[#f5f5f5]"
-            >
-              {vaultFolderWorking ? <BrailleSpinner className="text-sm" intervalMs={45} /> : <FolderOpen className="h-3.5 w-3.5" />}
-              <span className="ml-1.5">Choose</span>
-            </Button>
-          </div>
-
-          <div className="flex flex-wrap gap-1.5">
-            {PRIVACY_BADGES.map((badge) => (
-              <div
-                key={badge}
-                className="inline-flex items-center gap-1 rounded border border-[#e4e4e7] bg-[#fafafa] px-2 py-1 text-[11px] font-medium text-[#52525b]"
-              >
-                <Check className="h-3 w-3 text-[#333333]" strokeWidth={2.5} />
-                {badge}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
+    <PermissionsStep
+      permissions={permissions}
+      workingKey={workingKey}
+      prompted={prompted}
+      busy={busy}
+      onGrant={(key) => void handleGrant(key)}
+      onContinue={() => setStep("practice")}
+      onSkip={() => setStep("practice")}
+    />
   )
 }
