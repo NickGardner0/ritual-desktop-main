@@ -51,6 +51,8 @@ const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
 const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1290.0;
 const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 820.0;
 const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1290x820_v1.done";
+#[cfg(target_os = "macos")]
+const MACOS_NATIVE_WINDOW_CORNER_RADIUS: f64 = 18.0;
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -620,6 +622,58 @@ mod startup_tests {
 }
 
 #[cfg(target_os = "macos")]
+unsafe fn set_macos_layer_corner_radius(
+    layer: cocoa::base::id,
+    radius: f64,
+    masks_to_bounds: bool,
+) {
+    use cocoa::base::{nil, NO, YES};
+    use cocoa::foundation::NSString;
+    use objc::runtime::BOOL;
+    use objc::{msg_send, sel, sel_impl};
+
+    if layer.is_null() {
+        return;
+    }
+
+    let _: () = msg_send![layer, setCornerRadius: radius];
+    if masks_to_bounds {
+        let _: () = msg_send![layer, setMasksToBounds: YES];
+    }
+
+    let supports_continuous_curve: BOOL =
+        msg_send![layer, respondsToSelector: sel!(setCornerCurve:)];
+    if supports_continuous_curve != NO {
+        let continuous = NSString::alloc(nil).init_str("continuous");
+        let _: () = msg_send![layer, setCornerCurve: continuous];
+    }
+}
+
+#[cfg(target_os = "macos")]
+unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id) {
+    use cocoa::base::{id, NO, YES};
+    use objc::runtime::BOOL;
+    use objc::{msg_send, sel, sel_impl};
+
+    if view.is_null() {
+        return;
+    }
+
+    let supports_wants_layer: BOOL = msg_send![view, respondsToSelector: sel!(setWantsLayer:)];
+    if supports_wants_layer != NO {
+        let _: () = msg_send![view, setWantsLayer: YES];
+    }
+
+    let supports_layer: BOOL = msg_send![view, respondsToSelector: sel!(layer)];
+    if supports_layer == NO {
+        return;
+    }
+
+    let layer: id = msg_send![view, layer];
+    set_macos_layer_corner_radius(layer, MACOS_NATIVE_WINDOW_CORNER_RADIUS, true);
+}
+
+#[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
     use cocoa::base::{id, YES};
@@ -657,6 +711,8 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
+            let content_view: id = msg_send![ns_win, contentView];
+            clip_macos_view_to_native_radius(content_view);
 
             let supports_toolbar_style: BOOL =
                 msg_send![ns_win, respondsToSelector: sel!(setToolbarStyle:)];
@@ -665,7 +721,9 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
             }
 
-            println!("✅ NSWindow native chrome tuned (shadow + transparent titlebar + resizable)");
+            println!(
+                "✅ NSWindow native chrome tuned (shadow + transparent titlebar + rounded content)"
+            );
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
@@ -677,6 +735,7 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
     use cocoa::appkit::{NSColor, NSWindow};
     use cocoa::base::{id, nil};
     use objc::{msg_send, sel, sel_impl};
+    use window_vibrancy::{apply_liquid_glass, NSGlassEffectViewStyle};
 
     println!("🔧 Configuring macOS window transparency + liquid glass…");
 
@@ -687,64 +746,19 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
             let ns_win: id = raw_window as id;
             ns_win.setOpaque_(cocoa::base::NO);
             ns_win.setBackgroundColor_(NSColor::clearColor(nil));
-            println!("✅ NSWindow transparent configured (non-opaque + clear)");
-
-            // -----------------------------------------------------------
-            // Apply Apple Liquid Glass (macOS 26+ / NSGlassEffectView)
-            // Falls back to NSVisualEffectView vibrancy on older macOS.
-            // -----------------------------------------------------------
             let content_view: id = msg_send![ns_win, contentView];
-            if content_view.is_null() {
-                eprintln!("❌ contentView is null, cannot apply glass");
-                return;
-            }
-
-            // Try to get NSGlassEffectView class (macOS 26+ / Tahoe)
-            let glass_cls = objc::runtime::Class::get("NSGlassEffectView");
-            if let Some(cls) = glass_cls {
-                // Instantiate NSGlassEffectView
-                let frame: cocoa::foundation::NSRect = msg_send![content_view, bounds];
-                let alloc: id = msg_send![cls, alloc];
-                if alloc.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView alloc returned null, falling back to vibrancy");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-                let glass_view: id = msg_send![alloc, initWithFrame: frame];
-                if glass_view.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView initWithFrame returned null, falling back");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-
-                // Style 16 = Sidebar (matches NSGlassEffectViewStyle::Sidebar)
-                let _: () = msg_send![glass_view, setStyle: 16_isize];
-
-                // White tint on the native glass for a frostier look
-                let tint: id = NSColor::colorWithRed_green_blue_alpha_(nil, 1.0, 1.0, 1.0, 0.0);
-                let _: () = msg_send![glass_view, setTintColor: tint];
-
-                // Make it resize with the window
-                // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
-                let _: () = msg_send![glass_view, setAutoresizingMask: 18_u64];
-
-                // Add BELOW the WKWebView so web content renders on top
-                // NSWindowOrderingMode::Below = -1
-                let below: i64 = -1;
-                let _: () = msg_send![
-                    content_view,
-                    addSubview: glass_view
-                    positioned: below
-                    relativeTo: nil
-                ];
-
-                println!("✅ Apple Liquid Glass applied (NSGlassEffectView, style=Sidebar)");
-            } else {
-                println!("⚠️ NSGlassEffectView not available, falling back to vibrancy");
-                apply_vibrancy_fallback(window);
-            }
+            clip_macos_view_to_native_radius(content_view);
+            println!("✅ NSWindow transparent configured (non-opaque + clear)");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
+    }
+
+    match apply_liquid_glass(window, NSGlassEffectViewStyle::Sidebar, None, None) {
+        Ok(()) => println!("✅ Apple Liquid Glass applied behind rounded native window content"),
+        Err(e) => {
+            println!("⚠️ Liquid Glass unavailable ({e:?}), falling back to vibrancy");
+            apply_vibrancy_fallback(window);
+        }
     }
 }
 
@@ -757,9 +771,11 @@ fn apply_vibrancy_fallback(window: &tauri::WebviewWindow) {
         window,
         NSVisualEffectMaterial::Sidebar,
         Some(NSVisualEffectState::Active),
-        None,
+        Some(MACOS_NATIVE_WINDOW_CORNER_RADIUS),
     ) {
-        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
+        Ok(()) => println!(
+            "✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material + rounded radius)"
+        ),
         Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
     }
 }
@@ -893,6 +909,7 @@ fn configure_macos_webview_transparency(window: &tauri::WebviewWindow) {
                 let cg_clear = NSColor::clearColor(nil);
                 let cg_color: id = msg_send![cg_clear, CGColor];
                 let _: () = msg_send![wk_layer, setBackgroundColor: cg_color];
+                set_macos_layer_corner_radius(wk_layer, MACOS_NATIVE_WINDOW_CORNER_RADIUS, true);
                 println!("✅ WKWebView layer set to non-opaque + clear");
             }
 
