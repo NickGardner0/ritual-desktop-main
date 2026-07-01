@@ -677,7 +677,6 @@ unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id) {
 #[allow(unexpected_cfgs)]
 fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
     use cocoa::base::{id, YES};
-    use objc::runtime::BOOL;
     use objc::{msg_send, sel, sel_impl};
 
     match window.ns_window() {
@@ -714,15 +713,8 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
             let content_view: id = msg_send![ns_win, contentView];
             clip_macos_view_to_native_radius(content_view);
 
-            let supports_toolbar_style: BOOL =
-                msg_send![ns_win, respondsToSelector: sel!(setToolbarStyle:)];
-            if supports_toolbar_style != cocoa::base::NO {
-                // NSWindowToolbarStyleUnifiedCompact = 4
-                let _: () = msg_send![ns_win, setToolbarStyle: 4_isize];
-            }
-
             println!(
-                "✅ NSWindow native chrome tuned (shadow + transparent titlebar + rounded content)"
+                "✅ NSWindow native chrome tuned (standard titlebar controls + rounded content)"
             );
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
@@ -731,26 +723,21 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
-    use cocoa::appkit::{NSColor, NSWindow};
-    use cocoa::base::{id, nil};
+fn configure_macos_sidebar_titlebar_glass(window: &tauri::WebviewWindow) {
+    use cocoa::base::id;
     use objc::{msg_send, sel, sel_impl};
     use window_vibrancy::{apply_liquid_glass, NSGlassEffectViewStyle};
 
-    println!("🔧 Configuring macOS window transparency + liquid glass…");
-
-    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
+    println!("🔧 Configuring macOS sidebar/titlebar glass behind native window chrome…");
 
     match window.ns_window() {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
-            ns_win.setOpaque_(cocoa::base::NO);
-            ns_win.setBackgroundColor_(NSColor::clearColor(nil));
             let content_view: id = msg_send![ns_win, contentView];
             clip_macos_view_to_native_radius(content_view);
-            println!("✅ NSWindow transparent configured (non-opaque + clear)");
+            println!("✅ NSWindow kept native/opaque; rounded content clipping configured");
         },
-        Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
+        Err(e) => eprintln!("❌ NSWindow handle not available for glass setup: {e}"),
     }
 
     match apply_liquid_glass(window, NSGlassEffectViewStyle::Sidebar, None, None) {
@@ -1076,7 +1063,7 @@ fn ensure_detached_sidebar_window(
     }
 
     if let Some(sidebar) = app.get_webview_window("sidebar") {
-        configure_macos_window_transparency(&sidebar);
+        configure_macos_sidebar_titlebar_glass(&sidebar);
         let _ = sidebar.set_always_on_top(false);
     }
     sync_detached_sidebar_window(app, width)?;
@@ -1558,7 +1545,7 @@ fn main() {
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)
-                        .transparent(main_glass_enabled)
+                        .transparent(transparency_probe)
                         .shadow(true)
                         .visible(true);
 
@@ -1582,7 +1569,7 @@ fn main() {
 
                     if main_glass_enabled {
                         info!("Main window glass enabled");
-                        configure_macos_window_transparency(&window);
+                        configure_macos_sidebar_titlebar_glass(&window);
                         configure_macos_webview_transparency(&window);
                     } else {
                         info!("Main window glass disabled for stable production rendering");
