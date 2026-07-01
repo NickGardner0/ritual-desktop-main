@@ -341,7 +341,7 @@ export function PrivacySettingsPanel() {
     <div className="space-y-6">
       <SettingsGroup>
         <div className="flex items-start gap-3 px-3.5 py-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#0f7f86]/10 text-[#0f7f86]">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#306774]/10 text-[#306774]">
             <ShieldCheck className="h-4 w-4" strokeWidth={2.2} />
           </div>
           <div className="min-w-0">
@@ -368,7 +368,7 @@ export function PrivacySettingsPanel() {
                 className={cn(
                   'h-7 min-w-[82px] rounded-[7px] border px-3 text-[12px] font-medium transition-colors',
                   settings.mode === option.value
-                    ? 'border-[#0f7f86] bg-[#0f7f86] text-white'
+                    ? 'border-[#306774] bg-[#306774] text-white'
                     : 'border-black/10 bg-white text-[#3f3f3f] hover:bg-[#f3f3f1]',
                 )}
               >
@@ -394,14 +394,14 @@ export function PrivacySettingsPanel() {
                 aria-checked={settings.consents[option.key] === true}
                 onClick={() => setConsent(option.key, settings.consents[option.key] !== true)}
                 className={cn(
-                  'relative h-[22px] w-[38px] rounded-full transition-colors',
-                  settings.consents[option.key] === true ? 'bg-[#0f7f86]' : 'bg-black/15',
+                  'relative h-5 w-[38px] rounded-full transition-colors',
+                  settings.consents[option.key] === true ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
                 )}
               >
                 <span
                   className={cn(
-                    'absolute top-[3px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
-                    settings.consents[option.key] === true ? 'translate-x-[19px]' : 'translate-x-[3px]',
+                    'absolute top-[2px] h-4 w-4 rounded-full bg-white shadow-sm transition-transform',
+                    settings.consents[option.key] === true ? 'translate-x-5' : 'translate-x-[2px]',
                   )}
                 />
               </button>
@@ -414,7 +414,7 @@ export function PrivacySettingsPanel() {
         <h2 className="mb-2.5 text-[13px] font-semibold leading-none text-[#2b2b2b]">Local vault</h2>
         <SettingsGroup>
           <div className="flex items-start gap-3 px-3.5 py-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#0f7f86]/10 text-[#0f7f86]">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[8px] bg-[#306774]/10 text-[#306774]">
               <Database className="h-4 w-4" strokeWidth={2.2} />
             </div>
             <div className="min-w-0 flex-1">
@@ -474,7 +474,7 @@ export function PrivacySettingsPanel() {
                       className={cn(
                         'h-6 rounded-[7px] border px-2 text-[11px] font-medium transition-colors',
                         selected
-                          ? 'border-[#0f7f86] bg-[#0f7f86] text-white'
+                          ? 'border-[#306774] bg-[#306774] text-white'
                           : 'border-black/10 bg-white text-[#3f3f3f] hover:bg-[#f3f3f1]',
                       )}
                     >
@@ -508,7 +508,7 @@ export function PrivacySettingsPanel() {
               <button
                 type="button"
                 onClick={runDryRun}
-                className="h-7 rounded-[7px] border border-[#0f7f86] bg-[#0f7f86] px-3 text-[12px] font-medium text-white transition-colors hover:bg-[#0d7076]"
+                className="h-7 rounded-[7px] border border-[#306774] bg-[#306774] px-3 text-[12px] font-medium text-white transition-colors hover:bg-[#285966]"
               >
                 Dry-run
               </button>
@@ -519,7 +519,7 @@ export function PrivacySettingsPanel() {
                 className={cn(
                   'h-7 rounded-[7px] border px-3 text-[12px] font-medium transition-colors',
                   selectedMigrationCategories.length > 0
-                    ? 'border-[#0f7f86] bg-[#0f7f86] text-white hover:bg-[#0d7076]'
+                    ? 'border-[#306774] bg-[#306774] text-white hover:bg-[#285966]'
                     : 'border-black/10 bg-black/5 text-[#9a9a96]',
                 )}
               >
