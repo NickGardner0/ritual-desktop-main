@@ -9,6 +9,7 @@ const ALLOWED_FILES = new Set([
   'apps/dashboard/instrumentation-client.ts',
   'apps/dashboard/lib/ai/overview-activity/overview-activity-query.ts',
   'apps/dashboard/lib/computerActivity/api.ts',
+  'apps/dashboard/lib/computerActivity/aggregate-local-first.ts',
   'apps/dashboard/lib/computerActivity/backend-read.ts',
   'apps/dashboard/lib/computerActivity/policy.ts',
   'apps/dashboard/lib/computerActivity/tauri-fallback.ts',
