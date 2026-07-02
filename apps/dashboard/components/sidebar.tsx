@@ -48,7 +48,7 @@ export function Sidebar() {
       : {};
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const navTopPadding = mode === "expanded" ? 54 : 58;
+  const navTopPadding = mode === "expanded" ? 74 : 78;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -85,19 +85,21 @@ export function Sidebar() {
 
   return (
     <SidebarShell
+      data-tauri-drag-region
+      className="tauri-drag-region"
       style={{
         width,
         transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       {...hoverProps}
     >
-      <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
+      <div className="no-drag flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
         />
       </div>
 
-      <div className="flex w-full flex-col items-stretch px-[15px]">
+      <div className="no-drag flex w-full flex-col items-stretch px-[15px]">
         <button
           type="button"
           onClick={handleSettingsClick}

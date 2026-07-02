@@ -10,7 +10,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
-import { ContentSurface, Titlebar, ToolbarButton } from '@/components/ui/ritual-system';
+import { ContentSurface, ToolbarButton } from '@/components/ui/ritual-system';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -120,7 +120,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const shouldHideAppSidebarForRoute = isFullScreenChat || isChatRoute;
   const shouldHideAppSidebarForMode = mode === 'hidden';
   const shouldHideAppSidebar = shouldHideAppSidebarForRoute || shouldHideAppSidebarForMode;
-  const shouldShowTitlebarSidebarControls = !shouldHideAppSidebarForRoute && !detachedSidebarMode;
+  const shouldShowSidebarChromeControls = !shouldHideAppSidebarForRoute && !detachedSidebarMode;
 
   const handleChromeToggle = () => {
     setMode(mode === 'hidden' ? 'expanded' : mode === 'expanded' ? 'compact' : 'hidden');
@@ -128,6 +128,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const sidebarToggleLabel =
     mode === 'hidden' ? 'Show sidebar' : mode === 'expanded' ? 'Collapse sidebar' : 'Hide sidebar';
+  const contentTouchesWindowChrome = detachedSidebarMode || shouldHideAppSidebar;
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -137,7 +138,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   }, [detachedSidebarMode, shouldHideAppSidebar]);
 
   return (
-    <div className={`app-container flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
+    <div className={`app-container integrated-window-chrome flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>
       {/* Sync route to detached sidebar (useSearchParams requires Suspense) */}
       <Suspense fallback={null}>
         <SidebarRouteSync detachedSidebarMode={detachedSidebarMode} />
@@ -152,45 +153,34 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       ) : null}
       
       <div className={`app-window-shell relative flex h-full min-w-0 flex-1 flex-col overflow-hidden ${!shouldHideAppSidebar && !detachedSidebarMode ? 'has-shell-sidebar-divider' : ''}`}>
-        {/* Native window chrome. Keep this row focused on window/navigation controls. */}
-        {!isFullScreenChat && (
-          <>
-            <Titlebar>
+        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
+          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
+          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
+
+          {/* Main Content Area */}
+          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
+            {!isFullScreenChat && (
               <div
                 data-tauri-drag-region
-                aria-hidden="true"
-                className="titlebar-glass-layer pointer-events-none absolute inset-0"
-              />
-              {isChatRoute && (
-                <div
-                  data-tauri-drag-region
-                  className="chat-header-sidebar-strip absolute inset-y-0 left-0 w-[272px] border-r border-[rgba(15,23,42,0.028)] bg-transparent"
-                />
-              )}
-              <div
-                data-tauri-drag-region
-                className={`dashboard-top-chrome-row relative flex h-full w-full items-center gap-2 ${shouldShowTitlebarSidebarControls ? 'has-titlebar-sidebar-lane' : ''}`}
+                className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] pt-2.5 ${contentTouchesWindowChrome ? 'pl-[84px] pr-6' : 'px-6'}`}
               >
-                <div
-                  data-tauri-drag-region
-                  className={`${shouldShowTitlebarSidebarControls ? 'titlebar-sidebar-lane' : 'w-0'} relative flex h-full shrink-0 items-center`}
-                >
-                  {shouldShowTitlebarSidebarControls ? (
-                    <div className="no-drag flex h-full items-center pl-[72px]">
-                      <ToolbarButton
-                        type="button"
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleChromeToggle();
-                        }}
-                        className="titlebar-icon-button mr-3"
-                        aria-label={sidebarToggleLabel}
-                        title={sidebarToggleLabel}
-                      >
-                        <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
-                      </ToolbarButton>
-                      <div className="flex items-center gap-0">
+                <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
+                  <div className="no-drag flex min-w-0 items-center gap-1">
+                    {shouldShowSidebarChromeControls ? (
+                      <div className="flex items-center gap-0.5 pr-1.5">
+                        <ToolbarButton
+                          type="button"
+                          onMouseDown={(event) => event.stopPropagation()}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleChromeToggle();
+                          }}
+                          className="app-toolbar-icon-button"
+                          aria-label={sidebarToggleLabel}
+                          title={sidebarToggleLabel}
+                        >
+                          <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
+                        </ToolbarButton>
                         <ToolbarButton
                           type="button"
                           onMouseDown={(event) => event.stopPropagation()}
@@ -200,7 +190,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                               router.back();
                             }
                           }}
-                          className="titlebar-icon-button"
+                          className="app-toolbar-icon-button"
                           aria-label="Go back"
                           title="Go back"
                         >
@@ -213,41 +203,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             event.stopPropagation();
                             router.forward();
                           }}
-                          className="titlebar-icon-button"
+                          className="app-toolbar-icon-button"
                           aria-label="Go forward"
                           title="Go forward"
                         >
                           <ChevronRight className="h-4 w-4 stroke-[2.05]" />
                         </ToolbarButton>
                       </div>
-                    </div>
-                  ) : null}
-                </div>
-
-                <div
-                  data-tauri-drag-region
-                  className="flex h-full min-w-0 flex-1 items-center justify-end"
-                >
-                  <div className="no-drag flex items-center gap-1">
-                    <TeamDropdown isExpanded={false} placement="header" />
-                  </div>
-                </div>
-              </div>
-            </Titlebar>
-
-          </>
-        )}
-
-        <div className="app-body flex min-h-0 flex-1 overflow-hidden">
-          {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
-
-          {/* Main Content Area */}
-          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
-            {!isFullScreenChat && (
-              <div className="dashboard-app-toolbar app-toolbar-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] px-6 pt-2.5">
-                <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
-                  <div className="flex min-w-0 items-center gap-1">
+                    ) : null}
                     {!isChatRoute && (
                       <CommandPalette
                         className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
@@ -260,14 +223,15 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                   <div
                     id="header-center-slot"
-                    className="flex min-w-0 items-center justify-center"
+                    className="no-drag flex min-w-0 items-center justify-center"
                   />
 
-                  <div className="flex min-w-0 items-center justify-end gap-1">
+                  <div className="no-drag flex min-w-0 items-center justify-end gap-1">
                     <div
                       id="header-right-slot"
                       className="flex min-w-0 items-center gap-1"
                     />
+                    <TeamDropdown isExpanded={false} placement="header" />
                   </div>
                 </div>
               </div>
