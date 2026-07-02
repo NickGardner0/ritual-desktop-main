@@ -116,26 +116,50 @@
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Text shimmer animation - Midday inspired */
+/* Text shimmer animation adapted from Midday's TextShimmer component. */
 @keyframes text-shimmer {
   0% {
-    background-position: 100% 50%;
+    background-position: 100% center, center;
   }
   100% {
-    background-position: 0% 50%;
+    background-position: 0% center, center;
   }
 }
 
-.animate-text-shimmer {
-  background-image: linear-gradient(
-    90deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #6b7280 50%,
-    #1f2937 60%,
-    #1f2937 100%
-  );
-  animation: text-shimmer 2s ease-in-out infinite;
+.ritual-text-shimmer {
+  --ritual-text-shimmer-base: rgba(17, 24, 39, 0.42);
+  --ritual-text-shimmer-highlight: #111827;
+  --ritual-text-shimmer-spread: 72px;
+  display: inline-block;
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - var(--ritual-text-shimmer-spread)),
+      var(--ritual-text-shimmer-highlight),
+      transparent calc(50% + var(--ritual-text-shimmer-spread))
+    ),
+    linear-gradient(
+      var(--ritual-text-shimmer-base),
+      var(--ritual-text-shimmer-base)
+    );
+  background-repeat: no-repeat, no-repeat;
+  background-origin: border-box, padding-box;
+  background-size: 250% 100%, auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2.5s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ritual-text-shimmer {
+    animation: none;
+    background-image: linear-gradient(
+      90deg,
+      var(--ritual-text-shimmer-highlight),
+      var(--ritual-text-shimmer-highlight)
+    );
+  }
 }
 
 /* Neutral text-selection styling for compact calendar block editor time fields */
@@ -530,62 +554,6 @@
 
   .integrated-window-chrome .app-toolbar-region::after {
     display: none;
-  }
-
-  @keyframes ritual-logo-glance {
-    0%,
-    62% {
-      transform: translateX(-115%);
-    }
-    100% {
-      transform: translateX(115%);
-    }
-  }
-
-  @keyframes ritual-logo-glance-hover {
-    0% {
-      transform: translateX(-115%);
-    }
-    100% {
-      transform: translateX(115%);
-    }
-  }
-
-  .ritual-logo-glance {
-    position: relative;
-    isolation: isolate;
-    overflow: hidden;
-  }
-
-  .ritual-logo-glance::after {
-    content: "";
-    position: absolute;
-    inset: -55%;
-    z-index: 1;
-    pointer-events: none;
-    transform: translateX(-115%);
-    background: linear-gradient(
-      118deg,
-      transparent 39%,
-      rgba(255, 255, 255, 0.00) 44%,
-      rgba(255, 255, 255, 0.58) 49%,
-      rgba(255, 255, 255, 0.84) 50%,
-      rgba(255, 255, 255, 0.48) 51%,
-      rgba(255, 255, 255, 0.00) 56%,
-      transparent 61%
-    );
-    mix-blend-mode: screen;
-    animation: ritual-logo-glance 3200ms ease-out infinite;
-  }
-
-  .ritual-logo-glance:hover::after {
-    animation: ritual-logo-glance-hover 900ms ease-out forwards;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .ritual-logo-glance::after {
-      display: none;
-    }
   }
 
   .ritual-sidebar-list {

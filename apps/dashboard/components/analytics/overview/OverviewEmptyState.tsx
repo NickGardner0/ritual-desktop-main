@@ -22,13 +22,9 @@ export function OverviewEmptyState({
     <div className="absolute inset-x-0 top-[40%] flex -translate-y-1/2 justify-center px-6">
       <div className="flex w-full max-w-[468px] flex-col gap-7">
         <div className="flex w-full justify-center">
-          <div className="ritual-logo-glance inline-flex h-10 w-10 items-center justify-center rounded-full text-[#111827]">
-            <img
-              src="/images/eclipse.svg"
-              alt="Ritual"
-              className="h-9 w-9 shrink-0 object-contain"
-            />
-          </div>
+          <h1 className="ritual-text-shimmer text-[22px] font-medium leading-[1.15] text-transparent">
+            Welcome to Ritual
+          </h1>
         </div>
 
         <div className="w-full space-y-1.5">
