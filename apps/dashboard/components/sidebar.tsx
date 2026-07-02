@@ -14,8 +14,7 @@ const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
 function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
-  return value === 'general'
-    || value === 'account'
+  return value === 'account'
     || value === 'privacy'
     || value === 'computer-tracking'
     || value === 'place-tagging'
@@ -83,7 +82,7 @@ export function Sidebar() {
   const handleSettingsClick = async () => {
     setIsHovered(false);
     try {
-      await openDesktopSettingsWindow('general');
+      await openDesktopSettingsWindow('account');
     } catch (error) {
       console.error('Failed to open native settings window:', error);
     }

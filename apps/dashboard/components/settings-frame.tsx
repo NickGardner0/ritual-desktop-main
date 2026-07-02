@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, LifeBuoy, Mail, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, UserRound, Users } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -42,15 +42,14 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 }
 
 const TABS: Record<DesktopSettingsView, TabConfig> = {
-  general: { label: 'General', icon: Settings2 },
+  account: { label: 'General', icon: Settings2 },
   privacy: { label: 'Privacy', icon: ShieldCheck },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
   'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
-  account: { label: 'Account', icon: UserRound },
 };
 
-const TAB_ORDER: DesktopSettingsView[] = ['general', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health', 'account'];
+const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -67,13 +66,13 @@ const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
 ];
 
 export function normalizeSettingsFrameView(value: unknown): DesktopSettingsView {
-  return value === 'general' || value === 'account' || value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
-    : 'general';
+    : 'account';
 }
 
 export function SettingsFrame({
-  initialView = 'general',
+  initialView = 'account',
   listenForDesktopShow = false,
 }: SettingsFrameProps) {
   const { isDesktop } = useDesktopCapabilities();
@@ -154,14 +153,6 @@ export function SettingsFrame({
     if (user) openUserProfile();
   };
 
-  const handleSupport = () => {
-    console.log('Support clicked');
-  };
-
-  const handleTeams = () => {
-    console.log('Teams clicked');
-  };
-
   const handleClearHistory = () => {
     console.log('Clear history clicked');
   };
@@ -185,7 +176,7 @@ export function SettingsFrame({
             {TAB_ORDER.map((id) => {
               const { label, icon: Icon } = TABS[id];
               const selected = activeTab === id;
-              const lightPill = selected && id === 'general';
+              const lightPill = selected && id === 'account';
               const selectedColor = lightPill ? 'rgba(0,0,0,0.06)' : '#1a636b';
               return (
                 <button
@@ -227,8 +218,26 @@ export function SettingsFrame({
           aria-hidden="true"
         />
         <div className="px-6 -mt-[52px]">
-        {activeTab === 'general' ? (
+        {activeTab === 'account' ? (
           <SettingsPage title="General">
+            <SettingsGroup>
+              <div className="flex min-h-[58px] items-center gap-3 px-[14px] py-2.5">
+                <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[15px] font-semibold text-white">
+                  {userInitial}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[13px] font-semibold leading-tight text-[#252525]">{userName}</p>
+                  <button
+                    type="button"
+                    onClick={handleManageAccount}
+                    className="mt-0.5 text-[12px] font-medium text-[#8a8a8a] transition-colors hover:text-[#252525]"
+                  >
+                    Manage account
+                  </button>
+                </div>
+              </div>
+            </SettingsGroup>
+
             <SettingsSection title="Preferences">
               <SettingsRow
                 icon={<Brain className="h-[15px] w-[15px]" strokeWidth={1.9} />}
@@ -385,50 +394,12 @@ export function SettingsFrame({
               />
             </SettingsSection>
 
-          </SettingsPage>
-        ) : null}
-
-        {activeTab === 'account' ? (
-          <SettingsPage title="Account">
             <SettingsSection title="Account">
-              <SettingsRow
-                icon={<UserRound className="h-[15px] w-[15px]" strokeWidth={1.9} />}
-                title="You are signed in"
-                control={(
-                  <button
-                    type="button"
-                    onClick={handleSignOut}
-                    className="text-[13px] font-medium text-red-500 transition-colors hover:text-red-600"
-                  >
-                    Sign out
-                  </button>
-                )}
-              />
-              <SettingsRow
-                icon={<Mail className="h-[15px] w-[15px]" strokeWidth={1.9} />}
-                title="Email"
-                control={<span className="max-w-[280px] truncate text-right text-[13px] font-medium text-[#7a7a7a]">{userEmail || 'Not available'}</span>}
-              />
-              <button type="button" onClick={handleManageAccount} className="settings-action-row">
-                Manage account
-              </button>
-              <button type="button" onClick={handleSupport} className="settings-action-row">
-                <span className="inline-flex items-center gap-3">
-                  <LifeBuoy className="h-[15px] w-[15px]" strokeWidth={1.9} />
-                  Support
-                </span>
-              </button>
-              <button type="button" onClick={handleTeams} className="settings-action-row">
-                <span className="inline-flex items-center gap-3">
-                  <Users className="h-[15px] w-[15px]" strokeWidth={1.9} />
-                  Teams
-                </span>
-              </button>
-            </SettingsSection>
-
-            <SettingsSection title="Data">
               <button type="button" onClick={handleClearHistory} className="settings-action-row">
                 Clear history
+              </button>
+              <button type="button" onClick={handleSignOut} className="settings-action-row">
+                Sign out
               </button>
               <button
                 type="button"
@@ -452,7 +423,7 @@ export function SettingsFrame({
             <ComputerTrackingSettings
               userId={user?.id || ''}
               showAttributionHealth={showAttributionHealth}
-              onClose={() => handleTabSelect('general')}
+              onClose={() => handleTabSelect('account')}
             />
           </SettingsPage>
         ) : null}

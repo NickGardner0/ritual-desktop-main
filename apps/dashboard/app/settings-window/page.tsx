@@ -10,9 +10,9 @@ type SettingsWindowPageProps = {
 };
 
 function normalizeView(value: string | undefined): DesktopSettingsView {
-  return value === 'general' || value === 'account' || value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
-    : 'general';
+    : 'account';
 }
 
 export default async function SettingsWindowPage({ searchParams }: SettingsWindowPageProps) {

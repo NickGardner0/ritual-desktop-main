@@ -134,9 +134,9 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
-export type DesktopSettingsView = 'general' | 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+export type DesktopSettingsView = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
-export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'general'): Promise<void> {
+export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
   const maxAttempts = 8;
   let lastError: unknown;
 
