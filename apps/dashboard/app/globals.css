@@ -258,11 +258,11 @@
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.34);
-  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.06);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.38);
-  --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.20);
+  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.038);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.28);
+  --titlebar-glass-bg: rgba(255, 255, 255, 0.38);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.50);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
   --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.58);
   --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.74);
@@ -274,7 +274,7 @@
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
-  --content-shell-radius: 12px;
+  --content-shell-radius: 14px;
   --content-shell-border: rgba(15, 23, 42, 0.072);
   --content-shell-shadow: -10px 0 28px rgba(15, 23, 42, 0.035);
 
@@ -499,10 +499,29 @@
     position: relative;
     isolation: isolate;
     background: var(--content-bg);
-    border-left: 1px solid rgba(15, 23, 42, 0.045);
+    border-left: 0;
     border-top-left-radius: var(--content-shell-radius);
     border-bottom-left-radius: var(--content-shell-radius);
-    box-shadow: none;
+    box-shadow: -1px 0 0 rgba(15, 23, 42, 0.025);
+  }
+
+  .integrated-window-chrome .content-shell::before {
+    content: "";
+    position: absolute;
+    top: 14px;
+    bottom: 14px;
+    left: 0;
+    z-index: 3;
+    width: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      rgba(15, 23, 42, 0.018) 8%,
+      rgba(15, 23, 42, 0.034) 50%,
+      rgba(15, 23, 42, 0.018) 92%,
+      transparent 100%
+    );
   }
 
   .integrated-window-chrome .app-toolbar-region {
@@ -511,6 +530,62 @@
 
   .integrated-window-chrome .app-toolbar-region::after {
     display: none;
+  }
+
+  @keyframes ritual-logo-glance {
+    0%,
+    62% {
+      transform: translateX(-115%);
+    }
+    100% {
+      transform: translateX(115%);
+    }
+  }
+
+  @keyframes ritual-logo-glance-hover {
+    0% {
+      transform: translateX(-115%);
+    }
+    100% {
+      transform: translateX(115%);
+    }
+  }
+
+  .ritual-logo-glance {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .ritual-logo-glance::after {
+    content: "";
+    position: absolute;
+    inset: -55%;
+    z-index: 1;
+    pointer-events: none;
+    transform: translateX(-115%);
+    background: linear-gradient(
+      118deg,
+      transparent 39%,
+      rgba(255, 255, 255, 0.00) 44%,
+      rgba(255, 255, 255, 0.58) 49%,
+      rgba(255, 255, 255, 0.84) 50%,
+      rgba(255, 255, 255, 0.48) 51%,
+      rgba(255, 255, 255, 0.00) 56%,
+      transparent 61%
+    );
+    mix-blend-mode: screen;
+    animation: ritual-logo-glance 3200ms ease-out infinite;
+  }
+
+  .ritual-logo-glance:hover::after {
+    animation: ritual-logo-glance-hover 900ms ease-out forwards;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ritual-logo-glance::after {
+      display: none;
+    }
   }
 
   .ritual-sidebar-list {
@@ -947,11 +1022,11 @@
     background:
       linear-gradient(
         180deg,
-        rgba(246, 245, 243, 0.97) 0%,
-        rgba(244, 243, 240, 0.95) 42%,
-        rgba(242, 241, 238, 0.93) 100%
+        rgba(255, 255, 255, 0.74) 0%,
+        rgba(250, 249, 246, 0.62) 46%,
+        rgba(246, 245, 242, 0.52) 100%
       );
-    background-color: rgba(244, 243, 240, 0.95);
+    background-color: rgba(248, 247, 244, 0.58);
     border-right: 0;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
@@ -1082,11 +1157,11 @@
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.56) 0%,
-      rgba(255, 255, 255, 0.40) 48%,
-      rgba(252, 252, 250, 0.32) 100%
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.18) 48%,
+      rgba(252, 252, 250, 0.12) 100%
     ) !important;
-    background-color: rgba(255, 255, 255, 0.36) !important;
+    background-color: rgba(255, 255, 255, 0.16) !important;
     border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -1136,9 +1211,10 @@
     inset: 0;
     pointer-events: none;
     background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
-    opacity: 0.9;
+      radial-gradient(110% 85% at 18% 2%, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.10) 40%, rgba(255, 255, 255, 0) 72%),
+      radial-gradient(90% 70% at 92% 100%, rgba(210, 226, 255, 0.18) 0%, rgba(255, 255, 255, 0) 68%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.0) 48%);
+    opacity: 0.72;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,

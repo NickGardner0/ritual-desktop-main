@@ -11,7 +11,7 @@ import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri
 import { NavRowSurface, SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 
 const COLLAPSED_WIDTH = 76;
-const EXPANDED_WIDTH = 202;
+const EXPANDED_WIDTH = 217;
 
 function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
   return value === 'account'

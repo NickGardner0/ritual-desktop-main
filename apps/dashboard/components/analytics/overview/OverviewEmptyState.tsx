@@ -19,14 +19,14 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="absolute inset-x-0 top-[43%] flex -translate-y-1/2 justify-center px-6">
-      <div className="flex w-full max-w-[468px] flex-col gap-4">
+    <div className="absolute inset-x-0 top-[40%] flex -translate-y-1/2 justify-center px-6">
+      <div className="flex w-full max-w-[468px] flex-col gap-7">
         <div className="flex w-full justify-center">
-          <div className="inline-flex items-center justify-center text-[#111827]">
+          <div className="ritual-logo-glance inline-flex h-10 w-10 items-center justify-center rounded-full text-[#111827]">
             <img
               src="/images/eclipse.svg"
               alt="Ritual"
-              className="h-[42px] w-[42px] shrink-0 object-contain"
+              className="h-9 w-9 shrink-0 object-contain"
             />
           </div>
         </div>
