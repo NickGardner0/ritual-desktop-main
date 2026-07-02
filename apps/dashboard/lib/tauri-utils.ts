@@ -7,7 +7,7 @@ import {
   openDesktopExternalUrl,
   openDesktopExternalUrlWithFallback,
 } from '@/lib/desktop-bridge/commands';
-import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import { hasDesktopTauriIpcBridge, isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 
 /**
  * Check if the app is running in Tauri
@@ -54,7 +54,7 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
 // Track if window has been shown to prevent multiple calls
 let windowShown = false;
 
-const DEFAULT_WINDOW_WIDTH = 1290;
+const DEFAULT_WINDOW_WIDTH = 1300;
 const DEFAULT_WINDOW_HEIGHT = 820;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
@@ -130,7 +130,29 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
 export type DesktopSettingsView = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
-  await invokeDesktopCommand('open_settings_window', { initialView });
+  const maxAttempts = 8;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      if (hasDesktopTauriIpcBridge()) {
+        await invokeDesktopCommand('open_settings_window', { initialView });
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error('Failed to open native settings window.');
 }
 
 /**

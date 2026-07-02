@@ -54,6 +54,8 @@ const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 820.0;
 const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1290x820_v1.done";
 #[cfg(target_os = "macos")]
 const MACOS_NATIVE_WINDOW_CORNER_RADIUS: f64 = 18.0;
+#[cfg(target_os = "macos")]
+const MACOS_SETTINGS_WINDOW_CORNER_RADIUS: f64 = 10.0;
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -311,6 +313,7 @@ fn handle_desktop_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, r
     }
 
     info!(payload = %redacted_payload, "Desktop deep link received");
+    desktop_runtime::emit_auth_deep_link_opened(app, &trimmed);
     focus_main_window(app);
     desktop_runtime::emit_auth_deep_link(app, trimmed);
 }
@@ -651,7 +654,7 @@ unsafe fn set_macos_layer_corner_radius(
 }
 
 #[cfg(target_os = "macos")]
-unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id) {
+unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id, corner_radius: f64) {
     use cocoa::base::{id, NO, YES};
     use objc::runtime::BOOL;
     use objc::{msg_send, sel, sel_impl};
@@ -671,12 +674,12 @@ unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id) {
     }
 
     let layer: id = msg_send![view, layer];
-    set_macos_layer_corner_radius(layer, MACOS_NATIVE_WINDOW_CORNER_RADIUS, true);
+    set_macos_layer_corner_radius(layer, corner_radius, true);
 }
 
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
-fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
+fn configure_macos_window_chrome(window: &tauri::WebviewWindow, corner_radius: f64) {
     use cocoa::base::{id, YES};
     use objc::{msg_send, sel, sel_impl};
 
@@ -684,23 +687,29 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
 
-            // Let Tauri/Tao own the NSWindow style mask. June relies on the
-            // standard decorated Overlay + hiddenTitle path, and Tao's macOS
-            // backend warns against direct style-mask mutation after creation.
             let _: () = msg_send![ns_win, setHasShadow: YES];
             let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
-            // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
             let content_view: id = msg_send![ns_win, contentView];
-            clip_macos_view_to_native_radius(content_view);
+            clip_macos_view_to_native_radius(content_view, corner_radius);
 
-            println!(
-                "✅ NSWindow native chrome tuned (standard titlebar controls + rounded content)"
-            );
+            println!("✅ NSWindow native chrome tuned (corner_radius={corner_radius})");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for chrome tuning: {e}"),
     }
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
+    configure_macos_window_chrome(window, MACOS_NATIVE_WINDOW_CORNER_RADIUS);
+}
+
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn configure_macos_settings_window_chrome(window: &tauri::WebviewWindow) {
+    configure_macos_window_chrome(window, MACOS_SETTINGS_WINDOW_CORNER_RADIUS);
 }
 
 #[cfg(target_os = "macos")]
@@ -716,7 +725,7 @@ fn configure_macos_sidebar_titlebar_glass(window: &tauri::WebviewWindow) {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
             let content_view: id = msg_send![ns_win, contentView];
-            clip_macos_view_to_native_radius(content_view);
+            clip_macos_view_to_native_radius(content_view, MACOS_NATIVE_WINDOW_CORNER_RADIUS);
             println!("✅ NSWindow kept native/opaque; rounded content clipping configured");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for glass setup: {e}"),
@@ -1108,8 +1117,8 @@ struct SettingsWindowPayload {
     initial_view: String,
 }
 
-const SETTINGS_WINDOW_WIDTH: f64 = 780.0;
-const SETTINGS_WINDOW_HEIGHT: f64 = 552.0;
+const SETTINGS_WINDOW_WIDTH: f64 = 820.0;
+const SETTINGS_WINDOW_HEIGHT: f64 = 580.0;
 const SETTINGS_WINDOW_MIN_WIDTH: f64 = 720.0;
 const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 500.0;
 
@@ -1176,6 +1185,8 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
         if center_settings_window_over_main(&app, &settings).is_err() {
             let _ = settings.center();
         }
+        #[cfg(target_os = "macos")]
+        configure_macos_settings_window_chrome(&settings);
         let _ = settings.show();
         let _ = settings.unminimize();
         let _ = settings.set_focus();
@@ -1220,7 +1231,7 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
 
     #[cfg(target_os = "macos")]
     {
-        configure_macos_native_window_chrome(&settings);
+        configure_macos_settings_window_chrome(&settings);
     }
 
     let _ = settings.emit("settings:show", payload);
@@ -1411,6 +1422,7 @@ fn main() {
             desktop_runtime::updater::get_desktop_runtime_info,
             desktop_runtime::get_desktop_runtime_state,
             desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::auth_handoff::desktop_clear_auth_state,
             desktop_runtime::updater::desktop_frontend_ready,
             desktop_runtime::updater::desktop_manual_update_check,
             desktop_runtime::updater::desktop_install_update,

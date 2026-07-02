@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, X } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -148,7 +148,7 @@ export function SettingsFrame({
   const userInitial = (userName || userEmail || 'R').charAt(0).toUpperCase();
   const activeTabConfig = TABS[activeTab];
   const habitTextLowContrast = contrastRatioAgainstWhite(habitTextColor) < 4.5;
-  const showTrafficLights = variant === 'modal';
+  const isNativeWindow = variant === 'window';
 
   const handleClose = useCallback(() => {
     closePopovers();
@@ -183,36 +183,34 @@ export function SettingsFrame({
         'settings-frame relative flex overflow-hidden bg-white text-[#1d1d1f]',
         variant === 'modal'
           ? 'settings-frame-modal z-10 h-[min(580px,calc(100vh-48px))] w-[min(820px,calc(100vw-48px))] rounded-[10px] shadow-[0_16px_48px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.12)]'
-          : 'settings-frame-window ritual-settings-window h-screen w-screen',
+          : 'settings-frame-window ritual-settings-window h-screen w-screen overflow-hidden',
       )}
     >
+      {variant === 'modal' ? (
+        <button
+          type="button"
+          aria-label="Close settings"
+          onClick={handleClose}
+          className="absolute right-4 top-4 z-20 flex h-7 w-7 items-center justify-center rounded-md text-[#8a8a8a] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f]"
+        >
+          <X className="h-4 w-4" strokeWidth={2} />
+        </button>
+      ) : null}
       <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
         <aside
           className={cn(
-            'settings-frame-sidebar flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f2f2f7] px-[8px] pb-3',
+            'settings-frame-sidebar flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3',
             variant === 'modal' ? 'settings-frame-sidebar-modal' : 'settings-frame-sidebar-window',
           )}
         >
           <div
             className={cn(
               'flex h-[52px] shrink-0 items-center px-[4px]',
-              variant === 'window' ? 'tauri-drag-region' : '',
+              isNativeWindow ? 'tauri-drag-region' : '',
             )}
-            data-tauri-drag-region={variant === 'window' ? true : undefined}
-          >
-            {showTrafficLights ? (
-              <div className="flex h-[12px] items-center gap-[7px]">
-                <button
-                  type="button"
-                  aria-label="Close settings"
-                  onClick={handleClose}
-                  className="h-[12px] w-[12px] rounded-full border border-[#e04447] bg-[#ff5f57] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]"
-                />
-                <span className="h-[12px] w-[12px] rounded-full border border-[#dea123] bg-[#ffbd2e] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
-                <span className="h-[12px] w-[12px] rounded-full border border-[#1ca43f] bg-[#28c840] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
-              </div>
-            ) : null}
-          </div>
+            data-tauri-drag-region={isNativeWindow ? true : undefined}
+            aria-hidden={isNativeWindow ? true : undefined}
+          />
 
           <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
             {TAB_ORDER.map((id) => {

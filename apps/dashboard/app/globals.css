@@ -1469,15 +1469,14 @@
     box-shadow: none;
   }
 
-  /* Perplexity General tab: white grouped cards with hairline outline on white pane. */
+  /* Perplexity-style grouped cards: light gray fill on white content pane. */
   .settings-group-card {
-    background: #ffffff;
+    background: #f7f7f7;
     border-radius: 10px;
     border: 0;
-    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09);
+    box-shadow: none;
   }
 
-  /* List-style panels (Connectors-like density) use muted fill inside embedded panes. */
   .settings-embedded-pane .settings-group-card,
   .settings-native-embedded .settings-group-card {
     background: #f7f7f7;
@@ -1746,6 +1745,16 @@ html body:has(.ritual-settings-window) {
   background: #ffffff !important;
   overflow: hidden;
 }
+
+html.desktop body:has(.ritual-settings-window) {
+  background: transparent !important;
+}
+
+.ritual-settings-window.settings-frame-window {
+  background: #ffffff;
+}
+
+
 
 html body .settings-frame.settings-frame,
 html body .settings-frame.settings-frame *:not([class*="material-symbols"]):not(code):not(pre):not(kbd) {

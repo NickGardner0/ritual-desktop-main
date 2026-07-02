@@ -76,10 +76,6 @@ export function Sidebar() {
       if (isDesktop) {
         void openDesktopSettingsWindow(view).catch((error) => {
           console.error('Failed to open native settings window:', error);
-          startTransition(() => {
-            setSettingsInitialView(view);
-            setShowSettingsModal(true);
-          });
         });
         startTransition(() => setIsHovered(false));
       } else {
@@ -102,8 +98,6 @@ export function Sidebar() {
         await openDesktopSettingsWindow('account');
       } catch (error) {
         console.error('Failed to open native settings window:', error);
-        setSettingsInitialView('account');
-        setShowSettingsModal(true);
       }
       return;
     }
@@ -151,7 +145,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      {showSettingsModal && (
+      {!isDesktop && showSettingsModal ? (
         <SettingsModal
           isOpen={showSettingsModal}
           onClose={() => {
@@ -162,7 +156,7 @@ export function Sidebar() {
           onOpen={() => setIsHovered(false)}
           initialView={settingsInitialView}
         />
-      )}
+      ) : null}
     </SidebarShell>
   );
 }
