@@ -294,7 +294,7 @@ fn ensure_system_audio_helper_for_tauri() {
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>Ritual</string>
+  <string>Ritual Audio Capture</string>
   <key>CFBundleExecutable</key>
   <string>ritual-system-audio-recorder</string>
   <key>CFBundleIdentifier</key>
@@ -302,7 +302,7 @@ fn ensure_system_audio_helper_for_tauri() {
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>Ritual</string>
+  <string>Ritual Audio Capture</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

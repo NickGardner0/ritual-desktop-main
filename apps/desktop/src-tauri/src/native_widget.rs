@@ -176,6 +176,12 @@ fn clear_turso_sync_config_file() -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn clear_turso_sync_config() -> Result<(), String> {
+    clear_turso_sync_config_file()?;
+    apply_turso_env(None);
+    Ok(())
+}
+
 fn apply_turso_env(config: Option<&TursoSyncConfig>) {
     if let Some(config) = config {
         std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
@@ -307,6 +313,22 @@ pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf
         .map_err(|e| format!("Failed to set token file permissions: {e}"))?;
 
     Ok(token_file)
+}
+
+pub(crate) fn clear_auth_token_on_disk() -> Result<(), String> {
+    use dirs::home_dir;
+    use std::fs;
+
+    let token_file = home_dir()
+        .ok_or_else(|| "Failed to resolve home directory".to_string())?
+        .join(".ritual")
+        .join("auth_token.txt");
+
+    if token_file.exists() {
+        fs::remove_file(&token_file).map_err(|e| format!("Failed to remove token file: {e}"))?;
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

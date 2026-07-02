@@ -5,6 +5,7 @@ commands.allow = [
   "get_desktop_runtime_info",
   "get_desktop_runtime_state",
   "desktop_set_auth_token",
+  "desktop_clear_auth_state",
   "desktop_frontend_ready",
   "desktop_manual_update_check",
   "desktop_install_update",

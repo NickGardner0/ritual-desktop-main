@@ -1,11 +1,16 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+
+const AUTH_DEEP_LINK_OPENED_EVENT = 'desktop://auth-deep-link-opened';
+const HANDOFF_TIMEOUT_MS = 5_000;
+
+type HandoffStatus = 'preparing' | 'opening' | 'opened' | 'manual';
 
 function buildDeepLink(ticket: string): string {
   const params = new URLSearchParams();
@@ -34,11 +39,55 @@ function DesktopOAuthBridgePageInner() {
   const { isLoaded, user } = useUser();
   const [error, setError] = useState<string | null>(null);
   const [deepLinkHref, setDeepLinkHref] = useState<string | null>(null);
+  const [handoffStatus, setHandoffStatus] = useState<HandoffStatus>('preparing');
   const startedRef = useRef(false);
+  const manualFallbackTimerRef = useRef<number | null>(null);
   const providerError = useMemo(
     () => searchParams.get('error_description') || searchParams.get('error'),
     [searchParams],
   );
+
+  const scheduleManualFallback = useCallback(() => {
+    if (manualFallbackTimerRef.current !== null) {
+      window.clearTimeout(manualFallbackTimerRef.current);
+    }
+
+    manualFallbackTimerRef.current = window.setTimeout(() => {
+      setHandoffStatus((current) => (current === 'opened' ? current : 'manual'));
+    }, HANDOFF_TIMEOUT_MS);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    void import('@tauri-apps/api/event')
+      .then(async ({ listen }) => {
+        if (cancelled) {
+          return;
+        }
+
+        unlisten = await listen(AUTH_DEEP_LINK_OPENED_EVENT, () => {
+          setHandoffStatus('opened');
+          if (manualFallbackTimerRef.current !== null) {
+            window.clearTimeout(manualFallbackTimerRef.current);
+            manualFallbackTimerRef.current = null;
+          }
+        });
+      })
+      .catch(() => {
+        // External browsers cannot import Tauri APIs; they use the manual fallback.
+      });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      if (manualFallbackTimerRef.current !== null) {
+        window.clearTimeout(manualFallbackTimerRef.current);
+        manualFallbackTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (startedRef.current || !isLoaded) {
@@ -62,6 +111,8 @@ function DesktopOAuthBridgePageInner() {
         const ticket = await createDesktopSignInTicket();
         const nextDeepLink = buildDeepLink(ticket);
         setDeepLinkHref(nextDeepLink);
+        setHandoffStatus('opening');
+        scheduleManualFallback();
         window.setTimeout(() => {
           window.location.href = nextDeepLink;
         }, 120);
@@ -72,7 +123,12 @@ function DesktopOAuthBridgePageInner() {
     };
 
     void run();
-  }, [isLoaded, providerError, user]);
+  }, [isLoaded, providerError, scheduleManualFallback, user]);
+
+  const handleOpenRitual = useCallback(() => {
+    setHandoffStatus('opening');
+    scheduleManualFallback();
+  }, [scheduleManualFallback]);
 
   if (error) {
     return (
@@ -110,23 +166,36 @@ function DesktopOAuthBridgePageInner() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-white px-6">
       <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
-        <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
+        {handoffStatus === 'opened' ? null : (
+          <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
+        )}
         <h1 className="mt-6 text-2xl font-medium text-gray-900">
-          Returning to Ritual…
+          {handoffStatus === 'opened'
+            ? 'Ritual opened'
+            : handoffStatus === 'manual'
+              ? 'Still returning to Ritual?'
+              : 'Returning to Ritual…'}
         </h1>
         <p className="mt-3 text-sm leading-6 text-gray-600">
-          Your browser finished Apple or Google sign-in. Ritual should reopen automatically to complete authentication.
+          {handoffStatus === 'opened'
+            ? 'The desktop app received the sign-in handoff. You can close this window once Ritual finishes loading your dashboard.'
+            : handoffStatus === 'manual'
+              ? 'Your browser finished Apple or Google sign-in, but Ritual did not clearly confirm the handoff. Click Open Ritual again, then return to the desktop app.'
+              : 'Your browser finished Apple or Google sign-in. Ritual should reopen automatically to complete authentication.'}
         </p>
         {deepLinkHref ? (
           <div className="mt-6 space-y-3">
             <a
               href={deepLinkHref}
+              onClick={handleOpenRitual}
               className="inline-flex rounded-sm bg-black px-4 py-2 text-sm font-medium text-white"
             >
               Open Ritual
             </a>
             <p className="text-xs leading-5 text-gray-500">
-              If Ritual did not reopen automatically, click Open Ritual. You can close this tab once the desktop app finishes signing in.
+              {handoffStatus === 'opened'
+                ? 'If the desktop app is already on your dashboard, this page is no longer needed.'
+                : 'If Ritual did not reopen automatically, click Open Ritual. You can close this tab after the desktop app reaches your dashboard.'}
             </p>
           </div>
         ) : null}

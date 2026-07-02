@@ -26,6 +26,8 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "native-startup-update-fallback-v1",
     "desktop-runtime-state-v1",
     "desktop-auth-handoff-v1",
+    "desktop-auth-clear-v1",
+    "desktop-auth-deep-link-opened-v1",
     "desktop-runtime-events-v1",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
@@ -40,6 +42,7 @@ pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
 pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
 pub const AUTH_DEEP_LINK_EVENT: &str = "desktop://auth-deep-link";
+pub const AUTH_DEEP_LINK_OPENED_EVENT: &str = "desktop://auth-deep-link-opened";
 pub const UPDATE_STATUS_EVENT: &str = "tauri://update-status";
 
 #[derive(Clone, Debug, Serialize)]
@@ -80,6 +83,13 @@ pub struct DesktopRuntimeState {
     pub auth: DesktopAuthRuntimeState,
     pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
     pub watcher: crate::watcher::WatcherLifecycleSnapshot,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopAuthDeepLinkOpenedPayload {
+    pub route: String,
+    pub received_at_ms: i64,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -234,6 +244,41 @@ fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: Strin
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     *pending = Some(deep_link);
+}
+
+pub(crate) fn clear_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<DesktopShellState>();
+    let mut pending = state
+        .pending_auth_deep_link
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *pending = None;
+}
+
+fn sanitized_deep_link_route(deep_link: &str) -> String {
+    let without_scheme = deep_link
+        .split_once("://")
+        .map(|(_, rest)| rest)
+        .unwrap_or(deep_link);
+    let route = without_scheme
+        .split('?')
+        .next()
+        .unwrap_or("")
+        .trim_matches('/');
+
+    if route.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{route}")
+    }
+}
+
+pub fn emit_auth_deep_link_opened<R: Runtime>(app: &AppHandle<R>, deep_link: &str) {
+    let payload = DesktopAuthDeepLinkOpenedPayload {
+        route: sanitized_deep_link_route(deep_link),
+        received_at_ms: Utc::now().timestamp_millis(),
+    };
+    let _ = app.emit(AUTH_DEEP_LINK_OPENED_EVENT, payload);
 }
 
 pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {

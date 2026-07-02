@@ -266,6 +266,25 @@ export async function desktopSetAuthToken(input: {
   }
 }
 
+export async function desktopClearAuthState(): Promise<DesktopRuntimeState | null> {
+  if (!isTauri()) return null;
+
+  try {
+    const result = await invokeDesktopCommand<DesktopRuntimeState>('desktop_clear_auth_state');
+    void recordDesktopShellEvent('desktop.auth_clear.succeeded', 'info', {
+      tokenReady: result.auth.tokenReady,
+      userIdPresent: Boolean(result.auth.userId),
+    });
+    return result;
+  } catch (error) {
+    void recordDesktopShellEvent('desktop.auth_clear.failed', 'warn', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    console.warn('Desktop auth clear unavailable:', error);
+    return null;
+  }
+}
+
 export async function checkDesktopForUpdates(): Promise<DesktopRuntimeInfo | null> {
   if (!isTauri()) return null;
   return invokeDesktopCommand<DesktopRuntimeInfo>('desktop_manual_update_check');

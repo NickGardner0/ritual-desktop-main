@@ -8,6 +8,7 @@ import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { signOutOfRitual } from '@/lib/desktop-auth-session';
 import { type DesktopSettingsView } from '@/lib/tauri-utils';
 import { useFont, type FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
@@ -144,7 +145,7 @@ export function SettingsFrame({
   const habitTextLowContrast = contrastRatioAgainstWhite(habitTextColor) < 4.5;
 
   const handleSignOut = async () => {
-    await signOut();
+    await signOutOfRitual(signOut);
     router.push('/');
   };
 

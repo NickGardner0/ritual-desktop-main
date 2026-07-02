@@ -1,7 +1,9 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { signOutOfRitual } from "@/lib/desktop-auth-session";
 import { useUser, useClerk } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +24,7 @@ interface TeamDropdownProps {
 export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdownProps) {
   const { user } = useUser();
   const { signOut, openUserProfile } = useClerk();
+  const router = useRouter();
   const [isActive, setActive] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -70,11 +73,10 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
     setActive(false); // Close dropdown immediately
     
     try {
-      await signOut();
-      // AuthContext will handle the redirect
+      await signOutOfRitual(signOut);
+      router.push('/');
     } catch (error) {
       console.error('Sign out error:', error);
-      // AuthContext will still handle the redirect even on error
     } finally {
       setIsSigningOut(false);
     }
