@@ -6,29 +6,27 @@ import { startTransition, useState, useRef, useCallback, useEffect } from "react
 import { MainMenu } from "./main-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import dynamic from "next/dynamic";
 import { Settings } from "lucide-react";
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
 import { NavRowSurface, SidebarShell } from "@/components/ui/ritual-system";
-
-const SettingsModal = dynamic(
-  () => import("./settings-modal").then(m => ({ default: m.SettingsModal })),
-  { ssr: false }
-);
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
+function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
+  return value === 'account'
+    || value === 'privacy'
+    || value === 'computer-tracking'
+    || value === 'place-tagging'
+    || value === 'apple-health';
+}
+
 export function Sidebar() {
-  const { isDesktop } = useDesktopCapabilities();
   const { mode } = useSidebarMode();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
   const [isHovered, setIsHovered] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [settingsInitialView, setSettingsInitialView] = useState<DesktopSettingsView | undefined>(undefined);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleMouseEnter = useCallback(() => {
@@ -41,11 +39,9 @@ export function Sidebar() {
     hoverTimerRef.current = setTimeout(() => setIsHovered(false), 100);
   }, []);
 
-  // Determine visual expansion state based on mode
   const isExpanded =
     mode === "expanded" ? true : mode === "hover" ? isHovered : false;
 
-  // Only attach hover handlers in hover mode
   const hoverProps =
     mode === "hover"
       ? { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave }
@@ -63,45 +59,28 @@ export function Sidebar() {
     };
   }, [width]);
 
-  // Open Settings modal from URL param (e.g. /integrations?openSettings=computer-tracking)
   useEffect(() => {
     const view = searchParams.get('openSettings');
-    if (
-      view === 'account' ||
-      view === 'privacy' ||
-      view === 'computer-tracking' ||
-      view === 'place-tagging' ||
-      view === 'apple-health'
-    ) {
-      if (isDesktop) {
-        void openDesktopSettingsWindow(view).catch((error) => {
-          console.error('Failed to open native settings window:', error);
-        });
-        startTransition(() => setIsHovered(false));
-      } else {
-        startTransition(() => {
-          setSettingsInitialView(view);
-          setShowSettingsModal(true);
-        });
-      }
-      const params = new URLSearchParams(searchParams.toString());
-      params.delete('openSettings');
-      const qs = params.toString();
-      router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
-    }
+    if (!isDesktopSettingsView(view)) return;
+
+    void openDesktopSettingsWindow(view).catch((error) => {
+      console.error('Failed to open native settings window:', error);
+    });
+    startTransition(() => setIsHovered(false));
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('openSettings');
+    const qs = params.toString();
+    router.replace(qs ? `${pathname || ''}?${qs}` : pathname || '/');
   }, [searchParams, pathname, router]);
 
   const handleSettingsClick = async () => {
-    if (isDesktop) {
-      setIsHovered(false);
-      try {
-        await openDesktopSettingsWindow('account');
-      } catch (error) {
-        console.error('Failed to open native settings window:', error);
-      }
-      return;
+    setIsHovered(false);
+    try {
+      await openDesktopSettingsWindow('account');
+    } catch (error) {
+      console.error('Failed to open native settings window:', error);
     }
-    setShowSettingsModal(true);
   };
 
   return (
@@ -112,14 +91,12 @@ export function Sidebar() {
       }}
       {...hoverProps}
     >
-      {/* Main Navigation — top padding starts below the global titlebar row. */}
       <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
         />
       </div>
 
-      {/* Bottom: Settings */}
       <div className="flex w-full flex-col items-stretch px-[15px]">
         <button
           type="button"
@@ -144,19 +121,6 @@ export function Sidebar() {
           )}
         </button>
       </div>
-
-      {!isDesktop && showSettingsModal ? (
-        <SettingsModal
-          isOpen={showSettingsModal}
-          onClose={() => {
-            setShowSettingsModal(false);
-            setSettingsInitialView(undefined);
-            setIsHovered(false);
-          }}
-          onOpen={() => setIsHovered(false)}
-          initialView={settingsInitialView}
-        />
-      ) : null}
     </SidebarShell>
   );
 }

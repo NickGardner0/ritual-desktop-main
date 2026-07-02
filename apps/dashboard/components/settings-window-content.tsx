@@ -11,7 +11,6 @@ export function SettingsWindowContent({ initialView = 'account' }: SettingsWindo
   return (
     <SettingsFrame
       initialView={initialView}
-      variant="window"
       listenForDesktopShow
     />
   );

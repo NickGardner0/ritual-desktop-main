@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, X } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -22,12 +22,8 @@ import {
   SettingsRow as RitualSettingsRow,
 } from '@/components/ui/ritual-system';
 
-type SettingsFrameVariant = 'modal' | 'window';
-
 export type SettingsFrameProps = {
   initialView?: DesktopSettingsView;
-  variant?: SettingsFrameVariant;
-  onClose?: () => void;
   listenForDesktopShow?: boolean;
 };
 
@@ -76,8 +72,6 @@ export function normalizeSettingsFrameView(value: unknown): DesktopSettingsView 
 
 export function SettingsFrame({
   initialView = 'account',
-  variant = 'window',
-  onClose,
   listenForDesktopShow = false,
 }: SettingsFrameProps) {
   const { isDesktop } = useDesktopCapabilities();
@@ -148,13 +142,6 @@ export function SettingsFrame({
   const userInitial = (userName || userEmail || 'R').charAt(0).toUpperCase();
   const activeTabConfig = TABS[activeTab];
   const habitTextLowContrast = contrastRatioAgainstWhite(habitTextColor) < 4.5;
-  const isNativeWindow = variant === 'window';
-
-  const handleClose = useCallback(() => {
-    closePopovers();
-    setShowDeleteConfirm(false);
-    onClose?.();
-  }, [closePopovers, onClose]);
 
   const handleSignOut = async () => {
     await signOut();
@@ -175,41 +162,13 @@ export function SettingsFrame({
   };
 
   return (
-    <div
-      role={variant === 'modal' ? 'dialog' : undefined}
-      aria-modal={variant === 'modal' ? true : undefined}
-      aria-label={variant === 'modal' ? 'Settings' : undefined}
-      className={cn(
-        'settings-frame relative flex overflow-hidden bg-white text-[#1d1d1f]',
-        variant === 'modal'
-          ? 'settings-frame-modal z-10 h-[min(580px,calc(100vh-48px))] w-[min(820px,calc(100vw-48px))] rounded-[10px] shadow-[0_16px_48px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.12)]'
-          : 'settings-frame-window ritual-settings-window h-screen w-screen overflow-hidden',
-      )}
-    >
-      {variant === 'modal' ? (
-        <button
-          type="button"
-          aria-label="Close settings"
-          onClick={handleClose}
-          className="absolute right-4 top-4 z-20 flex h-7 w-7 items-center justify-center rounded-md text-[#8a8a8a] transition-colors hover:bg-black/[0.05] hover:text-[#1d1d1f]"
-        >
-          <X className="h-4 w-4" strokeWidth={2} />
-        </button>
-      ) : null}
+    <div className="settings-frame settings-frame-window ritual-settings-window relative flex h-screen w-screen overflow-hidden bg-white text-[#1d1d1f]">
       <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
-        <aside
-          className={cn(
-            'settings-frame-sidebar flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3',
-            variant === 'modal' ? 'settings-frame-sidebar-modal' : 'settings-frame-sidebar-window',
-          )}
-        >
+        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3">
           <div
-            className={cn(
-              'flex h-[52px] shrink-0 items-center px-[4px]',
-              isNativeWindow ? 'tauri-drag-region' : '',
-            )}
-            data-tauri-drag-region={isNativeWindow ? true : undefined}
-            aria-hidden={isNativeWindow ? true : undefined}
+            className="tauri-drag-region flex h-[52px] shrink-0 items-center px-[4px]"
+            data-tauri-drag-region
+            aria-hidden="true"
           />
 
           <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
@@ -255,14 +214,12 @@ export function SettingsFrame({
         </aside>
 
         <main className="settings-frame-main relative min-w-0 flex-1 overflow-y-auto bg-white">
-        {variant === 'window' ? (
-          <div
-            data-tauri-drag-region
-            className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
-            aria-hidden="true"
-          />
-        ) : null}
-        <div className={cn('px-6', variant === 'window' && '-mt-[52px]')}>
+        <div
+          data-tauri-drag-region
+          className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
+          aria-hidden="true"
+        />
+        <div className="px-6 -mt-[52px]">
         {activeTab === 'account' ? (
           <SettingsPage title="General">
             <SettingsGroup>
