@@ -95,7 +95,7 @@ export function OverviewView(props: OverviewViewProps) {
             onOpenSelectionModal={metrics.handleOpenSelectionModal}
             onOpenImportModal={metrics.handleOpenImportModal}
             onOpenIntegrations={() => metrics.router.push('/integrations')}
-            onOpenSettings={() => metrics.router.push('/dashboard?openSettings=account')}
+            onOpenSettings={() => metrics.router.push('/dashboard?openSettings=general')}
             onOpenCommandPalette={metrics.handleOpenCommandPalette}
           />
         )}

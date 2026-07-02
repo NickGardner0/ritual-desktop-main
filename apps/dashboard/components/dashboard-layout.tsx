@@ -4,13 +4,11 @@ import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
-import { TeamDropdown } from '@/components/team-dropdown';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { ChevronLeft, ChevronRight, PanelLeft } from 'lucide-react';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
-import { ContentSurface, ToolbarButton } from '@/components/ui/ritual-system';
+import { ContentSurface } from '@/components/ui/ritual-system';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -52,8 +50,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [detachedSidebarWidth, setDetachedSidebarWidth] = useState(76);
   const { isFullScreenChat } = useAI();
   const pathname = usePathname();
-  const router = useRouter();
-  const { mode, setMode } = useSidebarMode();
+  const { mode } = useSidebarMode();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
@@ -120,14 +117,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const shouldHideAppSidebarForRoute = isFullScreenChat || isChatRoute;
   const shouldHideAppSidebarForMode = mode === 'hidden';
   const shouldHideAppSidebar = shouldHideAppSidebarForRoute || shouldHideAppSidebarForMode;
-  const shouldShowSidebarChromeControls = !shouldHideAppSidebarForRoute && !detachedSidebarMode;
-
-  const handleChromeToggle = () => {
-    setMode(mode === 'hidden' ? 'expanded' : mode === 'expanded' ? 'compact' : 'hidden');
-  };
-
-  const sidebarToggleLabel =
-    mode === 'hidden' ? 'Show sidebar' : mode === 'expanded' ? 'Collapse sidebar' : 'Hide sidebar';
   const contentTouchesWindowChrome = detachedSidebarMode || shouldHideAppSidebar;
 
   useEffect(() => {
@@ -166,51 +155,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               >
                 <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
                   <div className="no-drag flex min-w-0 items-center gap-1">
-                    {shouldShowSidebarChromeControls ? (
-                      <div className="flex items-center gap-0.5 pr-1.5">
-                        <ToolbarButton
-                          type="button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handleChromeToggle();
-                          }}
-                          className="app-toolbar-icon-button"
-                          aria-label={sidebarToggleLabel}
-                          title={sidebarToggleLabel}
-                        >
-                          <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
-                        </ToolbarButton>
-                        <ToolbarButton
-                          type="button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            if (window.history.length > 1) {
-                              router.back();
-                            }
-                          }}
-                          className="app-toolbar-icon-button"
-                          aria-label="Go back"
-                          title="Go back"
-                        >
-                          <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
-                        </ToolbarButton>
-                        <ToolbarButton
-                          type="button"
-                          onMouseDown={(event) => event.stopPropagation()}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            router.forward();
-                          }}
-                          className="app-toolbar-icon-button"
-                          aria-label="Go forward"
-                          title="Go forward"
-                        >
-                          <ChevronRight className="h-4 w-4 stroke-[2.05]" />
-                        </ToolbarButton>
-                      </div>
-                    ) : null}
                     {!isChatRoute && (
                       <CommandPalette
                         className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
@@ -231,7 +175,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       id="header-right-slot"
                       className="flex min-w-0 items-center gap-1"
                     />
-                    <TeamDropdown isExpanded={false} placement="header" />
                   </div>
                 </div>
               </div>

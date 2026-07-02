@@ -72,7 +72,7 @@ function getQuickActions(query: string) {
     { id: "open-calendar", name: "Open calendar", keywords: ["calendar", "schedule"], action: "navigate", path: "/calendar", icon: "calendar" },
     { id: "ai-assistant", name: "Ask AI assistant", keywords: ["ai", "chat", "ask"], action: "navigate", path: "/chat", icon: "bot" },
     { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
-    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=general", icon: "settings" },
     { id: "connect-wearables", name: "Connect wearables", keywords: ["whoop", "oura", "garmin"], action: "navigate", path: "/integrations", icon: "watch" },
     { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
   ];

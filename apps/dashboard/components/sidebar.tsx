@@ -6,15 +6,16 @@ import { startTransition, useState, useRef, useCallback, useEffect } from "react
 import { MainMenu } from "./main-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, PanelLeft, Settings } from "lucide-react";
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
-import { NavRowSurface, SidebarShell } from "@/components/ui/ritual-system";
+import { NavRowSurface, SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 202;
 
 function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
-  return value === 'account'
+  return value === 'general'
+    || value === 'account'
     || value === 'privacy'
     || value === 'computer-tracking'
     || value === 'place-tagging'
@@ -22,7 +23,7 @@ function isDesktopSettingsView(value: string | null): value is DesktopSettingsVi
 }
 
 export function Sidebar() {
-  const { mode } = useSidebarMode();
+  const { mode, setMode } = useSidebarMode();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -48,7 +49,12 @@ export function Sidebar() {
       : {};
 
   const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
-  const navTopPadding = mode === "expanded" ? 74 : 78;
+  const navTopPadding = isExpanded ? 74 : 112;
+  const sidebarToggleLabel = isExpanded ? "Collapse sidebar" : "Expand sidebar";
+
+  const handleChromeToggle = () => {
+    setMode(isExpanded ? "compact" : "expanded");
+  };
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -77,7 +83,7 @@ export function Sidebar() {
   const handleSettingsClick = async () => {
     setIsHovered(false);
     try {
-      await openDesktopSettingsWindow('account');
+      await openDesktopSettingsWindow('general');
     } catch (error) {
       console.error('Failed to open native settings window:', error);
     }
@@ -93,6 +99,59 @@ export function Sidebar() {
       }}
       {...hoverProps}
     >
+      <div
+        className={cn(
+          "no-drag absolute z-20 flex items-center gap-0.5",
+          isExpanded ? "right-[14px] top-[28px]" : "left-[18px] top-[70px]",
+        )}
+      >
+        <ToolbarButton
+          type="button"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            handleChromeToggle();
+          }}
+          className="app-toolbar-icon-button"
+          aria-label={sidebarToggleLabel}
+          title={sidebarToggleLabel}
+        >
+          <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
+        </ToolbarButton>
+        {isExpanded ? (
+          <>
+            <ToolbarButton
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                if (window.history.length > 1) {
+                  router.back();
+                }
+              }}
+              className="app-toolbar-icon-button"
+              aria-label="Go back"
+              title="Go back"
+            >
+              <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+            </ToolbarButton>
+            <ToolbarButton
+              type="button"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation();
+                router.forward();
+              }}
+              className="app-toolbar-icon-button"
+              aria-label="Go forward"
+              title="Go forward"
+            >
+              <ChevronRight className="h-4 w-4 stroke-[2.05]" />
+            </ToolbarButton>
+          </>
+        ) : null}
+      </div>
+
       <div className="no-drag flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}

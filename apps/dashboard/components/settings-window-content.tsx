@@ -7,7 +7,7 @@ type SettingsWindowContentProps = {
   initialView?: DesktopSettingsView;
 };
 
-export function SettingsWindowContent({ initialView = 'account' }: SettingsWindowContentProps) {
+export function SettingsWindowContent({ initialView = 'general' }: SettingsWindowContentProps) {
   return (
     <SettingsFrame
       initialView={initialView}

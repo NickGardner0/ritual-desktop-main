@@ -20,7 +20,7 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="absolute inset-x-0 top-[clamp(0px,2vh,28px)] flex justify-center px-6">
+    <div className="absolute inset-x-0 top-[45%] flex -translate-y-1/2 justify-center px-6">
       <div className="flex w-full max-w-[468px] flex-col gap-5">
         <div className="mb-6 flex w-full justify-center">
           <div className="inline-flex items-center gap-[3px] text-[#111827]">

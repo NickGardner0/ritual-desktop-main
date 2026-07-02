@@ -155,7 +155,7 @@ function getLocalQuickActions(q: string): QuickAction[] {
     { id: "open-reports", name: "Open reports", keywords: ["reports"], action: "navigate", path: "/reports", icon: "file" },
     { id: "import-data", name: "Import data", keywords: ["import", "upload", "csv"], action: "navigate", path: "/dashboard?view=overview&openImport=1", icon: "upload" },
     { id: "connect-wearables", name: "Integrations", keywords: ["whoop", "oura", "garmin", "apple", "connect"], action: "navigate", path: "/integrations", icon: "watch" },
-    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=account", icon: "settings" },
+    { id: "settings", name: "Settings", keywords: ["settings", "preferences"], action: "navigate", path: "/dashboard?openSettings=general", icon: "settings" },
     { id: "sentry-smoke", name: "Sentry smoke tests", keywords: ["sentry", "smoke", "observability", "monitoring", "diagnostics"], action: "navigate", path: "/sentry-smoke", icon: "settings" },
   ];
 
@@ -338,7 +338,7 @@ export default function CommandPalette({
         break;
       case "open_settings":
         if (onOpenSettings) onOpenSettings();
-        else router.push("/dashboard?openSettings=account");
+        else router.push("/dashboard?openSettings=general");
         break;
       case "export":
         router.push("/dashboard?view=metrics&export=true");
