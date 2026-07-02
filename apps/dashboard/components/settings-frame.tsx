@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, LifeBuoy, Mail, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, UserRound, Users } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -42,14 +42,15 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 }
 
 const TABS: Record<DesktopSettingsView, TabConfig> = {
-  account: { label: 'General', icon: Settings2 },
+  general: { label: 'General', icon: Settings2 },
   privacy: { label: 'Privacy', icon: ShieldCheck },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
   'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
+  account: { label: 'Account', icon: UserRound },
 };
 
-const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health'];
+const TAB_ORDER: DesktopSettingsView[] = ['general', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health', 'account'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -66,13 +67,13 @@ const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
 ];
 
 export function normalizeSettingsFrameView(value: unknown): DesktopSettingsView {
-  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'general' || value === 'account' || value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
-    : 'account';
+    : 'general';
 }
 
 export function SettingsFrame({
-  initialView = 'account',
+  initialView = 'general',
   listenForDesktopShow = false,
 }: SettingsFrameProps) {
   const { isDesktop } = useDesktopCapabilities();
@@ -153,6 +154,14 @@ export function SettingsFrame({
     if (user) openUserProfile();
   };
 
+  const handleSupport = () => {
+    console.log('Support clicked');
+  };
+
+  const handleTeams = () => {
+    console.log('Teams clicked');
+  };
+
   const handleClearHistory = () => {
     console.log('Clear history clicked');
   };
@@ -164,42 +173,42 @@ export function SettingsFrame({
 
   return (
     <div className="settings-frame settings-frame-window ritual-settings-window relative flex h-screen w-screen overflow-hidden bg-white text-[#1d1d1f]">
-      <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row gap-[34px] px-[24px] py-[22px]">
-        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[300px] shrink-0 flex-col overflow-hidden rounded-[24px] border border-black/[0.08] bg-[#fbfbfa] px-[18px] pb-[18px] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+      <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
+        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3">
           <div
-            className="tauri-drag-region flex h-[72px] shrink-0 items-center px-[4px]"
+            className="tauri-drag-region flex h-[52px] shrink-0 items-center px-[4px]"
             data-tauri-drag-region
             aria-hidden="true"
           />
 
-          <nav className="flex flex-col gap-[6px] overflow-y-auto" aria-label="Settings sections">
+          <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
             {TAB_ORDER.map((id) => {
               const { label, icon: Icon } = TABS[id];
               const selected = activeTab === id;
-              const lightPill = selected && id === 'account';
-              const selectedColor = lightPill ? 'rgba(0,0,0,0.08)' : '#087980';
+              const lightPill = selected && id === 'general';
+              const selectedColor = lightPill ? 'rgba(0,0,0,0.06)' : '#1a636b';
               return (
                 <button
                   key={id}
                   type="button"
                   onClick={() => handleTabSelect(id)}
                   className={cn(
-                    'ritual-snappy-row flex h-[44px] w-full items-center gap-3 rounded-[12px] px-[16px] text-left text-[15px] font-medium leading-none transition-colors',
+                    'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none transition-colors',
                     selected
                       ? lightPill
-                        ? 'text-[#1d1d1f]'
-                        : 'text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
-                      : 'text-[#202020]',
+                        ? 'bg-black/[0.06] text-[#1d1d1f]'
+                        : 'bg-[#1a636b] text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+                      : 'text-[#1d1d1f]',
                   )}
                   style={{
-                    '--ritual-snappy-row-hover': selected ? selectedColor : 'rgba(0,0,0,0.045)',
+                    '--ritual-snappy-row-hover': selected ? selectedColor : 'rgba(0,0,0,0.04)',
                     '--ritual-snappy-row-active': selected ? selectedColor : 'rgba(0,0,0,0.07)',
                   } as React.CSSProperties}
                   data-active={selected ? 'true' : undefined}
                 >
                   <Icon
                     className={cn(
-                      'h-[18px] w-[18px] shrink-0',
+                      'h-[15px] w-[15px] shrink-0',
                       selected && !lightPill ? 'text-white' : 'text-[#1d1d1f]',
                     )}
                     strokeWidth={1.75}
@@ -217,27 +226,9 @@ export function SettingsFrame({
           className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
           aria-hidden="true"
         />
-        <div className="mx-auto w-full max-w-[930px] -mt-[52px] pb-10">
-        {activeTab === 'account' ? (
+        <div className="px-6 -mt-[52px]">
+        {activeTab === 'general' ? (
           <SettingsPage title="General">
-            <SettingsGroup>
-              <div className="flex min-h-[78px] items-center gap-4 px-[18px] py-[14px]">
-                <div className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[18px] font-semibold text-white">
-                  {userInitial}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold leading-tight text-[#252525]">{userName}</p>
-                  <button
-                    type="button"
-                    onClick={handleManageAccount}
-                    className="mt-1 text-[13px] font-medium text-[#8a8a8a] transition-colors hover:text-[#252525]"
-                  >
-                    Manage account
-                  </button>
-                </div>
-              </div>
-            </SettingsGroup>
-
             <SettingsSection title="Preferences">
               <SettingsRow
                 icon={<Brain className="h-[15px] w-[15px]" strokeWidth={1.9} />}
@@ -394,12 +385,50 @@ export function SettingsFrame({
               />
             </SettingsSection>
 
+          </SettingsPage>
+        ) : null}
+
+        {activeTab === 'account' ? (
+          <SettingsPage title="Account">
             <SettingsSection title="Account">
+              <SettingsRow
+                icon={<UserRound className="h-[15px] w-[15px]" strokeWidth={1.9} />}
+                title="You are signed in"
+                control={(
+                  <button
+                    type="button"
+                    onClick={handleSignOut}
+                    className="text-[13px] font-medium text-red-500 transition-colors hover:text-red-600"
+                  >
+                    Sign out
+                  </button>
+                )}
+              />
+              <SettingsRow
+                icon={<Mail className="h-[15px] w-[15px]" strokeWidth={1.9} />}
+                title="Email"
+                control={<span className="max-w-[280px] truncate text-right text-[13px] font-medium text-[#7a7a7a]">{userEmail || 'Not available'}</span>}
+              />
+              <button type="button" onClick={handleManageAccount} className="settings-action-row">
+                Manage account
+              </button>
+              <button type="button" onClick={handleSupport} className="settings-action-row">
+                <span className="inline-flex items-center gap-3">
+                  <LifeBuoy className="h-[15px] w-[15px]" strokeWidth={1.9} />
+                  Support
+                </span>
+              </button>
+              <button type="button" onClick={handleTeams} className="settings-action-row">
+                <span className="inline-flex items-center gap-3">
+                  <Users className="h-[15px] w-[15px]" strokeWidth={1.9} />
+                  Teams
+                </span>
+              </button>
+            </SettingsSection>
+
+            <SettingsSection title="Data">
               <button type="button" onClick={handleClearHistory} className="settings-action-row">
                 Clear history
-              </button>
-              <button type="button" onClick={handleSignOut} className="settings-action-row">
-                Sign out
               </button>
               <button
                 type="button"
@@ -423,7 +452,7 @@ export function SettingsFrame({
             <ComputerTrackingSettings
               userId={user?.id || ''}
               showAttributionHealth={showAttributionHealth}
-              onClose={() => handleTabSelect('account')}
+              onClose={() => handleTabSelect('general')}
             />
           </SettingsPage>
         ) : null}
@@ -484,9 +513,9 @@ function SettingsPage({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn('settings-frame-page w-full pb-8 pt-[34px]', embedded && 'settings-embedded-pane')}>
-      <h1 className="mb-[28px] text-[19px] font-semibold leading-tight text-[#4a4a4a]">{title}</h1>
-      <div className="space-y-[26px]">
+    <div className={cn('settings-frame-page w-full pb-6 pt-[14px]', embedded && 'settings-embedded-pane')}>
+      <h1 className="mb-[18px] text-[20px] font-semibold leading-[1.2] tracking-[-0.02em] text-[#1d1d1f]">{title}</h1>
+      <div className="space-y-[18px]">
         {children}
       </div>
     </div>
@@ -496,7 +525,7 @@ function SettingsPage({
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-[14px] text-[15px] font-semibold leading-tight text-[#242424]">{title}</h2>
+      <h2 className="mb-[8px] text-[13px] font-semibold leading-tight text-[#1d1d1f]">{title}</h2>
       <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
@@ -530,9 +559,9 @@ function SettingsRow({
           </span>
         ) : null}
         <div className="min-w-0">
-          <p className="text-[14px] font-medium leading-[18px] text-[#242424]">{title}</p>
+          <p className="text-[13px] font-medium leading-[16px] text-[#1d1d1f]">{title}</p>
           {description ? (
-            <p className="mt-[3px] max-w-[420px] text-[13px] leading-[17px] text-[#858585]">{description}</p>
+            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{description}</p>
           ) : null}
         </div>
       </div>
