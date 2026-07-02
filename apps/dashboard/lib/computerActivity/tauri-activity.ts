@@ -46,8 +46,16 @@ export function isDbNotInitializedError(error: unknown): boolean {
 
 function hasTauriIpcBridge(): boolean {
   if (typeof window === 'undefined') return false
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown }
-  return Boolean(w.__TAURI__) || typeof w.__TAURI_IPC__ === 'function'
+  const w = window as Window & {
+    __TAURI__?: unknown;
+    __TAURI_IPC__?: unknown;
+    __TAURI_INTERNALS__?: { invoke?: unknown };
+  }
+  return (
+    Boolean(w.__TAURI__) ||
+    typeof w.__TAURI_IPC__ === 'function' ||
+    typeof w.__TAURI_INTERNALS__?.invoke === 'function'
+  )
 }
 
 function isDesktopUserAgent(): boolean {

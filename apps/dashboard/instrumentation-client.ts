@@ -6,9 +6,18 @@ import * as Sentry from "@sentry/nextjs";
 
 function isDesktopRuntime(): boolean {
   if (typeof window === 'undefined') return false;
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  const w = window as Window & {
+    __TAURI__?: unknown;
+    __TAURI_IPC__?: unknown;
+    __TAURI_INTERNALS__?: { invoke?: unknown };
+  };
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
-  return Boolean(w.__TAURI__ || w.__TAURI_IPC__ || userAgent.includes('RitualDesktop/'));
+  return Boolean(
+    w.__TAURI__ ||
+    w.__TAURI_IPC__ ||
+    typeof w.__TAURI_INTERNALS__?.invoke === 'function' ||
+    userAgent.includes('RitualDesktop/'),
+  );
 }
 
 function getDesktopVersion(): string | null {

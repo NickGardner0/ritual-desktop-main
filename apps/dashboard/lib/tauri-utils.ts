@@ -7,20 +7,27 @@ import {
   openDesktopExternalUrl,
   openDesktopExternalUrlWithFallback,
 } from '@/lib/desktop-bridge/commands';
-import { hasDesktopTauriIpcBridge, isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 
 /**
  * Check if the app is running in Tauri
  */
 export function isTauri(): boolean {
   if (typeof window === 'undefined') return false;
-  const w = window as Window & { __TAURI__?: unknown; __TAURI_IPC__?: unknown };
+  const w = window as Window & {
+    __TAURI__?: unknown;
+    __TAURI_IPC__?: unknown;
+    __TAURI_INTERNALS__?: { invoke?: unknown };
+  };
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
   const hasTauriGlobal = Boolean(w.__TAURI__);
   const hasTauriIpc = Boolean(w.__TAURI_IPC__);
+  const hasTauriInternals = typeof w.__TAURI_INTERNALS__?.invoke === 'function';
   const hasDesktopUA = userAgent.includes('RitualDesktop/');
   const result = isDesktopTauriRuntime();
-  console.log(`[isTauri] result=${result} | __TAURI__=${hasTauriGlobal} | __TAURI_IPC__=${hasTauriIpc} | UA=${hasDesktopUA} | userAgent="${userAgent.substring(0, 80)}"`);
+  console.log(
+    `[isTauri] result=${result} | __TAURI__=${hasTauriGlobal} | __TAURI_IPC__=${hasTauriIpc} | __TAURI_INTERNALS__.invoke=${hasTauriInternals} | UA=${hasDesktopUA} | userAgent="${userAgent.substring(0, 80)}"`,
+  );
   return result;
 }
 
@@ -135,10 +142,8 @@ export async function openDesktopSettingsWindow(initialView: DesktopSettingsView
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     try {
-      if (hasDesktopTauriIpcBridge()) {
-        await invokeDesktopCommand('open_settings_window', { initialView });
-        return;
-      }
+      await invokeDesktopCommand('open_settings_window', { initialView });
+      return;
     } catch (error) {
       lastError = error;
     }
