@@ -164,45 +164,42 @@ export function SettingsFrame({
 
   return (
     <div className="settings-frame settings-frame-window ritual-settings-window relative flex h-screen w-screen overflow-hidden bg-white text-[#1d1d1f]">
-      <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
-        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3">
+      <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row gap-[34px] px-[24px] py-[22px]">
+        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[300px] shrink-0 flex-col overflow-hidden rounded-[24px] border border-black/[0.08] bg-[#fbfbfa] px-[18px] pb-[18px] shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
           <div
-            className="tauri-drag-region flex h-[52px] shrink-0 items-center px-[4px]"
+            className="tauri-drag-region flex h-[72px] shrink-0 items-center px-[4px]"
             data-tauri-drag-region
             aria-hidden="true"
           />
 
-          <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
+          <nav className="flex flex-col gap-[6px] overflow-y-auto" aria-label="Settings sections">
             {TAB_ORDER.map((id) => {
               const { label, icon: Icon } = TABS[id];
               const selected = activeTab === id;
               const lightPill = selected && id === 'account';
+              const selectedColor = lightPill ? 'rgba(0,0,0,0.08)' : '#087980';
               return (
                 <button
                   key={id}
                   type="button"
                   onClick={() => handleTabSelect(id)}
                   className={cn(
-                    'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none transition-colors',
+                    'ritual-snappy-row flex h-[44px] w-full items-center gap-3 rounded-[12px] px-[16px] text-left text-[15px] font-medium leading-none transition-colors',
                     selected
                       ? lightPill
-                        ? 'bg-black/[0.06] text-[#1d1d1f]'
-                        : 'bg-[#1a636b] text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
-                      : 'text-[#1d1d1f]',
+                        ? 'text-[#1d1d1f]'
+                        : 'text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+                      : 'text-[#202020]',
                   )}
-                  style={
-                    selected
-                      ? undefined
-                      : ({
-                          '--ritual-snappy-row-hover': 'rgba(0,0,0,0.04)',
-                          '--ritual-snappy-row-active': 'rgba(0,0,0,0.07)',
-                        } as React.CSSProperties)
-                  }
+                  style={{
+                    '--ritual-snappy-row-hover': selected ? selectedColor : 'rgba(0,0,0,0.045)',
+                    '--ritual-snappy-row-active': selected ? selectedColor : 'rgba(0,0,0,0.07)',
+                  } as React.CSSProperties}
                   data-active={selected ? 'true' : undefined}
                 >
                   <Icon
                     className={cn(
-                      'h-[15px] w-[15px] shrink-0',
+                      'h-[18px] w-[18px] shrink-0',
                       selected && !lightPill ? 'text-white' : 'text-[#1d1d1f]',
                     )}
                     strokeWidth={1.75}
@@ -220,20 +217,20 @@ export function SettingsFrame({
           className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
           aria-hidden="true"
         />
-        <div className="px-6 -mt-[52px]">
+        <div className="mx-auto w-full max-w-[930px] -mt-[52px] pb-10">
         {activeTab === 'account' ? (
           <SettingsPage title="General">
             <SettingsGroup>
-              <div className="flex min-h-[58px] items-center gap-3 px-[14px] py-2.5">
-                <div className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[15px] font-semibold text-white">
+              <div className="flex min-h-[78px] items-center gap-4 px-[18px] py-[14px]">
+                <div className="flex h-[50px] w-[50px] shrink-0 items-center justify-center rounded-full bg-[#665ef1] text-[18px] font-semibold text-white">
                   {userInitial}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold leading-tight text-[#252525]">{userName}</p>
+                  <p className="truncate text-[15px] font-semibold leading-tight text-[#252525]">{userName}</p>
                   <button
                     type="button"
                     onClick={handleManageAccount}
-                    className="mt-0.5 text-[12px] font-medium text-[#8a8a8a] transition-colors hover:text-[#252525]"
+                    className="mt-1 text-[13px] font-medium text-[#8a8a8a] transition-colors hover:text-[#252525]"
                   >
                     Manage account
                   </button>
@@ -487,9 +484,9 @@ function SettingsPage({
   children: React.ReactNode;
 }) {
   return (
-    <div className={cn('settings-frame-page w-full pb-6 pt-[14px]', embedded && 'settings-embedded-pane')}>
-      <h1 className="mb-[18px] text-[20px] font-semibold leading-[1.2] tracking-[-0.02em] text-[#1d1d1f]">{title}</h1>
-      <div className="space-y-[18px]">
+    <div className={cn('settings-frame-page w-full pb-8 pt-[34px]', embedded && 'settings-embedded-pane')}>
+      <h1 className="mb-[28px] text-[19px] font-semibold leading-tight text-[#4a4a4a]">{title}</h1>
+      <div className="space-y-[26px]">
         {children}
       </div>
     </div>
@@ -499,7 +496,7 @@ function SettingsPage({
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-[8px] text-[13px] font-semibold leading-tight text-[#1d1d1f]">{title}</h2>
+      <h2 className="mb-[14px] text-[15px] font-semibold leading-tight text-[#242424]">{title}</h2>
       <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
@@ -533,9 +530,9 @@ function SettingsRow({
           </span>
         ) : null}
         <div className="min-w-0">
-          <p className="text-[13px] font-medium leading-[16px] text-[#1d1d1f]">{title}</p>
+          <p className="text-[14px] font-medium leading-[18px] text-[#242424]">{title}</p>
           {description ? (
-            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{description}</p>
+            <p className="mt-[3px] max-w-[420px] text-[13px] leading-[17px] text-[#858585]">{description}</p>
           ) : null}
         </div>
       </div>
