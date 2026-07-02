@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Archive, CalendarClock, Check, Circle, Folder, Inbox, ListFilter, Plus, RotateCw, SkipForward } from 'lucide-react';
+import { Archive, Calendar, CalendarClock, Check, ChevronDown, Circle, Folder, Inbox, ListFilter, Plus, RotateCw, SkipForward, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { apiJsonWithAuth } from '@/lib/api/client';
@@ -28,23 +28,14 @@ import {
   IconButton,
   ReferenceHeader,
   ReferencePage,
-  SegmentedTabs,
   controlClass,
   priorityBars,
   subtleBorderClass,
 } from '@/lib/tasks/reference-task-shell';
 import type { Task, TaskCreateInput, TaskListResponse, TaskPriority, TaskUpdateInput } from '@/lib/tasks/types';
 
-const VIEWS = [
-  { id: 'today', label: 'Today' },
-  { id: 'upcoming', label: 'Upcoming' },
-  { id: 'anytime', label: 'Anytime' },
-  { id: 'completed', label: 'Completed' },
-  { id: 'skipped', label: 'Skipped' },
-  { id: 'archived', label: 'Archived' },
-] as const;
-
-const CATEGORY_FILTERS = ['All', 'Health', 'Work', 'Personal', 'Finance', 'Experiments', 'AI'] as const;
+const TASK_CATEGORIES = ['Health', 'Work', 'Personal', 'Finance', 'Experiments', 'AI'] as const;
+const CATEGORY_FILTERS = ['All', ...TASK_CATEGORIES] as const;
 const PRIORITIES: TaskPriority[] = ['none', 'low', 'medium', 'high'];
 const GROUP_MODES = [
   { id: 'category', label: 'Category' },
@@ -67,23 +58,8 @@ function dateInputValue(value: string | null): string {
   return date.toISOString().slice(0, 10);
 }
 
-function isTaskInView(task: Task, view: (typeof VIEWS)[number]['id']): boolean {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const tomorrowStart = todayStart + 24 * 60 * 60 * 1000;
-  const scheduled = task.scheduled_for ? new Date(task.scheduled_for).getTime() : null;
-  const due = task.due_at ? new Date(task.due_at).getTime() : null;
-  if (view === 'completed') return task.status === 'completed';
-  if (view === 'skipped') return task.status === 'skipped';
-  if (view === 'archived') return task.status === 'archived';
-  if (task.status !== 'open') return false;
-  if (view === 'anytime') return !scheduled && !due;
-  if (view === 'upcoming') return Boolean((scheduled && scheduled >= tomorrowStart) || (due && due >= tomorrowStart));
-  return Boolean((scheduled && scheduled < tomorrowStart) || (due && due < tomorrowStart));
-}
-
-function filterTasksForView(tasks: Task[], view: (typeof VIEWS)[number]['id'], category: string): Task[] {
-  return tasks.filter((task) => isTaskInView(task, view) && (category === 'All' || task.category === category));
+function filterTasksForPage(tasks: Task[], category: string): Task[] {
+  return tasks.filter((task) => task.status !== 'archived' && (category === 'All' || task.category === category));
 }
 
 function groupTasks(tasks: Task[], groupMode: GroupMode) {
@@ -99,23 +75,41 @@ function groupTasks(tasks: Task[], groupMode: GroupMode) {
   return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b));
 }
 
+function taskComposerPriorityLabel(priority: TaskPriority) {
+  if (priority === 'none') return 'No priority';
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
+}
+
+function formatComposerDueDate(value: string) {
+  if (!value) return 'Due date';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return 'Due date';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
+}
+
 export function TasksClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
   useTaskRoutineOutboxSync();
-  const [view, setView] = useState<(typeof VIEWS)[number]['id']>('today');
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [groupMode, setGroupMode] = useState<GroupMode>('category');
-  const [quickTitle, setQuickTitle] = useState('');
-  const [quickCategory, setQuickCategory] = useState('Personal');
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerTitle, setComposerTitle] = useState('');
+  const [composerNotes, setComposerNotes] = useState('');
+  const [composerCategory, setComposerCategory] = useState<(typeof TASK_CATEGORIES)[number]>('Personal');
+  const [composerPriority, setComposerPriority] = useState<TaskPriority>('none');
+  const [composerSchedule, setComposerSchedule] = useState<'today' | 'anytime'>('today');
+  const [composerDueDate, setComposerDueDate] = useState('');
+  const [createMore, setCreateMore] = useState(false);
+  const composerTitleRef = useRef<HTMLInputElement>(null);
 
-  const queryKey = ['tasks', user?.id, view, category];
+  const queryKey = ['tasks', user?.id, category];
 
   const tasksQuery = useQuery({
     queryKey,
     queryFn: async () => {
-      const params = new URLSearchParams({ view, limit: '300' });
+      const params = new URLSearchParams({ limit: '300' });
       if (category !== 'All') params.set('category', category);
       let backendItems: Task[] | null = null;
       try {
@@ -133,7 +127,7 @@ export function TasksClient() {
             readLocalVaultTaskRoutineWriteOutboxItems(user.id),
           ])
         : [null, null] as const;
-      return filterTasksForView(mergeTasksWithOutbox(backendItems || vaultItems || [], outboxItems), view, category);
+      return filterTasksForPage(mergeTasksWithOutbox(backendItems || vaultItems || [], outboxItems), category);
     },
     enabled: Boolean(user?.id),
     staleTime: 15_000,
@@ -173,7 +167,6 @@ export function TasksClient() {
       }
     },
     onSuccess: (task) => {
-      setQuickTitle('');
       void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
     },
@@ -223,56 +216,65 @@ export function TasksClient() {
   const tasks = tasksQuery.data || [];
   const groups = useMemo(() => groupTasks(tasks, groupMode), [tasks, groupMode]);
 
-  const handleQuickAdd = (event: React.FormEvent) => {
+  const resetComposerFields = () => {
+    setComposerTitle('');
+    setComposerNotes('');
+    setComposerPriority('none');
+    setComposerCategory('Personal');
+    setComposerSchedule('today');
+    setComposerDueDate('');
+  };
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    window.setTimeout(() => composerTitleRef.current?.focus(), 50);
+  }, [composerOpen]);
+
+  const handleComposerSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    const title = quickTitle.trim();
+    const title = composerTitle.trim();
     if (!title) return;
+    const scheduledFor = composerSchedule === 'today' ? new Date().toISOString() : null;
+    const dueAt = composerDueDate ? new Date(`${composerDueDate}T09:00:00`).toISOString() : null;
+
     createTaskMutation.mutate({
       title,
-      category: quickCategory,
-      priority: 'none',
+      notes: composerNotes.trim() || null,
+      category: composerCategory,
+      priority: composerPriority,
       source: 'manual',
       client_event_id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      scheduled_for: view === 'today' ? new Date().toISOString() : null,
+      scheduled_for: scheduledFor,
+      due_at: dueAt,
+    }, {
+      onSuccess: () => {
+        resetComposerFields();
+        if (createMore) {
+          window.setTimeout(() => composerTitleRef.current?.focus(), 50);
+          return;
+        }
+        setComposerOpen(false);
+      },
     });
   };
 
   return (
     <ReferencePage>
       <ReferenceHeader
-        title={VIEWS.find((item) => item.id === view)?.label || 'Tasks'}
+        title="Tasks"
         eyebrow={<><Inbox className="h-4 w-4" /> Tasks</>}
         actions={(
-          <form onSubmit={handleQuickAdd} className="flex min-w-0 items-center gap-2">
-            <input
-              value={quickTitle}
-              onChange={(event) => setQuickTitle(event.target.value)}
-              placeholder="Add a task..."
-              className={cn('h-10 w-[min(34vw,430px)] min-w-[220px] px-3 text-[14px] placeholder:text-[#9ca3af]', controlClass)}
-            />
-            <select
-              value={quickCategory}
-              onChange={(event) => setQuickCategory(event.target.value)}
-              className={cn('h-10 w-[138px] px-3 text-[14px]', controlClass)}
-            >
-              {CATEGORY_FILTERS.filter((item) => item !== 'All').map((item) => (
-                <option key={item}>{item}</option>
-              ))}
-            </select>
-            <button
-              type="submit"
-              className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#111827] px-3.5 text-[14px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-55"
-              disabled={createTaskMutation.isPending}
-            >
-              <Plus className="h-4 w-4" />
-              Add
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={() => setComposerOpen(true)}
+            className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#111827] px-3.5 text-[14px] font-[650] text-white transition hover:bg-[#202938]"
+          >
+            <Plus className="h-4 w-4" />
+            New task
+          </button>
         )}
       >
         <div className="flex flex-wrap items-center gap-2">
-          <SegmentedTabs value={view} options={VIEWS} onChange={setView} />
-          <span className="mx-1 hidden h-5 w-px bg-[rgba(15,23,42,0.12)] md:block" />
           <ListFilter className="h-4 w-4 text-[#777f89]" />
           {CATEGORY_FILTERS.map((item) => (
             <FilterChip key={item} active={category === item} onClick={() => setCategory(item)}>
@@ -427,12 +429,139 @@ export function TasksClient() {
           <div className="flex h-full items-center justify-center text-center">
             <div>
               <Circle className="mx-auto h-8 w-8 text-[#a0a7b0]" />
-              <div className="mt-3 text-[20px] font-[680] tracking-[-0.02em] text-[#141922]">No tasks here</div>
-              <p className="mt-2 text-[14px] text-[#737b86]">Create one above or sync due routines.</p>
+              <div className="mt-3 text-[20px] font-[680] tracking-[-0.02em] text-[#141922]">No tasks yet</div>
+              <p className="mt-2 text-[14px] text-[#737b86]">Create one or sync due routines.</p>
             </div>
           </div>
         )}
       </div>
+
+      {composerOpen ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close new task composer"
+            className="fixed inset-0 z-50 bg-[#111827]/10 backdrop-blur-[1px]"
+            onClick={() => setComposerOpen(false)}
+          />
+          <form
+            onSubmit={handleComposerSubmit}
+            className="fixed left-1/2 top-[16vh] z-50 w-[min(calc(100vw-48px),560px)] -translate-x-1/2 overflow-visible rounded-[10px] border border-[rgba(15,23,42,0.14)] bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]"
+          >
+            <button
+              type="button"
+              onClick={() => setComposerOpen(false)}
+              className="absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-sm text-[#8a919b] transition hover:bg-[#f1f3ef] hover:text-[#111827]"
+              aria-label="Close new task composer"
+            >
+              <X className="h-[18px] w-[18px]" />
+            </button>
+
+            <div className="px-5 pb-4 pt-5">
+              <input
+                ref={composerTitleRef}
+                value={composerTitle}
+                onChange={(event) => setComposerTitle(event.target.value)}
+                placeholder="New task"
+                className="h-9 w-[calc(100%-40px)] bg-transparent text-[24px] font-[680] leading-none tracking-[-0.025em] text-[#151922] outline-none placeholder:text-[#989fa8]"
+              />
+              <textarea
+                value={composerNotes}
+                onChange={(event) => setComposerNotes(event.target.value)}
+                placeholder="Add description..."
+                rows={2}
+                className="mt-3 min-h-[62px] w-full resize-none bg-transparent text-[14px] leading-6 text-[#4a535f] outline-none placeholder:text-[#9aa1aa]"
+              />
+
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <label className="relative inline-flex h-8 items-center">
+                  <select
+                    value={composerPriority}
+                    onChange={(event) => setComposerPriority(event.target.value as TaskPriority)}
+                    className="h-8 appearance-none rounded-full border border-[rgba(15,23,42,0.13)] bg-white py-0 pl-3 pr-8 text-[13px] font-[620] text-[#313843] outline-none transition hover:bg-[#f7f8f5] focus:border-[rgba(15,23,42,0.28)]"
+                    aria-label="Task priority"
+                  >
+                    {PRIORITIES.map((priority) => (
+                      <option key={priority} value={priority}>{taskComposerPriorityLabel(priority)}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[#8b929b]" />
+                </label>
+
+                <label className="relative inline-flex h-8 items-center">
+                  <select
+                    value={composerCategory}
+                    onChange={(event) => setComposerCategory(event.target.value as (typeof TASK_CATEGORIES)[number])}
+                    className="h-8 appearance-none rounded-full border border-[rgba(15,23,42,0.13)] bg-white py-0 pl-3 pr-8 text-[13px] font-[620] text-[#313843] outline-none transition hover:bg-[#f7f8f5] focus:border-[rgba(15,23,42,0.28)]"
+                    aria-label="Task category"
+                  >
+                    {TASK_CATEGORIES.map((item) => (
+                      <option key={item}>{item}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[#8b929b]" />
+                </label>
+
+                <label className="relative inline-flex h-8 items-center">
+                  <select
+                    value={composerSchedule}
+                    onChange={(event) => setComposerSchedule(event.target.value as 'today' | 'anytime')}
+                    className="h-8 appearance-none rounded-full border border-[rgba(15,23,42,0.13)] bg-white py-0 pl-3 pr-8 text-[13px] font-[620] text-[#313843] outline-none transition hover:bg-[#f7f8f5] focus:border-[rgba(15,23,42,0.28)]"
+                    aria-label="Task schedule"
+                  >
+                    <option value="today">Today</option>
+                    <option value="anytime">Anytime</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2.5 h-3.5 w-3.5 text-[#8b929b]" />
+                </label>
+
+                <label className="relative inline-flex h-8 items-center gap-2 rounded-full border border-[rgba(15,23,42,0.13)] bg-white pl-3 pr-2 text-[13px] font-[620] text-[#313843] transition hover:bg-[#f7f8f5] focus-within:border-[rgba(15,23,42,0.28)]">
+                  <Calendar className="h-3.5 w-3.5 text-[#8b929b]" />
+                  <span className="min-w-[54px]">{formatComposerDueDate(composerDueDate)}</span>
+                  <input
+                    type="date"
+                    value={composerDueDate}
+                    onChange={(event) => setComposerDueDate(event.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    aria-label="Task due date"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-[rgba(15,23,42,0.10)] px-5 py-3">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={createMore}
+                onClick={() => setCreateMore((value) => !value)}
+                className="inline-flex items-center gap-2 text-[13px] font-[620] text-[#68707b]"
+              >
+                <span className={cn(
+                  'relative h-5 w-9 rounded-full border transition',
+                  createMore
+                    ? 'border-[#111827] bg-[#111827]'
+                    : 'border-[rgba(15,23,42,0.12)] bg-[#e6e8e3]',
+                )}>
+                  <span className={cn(
+                    'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_3px_rgba(15,23,42,0.18)] transition',
+                    createMore ? 'left-[17px]' : 'left-0.5',
+                  )} />
+                </span>
+                Create more
+              </button>
+
+              <button
+                type="submit"
+                disabled={!composerTitle.trim() || createTaskMutation.isPending}
+                className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-4 text-[13px] font-[700] text-white shadow-[0_1px_2px_rgba(15,23,42,0.18)] transition hover:bg-[#202938] disabled:cursor-not-allowed disabled:bg-[#b8b8b2]"
+              >
+                Create task
+              </button>
+            </div>
+          </form>
+        </>
+      ) : null}
     </ReferencePage>
   );
 }
