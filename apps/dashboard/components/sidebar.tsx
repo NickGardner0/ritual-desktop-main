@@ -101,7 +101,7 @@ export function Sidebar() {
       <div
         className={cn(
           "no-drag absolute z-20 flex items-center gap-0.5",
-          isExpanded ? "right-[14px] top-[28px]" : "left-[18px] top-[70px]",
+          isExpanded ? "right-[14px] top-0" : "left-[18px] top-[70px]",
         )}
       >
         <ToolbarButton

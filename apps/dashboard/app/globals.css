@@ -499,10 +499,10 @@
     position: relative;
     isolation: isolate;
     background: var(--content-bg);
-    border-left: 1px solid var(--content-shell-border);
+    border-left: 1px solid rgba(15, 23, 42, 0.045);
     border-top-left-radius: var(--content-shell-radius);
     border-bottom-left-radius: var(--content-shell-radius);
-    box-shadow: var(--content-shell-shadow);
+    box-shadow: none;
   }
 
   .integrated-window-chrome .app-toolbar-region {

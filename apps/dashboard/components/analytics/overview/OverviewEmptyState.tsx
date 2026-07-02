@@ -1,7 +1,6 @@
 'use client';
 
 import { ListCollapse, Plug2, Plus, Settings, Upload } from 'lucide-react';
-import { RitualWordmark } from '@/components/ritual-wordmark';
 import { StartCommand } from './OverviewStartCommands';
 
 interface OverviewEmptyStateProps {
@@ -20,17 +19,15 @@ export function OverviewEmptyState({
   onOpenCommandPalette,
 }: OverviewEmptyStateProps) {
   return (
-    <div className="absolute inset-x-0 top-[45%] flex -translate-y-1/2 justify-center px-6">
-      <div className="flex w-full max-w-[468px] flex-col gap-5">
-        <div className="mb-6 flex w-full justify-center">
-          <div className="inline-flex items-center gap-[3px] text-[#111827]">
+    <div className="absolute inset-x-0 top-[43%] flex -translate-y-1/2 justify-center px-6">
+      <div className="flex w-full max-w-[468px] flex-col gap-4">
+        <div className="flex w-full justify-center">
+          <div className="inline-flex items-center justify-center text-[#111827]">
             <img
               src="/images/eclipse.svg"
-              alt=""
-              aria-hidden="true"
-              className="h-[20px] w-[20px] shrink-0 object-contain"
+              alt="Ritual"
+              className="h-[42px] w-[42px] shrink-0 object-contain"
             />
-            <RitualWordmark className="h-[15px] w-auto shrink-0" />
           </div>
         </div>
 
