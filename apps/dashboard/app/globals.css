@@ -1459,21 +1459,29 @@
     background-clip: padding-box;
   }
 
-  .settings-frame-sidebar {
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.75);
-  }
-
-  .settings-frame-sidebar-window {
+  .settings-frame-sidebar,
+  .settings-frame-sidebar-window,
+  .settings-frame-sidebar-modal {
     box-shadow: none;
   }
 
-  /* Low-contrast grouped card (macOS System Settings style): near-flat on the
-     white pane, defined only by a hairline outline + inset separators. */
+  .settings-frame-main {
+    box-shadow: none;
+  }
+
+  /* Perplexity General tab: white grouped cards with hairline outline on white pane. */
   .settings-group-card {
     background: #ffffff;
     border-radius: 10px;
     border: 0;
-    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09), 0 1px 2px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.09);
+  }
+
+  /* List-style panels (Connectors-like density) use muted fill inside embedded panes. */
+  .settings-embedded-pane .settings-group-card,
+  .settings-native-embedded .settings-group-card {
+    background: #f7f7f7;
+    box-shadow: none;
   }
 
   .settings-group-card > * {
@@ -1486,32 +1494,32 @@
     content: "";
     position: absolute;
     top: 0;
-    left: 18px;
-    right: 0;
+    left: 16px;
+    right: 16px;
     height: 1px;
     transform: scaleY(0.5);
     transform-origin: top;
-    background: rgba(0, 0, 0, 0.1);
+    background: rgba(0, 0, 0, 0.08);
     pointer-events: none;
   }
 
   .settings-value-button,
   .settings-native-value-button {
     display: inline-flex;
-    min-height: 24px;
+    min-height: 28px;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    border: 1px solid rgba(0, 0, 0, 0.14);
-    border-radius: 6px;
-    background: #ffffff;
-    padding: 0 8px;
-    color: #2f2f2f;
+    gap: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 7px;
+    background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
+    padding: 0 10px;
+    color: #1d1d1f;
     font-size: 12px;
     font-weight: 500;
     line-height: 16px;
     white-space: nowrap;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 1px 1.5px rgba(0, 0, 0, 0.08);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 1px 1px rgba(0, 0, 0, 0.06);
     transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
   }
 
@@ -1524,7 +1532,7 @@
   .settings-value-button:focus-visible,
   .settings-native-value-button:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(48, 103, 116, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    box-shadow: 0 0 0 3px rgba(26, 99, 107, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .settings-action-row,
@@ -1533,7 +1541,7 @@
     min-height: 44px;
     width: 100%;
     align-items: center;
-    padding: 0 18px;
+    padding: 0 16px;
     color: #374151;
     font-size: 13px;
     font-weight: 500;
@@ -1561,12 +1569,12 @@
 
   .settings-embedded-pane h2,
   .settings-native-embedded h2 {
-    color: #8a8a8a;
-    font-size: 11px;
+    color: #1d1d1f;
+    font-size: 13px;
     font-weight: 600;
-    line-height: 1;
-    text-transform: uppercase;
-    letter-spacing: 0.045em;
+    line-height: 1.2;
+    text-transform: none;
+    letter-spacing: 0;
   }
 
   .settings-embedded-pane h3,
@@ -1609,12 +1617,53 @@
 
   .settings-embedded-pane button.bg-gray-900,
   .settings-native-embedded button.bg-gray-900 {
-    background-color: #306774 !important;
+    background-color: #1a636b !important;
   }
 
   .settings-embedded-pane button.bg-gray-900:hover,
   .settings-native-embedded button.bg-gray-900:hover {
-    background-color: #285966 !important;
+    background-color: #164f56 !important;
+  }
+
+  /* Perplexity accent (#1a636b) inside embedded settings panels. */
+  .settings-embedded-pane .bg-\[\#306774\],
+  .settings-native-embedded .bg-\[\#306774\] {
+    background-color: #1a636b !important;
+  }
+
+  .settings-embedded-pane .border-\[\#306774\],
+  .settings-native-embedded .border-\[\#306774\] {
+    border-color: #1a636b !important;
+  }
+
+  .settings-embedded-pane .bg-\[\#306774\]\/10,
+  .settings-native-embedded .bg-\[\#306774\]\/10 {
+    background-color: rgba(26, 99, 107, 0.1) !important;
+  }
+
+  .settings-embedded-pane .text-\[\#306774\],
+  .settings-native-embedded .text-\[\#306774\] {
+    color: #1a636b !important;
+  }
+
+  .settings-embedded-pane .bg-\[\#3c7783\],
+  .settings-native-embedded .bg-\[\#3c7783\] {
+    background-color: #1a636b !important;
+  }
+
+  .settings-embedded-pane .hover\:bg-\[\#285966\]:hover,
+  .settings-native-embedded .hover\:bg-\[\#285966\]:hover {
+    background-color: #164f56 !important;
+  }
+
+  .settings-embedded-pane .accent-\[\#3c7783\],
+  .settings-native-embedded .accent-\[\#3c7783\] {
+    accent-color: #1a636b !important;
+  }
+
+  .settings-embedded-pane .focus\:border-\[\#306774\]:focus,
+  .settings-native-embedded .focus\:border-\[\#306774\]:focus {
+    border-color: #1a636b !important;
   }
 
   .settings-embedded-pane .text-gray-500,
@@ -1693,6 +1742,11 @@
 }
 
 /* Settings intentionally mimic native macOS preferences typography. */
+html body:has(.ritual-settings-window) {
+  background: #ffffff !important;
+  overflow: hidden;
+}
+
 html body .settings-frame.settings-frame,
 html body .settings-frame.settings-frame *:not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;

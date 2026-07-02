@@ -119,7 +119,7 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "ritual-settings-row grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[7px]",
+        "ritual-settings-row grid min-h-[48px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[16px] py-[8px]",
         className,
       )}
       {...props}

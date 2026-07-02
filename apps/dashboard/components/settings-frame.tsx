@@ -180,74 +180,91 @@ export function SettingsFrame({
       aria-modal={variant === 'modal' ? true : undefined}
       aria-label={variant === 'modal' ? 'Settings' : undefined}
       className={cn(
-        'settings-frame relative grid overflow-hidden bg-white text-[#1d1d1f]',
+        'settings-frame relative flex overflow-hidden bg-white text-[#1d1d1f]',
         variant === 'modal'
-          ? 'settings-frame-modal z-10 h-[min(552px,calc(100vh-48px))] w-[min(780px,calc(100vw-48px))] grid-cols-[180px_minmax(0,520px)] justify-center gap-[16px] rounded-[12px] border border-black/15 p-4 pr-[13px] shadow-[0_18px_50px_rgba(0,0,0,0.22),0_3px_12px_rgba(0,0,0,0.12)]'
-          : 'settings-frame-window h-screen w-screen grid-cols-[200px_minmax(0,1fr)]',
+          ? 'settings-frame-modal z-10 h-[min(580px,calc(100vh-48px))] w-[min(820px,calc(100vw-48px))] rounded-[10px] shadow-[0_16px_48px_rgba(0,0,0,0.16),0_0_0_0.5px_rgba(0,0,0,0.12)]'
+          : 'settings-frame-window ritual-settings-window h-screen w-screen',
       )}
     >
-      <aside
-        className={cn(
-          'settings-frame-sidebar flex h-full shrink-0 flex-col bg-[#faf9f9]',
-          variant === 'modal'
-            ? 'w-[180px] rounded-[12px] px-[9px] pb-3 pt-4'
-            : 'settings-frame-sidebar-window w-[200px] border-r border-black/[0.08] px-[10px] pb-3',
-        )}
-      >
-        {showTrafficLights ? (
-          <div className="mb-[22px] ml-[8px] flex h-[12px] items-center gap-2">
-            <button
-              type="button"
-              aria-label="Close settings"
-              onClick={handleClose}
-              className="h-[12px] w-[12px] rounded-full border border-[#e04447] bg-[#ff5f57] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]"
-            />
-            <span className="h-[12px] w-[12px] rounded-full border border-[#dea123] bg-[#ffbd2e] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
-            <span className="h-[12px] w-[12px] rounded-full border border-[#1ca43f] bg-[#28c840] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
-          </div>
-        ) : (
-          <div data-tauri-drag-region className="h-[52px] w-full shrink-0" aria-hidden="true" />
-        )}
-
-        <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
-          {TAB_ORDER.map((id) => {
-            const { label, icon: Icon } = TABS[id];
-            const selected = activeTab === id;
-            return (
-              <button
-                key={id}
-                type="button"
-                onClick={() => handleTabSelect(id)}
-                className={cn(
-                  'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none',
-                  selected ? 'bg-black/[0.07] text-[#1d1d1f]' : 'text-[#3a3a3a]',
-                )}
-                style={{
-                  '--ritual-snappy-row-hover': selected ? 'rgba(0,0,0,0.07)' : 'rgba(0,0,0,0.04)',
-                  '--ritual-snappy-row-active': 'rgba(0,0,0,0.09)',
-                } as React.CSSProperties}
-                data-active={selected ? 'true' : undefined}
-              >
-                <Icon
-                  className={cn('h-[15px] w-[15px] shrink-0', selected ? 'text-[#1d1d1f]' : 'text-[#6a6a6a]')}
-                  strokeWidth={1.9}
+      <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
+        <aside
+          className={cn(
+            'settings-frame-sidebar flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f2f2f7] px-[8px] pb-3',
+            variant === 'modal' ? 'settings-frame-sidebar-modal' : 'settings-frame-sidebar-window',
+          )}
+        >
+          <div
+            className={cn(
+              'flex h-[52px] shrink-0 items-center px-[4px]',
+              variant === 'window' ? 'tauri-drag-region' : '',
+            )}
+            data-tauri-drag-region={variant === 'window' ? true : undefined}
+          >
+            {showTrafficLights ? (
+              <div className="flex h-[12px] items-center gap-[7px]">
+                <button
+                  type="button"
+                  aria-label="Close settings"
+                  onClick={handleClose}
+                  className="h-[12px] w-[12px] rounded-full border border-[#e04447] bg-[#ff5f57] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]"
                 />
-                <span className="truncate">{label}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+                <span className="h-[12px] w-[12px] rounded-full border border-[#dea123] bg-[#ffbd2e] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
+                <span className="h-[12px] w-[12px] rounded-full border border-[#1ca43f] bg-[#28c840] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.34)]" />
+              </div>
+            ) : null}
+          </div>
 
-      <main className="settings-frame-main min-w-0 overflow-y-auto bg-white">
+          <nav className="flex flex-col gap-[2px] overflow-y-auto" aria-label="Settings sections">
+            {TAB_ORDER.map((id) => {
+              const { label, icon: Icon } = TABS[id];
+              const selected = activeTab === id;
+              const lightPill = selected && id === 'account';
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => handleTabSelect(id)}
+                  className={cn(
+                    'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none transition-colors',
+                    selected
+                      ? lightPill
+                        ? 'bg-black/[0.06] text-[#1d1d1f]'
+                        : 'bg-[#1a636b] text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+                      : 'text-[#1d1d1f]',
+                  )}
+                  style={
+                    selected
+                      ? undefined
+                      : ({
+                          '--ritual-snappy-row-hover': 'rgba(0,0,0,0.04)',
+                          '--ritual-snappy-row-active': 'rgba(0,0,0,0.07)',
+                        } as React.CSSProperties)
+                  }
+                  data-active={selected ? 'true' : undefined}
+                >
+                  <Icon
+                    className={cn(
+                      'h-[15px] w-[15px] shrink-0',
+                      selected && !lightPill ? 'text-white' : 'text-[#1d1d1f]',
+                    )}
+                    strokeWidth={1.75}
+                  />
+                  <span className="truncate">{label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <main className="settings-frame-main relative min-w-0 flex-1 overflow-y-auto bg-white">
         {variant === 'window' ? (
           <div
             data-tauri-drag-region
-            className="sticky top-0 z-[5] h-[52px] w-full border-b border-black/[0.06] bg-white/85 backdrop-blur-md"
+            className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
             aria-hidden="true"
           />
         ) : null}
-        <div className={variant === 'window' ? 'px-[22px]' : ''}>
+        <div className={cn('px-6', variant === 'window' && '-mt-[52px]')}>
         {activeTab === 'account' ? (
           <SettingsPage title="General">
             <SettingsGroup>
@@ -471,6 +488,7 @@ export function SettingsFrame({
         ) : null}
         </div>
       </main>
+      </div>
 
       {showDeleteConfirm ? (
         <div className="absolute inset-0 z-20 flex items-center justify-center">
@@ -514,7 +532,7 @@ function SettingsPage({
 }) {
   return (
     <div className={cn('settings-frame-page w-full pb-6 pt-[14px]', embedded && 'settings-embedded-pane')}>
-      <h1 className="mb-[16px] text-[14px] font-semibold leading-5 text-[#1d1d1f]">{title}</h1>
+      <h1 className="mb-[18px] text-[20px] font-semibold leading-[1.2] tracking-[-0.02em] text-[#1d1d1f]">{title}</h1>
       <div className="space-y-[18px]">
         {children}
       </div>
@@ -525,7 +543,7 @@ function SettingsPage({
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-[6px] ml-[10px] text-[11px] font-semibold uppercase leading-none tracking-[0.045em] text-[#8a8a8a]">{title}</h2>
+      <h2 className="mb-[8px] text-[13px] font-semibold leading-tight text-[#1d1d1f]">{title}</h2>
       <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
@@ -577,14 +595,14 @@ function SettingsToggle({ checked, onClick }: { checked: boolean; onClick: () =>
       onClick={onClick}
       aria-pressed={checked}
       className={cn(
-        'relative inline-flex h-4 w-[28px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]',
-        checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
+        'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
+        checked ? 'bg-[#1a636b]' : 'bg-[#d1d1d1]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-3 w-3 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200',
-          checked ? 'translate-x-[13px]' : 'translate-x-[2px]',
+          'inline-block h-[17px] w-[17px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.28),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-transform duration-200',
+          checked ? 'translate-x-[19px]' : 'translate-x-[2px]',
         )}
       />
     </button>
@@ -601,7 +619,7 @@ function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-[2px] rounded-[7px] bg-black/[0.06] p-[2px]">
+    <div className="inline-flex items-center gap-[2px] rounded-[8px] bg-black/[0.06] p-[3px]">
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -610,9 +628,9 @@ function SegmentedControl<T extends string>({
             type="button"
             onClick={() => onChange(option.value)}
             className={cn(
-              'rounded-[5px] px-2.5 py-[3px] text-[12px] font-medium leading-none transition-colors',
+              'rounded-[6px] px-3 py-[5px] text-[12px] font-medium leading-none transition-all',
               active
-                ? 'bg-white text-[#1d1d1f] shadow-[0_1px_2px_rgba(0,0,0,0.14),0_0_0_0.5px_rgba(0,0,0,0.06)]'
+                ? 'bg-white text-[#1d1d1f] shadow-[0_0_0_1px_rgba(26,99,107,0.55),0_1px_2px_rgba(0,0,0,0.08)]'
                 : 'text-[#5f5f5f] hover:text-[#1d1d1f]',
             )}
           >
