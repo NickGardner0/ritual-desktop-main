@@ -103,7 +103,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-md border border-[rgba(15,23,42,0.14)] bg-[#fbfbfb] shadow-[0_14px_36px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.06)] transition-colors duration-150 ease-out hover:border-[rgba(15,23,42,0.24)] focus-within:border-[rgba(15,23,42,0.3)]',
+          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[20px] border border-[rgba(24,24,27,0.14)] bg-white shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
           composerHeightClass
         )}
       >
@@ -138,7 +138,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                       : "Ask about your personal data..."
                   }
                   className={cn(
-                    "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-gray-500 disabled:opacity-60",
+                    "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-[#9ca3af] disabled:opacity-60",
                     "min-h-[42px] max-h-[80px] py-0.5 text-[17px] leading-6"
                   )}
                   rows={1}
@@ -283,7 +283,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-3.5 right-4 flex h-8 w-8 items-center justify-center rounded-sm bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
+              className="absolute bottom-3.5 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
               aria-label="Submit"
             >
               {submitButtonLoading ? (

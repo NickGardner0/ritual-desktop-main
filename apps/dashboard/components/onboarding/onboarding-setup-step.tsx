@@ -100,8 +100,8 @@ function SetupShell({
 }) {
   return (
     <div
-      className="relative flex h-[690px] w-full max-w-[800px] flex-col overflow-hidden bg-[#fafaf9] text-[#18181b]"
-      style={{ fontFamily: "var(--ritual-font-fk), 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, sans-serif" }}
+      className="relative flex h-[690px] w-full max-w-[800px] flex-col overflow-hidden bg-white text-[#18181b]"
+      style={{ fontFamily: "var(--ritual-selected-font-family, var(--ritual-font-fk)), 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, sans-serif" }}
     >
       <div data-tauri-drag-region className="absolute inset-x-0 top-0 h-8" />
       <div className="grid h-[72px] shrink-0 grid-cols-[1fr_auto_1fr] items-center px-7 pt-6">
@@ -110,7 +110,7 @@ function SetupShell({
             <button
               type="button"
               onClick={onBack}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[#71717a] transition-colors duration-75 hover:bg-[#f4f4f5] hover:text-[#18181b]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-[8px] text-[#71717a] transition-colors duration-75 hover:bg-[#f4f4f5] hover:text-[#18181b]"
               aria-label="Back"
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
@@ -142,10 +142,10 @@ function PrimarySetupButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "h-11 w-full rounded-sm border px-4 text-[14px] font-semibold shadow-none transition-colors duration-75",
+        "h-11 w-full rounded-[8px] border px-4 text-[14px] font-semibold transition-colors duration-75",
         disabled
-          ? "border-[#e4e4e7] bg-[#eeeeef] text-[#8f8f96] hover:bg-[#eeeeef]"
-          : "border-[#18181b] bg-[#18181b] text-white hover:bg-[#2b2b2f]",
+          ? "border-[#e4e4e7] bg-[#f4f4f5] text-[#a1a1aa] shadow-none hover:bg-[#f4f4f5]"
+          : "border-[#18181b] bg-[#18181b] text-white shadow-[0_10px_28px_rgba(24,24,27,0.12)] hover:bg-[#27272a]",
       )}
     >
       {children}
@@ -167,7 +167,7 @@ function QuietSetupButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="mx-auto block rounded-sm px-3 py-2 text-[13px] font-medium text-[#71717a] transition-colors duration-75 hover:text-[#18181b] disabled:pointer-events-none disabled:opacity-50"
+      className="mx-auto block rounded-md px-3 py-2 text-[13px] font-medium text-[#71717a] transition-colors duration-75 hover:text-[#18181b] disabled:pointer-events-none disabled:opacity-50"
     >
       {children}
     </button>
@@ -268,7 +268,7 @@ function PermissionsStep({
 
         {permissions.checked ? (
           <ul
-            className="mt-8 overflow-hidden rounded-[8px] border border-[#e4e4e7] bg-white shadow-[0_12px_36px_rgba(20,24,40,0.08)]"
+            className="mt-8 overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-white shadow-[0_8px_24px_rgba(24,24,27,0.06)]"
             aria-busy={false}
           >
             <PermissionRow
@@ -496,19 +496,19 @@ function VoicePracticeStep({
         </p>
 
         <div className="mx-auto mt-8 w-full max-w-[540px]">
-          <div className="mx-7 mb-[-18px] flex items-center justify-between rounded-t-[8px] border border-[#e4e4e7] bg-white px-5 pb-7 pt-3 text-[14px] text-[#52525b]">
+          <div className="mx-7 mb-[-18px] flex items-center justify-between rounded-t-[10px] border border-[#e4e4e7] bg-white px-5 pb-7 pt-3 text-[14px] text-[#52525b]">
             <span className="inline-flex items-center gap-2">
               <Keyboard className="h-4 w-4 text-[#71717a]" strokeWidth={1.8} />
               Use the microphone button to dictate
             </span>
-            <span className="rounded-sm bg-[#f4f4f5] px-2 py-1 text-[12px] font-medium text-[#71717a]">
+            <span className="rounded-md bg-[#f4f4f5] px-2 py-1 text-[12px] font-medium text-[#71717a]">
               Voice
             </span>
           </div>
 
-          <div className="relative rounded-[12px] border border-[#e4e4e7] bg-white p-4 text-left shadow-[0_16px_44px_rgba(20,24,40,0.12)]">
+          <div className="relative rounded-[14px] border border-[#e4e4e7] bg-white p-4 text-left shadow-[0_10px_32px_rgba(24,24,27,0.08)]">
             <div className="flex items-start gap-3 px-1 pb-4">
-              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#18181b] text-white">
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[#18181b] text-white">
                 <MessageCircle className="h-4 w-4" strokeWidth={1.9} />
               </span>
               <div className="min-w-0">
@@ -525,7 +525,7 @@ function VoicePracticeStep({
               </div>
             </div>
 
-            <div className="rounded-[8px] border border-[#e4e4e7] bg-[#fafafa] p-3 transition-colors duration-75 focus-within:border-[#c7c7cc] focus-within:bg-white">
+            <div className="rounded-[10px] border border-[#e4e4e7] bg-white p-3 transition-colors duration-75 focus-within:border-[#c7c7cc]">
               <textarea
                 ref={textareaRef}
                 value={partialTranscript || value}
@@ -536,7 +536,7 @@ function VoicePracticeStep({
                 className="block min-h-[82px] w-full resize-none border-0 bg-transparent text-[15px] leading-6 text-[#18181b] outline-none placeholder:text-[#9ca3af]"
               />
               <div className="flex min-h-8 items-center justify-between gap-3 pt-2">
-                <span className="rounded-sm bg-[#eeeeef] px-2 py-1 text-[12px] font-semibold text-[#71717a]">
+                <span className="rounded-md bg-[#f4f4f5] px-2 py-1 text-[12px] font-semibold text-[#71717a]">
                   mic
                 </span>
                 <button
@@ -544,7 +544,7 @@ function VoicePracticeStep({
                   onClick={() => void startVoice()}
                   disabled={isProcessingVoice}
                   className={cn(
-                    "inline-flex h-9 w-9 items-center justify-center rounded-sm transition-colors duration-75",
+                    "inline-flex h-9 w-9 items-center justify-center rounded-[9px] transition-colors duration-75",
                     isListening
                       ? "bg-[#18181b] text-white"
                       : "bg-[#eeeeef] text-[#52525b] hover:bg-[#e4e4e7] hover:text-[#18181b]",
