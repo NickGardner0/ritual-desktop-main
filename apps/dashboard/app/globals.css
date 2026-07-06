@@ -118,47 +118,58 @@
 
 /* Text shimmer animation adapted from Midday's TextShimmer component. */
 @keyframes text-shimmer {
-  0% {
-    background-position: 100% center, center;
+  0%,
+  82% {
+    opacity: 0;
+    background-position: 125% center;
+  }
+  83% {
+    opacity: 1;
+    background-position: 125% center;
+  }
+  95% {
+    opacity: 1;
+    background-position: -25% center;
   }
   100% {
-    background-position: 0% center, center;
+    opacity: 0;
+    background-position: -25% center;
   }
 }
 
 .ritual-text-shimmer {
-  --ritual-text-shimmer-base: rgba(17, 24, 39, 0.42);
-  --ritual-text-shimmer-highlight: #111827;
-  --ritual-text-shimmer-spread: 72px;
+  position: relative;
   display: inline-block;
-  background-image:
-    linear-gradient(
-      90deg,
-      transparent calc(50% - var(--ritual-text-shimmer-spread)),
-      var(--ritual-text-shimmer-highlight),
-      transparent calc(50% + var(--ritual-text-shimmer-spread))
-    ),
-    linear-gradient(
-      var(--ritual-text-shimmer-base),
-      var(--ritual-text-shimmer-base)
-    );
-  background-repeat: no-repeat, no-repeat;
-  background-origin: border-box, padding-box;
-  background-size: 250% 100%, auto;
+  color: #000;
+}
+
+.ritual-text-shimmer::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(107, 114, 128, 0.9) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  background-position: 125% 50%;
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: text-shimmer 2.5s linear infinite;
+  animation: text-shimmer 8s linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ritual-text-shimmer {
+  .ritual-text-shimmer::after {
     animation: none;
-    background-image: linear-gradient(
-      90deg,
-      var(--ritual-text-shimmer-highlight),
-      var(--ritual-text-shimmer-highlight)
-    );
+    opacity: 0;
   }
 }
 
