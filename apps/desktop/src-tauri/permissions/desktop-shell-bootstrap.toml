@@ -6,4 +6,8 @@ commands.allow = [
   "check_desktop_hosted_app_reachable",
   "desktop_record_shell_event",
   "open_settings_window",
+  "open_voice_hud",
+  "hide_voice_hud",
+  "get_voice_hotkey_settings",
+  "set_voice_hotkey_settings",
 ]
