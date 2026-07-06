@@ -118,24 +118,52 @@
 
 /* Text shimmer animation - Midday inspired */
 @keyframes text-shimmer {
-  0% {
-    background-position: 100% 50%;
+  0%,
+  82% {
+    opacity: 0;
+    background-position: 125% 50%;
+  }
+  83% {
+    opacity: 1;
+    background-position: 125% 50%;
+  }
+  95% {
+    opacity: 1;
+    background-position: -25% 50%;
   }
   100% {
-    background-position: 0% 50%;
+    opacity: 0;
+    background-position: -25% 50%;
   }
 }
 
 .animate-text-shimmer {
+  position: relative;
+  display: inline-block;
+  color: #000;
+}
+
+.animate-text-shimmer::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: transparent;
   background-image: linear-gradient(
     90deg,
-    #1f2937 0%,
-    #1f2937 40%,
-    #6b7280 50%,
-    #1f2937 60%,
-    #1f2937 100%
+    transparent 0%,
+    transparent 40%,
+    rgba(107, 114, 128, 0.9) 50%,
+    transparent 60%,
+    transparent 100%
   );
-  animation: text-shimmer 2s ease-in-out infinite;
+  background-repeat: no-repeat;
+  background-size: 220% 100%;
+  background-position: 125% 50%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 8s linear infinite;
 }
 
 /* Neutral text-selection styling for compact calendar block editor time fields */
