@@ -1,4 +1,4 @@
-# Ritual Desktop
+# Agent Rules
 
 ## Branch And Deploy Target
 
@@ -7,12 +7,3 @@
 - Vercel and Railway deploy from `codex/release-0.1.1-prep`; treat it as the canonical working branch for ship-ready changes.
 - Before committing, confirm the target branch is `codex/release-0.1.1-prep`. If the active checkout is on another branch, move or apply the intended changes onto `codex/release-0.1.1-prep` before committing.
 - Do not push feature, task, experiment, or personal branches unless Nick explicitly requests that exact branch.
-
-## gstack
-
-Use the /browse skill from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools for browsing tasks when gstack browse is available.
-
-### Available Skills
-/office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade
-
-If gstack skills aren't working, run `cd ~/.claude/skills/gstack && ./setup` to build the binary and register skills.

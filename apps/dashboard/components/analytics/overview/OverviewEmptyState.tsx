@@ -23,7 +23,7 @@ export function OverviewEmptyState({
       <div className="flex w-full max-w-[468px] flex-col gap-7">
         <div className="flex w-full justify-center">
           <h1 className="ritual-text-shimmer text-[22px] font-medium leading-[1.15] text-transparent">
-            Welcome to Ritual
+            Start with Ritual
           </h1>
         </div>
 
