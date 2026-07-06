@@ -89,14 +89,6 @@ const items = [
   {
     path: "/tasks",
     name: "Tasks",
-    children: [
-      { path: "/tasks?view=today", name: "Today" },
-      { path: "/tasks?view=upcoming", name: "Upcoming" },
-      { path: "/tasks?view=anytime", name: "Anytime" },
-      { path: "/tasks?view=completed", name: "Completed" },
-      { path: "/tasks?view=skipped", name: "Skipped" },
-      { path: "/tasks?view=archived", name: "Archived" },
-    ],
   },
   {
     path: "/calendar",
@@ -135,7 +127,6 @@ interface ItemProps {
   isItemExpanded: boolean;
   onToggle: (path: string) => void;
   onSelect?: () => void;
-  isChildPathActive: (childPath: string) => boolean;
 }
 
 const ChildItem = ({
@@ -207,7 +198,6 @@ const Item = ({
   isItemExpanded,
   onToggle,
   onSelect,
-  isChildPathActive,
 }: ItemProps) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
@@ -251,7 +241,7 @@ const Item = ({
   return (
     <div className="group">
       <Link
-        href={item.path === "/tasks" ? "/tasks?view=today" : item.path === "/experiments" ? "#" : item.path}
+        href={item.path === "/experiments" ? "#" : item.path}
         onClick={handleItemClick}
         className="group/nav-item block"
         prefetch={true}
@@ -315,17 +305,20 @@ const Item = ({
             shouldShowChildren ? "max-h-96 mt-1" : "max-h-0",
           )}
         >
-          {item.children!.map((child, index) => (
+          {item.children!.map((child, index) => {
+            const isChildActive = pathname === child.path;
+            return (
               <ChildItem
                 key={child.path}
                 child={child}
-                isActive={isChildPathActive(child.path)}
+                isActive={isChildActive}
                 isExpanded={isExpanded}
                 shouldShow={shouldShowChildren}
                 onSelect={onSelect}
                 index={index}
               />
-            ))}
+            );
+          })}
         </div>
       )}
     </div>
@@ -342,23 +335,10 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const searchParams = useSearchParams();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
 
-  const isChildPathActive = (childPath: string) => {
-    const [basePath, query] = childPath.split("?");
-    if (pathname !== basePath) return false;
-    if (!query) return true;
-    const queryParams = new URLSearchParams(query);
-    return Array.from(queryParams.entries()).every(
-      ([key, value]) => searchParams.get(key) === value,
-    );
-  };
-
+  // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
-    if (pathname === "/tasks" || pathname === "/tasks/") {
-      queueMicrotask(() => setExpandedItem("/tasks"));
-    } else if (!isExpanded) {
-      queueMicrotask(() => setExpandedItem(null));
-    }
-  }, [pathname, isExpanded]);
+    queueMicrotask(() => setExpandedItem(null));
+  }, [isExpanded]);
 
   return (
     <div className="mt-3 w-full">
@@ -388,33 +368,20 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
                 pathname === item.path + "/" ||
                 (pathname === "/" && item.path === "/dashboard") ||
                 (pathname === "/dashboard/" && item.path === "/dashboard") ||
-                (pathname?.startsWith(item.path) && item.path !== "/dashboard" && !item.children))
-            ) || (
-              Boolean(item.children) &&
-              item.path === "/tasks" &&
-              (pathname === "/tasks" || pathname === "/tasks/") &&
-              !item.children!.some((child) => isChildPathActive(child.path))
-            ) || (
-              Boolean(item.children) &&
-              item.path !== "/tasks" &&
-              (pathname === item.path || pathname === `${item.path}/`) &&
-              !item.children!.some((child) => isChildPathActive(child.path))
+                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
             );
-
-            const hasActiveChild = item.children?.some((child) => isChildPathActive(child.path)) ?? false;
 
             return (
               <Item
                 key={item.path}
                 item={item}
-                isActive={isActive || hasActiveChild}
+                isActive={isActive}
                 isExpanded={isExpanded}
                 isItemExpanded={expandedItem === item.path}
                 onToggle={(path) => {
                   setExpandedItem(expandedItem === path ? null : path);
                 }}
                 onSelect={onSelect}
-                isChildPathActive={isChildPathActive}
               />
             );
           })}
