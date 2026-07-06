@@ -2,6 +2,10 @@
 
 import { useCallback } from 'react';
 import { openInBrowser } from '@/lib/tauri-utils';
+import type { WearableConnection } from './plugins/types';
+
+// Legacy migration shim. Owner: Integrations/Wearables architecture migration.
+// Expiry: 2026-08-15. Delete after Apple/Oura/Garmin handlers move into plugin-owned hooks.
 
 type LegacyWearableHandlersParams = {
   appleWatchStatusData?: {
@@ -187,10 +191,10 @@ export async function handleWearableSyncSettingsUpdate(
     provider: 'whoop' | 'apple_health' | 'oura' | 'garmin';
     updates: { auto_sync_enabled?: boolean; sync_hour?: number };
     getToken: () => Promise<string | null>;
-    whoopConnection: Record<string, unknown> | undefined;
-    appleHealthConnection: Record<string, unknown> | undefined;
-    ouraConnection: Record<string, unknown> | undefined;
-    garminConnection: Record<string, unknown> | undefined;
+    whoopConnection: WearableConnection | undefined;
+    appleHealthConnection: WearableConnection | undefined;
+    ouraConnection: WearableConnection | undefined;
+    garminConnection: WearableConnection | undefined;
     whoopSyncHour: number;
     setWhoopSyncHour: (hour: number) => void;
     refetchOverview: () => unknown;

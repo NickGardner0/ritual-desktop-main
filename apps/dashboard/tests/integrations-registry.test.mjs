@@ -47,6 +47,8 @@ test("registry.ts lists all plugins with unique ids and detail keys", () => {
   assert.match(registrySource, /INTEGRATION_PLUGINS/);
   assert.match(registrySource, /PLUGIN_BY_ID/);
   assert.match(registrySource, /PLUGIN_BY_DETAIL_KEY/);
+  assert.match(registrySource, /satisfies readonly IntegrationPlugin\[\]/);
+  assert.doesNotMatch(registrySource, /as unknown as IntegrationPlugin/);
 
   const ids = [];
   const detailKeys = [];
@@ -126,6 +128,22 @@ test("integrations details module no longer uses god-context renderer", () => {
   assert.doesNotMatch(detailsSource, /IntegrationDetailRendererContext/);
   assert.doesNotMatch(detailsSource, /createIntegrationDetailRenderers/);
   assert.doesNotMatch(detailsSource, /Record<string,\s*any>/);
+});
+
+test("integration plugin context types stay explicit", () => {
+  const typesSource = readFileSync(join(pluginsRoot, "types.ts"), "utf8");
+  const implSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/app/(dashboard)/integrations/integrations-client.impl.tsx"),
+    "utf8",
+  );
+  const runtimeContextSource = implSource.slice(
+    implSource.indexOf("const runtimeContext"),
+    implSource.indexOf("const integrationCardContext"),
+  );
+
+  assert.match(typesSource, /IntegrationPlugin</);
+  assert.doesNotMatch(typesSource, /Record<string,\s*unknown>/);
+  assert.doesNotMatch(runtimeContextSource, /callbackProcessedRef|oauthSessionIdRef|oauthSessionTokenRef|pollingIntervalRef/);
 });
 
 test("integrations orchestrator stays under 400 lines", () => {

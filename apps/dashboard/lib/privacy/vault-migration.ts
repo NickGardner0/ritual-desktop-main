@@ -5,7 +5,8 @@ import type {
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 
 export const SUPPORTED_LOCAL_MIGRATION_CATEGORIES = [
   "ai_conversations",
@@ -136,20 +137,16 @@ export type VaultMigrationClient = {
 
 const defaultVaultMigrationClient: VaultMigrationClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async putRecord(input) {
-    const { putDesktopVaultRecord } = await import("./vault-client");
-    return putDesktopVaultRecord(input);
+    return vaultSync.putRecord(input);
   },
   async listRecords(userId, collection, options) {
-    const { listDesktopVaultRecords } = await import("./vault-client");
-    return listDesktopVaultRecords(userId, collection, options);
+    return vaultSync.listRecords(userId, collection, options);
   },
   async putManifest(input) {
-    const { putDesktopVaultMigrationManifest } = await import("./vault-client");
-    return putDesktopVaultMigrationManifest(input);
+    return vaultSync.putMigrationManifest(input);
   },
 };
 

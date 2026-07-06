@@ -78,7 +78,8 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
 
     limiter = deps.limiter
     get_current_user = deps.get_current_user
-    wearables_service = deps.wearables_service
+    wearable_apple_ingest_service = deps.wearable_apple_ingest_service
+    wearable_device_security_service = deps.wearable_device_security_service
     whoop_service = deps.whoop_service
     oura_service = deps.oura_service
     garmin_service = deps.garmin_service
@@ -219,7 +220,7 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         try:
             logger.info(f"📱 Registering device '{request.device_name}' for user {current_user['id']}")
             
-            device_id, device_secret = await wearables_service.register_device(
+            device_id, device_secret = await wearable_device_security_service.register_device(
                 user_id=current_user["id"],
                 device_name=request.device_name,
                 platform=request.platform
@@ -250,7 +251,7 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         List all registered devices for the current user.
         """
         try:
-            devices = await wearables_service.get_user_devices(current_user["id"])
+            devices = await wearable_device_security_service.list_devices(current_user["id"], provider="apple_health")
             
             return {
                 "devices": [
@@ -281,7 +282,7 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         The device will no longer be able to sync data.
         """
         try:
-            success = await wearables_service.deactivate_device(device_id, current_user["id"])
+            success = await wearable_device_security_service.deactivate_device(device_id, current_user["id"])
             
             if not success:
                 raise HTTPException(status_code=404, detail="Device not found")
@@ -716,7 +717,7 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         try:
             logger.info(f"📊 Ingesting {len(ingest_request.metrics)} metrics from device {ingest_request.device_id}")
             
-            success, results, error = await wearables_service.process_ingest_request(
+            success, results, error = await wearable_apple_ingest_service.process_ingest_request(
                 user_id=current_user["id"],
                 request=ingest_request
             )
@@ -792,15 +793,10 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
             total_ops = len(ingest_request.added) + len(ingest_request.deleted) + len(ingest_request.modified)
             logger.info(f"📊 V2 Ingest: {len(ingest_request.added)} added, {len(ingest_request.deleted)} deleted, {len(ingest_request.modified)} modified")
             
-            success, added_results, deleted_results, modified_results, error = await wearables_service.process_ingest_request_v2(
+            success, added_results, deleted_results, modified_results, error = await wearable_apple_ingest_service.process_ingest_request_v2(
                 user_id=current_user["id"],
                 request=ingest_request
             )
-            
-            # Force flush Tinybird batch to ensure data is synced immediately
-            flushed_count = await wearables_service.force_flush_tinybird_batch()
-            if flushed_count > 0:
-                logger.info(f"📊 Flushed {flushed_count} habit logs to Tinybird")
             
             if error and not success:
                 if error == "Device not found":
@@ -913,7 +909,7 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         Used by desktop app to display sync health.
         """
         try:
-            status = await wearables_service.get_device_sync_status(
+            status = await wearable_device_security_service.get_device_sync_status(
                 device_id=device_id,
                 user_id=current_user["id"]
             )
@@ -937,11 +933,11 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         Used by desktop app settings to show connection health.
         """
         try:
-            devices = await wearables_service.get_user_devices(current_user["id"])
+            devices = await wearable_device_security_service.list_devices(current_user["id"], provider="apple_health")
             
             statuses = []
             for device in devices:
-                status = await wearables_service.get_device_sync_status(
+                status = await wearable_device_security_service.get_device_sync_status(
                     device_id=device.id,
                     user_id=current_user["id"]
                 )

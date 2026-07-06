@@ -105,7 +105,6 @@ def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> No
 
     limiter = deps.limiter
     get_current_user = deps.get_current_user
-    wearables_service = deps.wearables_service
     whoop_service = deps.whoop_service
     oura_service = deps.oura_service
     garmin_service = deps.garmin_service

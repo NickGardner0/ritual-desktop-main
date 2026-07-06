@@ -20,7 +20,15 @@ import { useIphoneTimeIntegration } from './plugins/iphone-time/use-iphone-time-
 import { usePlaidIntegration } from './plugins/plaid/use-plaid-integration';
 import { useTeslaIntegration } from './plugins/tesla/use-tesla-integration';
 import { useWhoopIntegration } from './plugins/whoop/use-whoop-integration';
-import type { IntegrationCardRuntimeContext, IntegrationRuntimeContext } from './plugins/types';
+import type {
+  AppleWatchStatusData,
+  IntegrationCardRuntimeContext,
+  IntegrationRuntimeContext,
+  PlaidConnection,
+  TeslaConnection,
+  WearableConnection,
+  WhoopStatusData,
+} from './plugins/types';
 
 export function IntegrationsClient() {
   const { getToken } = useAuth();
@@ -54,33 +62,33 @@ export function IntegrationsClient() {
   const oauthSessionIdRef = useRef<string | null>(null);
   const oauthSessionTokenRef = useRef<string | null>(null);
 
-  const whoopStatusData = integrationsOverview?.whoopStatus;
-  const appleWatchStatusData = integrationsOverview?.appleWatchStatus;
-  const wearableConnections = integrationsOverview?.wearableConnections?.connections || [];
-  const financialConnections = integrationsOverview?.financialConnections?.connections || [];
+  const whoopStatusData = integrationsOverview?.whoopStatus as WhoopStatusData | undefined;
+  const appleWatchStatusData = integrationsOverview?.appleWatchStatus as AppleWatchStatusData | undefined;
+  const wearableConnections = (integrationsOverview?.wearableConnections?.connections || []) as WearableConnection[];
+  const financialConnections = (integrationsOverview?.financialConnections?.connections || []) as PlaidConnection[];
   const computerTrackingStatus = integrationsOverview?.computerTrackingStatus;
 
   const findWearableConnection = (provider: string) =>
-    wearableConnections.find((item: { provider?: string }) => item.provider === provider);
+    wearableConnections.find((item) => item.provider === provider);
 
   const whoopConnection = findWearableConnection('whoop');
   const appleHealthConnection = findWearableConnection('apple_health');
   const ouraConnection = findWearableConnection('oura');
   const garminConnection = findWearableConnection('garmin');
-  const teslaConnection = findWearableConnection('tesla');
-  const plaidConnection = financialConnections.find((item: { provider?: string }) => item.provider === 'plaid');
+  const teslaConnection = findWearableConnection('tesla') as TeslaConnection | undefined;
+  const plaidConnection = financialConnections.find((item) => item.provider === 'plaid');
 
   const appleWatchConnected = appleWatchStatusData?.connected || false;
   const appleWatchLastSync = appleWatchStatusData?.lastSyncAt;
   const computerTrackingConnected = computerTrackingStatus?.connected || false;
-  const plaidConnected = !!plaidConnection && (plaidConnection as { status?: string }).status === 'active';
+  const plaidConnected = !!plaidConnection && plaidConnection.status === 'active';
   const userHasMfaEnabled = Boolean((user as { twoFactorEnabled?: boolean })?.twoFactorEnabled);
   const plaidMfaRequired = !userHasMfaEnabled;
-  const plaidNeedsReconnect = Boolean((plaidConnection as { requires_reconnect?: boolean })?.requires_reconnect);
+  const plaidNeedsReconnect = Boolean(plaidConnection?.requires_reconnect);
   const plaidReconnectReason =
-    (plaidConnection as { last_error_json?: Record<string, string> })?.last_error_json?.display_message ||
-    (plaidConnection as { last_error_json?: Record<string, string> })?.last_error_json?.error_message ||
-    (plaidConnection as { last_error_json?: Record<string, string> })?.last_error_json?.message ||
+    plaidConnection?.last_error_json?.display_message ||
+    plaidConnection?.last_error_json?.error_message ||
+    plaidConnection?.last_error_json?.message ||
     'This bank connection needs to be repaired before spending can continue syncing.';
 
   const effectiveWhoopConnected = Boolean(
@@ -206,41 +214,26 @@ export function IntegrationsClient() {
       appleWatchConnected,
       appleWatchLastSync,
       appleWatchStatusData,
-      callbackProcessedRef,
       computerTrackingConnected,
       detailsTab,
       effectiveWhoopConnected: Boolean(
         whoopIntegration.whoopConnected ||
-          (whoopConnection && (whoopConnection as { status?: string }).status === 'active'),
+          (whoopConnection && whoopConnection.status === 'active'),
       ),
-      fetchHabitLogs,
-      fetchHabits,
       garminConnection,
       getToken,
       handleWearableSyncSettingsUpdate,
-      integrationsOverview,
       isDesktop,
-      iphoneTimeIntegrationQuery,
-      oauthSessionIdRef,
-      oauthSessionTokenRef,
       openIntegrationDetails,
-      openUserProfile,
       ouraConnection,
       plaidConnected,
       plaidConnection,
-      plaidMfaRequired,
       plaidNeedsReconnect,
       plaidReconnectReason,
-      pollingIntervalRef,
-      queryClient,
-      refetchOverview,
       router,
       selectedIntegration,
       setDetailsTab,
-      setIsProcessingCallback,
       teslaConnection,
-      userHasMfaEnabled,
-      userId: user?.id,
       wearableConnectingProvider,
       wearableSyncingProvider,
       whoopConnection,
@@ -260,33 +253,23 @@ export function IntegrationsClient() {
       appleWatchStatusData,
       computerTrackingConnected,
       detailsTab,
-      fetchHabitLogs,
-      fetchHabits,
       garminConnection,
       getToken,
       handleWearableSyncSettingsUpdate,
-      integrationsOverview,
       isDesktop,
       iphoneTimeIntegration,
-      iphoneTimeIntegrationQuery,
       legacyWearables,
       openIntegrationDetails,
-      openUserProfile,
       ouraConnection,
       plaidConnected,
       plaidConnection,
       plaidIntegration,
-      plaidMfaRequired,
       plaidNeedsReconnect,
       plaidReconnectReason,
-      queryClient,
-      refetchOverview,
       router,
       selectedIntegration,
       teslaConnection,
       teslaIntegration,
-      user?.id,
-      userHasMfaEnabled,
       wearableConnectingProvider,
       wearableSyncingProvider,
       whoopConnection,
@@ -362,7 +345,10 @@ export function IntegrationsClient() {
     whoopIntegration,
   ]);
 
-  const integrationCards = buildIntegrationCards(integrationCardContext);
+  const integrationCards = useMemo(
+    () => buildIntegrationCards(integrationCardContext),
+    [integrationCardContext],
+  );
 
   return (
     <>
@@ -378,7 +364,9 @@ export function IntegrationsClient() {
           <SheetHeader className="sr-only">
             <SheetTitle>{selectedIntegration ? `${selectedIntegration} details` : 'Integration details'}</SheetTitle>
           </SheetHeader>
-          {renderIntegrationDetailsPanel(selectedIntegration, runtimeContext)}
+          {detailsOpen && selectedIntegration
+            ? renderIntegrationDetailsPanel(selectedIntegration, runtimeContext)
+            : null}
         </SheetContent>
       </Sheet>
     </>

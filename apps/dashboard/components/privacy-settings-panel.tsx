@@ -12,12 +12,9 @@ import {
   type PrivacySettings,
 } from '@/lib/privacy/privacy-settings';
 import {
-  getDesktopVaultStatus,
-  initializeDesktopVault,
-  putDesktopVaultRecord,
-  tombstoneDesktopVaultRecord,
+  vaultSync,
   type DesktopVaultStatus,
-} from '@/lib/privacy/vault-client';
+} from '@/lib/privacy/vault-sync';
 import {
   executeLocalVaultMigration,
   LOCAL_MIGRATION_CATEGORY_LABELS,
@@ -176,7 +173,7 @@ export function PrivacySettingsPanel() {
   const refreshVaultStatus = useCallback(async () => {
     if (!user?.id) return;
     try {
-      setVaultStatus(await getDesktopVaultStatus(user.id));
+      setVaultStatus(await vaultSync.getStatus(user.id));
       setVaultMessage('');
     } catch {
       setVaultStatus(null);
@@ -187,7 +184,7 @@ export function PrivacySettingsPanel() {
   const initializeVault = async () => {
     if (!user?.id) return;
     try {
-      setVaultStatus(await initializeDesktopVault(user.id));
+      setVaultStatus(await vaultSync.initialize(user.id));
       setVaultMessage('Local vault initialized.');
     } catch {
       setVaultMessage('Local vault could not be initialized.');
@@ -237,7 +234,7 @@ export function PrivacySettingsPanel() {
       const result = await response.json() as MigrationDryRun;
       setDryRun(result);
 
-      const status = await initializeDesktopVault(user.id);
+      const status = await vaultSync.initialize(user.id);
       if (!status) {
         setVaultStatus(null);
         setInventoryMessage(
@@ -248,7 +245,7 @@ export function PrivacySettingsPanel() {
 
       for (const sample of result.samples) {
         const stagingCollection = `migration_dry_run:${sample.collection}`;
-        await putDesktopVaultRecord({
+        await vaultSync.putRecord({
           userId: user.id,
           collection: stagingCollection,
           recordId: sample.record_id,
@@ -256,14 +253,14 @@ export function PrivacySettingsPanel() {
           payload: sample.payload,
           updatedAt: sample.updated_at || undefined,
         });
-        await tombstoneDesktopVaultRecord(
+        await vaultSync.tombstoneRecord(
           user.id,
           stagingCollection,
           sample.record_id,
           sample.record_type,
         );
       }
-      setVaultStatus(await getDesktopVaultStatus(user.id));
+      setVaultStatus(await vaultSync.getStatus(user.id));
       setInventoryMessage(`Dry-run staged and verified ${result.sample_count} sample records locally.`);
     } catch {
       setInventoryMessage('Migration dry-run could not be completed.');
@@ -280,7 +277,7 @@ export function PrivacySettingsPanel() {
         headers: privacySettingsHeaders(settings),
       });
       setMigrationResult(result);
-      setVaultStatus(await getDesktopVaultStatus(user.id));
+      setVaultStatus(await vaultSync.getStatus(user.id));
       setInventoryMessage(`Migrated and verified ${result.migratedCount} records locally.`);
     } catch {
       setInventoryMessage('Local vault migration could not be completed.');
@@ -325,7 +322,7 @@ export function PrivacySettingsPanel() {
         headers: privacySettingsHeaders(settings),
       });
       setDeletionResult(result);
-      setVaultStatus(await getDesktopVaultStatus(user.id));
+      setVaultStatus(await vaultSync.getStatus(user.id));
       setDeletionMessage(`Deleted ${result.response.deleted_count} cloud records and saved a local receipt.`);
       await refreshInventory();
     } catch {

@@ -193,6 +193,10 @@ export function renderIntegrationDetailsPanel(
   selectedIntegration: string | null,
   ctx: IntegrationRuntimeContext,
 ) {
+  if (!selectedIntegration) {
+    return null;
+  }
+
   const registeredPanel = renderRegisteredIntegrationDetailPanel(selectedIntegration, ctx);
   if (registeredPanel) {
     return registeredPanel;

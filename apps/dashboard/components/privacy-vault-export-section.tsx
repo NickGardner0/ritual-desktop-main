@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { Download, FileArchive, FolderOpen, RefreshCw, Upload } from 'lucide-react';
 
-import type { DesktopVaultStatus } from '@/lib/privacy/vault-client';
+import {
+  vaultSync,
+  type DesktopVaultStatus,
+} from '@/lib/privacy/vault-sync';
 import {
   DEFAULT_RITUAL_VAULT_EXPORT_CATEGORIES,
   RITUAL_VAULT_SENSITIVE_DEFAULT_EXCLUSIONS,
@@ -23,7 +26,6 @@ import {
   writeRitualVaultFolderSettings,
   type RitualVaultFolderSettings,
 } from '@/lib/privacy/ritual-vault-folder-settings';
-import { getDesktopVaultStatus } from '@/lib/privacy/vault-client';
 import {
   SettingsGroup,
   SettingsRow,
@@ -78,7 +80,7 @@ export function PrivacyVaultExportSection({ userId, onVaultStatus }: Props) {
           includeSensitive: includeSensitiveExport,
         });
       setLastExport(result);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setExportMessage(
         result.savedPath
           ? `Exported ${result.recordCount} records to ${result.fileName}${encryptArchive ? ' with encryption' : ''}.`
@@ -102,7 +104,7 @@ export function PrivacyVaultExportSection({ userId, onVaultStatus }: Props) {
         return;
       }
       setLastImport(result);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setImportMessage(`Imported ${result.importedCount} records after checksum verification.`);
     } catch {
       setImportMessage('Ritual Vault import failed validation or could not be completed.');
@@ -139,7 +141,7 @@ export function PrivacyVaultExportSection({ userId, onVaultStatus }: Props) {
         lastMirroredAt: result.mirroredAt,
         lastRecordCount: result.recordCount,
       }));
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setFolderMessage(`Mirrored ${result.recordCount} records into ${result.folderPath}.`);
     } catch {
       setFolderMessage('Ritual Vault folder mirror could not be written.');

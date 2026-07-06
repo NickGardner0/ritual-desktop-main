@@ -7,14 +7,14 @@ import * as plaid from './plaid';
 import * as tesla from './tesla';
 import * as whoop from './whoop';
 
-export const INTEGRATION_PLUGINS: IntegrationPlugin[] = [
-  computerTracking as IntegrationPlugin,
-  iphoneTime as IntegrationPlugin,
-  appleHealth as IntegrationPlugin,
-  whoop as unknown as IntegrationPlugin,
-  plaid as IntegrationPlugin,
-  tesla as IntegrationPlugin,
-];
+export const INTEGRATION_PLUGINS = [
+  computerTracking,
+  iphoneTime,
+  appleHealth,
+  whoop,
+  plaid,
+  tesla,
+] satisfies readonly IntegrationPlugin[];
 
 export const PLUGIN_BY_ID = Object.fromEntries(
   INTEGRATION_PLUGINS.map((plugin) => [plugin.id, plugin]),

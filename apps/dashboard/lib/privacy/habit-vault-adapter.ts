@@ -2,6 +2,7 @@
 
 import type { Habit, HabitLog } from "../../contexts/habits-context.types";
 import type { HabitWriteOutboxItem } from "../habits/local-first-writes";
+import { vaultSync } from "./vault-sync";
 
 export const HABIT_DEFINITIONS_COLLECTION = "habit_definitions";
 export const HABIT_LOGS_COLLECTION = "habit_logs";
@@ -22,8 +23,7 @@ type VaultListClient = {
 
 const desktopVaultListClient: VaultListClient = {
   async listRecords(userId, collection) {
-    const { listDesktopVaultRecords } = await import("./vault-client");
-    return listDesktopVaultRecords(userId, collection);
+    return vaultSync.listRecords(userId, collection);
   },
 };
 
@@ -77,8 +77,7 @@ export async function readLocalVaultHabitWriteOutboxItems(
 
 export async function putLocalVaultHabit(userId: string, habit: Habit) {
   if (!habit.id) return null;
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: HABIT_DEFINITIONS_COLLECTION,
     recordId: habit.id,
@@ -90,8 +89,7 @@ export async function putLocalVaultHabit(userId: string, habit: Habit) {
 
 export async function putLocalVaultHabitLog(userId: string, log: HabitLog) {
   if (!log.id) return null;
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: HABIT_LOGS_COLLECTION,
     recordId: log.id,
@@ -105,8 +103,7 @@ export async function putLocalVaultHabitWriteOutboxItem(
   userId: string,
   item: HabitWriteOutboxItem,
 ) {
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: HABIT_WRITE_OUTBOX_COLLECTION,
     recordId: item.id,
@@ -117,8 +114,7 @@ export async function putLocalVaultHabitWriteOutboxItem(
 }
 
 export async function tombstoneLocalVaultHabit(userId: string, habitId: string) {
-  const { tombstoneDesktopVaultRecord } = await import("./vault-client");
-  return tombstoneDesktopVaultRecord(
+  return vaultSync.tombstoneRecord(
     userId,
     HABIT_DEFINITIONS_COLLECTION,
     habitId,
@@ -127,13 +123,11 @@ export async function tombstoneLocalVaultHabit(userId: string, habitId: string) 
 }
 
 export async function tombstoneLocalVaultHabitLog(userId: string, logId: string) {
-  const { tombstoneDesktopVaultRecord } = await import("./vault-client");
-  return tombstoneDesktopVaultRecord(userId, HABIT_LOGS_COLLECTION, logId, "habit_log");
+  return vaultSync.tombstoneRecord(userId, HABIT_LOGS_COLLECTION, logId, "habit_log");
 }
 
 export async function tombstoneLocalVaultHabitWriteOutboxItem(userId: string, itemId: string) {
-  const { tombstoneDesktopVaultRecord } = await import("./vault-client");
-  return tombstoneDesktopVaultRecord(
+  return vaultSync.tombstoneRecord(
     userId,
     HABIT_WRITE_OUTBOX_COLLECTION,
     itemId,

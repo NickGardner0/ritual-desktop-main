@@ -16,7 +16,7 @@ import {
   isLikelyReactEvent,
   parseApiError,
 } from '../../integrations-client.shared';
-import type { IntegrationOrchestratorDeps } from '../types';
+import type { IntegrationOrchestratorDeps, WearableConnection, WhoopStatusData } from '../types';
 
 type UseWhoopIntegrationParams = Pick<
   IntegrationOrchestratorDeps,
@@ -32,8 +32,8 @@ type UseWhoopIntegrationParams = Pick<
   | 'pollingIntervalRef'
   | 'setIsProcessingCallback'
 > & {
-  whoopConnection: Record<string, unknown> | undefined;
-  whoopStatusData: Record<string, unknown> | undefined;
+  whoopConnection: WearableConnection | undefined;
+  whoopStatusData: WhoopStatusData | undefined;
   effectiveWhoopConnected: boolean;
 };
 

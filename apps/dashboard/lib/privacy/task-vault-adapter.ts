@@ -2,6 +2,7 @@
 
 import type { Routine, RoutineRun, Task } from "@/lib/tasks/types";
 import type { TaskRoutineWriteOutboxItem } from "@/lib/tasks/local-first-writes";
+import { vaultSync } from "./vault-sync";
 
 export const TASKS_COLLECTION = "tasks";
 export const TASK_EVENTS_COLLECTION = "task_events";
@@ -24,8 +25,7 @@ type VaultListClient = {
 
 const desktopVaultListClient: VaultListClient = {
   async listRecords(userId, collection) {
-    const { listDesktopVaultRecords } = await import("./vault-client");
-    return listDesktopVaultRecords(userId, collection);
+    return vaultSync.listRecords(userId, collection);
   },
 };
 
@@ -89,8 +89,7 @@ export async function readLocalVaultTaskRoutineWriteOutboxItems(
 }
 
 export async function putLocalVaultTask(userId: string, task: Task) {
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: TASKS_COLLECTION,
     recordId: task.id,
@@ -101,8 +100,7 @@ export async function putLocalVaultTask(userId: string, task: Task) {
 }
 
 export async function putLocalVaultRoutine(userId: string, routine: Routine) {
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: ROUTINES_COLLECTION,
     recordId: routine.id,
@@ -116,8 +114,7 @@ export async function putLocalVaultTaskRoutineWriteOutboxItem(
   userId: string,
   item: TaskRoutineWriteOutboxItem,
 ) {
-  const { putDesktopVaultRecord } = await import("./vault-client");
-  return putDesktopVaultRecord({
+  return vaultSync.putRecord({
     userId,
     collection: TASK_ROUTINE_WRITE_OUTBOX_COLLECTION,
     recordId: item.id,
@@ -128,11 +125,9 @@ export async function putLocalVaultTaskRoutineWriteOutboxItem(
 }
 
 export async function tombstoneLocalVaultTask(userId: string, taskId: string) {
-  const { tombstoneDesktopVaultRecord } = await import("./vault-client");
-  return tombstoneDesktopVaultRecord(userId, TASKS_COLLECTION, taskId, "task");
+  return vaultSync.tombstoneRecord(userId, TASKS_COLLECTION, taskId, "task");
 }
 
 export async function tombstoneLocalVaultRoutine(userId: string, routineId: string) {
-  const { tombstoneDesktopVaultRecord } = await import("./vault-client");
-  return tombstoneDesktopVaultRecord(userId, ROUTINES_COLLECTION, routineId, "routine");
+  return vaultSync.tombstoneRecord(userId, ROUTINES_COLLECTION, routineId, "routine");
 }

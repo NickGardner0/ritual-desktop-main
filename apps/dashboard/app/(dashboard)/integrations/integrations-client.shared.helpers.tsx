@@ -31,6 +31,8 @@ import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
 
+type UnknownObjectMap = { [key: string]: unknown };
+
 export const INTEGRATIONS_GREEN_SWITCH_CLASS =
   'data-[state=checked]:bg-[#73bf1d] data-[state=unchecked]:bg-gray-200 focus-visible:ring-[#73bf1d]';
 
@@ -149,9 +151,9 @@ export function isLikelyReactEvent(value: unknown): boolean {
   return Boolean(
     value &&
       typeof value === 'object' &&
-      ('nativeEvent' in (value as Record<string, unknown>) ||
-        'preventDefault' in (value as Record<string, unknown>) ||
-        'stopPropagation' in (value as Record<string, unknown>))
+      ('nativeEvent' in (value as UnknownObjectMap) ||
+        'preventDefault' in (value as UnknownObjectMap) ||
+        'stopPropagation' in (value as UnknownObjectMap))
   );
 }
 
@@ -247,7 +249,7 @@ type ScreenTimeSummaryRow = {
   total_active_ms?: unknown;
 };
 
-export type ScreenTimeSummary = Record<string, unknown> & {
+export type ScreenTimeSummary = UnknownObjectMap & {
   daily?: ScreenTimeSummaryRow[];
   total_active_ms?: unknown;
   totalActiveMs?: unknown;
@@ -278,7 +280,7 @@ function todayISODate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function isObjectRecord(value: unknown): value is Record<string, unknown> {
+function isObjectRecord(value: unknown): value is UnknownObjectMap {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 

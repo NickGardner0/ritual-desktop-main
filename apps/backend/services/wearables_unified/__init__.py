@@ -19,7 +19,9 @@ from .capabilities import (
     build_wearable_sync_plan,
     default_sync_mode_for_provider_metric,
 )
+from .apple_ingest import WearableAppleIngestService
 from .connection import WearableConnectionService
+from .device_security import SignedWearableDeviceValidation, WearableDeviceSecurityService
 from .normalization import WearableNormalizationService
 from .outbox import build_wearable_outbox_event_for_event, build_wearable_outbox_event_for_sample
 from .projection import WearableProjectionService
@@ -27,7 +29,9 @@ from .post_ingest import WearablePostIngestResult, WearablePostIngestService
 from .query import WearableQueryService
 from .singletons import (
     normalization_service,
+    wearable_apple_ingest_service,
     wearable_connection_service,
+    wearable_device_security_service,
     wearable_projection_service,
     wearable_query_service,
     wearable_sync_service,
@@ -49,7 +53,10 @@ __all__ = [
     "SOURCE_KIND_PRIORITY_RANKS",
     "STEPS_LIKE_METRICS",
     "ProviderCapabilityDef",
+    "WearableAppleIngestService",
+    "SignedWearableDeviceValidation",
     "WearableConnectionService",
+    "WearableDeviceSecurityService",
     "WearableNormalizationService",
     "WearableProjectionService",
     "WearablePostIngestResult",
@@ -62,7 +69,9 @@ __all__ = [
     "build_wearable_sync_plan",
     "default_sync_mode_for_provider_metric",
     "normalization_service",
+    "wearable_apple_ingest_service",
     "wearable_connection_service",
+    "wearable_device_security_service",
     "wearable_projection_service",
     "wearable_query_service",
     "wearable_sync_service",

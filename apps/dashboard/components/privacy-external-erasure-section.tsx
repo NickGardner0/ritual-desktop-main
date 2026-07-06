@@ -13,9 +13,9 @@ import {
   type ExternalErasureTarget,
 } from '@/lib/privacy/external-erasure';
 import {
-  getDesktopVaultStatus,
+  vaultSync,
   type DesktopVaultStatus,
-} from '@/lib/privacy/vault-client';
+} from '@/lib/privacy/vault-sync';
 import {
   SettingsGroup,
   SettingsRow,
@@ -70,7 +70,7 @@ export function PrivacyExternalErasureSection({ userId, onVaultStatus }: Props) 
         targets: selectedTargets,
       });
       setResult(response);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setMessage(
         `External erasure completed with ${response.response.deleted_count} API deletions and ${response.response.manual_required_count} manual targets.`,
       );

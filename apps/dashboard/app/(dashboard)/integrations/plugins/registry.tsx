@@ -8,7 +8,7 @@ import {
   PLUGIN_BY_DETAIL_KEY,
   PLUGIN_BY_ID,
   buildRegisteredIntegrationCards,
-} from './registry';
+} from './registry.ts';
 
 export {
   INTEGRATION_PLUGINS,

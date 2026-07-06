@@ -404,6 +404,7 @@ async function recordExportHistory(entry: {
     setExportEndDate,
     setExportFormat,
     setExportHistory,
+    setExportSchedule,
     setExportStartDate,
     setExportWriteMode,
     updateScheduleField,

@@ -4,7 +4,8 @@ import type {
   DesktopVaultDeletionReceipt,
   DesktopVaultMigrationManifest,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 import {
   LOCAL_MIGRATION_CATEGORY_LABELS,
   SUPPORTED_LOCAL_MIGRATION_CATEGORIES,
@@ -97,16 +98,13 @@ type ExecuteDeletionOptions = {
 
 const defaultVaultDeletionClient: VaultDeletionClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async listMigrationManifests(userId, limit) {
-    const { listDesktopVaultMigrationManifests } = await import("./vault-client");
-    return listDesktopVaultMigrationManifests(userId, limit);
+    return vaultSync.listMigrationManifests(userId, limit);
   },
   async putDeletionReceipt(input) {
-    const { putDesktopVaultDeletionReceipt } = await import("./vault-client");
-    return putDesktopVaultDeletionReceipt(input);
+    return vaultSync.putDeletionReceipt(input);
   },
 };
 

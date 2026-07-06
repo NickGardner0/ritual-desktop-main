@@ -1,4 +1,7 @@
 import type { ReactNode } from 'react';
+import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { QueryClient } from '@tanstack/react-query';
+import type { IphoneTimeIntegrationStatus, WhoopSyncFeedback, WhoopSyncMode } from '../integrations-client.shared';
 
 export type IntegrationCardItem = {
   id: string;
@@ -9,116 +12,338 @@ export type IntegrationCardItem = {
   node: ReactNode;
 };
 
-export type IntegrationPlugin = {
+export type IntegrationRouter = {
+  replace: (path: string) => void;
+};
+
+export type IntegrationDetailsTab = 'overview' | 'metrics' | 'export' | 'settings';
+export type WearableSyncProvider = 'whoop' | 'apple_health' | 'oura' | 'garmin';
+export type LegacyWearableProvider = 'oura' | 'garmin';
+
+export type IntegrationLastError = {
+  display_message?: string;
+  error_message?: string;
+  message?: string;
+};
+
+export type WearableConnection = {
+  auto_sync_enabled?: boolean | null;
+  auto_sync_note?: string | null;
+  id?: string;
+  last_successful_sync_at?: string | null;
+  last_sync_at?: string | null;
+  provider?: string;
+  sleep_status_message?: string | null;
+  stale_message?: string | null;
+  status?: string;
+  sync_hour?: number | null;
+};
+
+export type AppleWatchStatusData = {
+  connected?: boolean;
+  devices?: Array<{ device_id: string; is_active?: boolean }>;
+  deviceName?: string | null;
+  lastSyncAt?: string | null;
+};
+
+export type WhoopStatusData = WearableConnection & {
+  connected?: boolean;
+};
+
+export type TeslaConnection = {
+  id?: string;
+  last_sync_at?: string | null;
+  status?: string;
+};
+
+export type PlaidAccount = {
+  account_subtype?: string | null;
+  account_type?: string | null;
+  id: string;
+  include_in_spending?: boolean;
+  is_active?: boolean;
+  mask?: string | null;
+  name?: string | null;
+};
+
+export type PlaidConnection = {
+  account_count?: number | null;
+  accounts?: PlaidAccount[];
+  id?: string;
+  auto_sync_enabled?: boolean | null;
+  institution_name?: string | null;
+  last_error_json?: IntegrationLastError | null;
+  last_successful_sync_at?: string | null;
+  last_sync_at?: string | null;
+  latest_transaction_date?: string | null;
+  provider?: string;
+  requires_reconnect?: boolean;
+  status?: string;
+  sync_hour?: number | null;
+};
+
+export type IntegrationHookDeps = {
+  callbackProcessedRef: MutableRefObject<boolean>;
+  fetchHabitLogs: () => unknown;
+  fetchHabits: () => unknown;
+  getToken: () => Promise<string | null>;
+  oauthSessionIdRef: MutableRefObject<string | null>;
+  oauthSessionTokenRef: MutableRefObject<string | null>;
+  pollingIntervalRef: MutableRefObject<NodeJS.Timeout | null>;
+  queryClient: QueryClient;
+  refetchOverview: () => unknown;
+  router: IntegrationRouter;
+  setIsProcessingCallback: (value: boolean) => void;
+  userId?: string;
+};
+
+export type IntegrationOrchestratorDeps = IntegrationHookDeps & {
+  iphoneTimeIntegrationQuery: ReturnType<typeof import('../integrations-client.shared').useIphoneTimeIntegrationStatus>;
+  isDesktop: boolean;
+  openIntegrationDetails: (integration: string) => void;
+  openUserProfile: () => void;
+};
+
+export type AppleHealthExportFormat = 'markdown' | 'json' | 'csv';
+export type AppleHealthExportWriteMode = 'overwrite' | 'append' | 'skip';
+export type AppleHealthExportDatePreset = 'yesterday' | '7d' | '30d' | 'custom';
+
+export type AppleHealthExportSchedule = {
+  enabled: boolean;
+  frequency: 'daily' | 'weekly';
+  format: AppleHealthExportFormat;
+  time: string;
+  day_of_week: number | null;
+  folder_path: string | null;
+  include_all_metrics: boolean;
+  metric_types: string[] | null;
+};
+
+export type AppleHealthExportResult = {
+  type: 'success' | 'error';
+  message: string;
+};
+
+export type AppleHealthExportHistoryEntry = {
+  id: string;
+  timestamp: string;
+  start_date: string;
+  end_date: string;
+  format: string;
+  status: 'success' | 'failed';
+  sample_count: number;
+  file_size_bytes: number | null;
+  file_path: string | null;
+  error: string | null;
+  triggered_by: 'manual' | 'scheduled';
+};
+
+export type AppleHealthExportContext = {
+  applyExportDatePreset: (preset: AppleHealthExportDatePreset) => void;
+  exportDatePreset: AppleHealthExportDatePreset;
+  exportEndDate: string;
+  exportFormat: AppleHealthExportFormat;
+  exportHistory: AppleHealthExportHistoryEntry[];
+  exportLoading: boolean;
+  exportResult: AppleHealthExportResult | null;
+  exportSchedule: AppleHealthExportSchedule | null;
+  exportStartDate: string;
+  exportWriteMode: AppleHealthExportWriteMode;
+  handleExportNow: () => void | Promise<void>;
+  historyLoaded: boolean;
+  loadExportHistory: () => void | Promise<void>;
+  loadExportSchedule: () => void | Promise<void>;
+  loadMetricCatalogAndPreferences: () => void | Promise<void>;
+  metricCatalog: unknown[];
+  metricsLoaded: boolean;
+  saveExportSchedule: (schedule: AppleHealthExportSchedule | null) => void | Promise<void>;
+  saveMetricPreferences: (selected: string[]) => void | Promise<void>;
+  scheduleLoaded: boolean;
+  scheduleSaving: boolean;
+  selectedMetrics: Set<string>;
+  setExportDatePreset: (preset: AppleHealthExportDatePreset) => void;
+  setExportEndDate: (value: string) => void;
+  setExportFormat: (format: AppleHealthExportFormat) => void;
+  setExportHistory: Dispatch<SetStateAction<AppleHealthExportHistoryEntry[]>>;
+  setExportSchedule: Dispatch<SetStateAction<AppleHealthExportSchedule | null>>;
+  setExportStartDate: (value: string) => void;
+  setExportWriteMode: (mode: AppleHealthExportWriteMode) => void;
+  updateScheduleField: <K extends keyof AppleHealthExportSchedule>(
+    field: K,
+    value: AppleHealthExportSchedule[K],
+  ) => void;
+};
+
+export type WhoopIntegrationContext = {
+  handleWhoopCallback: (code: string) => void | Promise<void>;
+  handleWhoopConnect: () => void | Promise<void>;
+  handleWhoopDisconnect: () => void | Promise<void>;
+  handleWhoopSync: (options?: { daysBack?: number; forceFullSync?: boolean; fullHistory?: boolean }) => void | Promise<void>;
+  setWhoopCustomDaysBack: (value: string) => void;
+  setWhoopSyncHour: (hour: number) => void;
+  setWhoopSyncMode: (mode: WhoopSyncMode) => void;
+  syncing: boolean;
+  whoopConnecting: boolean;
+  whoopConnected: boolean;
+  whoopCustomDaysBack: string;
+  whoopSyncFeedback: WhoopSyncFeedback | null;
+  whoopSyncHour: number;
+  whoopSyncMode: WhoopSyncMode;
+};
+
+export type PlaidIntegrationContext = {
+  handlePlaidAccountInclusion: (id: string, included: boolean) => void | Promise<void>;
+  handlePlaidBackfill: () => void | Promise<void>;
+  handlePlaidConnect: () => void | Promise<void>;
+  handlePlaidDisconnect: () => void | Promise<void>;
+  handlePlaidMfaSetup: () => void;
+  handlePlaidReconnect: () => void | Promise<void>;
+  handlePlaidSync: () => void | Promise<void>;
+  handlePlaidSyncSettingsUpdate: (updates: { auto_sync_enabled?: boolean; sync_hour?: number }) => void | Promise<void>;
+  plaidAccountSavingId: string | null;
+  plaidBackfilling: boolean;
+  plaidConnecting: boolean;
+  plaidSettingsSaving: boolean;
+  plaidSyncing: boolean;
+};
+
+export type TeslaIntegrationContext = {
+  effectiveTeslaConnected: boolean;
+  handleTeslaBackfill: () => void | Promise<void>;
+  handleTeslaCallback: (code: string) => void | Promise<void>;
+  handleTeslaConnect: () => void | Promise<void>;
+  handleTeslaDisconnect: () => void | Promise<void>;
+  handleTeslaSync: () => void | Promise<void>;
+  setTeslaBackfillDate: (value: string) => void;
+  setTeslaBackfillOdometer: (value: string) => void;
+  teslaBackfillDate: string;
+  teslaBackfillOdometer: string;
+  teslaBackfilling: boolean;
+  teslaConnecting: boolean;
+  teslaSyncing: boolean;
+};
+
+export type IphoneTimeIntegrationContext = {
+  handleIphoneTimeConnect: () => void | Promise<void>;
+  handleIphoneTimeImport: () => void | Promise<void>;
+  handleIphoneTimeSync: () => void | Promise<void>;
+  iphoneTimeConnecting: boolean;
+  iphoneTimeImporting: boolean;
+  iphoneTimeIntegration?: IphoneTimeIntegrationStatus;
+  iphoneTimeStatusLoading: boolean;
+  iphoneTimeSyncing: boolean;
+};
+
+export type WearableSyncSettingsContext = {
+  handleWearableSyncSettingsUpdate: (
+    provider: WearableSyncProvider,
+    updates: { auto_sync_enabled?: boolean; sync_hour?: number },
+  ) => Promise<void>;
+  whoopSyncHour?: number;
+};
+
+export type LegacyWearableContext = {
+  handleAppleWatchConnect: () => void;
+  handleAppleWatchDisconnect: () => Promise<void>;
+  handleWearableProviderConnect: (provider: LegacyWearableProvider) => void;
+  handleWearableProviderDisconnect: (provider: LegacyWearableProvider) => void;
+  handleWearableProviderSync: (provider: LegacyWearableProvider) => void | Promise<void>;
+  wearableConnectingProvider: string | null;
+  wearableSyncingProvider: string | null;
+};
+
+export type IntegrationCardRuntimeContext =
+  Pick<IntegrationRuntimeContext,
+    | 'appleWatchConnected'
+    | 'computerTrackingConnected'
+    | 'effectiveTeslaConnected'
+    | 'effectiveWhoopConnected'
+    | 'garminConnection'
+    | 'isDesktop'
+    | 'iphoneTimeConnecting'
+    | 'iphoneTimeIntegration'
+    | 'iphoneTimeStatusLoading'
+    | 'iphoneTimeSyncing'
+    | 'ouraConnection'
+    | 'plaidConnected'
+    | 'plaidConnecting'
+    | 'plaidNeedsReconnect'
+    | 'plaidSyncing'
+    | 'router'
+    | 'syncing'
+    | 'teslaConnecting'
+    | 'teslaSyncing'
+    | 'whoopConnecting'
+    | 'whoopSyncFeedback'
+  > &
+    Pick<
+      LegacyWearableContext,
+      | 'handleAppleWatchConnect'
+      | 'handleAppleWatchDisconnect'
+      | 'handleWearableProviderConnect'
+      | 'handleWearableProviderDisconnect'
+      | 'handleWearableProviderSync'
+      | 'wearableConnectingProvider'
+      | 'wearableSyncingProvider'
+    > &
+    Pick<
+      IntegrationRuntimeContext,
+      | 'handleIphoneTimeConnect'
+      | 'handleIphoneTimeSync'
+      | 'handlePlaidConnect'
+      | 'handlePlaidDisconnect'
+      | 'handlePlaidReconnect'
+      | 'handlePlaidSync'
+      | 'handleTeslaConnect'
+      | 'handleTeslaDisconnect'
+      | 'handleTeslaSync'
+      | 'handleWhoopConnect'
+      | 'handleWhoopDisconnect'
+      | 'handleWhoopSync'
+      | 'openIntegrationDetails'
+    >;
+
+export type IntegrationRuntimeContext = {
+  appleHealthConnection?: WearableConnection;
+  appleWatchConnected: boolean;
+  appleWatchLastSync?: string | null;
+  appleWatchStatusData?: AppleWatchStatusData;
+  computerTrackingConnected: boolean;
+  detailsTab: IntegrationDetailsTab;
+  effectiveWhoopConnected: boolean;
+  effectiveTeslaConnected: boolean;
+  garminConnection?: WearableConnection;
+  getToken: () => Promise<string | null>;
+  isDesktop: boolean;
+  openIntegrationDetails: (integration: string) => void;
+  ouraConnection?: WearableConnection;
+  plaidConnected: boolean;
+  plaidConnection?: PlaidConnection;
+  plaidNeedsReconnect: boolean;
+  plaidReconnectReason: string;
+  router: IntegrationRouter;
+  selectedIntegration: string | null;
+  setDetailsTab: (tab: IntegrationDetailsTab) => void;
+  teslaConnection?: TeslaConnection;
+  whoopConnection?: WearableConnection;
+  whoopStatusData?: WhoopStatusData;
+} & AppleHealthExportContext &
+  WhoopIntegrationContext &
+  PlaidIntegrationContext &
+  TeslaIntegrationContext &
+  IphoneTimeIntegrationContext &
+  LegacyWearableContext &
+  WearableSyncSettingsContext;
+
+export type IntegrationPlugin<
+  CardContext extends IntegrationCardRuntimeContext = IntegrationCardRuntimeContext,
+  DetailContext extends IntegrationRuntimeContext = IntegrationRuntimeContext,
+> = {
   id: string;
   detailKey: string;
   title: string;
   keywords?: string[];
-  buildCard: (ctx: IntegrationCardRuntimeContext) => IntegrationCardItem | null;
-  DetailPanel: (props: { ctx: IntegrationRuntimeContext }) => ReactNode;
-  PanelAction?: (props: { ctx: IntegrationRuntimeContext }) => ReactNode;
-  useIntegration?: (deps: IntegrationOrchestratorDeps) => Record<string, unknown>;
-};
-
-export type IntegrationOrchestratorDeps = {
-  getToken: () => Promise<string | null>;
-  userId?: string;
-  refetchOverview: () => unknown;
-    fetchHabits: () => unknown;
-    fetchHabitLogs: () => unknown;
-  isDesktop: boolean;
-  router: { replace: (path: string) => void };
-  openUserProfile: () => void;
-  openIntegrationDetails: (integration: string) => void;
-  integrationsOverview: ReturnType<typeof import('../integrations-client.shared').useIntegrationsOverview>['data'];
-  iphoneTimeIntegrationQuery: ReturnType<typeof import('../integrations-client.shared').useIphoneTimeIntegrationStatus>;
-  callbackProcessedRef: { current: boolean };
-  oauthSessionIdRef: { current: string | null };
-  oauthSessionTokenRef: { current: string | null };
-  pollingIntervalRef: { current: NodeJS.Timeout | null };
-  setIsProcessingCallback: (value: boolean) => void;
-  queryClient: import('@tanstack/react-query').QueryClient;
-  handleWearableSyncSettingsUpdate: (
-    provider: 'whoop' | 'apple_health' | 'oura' | 'garmin',
-    updates: { auto_sync_enabled?: boolean; sync_hour?: number },
-  ) => Promise<void>;
-  handleWearableProviderSync: (provider: 'oura' | 'garmin') => Promise<void>;
-  detailsTab: 'overview' | 'metrics' | 'export' | 'settings';
-  setDetailsTab: (tab: 'overview' | 'metrics' | 'export' | 'settings') => void;
-  handleAppleWatchConnect: () => void;
-  handleAppleWatchDisconnect: () => Promise<void>;
-  appleWatchStatusData: {
-    connected?: boolean;
-    devices?: Array<{ device_id: string; is_active?: boolean }>;
-    lastSyncAt?: string | null;
-    deviceName?: string | null;
-  } | undefined;
-  appleHealthConnection: Record<string, unknown> | undefined;
-  whoopConnection: Record<string, unknown> | undefined;
-  whoopStatusData: Record<string, unknown> | undefined;
-  teslaConnection: Record<string, unknown> | undefined;
-  plaidConnection: Record<string, unknown> | undefined;
-  plaidMfaRequired: boolean;
-  userHasMfaEnabled: boolean;
-};
-
-export type IntegrationRuntimeContext = IntegrationOrchestratorDeps &
-  Record<string, unknown> & {
-    selectedIntegration: string | null;
-    computerTrackingConnected: boolean;
-    appleWatchConnected: boolean;
-    appleWatchLastSync?: string | null;
-    effectiveWhoopConnected: boolean;
-    effectiveTeslaConnected: boolean;
-    plaidConnected: boolean;
-    plaidNeedsReconnect: boolean;
-    plaidReconnectReason: string;
-    wearableConnectingProvider: string | null;
-    wearableSyncingProvider: string | null;
-    ouraConnection: Record<string, unknown> | undefined;
-    garminConnection: Record<string, unknown> | undefined;
-  };
-
-export type IntegrationCardRuntimeContext = Record<string, unknown> & {
-  appleWatchConnected: boolean;
-  computerTrackingConnected: boolean;
-  effectiveTeslaConnected: boolean;
-  effectiveWhoopConnected: boolean;
-  garminConnection: Record<string, unknown> | undefined;
-  handleAppleWatchConnect: () => void;
-  handleAppleWatchDisconnect: () => Promise<void>;
-  handleIphoneTimeConnect: unknown;
-  handleIphoneTimeSync: unknown;
-  handlePlaidConnect: unknown;
-  handlePlaidDisconnect: unknown;
-  handlePlaidReconnect: unknown;
-  handlePlaidSync: unknown;
-  handleTeslaConnect: unknown;
-  handleTeslaDisconnect: unknown;
-  handleTeslaSync: unknown;
-  handleWearableProviderConnect: (provider: 'oura' | 'garmin') => void;
-  handleWearableProviderDisconnect: (provider: 'oura' | 'garmin') => void;
-  handleWearableProviderSync: (provider: 'oura' | 'garmin') => void;
-  handleWhoopConnect: unknown;
-  handleWhoopDisconnect: unknown;
-  handleWhoopSync: unknown;
-  isDesktop: boolean;
-  iphoneTimeConnecting: unknown;
-  iphoneTimeIntegration: unknown;
-  iphoneTimeStatusLoading: unknown;
-  iphoneTimeSyncing: unknown;
-  openIntegrationDetails: (integration: string) => void;
-  ouraConnection: Record<string, unknown> | undefined;
-  plaidConnected: boolean;
-  plaidConnecting: unknown;
-  plaidNeedsReconnect: boolean;
-  plaidSyncing: unknown;
-  router: { replace: (path: string) => void };
-  syncing: unknown;
-  teslaConnecting: unknown;
-  teslaSyncing: unknown;
-  wearableConnectingProvider: string | null;
-  wearableSyncingProvider: string | null;
-  whoopConnecting: unknown;
-  whoopSyncFeedback: unknown;
+  buildCard: (ctx: CardContext) => IntegrationCardItem | null;
+  DetailPanel: (props: { ctx: DetailContext }) => ReactNode;
+  PanelAction?: (props: { ctx: DetailContext }) => ReactNode;
 };

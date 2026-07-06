@@ -3,7 +3,8 @@
 import type {
   DesktopVaultDeletionReceipt,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 
 export const SUPPORTED_EXTERNAL_ERASURE_TARGETS = [
   "private_sync_envelopes",
@@ -90,12 +91,10 @@ export type ExternalErasureClient = {
 
 const defaultExternalErasureClient: ExternalErasureClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async putDeletionReceipt(input) {
-    const { putDesktopVaultDeletionReceipt } = await import("./vault-client");
-    return putDesktopVaultDeletionReceipt(input);
+    return vaultSync.putDeletionReceipt(input);
   },
 };
 

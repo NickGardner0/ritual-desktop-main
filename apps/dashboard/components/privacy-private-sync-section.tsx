@@ -8,8 +8,10 @@ import {
   privacySettingsHeaders,
   writePrivacySettings,
 } from '@/lib/privacy/privacy-settings';
-import type { DesktopVaultStatus } from '@/lib/privacy/vault-client';
-import { getDesktopVaultStatus } from '@/lib/privacy/vault-client';
+import {
+  vaultSync,
+  type DesktopVaultStatus,
+} from '@/lib/privacy/vault-sync';
 import {
   PRIVATE_SYNC_CATEGORY_LABELS,
   SUPPORTED_PRIVATE_SYNC_CATEGORIES,
@@ -77,7 +79,7 @@ export function PrivacyPrivateSyncSection({ userId, settings, onVaultStatus }: P
         headers: privacySettingsHeaders(activeSettings),
       });
       await refreshDevices(activeSettings);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setMessage(
         `${key.created ? 'Created' : 'Found'} local Private Sync key ${key.keyVersion}; this device is ${device.status}.`,
       );
@@ -100,7 +102,7 @@ export function PrivacyPrivateSyncSection({ userId, settings, onVaultStatus }: P
         headers: privacySettingsHeaders(settings),
       });
       setPushResult(result);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setMessage(
         `Pushed ${result.envelopeCount} encrypted envelopes; ${result.skippedUnchangedCount} unchanged records skipped.`,
       );
@@ -123,7 +125,7 @@ export function PrivacyPrivateSyncSection({ userId, settings, onVaultStatus }: P
         headers: privacySettingsHeaders(settings),
       });
       setPullResult(result);
-      onVaultStatus(await getDesktopVaultStatus(userId));
+      onVaultStatus(await vaultSync.getStatus(userId));
       setMessage(`Pulled ${result.pulledCount} envelopes and applied ${result.appliedCount} records locally.`);
       await refreshDevices();
     } catch {

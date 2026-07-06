@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,15 +64,29 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
     updateScheduleField,
   } = ctx;
 
-  if (appleWatchConnected && !metricsLoaded) {
-    (loadMetricCatalogAndPreferences as () => void)();
-  }
-  if (appleWatchConnected && !scheduleLoaded) {
-    (loadExportSchedule as () => void)();
-  }
-  if (appleWatchConnected && !historyLoaded) {
-    (loadExportHistory as () => void)();
-  }
+  useEffect(() => {
+    if (!appleWatchConnected) {
+      return;
+    }
+
+    if (!metricsLoaded) {
+      void (loadMetricCatalogAndPreferences as () => void | Promise<void>)();
+    }
+    if (!scheduleLoaded) {
+      void (loadExportSchedule as () => void | Promise<void>)();
+    }
+    if (!historyLoaded) {
+      void (loadExportHistory as () => void | Promise<void>)();
+    }
+  }, [
+    appleWatchConnected,
+    historyLoaded,
+    loadExportHistory,
+    loadExportSchedule,
+    loadMetricCatalogAndPreferences,
+    metricsLoaded,
+    scheduleLoaded,
+  ]);
 
   const tabs = [
     { key: 'overview' as const, label: 'Overview' },
@@ -248,7 +263,7 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                       categories={metricCatalog as any[]}
                       selected={selectedMetrics as Set<string>}
                       onSave={async (selected: string[]) => {
-                        await (saveMetricPreferences as (metrics: Set<string>) => void)(new Set(selected));
+                        await saveMetricPreferences(selected);
                       }}
                     />
                   ) : (

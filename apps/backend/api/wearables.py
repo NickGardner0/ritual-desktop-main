@@ -36,7 +36,9 @@ def create_wearables_router(
     from services.garmin_service import garmin_service
     from services.oura_service import oura_service
     from services.unified_wearables_service import (
+        wearable_apple_ingest_service,
         wearable_connection_service,
+        wearable_device_security_service,
         wearable_projection_service,
         wearable_query_service,
         wearable_sync_service,
@@ -45,7 +47,6 @@ def create_wearables_router(
     from services.wearable_ingest_job_service import wearable_ingest_job_service
     from services.wearable_maintenance_service import wearable_maintenance_service
     from services.wearable_provider_sync_registry import WearableProviderSyncServices
-    from services.wearables_service import wearables_service
     from services.whoop_service import whoop_service
 
     provider_sync_services = WearableProviderSyncServices(
@@ -76,7 +77,8 @@ def create_wearables_router(
     deps = WearablesRouterDeps(
         limiter=limiter,
         get_current_user=get_current_user,
-        wearables_service=wearables_service,
+        wearable_apple_ingest_service=wearable_apple_ingest_service,
+        wearable_device_security_service=wearable_device_security_service,
         whoop_service=whoop_service,
         oura_service=oura_service,
         garmin_service=garmin_service,

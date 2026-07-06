@@ -80,7 +80,6 @@ def register_admin_replay_routes(router: APIRouter, deps: WearablesRouterDeps) -
 
     limiter = deps.limiter
     get_current_user = deps.get_current_user
-    wearables_service = deps.wearables_service
     whoop_service = deps.whoop_service
     oura_service = deps.oura_service
     garmin_service = deps.garmin_service

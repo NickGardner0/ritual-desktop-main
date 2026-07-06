@@ -9,7 +9,8 @@ import type {
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 import {
   LOCAL_MIGRATION_CATEGORY_LABELS,
   SUPPORTED_LOCAL_MIGRATION_CATEGORIES,
@@ -227,24 +228,19 @@ export const RITUAL_VAULT_SCHEMA = {
 
 const defaultRitualVaultClient: RitualVaultClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async listRecords(userId, collection, options) {
-    const { listDesktopVaultRecords } = await import("./vault-client");
-    return listDesktopVaultRecords(userId, collection, options);
+    return vaultSync.listRecords(userId, collection, options);
   },
   async putRecord(input) {
-    const { putDesktopVaultRecord } = await import("./vault-client");
-    return putDesktopVaultRecord(input);
+    return vaultSync.putRecord(input);
   },
   async listMigrationManifests(userId, limit) {
-    const { listDesktopVaultMigrationManifests } = await import("./vault-client");
-    return listDesktopVaultMigrationManifests(userId, limit);
+    return vaultSync.listMigrationManifests(userId, limit);
   },
   async listDeletionReceipts(userId, limit) {
-    const { listDesktopVaultDeletionReceipts } = await import("./vault-client");
-    return listDesktopVaultDeletionReceipts(userId, limit);
+    return vaultSync.listDeletionReceipts(userId, limit);
   },
 };
 

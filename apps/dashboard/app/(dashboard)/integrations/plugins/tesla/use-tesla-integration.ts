@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { openInBrowser } from '@/lib/tauri-utils';
 import { formatErrorMessage } from '../../integrations-client.shared';
-import type { IntegrationOrchestratorDeps } from '../types';
+import type { IntegrationOrchestratorDeps, TeslaConnection } from '../types';
 
 type UseTeslaIntegrationParams = Pick<
   IntegrationOrchestratorDeps,
@@ -19,7 +19,7 @@ type UseTeslaIntegrationParams = Pick<
   | 'router'
   | 'setIsProcessingCallback'
 > & {
-  teslaConnection: Record<string, unknown> | undefined;
+  teslaConnection: TeslaConnection | undefined;
 };
 
 export function useTeslaIntegration({

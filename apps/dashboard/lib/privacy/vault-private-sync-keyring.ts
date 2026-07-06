@@ -5,7 +5,8 @@ import type {
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 import {
   PRIVATE_SYNC_WEB_CRYPTO_ALGORITHM,
   base64ToBytes,
@@ -129,16 +130,13 @@ type PrivateSyncEncryptedKeyringFile = {
 
 const defaultKeyringClient: PrivateSyncKeyringVaultClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async getRecord(userId, collection, recordId) {
-    const { getDesktopVaultRecord } = await import("./vault-client");
-    return getDesktopVaultRecord(userId, collection, recordId);
+    return vaultSync.getRecord(userId, collection, recordId);
   },
   async putRecord(input) {
-    const { putDesktopVaultRecord } = await import("./vault-client");
-    return putDesktopVaultRecord(input);
+    return vaultSync.putRecord(input);
   },
 };
 

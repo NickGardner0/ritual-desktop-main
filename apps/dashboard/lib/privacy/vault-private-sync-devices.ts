@@ -5,7 +5,8 @@ import type {
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
   DesktopVaultStatus,
-} from "./vault-client";
+} from "./vault-sync";
+import { vaultSync } from "./vault-sync";
 import { PRIVATE_SYNC_STATE_COLLECTION } from "./vault-private-sync-keyring";
 
 export const PRIVATE_SYNC_DEVICE_RECORD_ID = "device-v1";
@@ -80,16 +81,13 @@ export type PrivateSyncDeviceVaultClient = {
 
 const defaultDeviceClient: PrivateSyncDeviceVaultClient = {
   async initializeVault(userId) {
-    const { initializeDesktopVault } = await import("./vault-client");
-    return initializeDesktopVault(userId);
+    return vaultSync.initialize(userId);
   },
   async getRecord(userId, collection, recordId) {
-    const { getDesktopVaultRecord } = await import("./vault-client");
-    return getDesktopVaultRecord(userId, collection, recordId);
+    return vaultSync.getRecord(userId, collection, recordId);
   },
   async putRecord(input) {
-    const { putDesktopVaultRecord } = await import("./vault-client");
-    return putDesktopVaultRecord(input);
+    return vaultSync.putRecord(input);
   },
 };
 
