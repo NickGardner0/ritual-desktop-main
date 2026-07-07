@@ -373,7 +373,7 @@ export function RoutineConfigureModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        className="max-w-[980px] gap-0 border-[rgba(15,23,42,0.10)] bg-[#fbfbf9] p-0 text-[#16181d] shadow-2xl sm:rounded-[12px] [&>button]:hidden"
+        className="max-w-[980px] gap-0 border-[rgba(15,23,42,0.10)] bg-[#fbfbf9] p-0 text-[#16181d] shadow-2xl duration-150 motion-reduce:duration-0 sm:rounded-[12px] [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
