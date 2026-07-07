@@ -88,6 +88,18 @@ body[data-voice-hud-window="1"] {
   background-color: var(--ritual-snappy-row-active, var(--row-active, rgba(39, 37, 30, 0.055))) !important;
 }
 
+/* Routines: subtle pulse for a currently running routine's status dot */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes routine-running-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.45; transform: scale(0.85); }
+  }
+
+  .routine-running-dot {
+    animation: routine-running-pulse 1.6s ease-in-out infinite;
+  }
+}
+
 .ritual-snappy-row-menu {
   --ritual-snappy-row-hover: #F3F3F3;
   --ritual-snappy-row-active: #F3F3F3;

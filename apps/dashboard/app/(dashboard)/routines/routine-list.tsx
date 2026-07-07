@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { Copy, ListChecks, MoreHorizontal, Pause, Pencil, Play, Trash2 } from 'lucide-react';
 
 import {
@@ -55,6 +56,7 @@ function RoutineRow({
   running,
   lastRun,
   actions,
+  first,
 }: {
   item: AgentRoutine;
   selected: boolean;
@@ -62,6 +64,7 @@ function RoutineRow({
   running: boolean;
   lastRun: RoutineRunView | undefined;
   actions: RoutineRowActions;
+  first: boolean;
 }) {
   const { routine, agent } = item;
   const paused = routine.status === 'paused';
@@ -72,7 +75,7 @@ function RoutineRow({
     <div
       role="option"
       aria-selected={selected}
-      tabIndex={-1}
+      tabIndex={first ? 0 : -1}
       data-routine-row={routine.id}
       onClick={() => actions.onSelect(routine.id)}
       onKeyDown={(event) => {
@@ -176,6 +179,7 @@ export function RoutineList({
   actions: RoutineRowActions;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
   const sorted = [...items].sort((a, b) => {
     const pausedDelta = Number(a.routine.status === 'paused') - Number(b.routine.status === 'paused');
     if (pausedDelta !== 0) return pausedDelta;
@@ -211,23 +215,28 @@ export function RoutineList({
         }
       }}
     >
-      {sorted.map((item, index) => (
-        <FocusableRow key={item.routine.id} first={index === 0}>
-          <RoutineRow
-            item={item}
-            selected={selectedId === item.routine.id}
-            now={now}
-            running={runningRoutineIds.has(item.routine.id)}
-            lastRun={lastRunByRoutine.get(item.routine.id)}
-            actions={actions}
-          />
-        </FocusableRow>
-      ))}
+      <AnimatePresence initial={false}>
+        {sorted.map((item, index) => (
+          <motion.div
+            key={item.routine.id}
+            layout={!reduceMotion}
+            initial={reduceMotion ? false : { opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? undefined : { opacity: 0, height: 0, overflow: 'hidden' }}
+            transition={{ duration: 0.16 }}
+          >
+            <RoutineRow
+              item={item}
+              first={index === 0}
+              selected={selectedId === item.routine.id}
+              now={now}
+              running={runningRoutineIds.has(item.routine.id)}
+              lastRun={lastRunByRoutine.get(item.routine.id)}
+              actions={actions}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
-}
-
-/** Makes the first row reachable by Tab, the rest by arrow keys. */
-function FocusableRow({ first, children }: { first: boolean; children: React.ReactElement }) {
-  return React.cloneElement(children, { tabIndex: first ? 0 : -1 } as Record<string, unknown>);
 }

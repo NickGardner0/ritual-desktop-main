@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, RotateCw } from 'lucide-react';
@@ -24,6 +25,7 @@ import {
   nameFromInstructions,
   type AgentRoutine,
 } from '@/lib/routines/model';
+import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
 import { templateById } from '@/lib/routines/templates';
 import { useNow } from '@/lib/routines/time';
@@ -76,6 +78,7 @@ export function RoutinesClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const router = useRouter();
   useTaskRoutineOutboxSync();
   const now = useNow(30_000);
 
@@ -161,6 +164,30 @@ export function RoutinesClient() {
     }
     return ids;
   }, [runViews]);
+
+  // Notify when a run finishes (transition-only; the first snapshot is skipped).
+  const seenRunStatuses = useRef<Map<string, RoutineRunView['status']> | null>(null);
+  useEffect(() => {
+    const current = new Map(runViews.map((run) => [run.id, run.status]));
+    const previous = seenRunStatuses.current;
+    seenRunStatuses.current = current;
+    if (!previous) return;
+    for (const run of runViews) {
+      const before = previous.get(run.id);
+      if (!before || before === run.status) continue;
+      if (run.status === 'succeeded') {
+        toast.success(`${run.routineName} finished`, run.artifactId ? {
+          action: { label: 'Open report', onClick: () => router.push(`/reports?artifactId=${run.artifactId}`) },
+        } : undefined);
+        const owner = agentRoutines.find((item) => item.routine.id === run.routineId);
+        if (owner?.agent.notify_push) {
+          sendRoutineNotification(run.routineName, 'A new report is ready in Ritual.');
+        }
+      } else if (run.status === 'failed') {
+        toast.error(`${run.routineName} failed`, { description: run.error || undefined });
+      }
+    }
+  }, [runViews, agentRoutines, router]);
 
   const selectedRoutineId = selectedId && routines.some((routine) => routine.id === selectedId)
     ? selectedId
