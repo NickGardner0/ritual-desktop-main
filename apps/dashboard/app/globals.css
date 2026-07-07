@@ -329,7 +329,7 @@ body[data-voice-hud-window="1"] {
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
-  --content-shell-radius: 0px;
+  --content-shell-radius: 14px;
   --content-shell-border: rgba(15, 23, 42, 0.072);
   --content-shell-shadow: -10px 0 28px rgba(15, 23, 42, 0.035);
 
@@ -557,14 +557,14 @@ body[data-voice-hud-window="1"] {
     border-left: 0;
     border-top-left-radius: var(--content-shell-radius);
     border-bottom-left-radius: var(--content-shell-radius);
-    box-shadow: -1px 0 0 rgba(15, 23, 42, 0.022);
+    box-shadow: -1px 0 0 rgba(15, 23, 42, 0.025);
   }
 
   .integrated-window-chrome .content-shell::before {
     content: "";
     position: absolute;
-    top: 0;
-    bottom: 0;
+    top: 14px;
+    bottom: 14px;
     left: 0;
     z-index: 3;
     width: 1px;
@@ -646,7 +646,7 @@ body[data-voice-hud-window="1"] {
 
   .ritual-nav-label {
     color: var(--text-secondary);
-    font-weight: 450;
+    font-weight: 425;
     transition: none;
   }
 
