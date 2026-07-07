@@ -103,7 +103,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[20px] border border-[rgba(24,24,27,0.14)] bg-white shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
+          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[14px] border border-[rgba(24,24,27,0.14)] bg-[var(--content-bg)] shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
           composerHeightClass
         )}
       >
