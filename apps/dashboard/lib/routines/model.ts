@@ -1,10 +1,5 @@
 import type { Routine, RoutineCreateInput, RoutineTriggerType, RoutineUpdateInput } from '@/lib/tasks/types';
-import type {
-  WorkflowDefinition,
-  WorkflowDefinitionCreateInput,
-  WorkflowDefinitionUpdateInput,
-  WorkflowKind,
-} from '@/lib/workflows/types';
+import type { WorkflowDefinition, WorkflowKind } from '@/lib/workflows/types';
 
 export type AgentTier = 'lite' | 'regular' | 'max';
 
@@ -29,9 +24,10 @@ export const ROUTINE_DATA_SOURCES: Array<{ key: RoutineDataSourceKey; label: str
 export const ALL_DATA_SOURCE_KEYS: RoutineDataSourceKey[] = ROUTINE_DATA_SOURCES.map((source) => source.key);
 
 /**
- * Agent settings for an AI routine. Stored in the linked workflow definition's
- * free-form `config` JSON (delivered as-is to the workflow executor), so no
- * backend schema changes are required.
+ * Agent settings for an AI routine. Stored under `trigger_config.agent` on the
+ * routine itself — workflow definitions are unique per (user_id, kind), so
+ * routines share a definition per kind and carry their own agent config into
+ * each run (the backend copies it into the run's executor input).
  */
 export type RoutineAgentConfig = {
   instructions: string;
@@ -45,50 +41,41 @@ export type RoutineAgentConfig = {
 
 export const DEFAULT_AGENT_ICON = 'sparkles';
 
-export function defaultAgentConfig(): RoutineAgentConfig {
-  return {
-    instructions: '',
-    agent_tier: 'regular',
-    data_sources: [],
-    notify_push: true,
-    notify_email: false,
-    icon: DEFAULT_AGENT_ICON,
-    template_key: null,
-  };
-}
-
 function asTier(value: unknown): AgentTier {
   return value === 'lite' || value === 'max' ? value : 'regular';
 }
 
-export function readAgentConfig(definition: WorkflowDefinition | null | undefined, routine?: Routine | null): RoutineAgentConfig {
-  const config = (definition?.config || {}) as Record<string, unknown>;
+export function readAgentConfig(routine: Routine | null | undefined): RoutineAgentConfig {
+  const raw = (routine?.trigger_config as Record<string, unknown> | undefined)?.agent;
+  const agent = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   return {
-    instructions: typeof config.instructions === 'string' && config.instructions.trim()
-      ? config.instructions
+    instructions: typeof agent.instructions === 'string' && agent.instructions.trim()
+      ? agent.instructions
       : (routine?.description || ''),
-    agent_tier: asTier(config.agent_tier),
-    data_sources: Array.isArray(config.data_sources) ? config.data_sources.map(String) : [],
-    notify_push: config.notify_push !== false,
-    notify_email: config.notify_email === true,
-    icon: typeof config.icon === 'string' && config.icon ? config.icon : DEFAULT_AGENT_ICON,
-    template_key: typeof config.ai_routine_template_key === 'string' ? config.ai_routine_template_key : null,
+    agent_tier: asTier(agent.agent_tier),
+    data_sources: Array.isArray(agent.data_sources) ? agent.data_sources.map(String) : [],
+    notify_push: agent.notify_push !== false,
+    notify_email: agent.notify_email === true,
+    icon: typeof agent.icon === 'string' && agent.icon ? agent.icon : DEFAULT_AGENT_ICON,
+    template_key: typeof agent.template_key === 'string' ? agent.template_key : null,
   };
 }
 
-/** A routine joined with its agent definition — the page's working unit. */
+/** A routine joined with its parsed agent config — the page's working unit. */
 export type AgentRoutine = {
   routine: Routine;
-  definition: WorkflowDefinition | null;
   agent: RoutineAgentConfig;
 };
 
-export function joinAgentRoutines(routines: Routine[], definitions: WorkflowDefinition[]): AgentRoutine[] {
-  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
-  return routines.map((routine) => {
-    const definition = routine.ai_workflow_definition_id ? byId.get(routine.ai_workflow_definition_id) || null : null;
-    return { routine, definition, agent: readAgentConfig(definition, routine) };
-  });
+export function joinAgentRoutines(routines: Routine[]): AgentRoutine[] {
+  return routines.map((routine) => ({ routine, agent: readAgentConfig(routine) }));
+}
+
+/** Pick the shared per-kind definition a new routine's runs execute against. */
+export function sharedDefinitionId(definitions: WorkflowDefinition[], kind: WorkflowKind): string | null {
+  const routineFamily = definitions.filter((definition) => definition.definition_family === 'routine');
+  const byKind = routineFamily.find((definition) => definition.kind === kind);
+  return (byKind || routineFamily.find((definition) => definition.kind === 'daily_narrative') || routineFamily[0])?.id || null;
 }
 
 /** Editable schedule state used by the configure modal. */
@@ -141,6 +128,7 @@ export function scheduleDraftFromRoutine(routine: Routine): ScheduleDraft {
   return draft;
 }
 
+/** Schedule keys only — what the recurrence engines read. */
 export function triggerConfigFromDraft(draft: ScheduleDraft): Record<string, unknown> {
   const base: Record<string, unknown> = { interval: draft.interval, hour: draft.hour, minute: draft.minute };
   if (draft.frequency === 'weekly') base.weekdays = [...draft.weekdays].sort((a, b) => a - b);
@@ -159,6 +147,24 @@ export function triggerConfigFromDraft(draft: ScheduleDraft): Record<string, unk
   return base;
 }
 
+function agentConfigJson(agent: RoutineAgentConfig, routineName: string): Record<string, unknown> {
+  return {
+    instructions: agent.instructions,
+    agent_tier: agent.agent_tier,
+    data_sources: agent.data_sources,
+    notify_push: agent.notify_push,
+    notify_email: agent.notify_email,
+    icon: agent.icon,
+    template_key: agent.template_key || undefined,
+    routine_name: routineName,
+  };
+}
+
+/** Full trigger_config: schedule keys plus the namespaced agent config. */
+export function triggerConfigWithAgent(draft: ScheduleDraft, agent: RoutineAgentConfig, routineName: string): Record<string, unknown> {
+  return { ...triggerConfigFromDraft(draft), agent: agentConfigJson(agent, routineName) };
+}
+
 function isoDateToLocalIso(date: string | null, hour: number, minute: number): string | null {
   if (!date) return null;
   const [year, month, day] = date.split('-').map(Number);
@@ -172,76 +178,6 @@ export function firstRunAtFromDraft(draft: ScheduleDraft): string | null {
 
 export function endsAtFromDraft(draft: ScheduleDraft): string | null {
   return isoDateToLocalIso(draft.ends, 23, 59);
-}
-
-/** Mirror of the routine schedule for the definition row (cosmetic — the routine drives scheduling). */
-export function workflowScheduleMirror(draft: ScheduleDraft, timezone: string) {
-  return {
-    timezone,
-    cadence: draft.frequency === 'weekly' ? 'weekly' : 'daily',
-    send_hour_local: draft.hour,
-    send_minute_local: draft.minute,
-    send_weekdays: draft.frequency === 'weekly' ? [...draft.weekdays].sort((a, b) => a - b) : [],
-  };
-}
-
-export function agentConfigPayload(agent: RoutineAgentConfig, templateKey: string | null, routineName?: string): Record<string, unknown> {
-  return {
-    routine_agent_version: 1,
-    routine_name: routineName || undefined,
-    instructions: agent.instructions,
-    agent_tier: agent.agent_tier,
-    data_sources: agent.data_sources,
-    notify_push: agent.notify_push,
-    notify_email: agent.notify_email,
-    icon: agent.icon,
-    ai_routine_template_key: templateKey || undefined,
-  };
-}
-
-export function buildAgentDefinitionCreateInput({
-  name,
-  kind,
-  agent,
-  draft,
-  timezone,
-  templateKey,
-}: {
-  name: string;
-  kind: WorkflowKind;
-  agent: RoutineAgentConfig;
-  draft: ScheduleDraft;
-  timezone: string;
-  templateKey: string | null;
-}): WorkflowDefinitionCreateInput {
-  return {
-    kind,
-    name,
-    definition_family: 'routine',
-    trigger_type: 'schedule',
-    signal_kind: null,
-    // Paused so the definition never self-schedules; the routine is the
-    // single scheduling source and queues runs against this definition.
-    status: 'paused',
-    schedule: workflowScheduleMirror(draft, timezone),
-    delivery: { channel: 'in_app', publish: true, inbox: true },
-    config: agentConfigPayload(agent, templateKey, name),
-  };
-}
-
-export function buildAgentDefinitionUpdateInput(args: {
-  name: string;
-  agent: RoutineAgentConfig;
-  draft: ScheduleDraft;
-  timezone: string;
-  templateKey: string | null;
-}): WorkflowDefinitionUpdateInput {
-  return {
-    name: args.name,
-    status: 'paused',
-    schedule: workflowScheduleMirror(args.draft, args.timezone),
-    config: agentConfigPayload(args.agent, args.templateKey, args.name),
-  };
 }
 
 export function buildAgentRoutineInput({
@@ -265,7 +201,7 @@ export function buildAgentRoutineInput({
     status: 'scheduled',
     kind: 'ai_workflow',
     trigger_type: draft.frequency,
-    trigger_config: triggerConfigFromDraft(draft),
+    trigger_config: triggerConfigWithAgent(draft, agent, name),
     timezone,
     priority: 'none',
     tags: tags && tags.length ? tags : ['ai'],
@@ -286,7 +222,7 @@ export function buildAgentRoutineUpdateInput(args: {
     description: args.agent.instructions,
     status: args.paused ? 'paused' : 'scheduled',
     trigger_type: args.draft.frequency,
-    trigger_config: triggerConfigFromDraft(args.draft),
+    trigger_config: triggerConfigWithAgent(args.draft, args.agent, args.name),
     first_run_at: firstRunAtFromDraft(args.draft),
     ends_at: endsAtFromDraft(args.draft),
   };

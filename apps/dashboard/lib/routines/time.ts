@@ -19,7 +19,12 @@ export function useNow(intervalMs = 30_000): Date {
 
 export function toDate(value: string | Date | null | undefined): Date | null {
   if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
+  // The backend serializes naive UTC datetimes ("2026-07-08T11:30:00");
+  // treat timezone-less ISO strings as UTC so local rendering is correct.
+  const normalized = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(value)
+    ? `${value}Z`
+    : value;
+  const date = normalized instanceof Date ? normalized : new Date(normalized);
   return Number.isNaN(date.getTime()) ? null : date;
 }
 

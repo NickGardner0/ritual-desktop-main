@@ -16,13 +16,12 @@ import {
 } from '@/lib/privacy/task-vault-adapter';
 import { mergeRoutinesWithOutbox } from '@/lib/tasks/local-first-writes';
 import {
-  buildAgentDefinitionCreateInput,
-  buildAgentDefinitionUpdateInput,
   buildAgentRoutineInput,
   buildAgentRoutineUpdateInput,
   currentTimezone,
   joinAgentRoutines,
   nameFromInstructions,
+  sharedDefinitionId,
   type AgentRoutine,
 } from '@/lib/routines/model';
 import { sendRoutineNotification } from '@/lib/routines/notifications';
@@ -32,12 +31,9 @@ import { useNow } from '@/lib/routines/time';
 import { ReferencePage, SegmentedTabs, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
-  WorkflowDefinition,
   WorkflowDefinitionListResponse,
-  WorkflowDefinitionUpdateInput,
   WorkflowRun,
   WorkflowRunListResponse,
-  WorkflowRunQueueResponse,
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
 
@@ -118,10 +114,7 @@ export function RoutinesClient() {
   });
 
   const routines = useMemo(() => (routinesQuery.data || []).filter((routine) => routine.status !== 'archived'), [routinesQuery.data]);
-  const agentRoutines = useMemo(
-    () => joinAgentRoutines(routines, definitionsQuery.data || []),
-    [routines, definitionsQuery.data],
-  );
+  const agentRoutines = useMemo(() => joinAgentRoutines(routines), [routines]);
 
   const workflowRunsQuery = useQuery({
     queryKey: ['workflow-runs', 'routines-page', user?.id],
@@ -247,13 +240,6 @@ export function RoutinesClient() {
       patch: { title: name },
       optimistic: { title: name },
     });
-    if (item.definition) {
-      void apiJsonWithAuth(`/api/workflows/definitions/${item.definition.id}`, getToken, {
-        method: 'PATCH',
-        body: JSON.stringify({ name } satisfies WorkflowDefinitionUpdateInput),
-        userId: user?.id,
-      }).catch(() => undefined);
-    }
   };
 
   const deleteRoutine = (item: AgentRoutine) => {
@@ -299,29 +285,16 @@ export function RoutinesClient() {
         template_key: state.templateKey,
       };
 
+      // Runs execute against the shared per-kind definition (definitions are
+      // unique per user+kind); listing them also seeds the defaults.
+      const resolveDefinitionId = async () => {
+        const cached = definitionsQuery.data
+          || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
+        return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
+      };
+
       if (editing) {
-        let definitionId = editing.definition?.id || null;
-        if (definitionId) {
-          await apiJsonWithAuth<WorkflowDefinition>(`/api/workflows/definitions/${definitionId}`, getToken, {
-            method: 'PATCH',
-            body: JSON.stringify(buildAgentDefinitionUpdateInput({ name, agent, draft: state.draft, timezone, templateKey: state.templateKey })),
-            userId: user?.id,
-          });
-        } else {
-          const definition = await apiJsonWithAuth<WorkflowDefinition>('/api/workflows/definitions', getToken, {
-            method: 'POST',
-            body: JSON.stringify(buildAgentDefinitionCreateInput({
-              name,
-              kind: template?.workflowKind || 'daily_narrative',
-              agent,
-              draft: state.draft,
-              timezone,
-              templateKey: state.templateKey,
-            })),
-            userId: user?.id,
-          });
-          definitionId = definition.id;
-        }
+        const definitionId = editing.routine.ai_workflow_definition_id || (await resolveDefinitionId());
         const patch: RoutineUpdateInput = {
           ...buildAgentRoutineUpdateInput({ name, agent, draft: state.draft, paused: editing.routine.status === 'paused' }),
           kind: 'ai_workflow',
@@ -335,21 +308,11 @@ export function RoutinesClient() {
         return { routine: response.items[0] || null, created: false };
       }
 
-      const definition = await apiJsonWithAuth<WorkflowDefinition>('/api/workflows/definitions', getToken, {
-        method: 'POST',
-        body: JSON.stringify(buildAgentDefinitionCreateInput({
-          name,
-          kind: template?.workflowKind || 'daily_narrative',
-          agent,
-          draft: state.draft,
-          timezone,
-          templateKey: state.templateKey,
-        })),
-        userId: user?.id,
-      });
+      const definitionId = await resolveDefinitionId();
+      if (!definitionId) throw new Error('Could not prepare the agent for this routine — check the backend connection.');
       const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
         method: 'POST',
-        body: JSON.stringify(buildAgentRoutineInput({ name, agent, draft: state.draft, timezone, definitionId: definition.id })),
+        body: JSON.stringify(buildAgentRoutineInput({ name, agent, draft: state.draft, timezone, definitionId })),
         userId: user?.id,
       });
       return { routine: response.items[0] || null, created: true };
@@ -371,15 +334,18 @@ export function RoutinesClient() {
 
   const runNowMutation = useMutation({
     mutationFn: async (item: AgentRoutine) => {
-      if (!item.definition) throw new Error('This routine has no agent attached yet — edit it and save to attach one.');
-      return apiJsonWithAuth<WorkflowRunQueueResponse>(`/api/workflows/definitions/${item.definition.id}/run`, getToken, {
+      if (!item.routine.ai_workflow_definition_id) {
+        throw new Error('This routine has no agent attached yet — edit it and save to attach one.');
+      }
+      return apiJsonWithAuth<RoutineRun>(`/api/routines/${item.routine.id}/run-now`, getToken, {
         method: 'POST',
         userId: user?.id,
       });
     },
-    onSuccess: (response) => {
-      queryClient.setQueryData<WorkflowRun[]>(['workflow-runs', 'routines-page', user?.id], (current) =>
-        [response.run, ...(current || []).filter((run) => run.id !== response.run.id)]);
+    onSuccess: (run) => {
+      queryClient.setQueryData<RoutineRun[]>(['routine-runs', 'routines-page', user?.id], (current) =>
+        [run, ...(current || []).filter((item) => item.id !== run.id)]);
+      void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
       void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not start the run.'),

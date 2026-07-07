@@ -127,8 +127,8 @@ export function RoutineDetail({
           <button
             type="button"
             onClick={() => onRunNow(item)}
-            disabled={running || !item.definition}
-            title={running ? 'This routine is already running' : !item.definition ? 'This routine has no agent attached' : 'Run now'}
+            disabled={running || !item.routine.ai_workflow_definition_id}
+            title={running ? 'This routine is already running' : !item.routine.ai_workflow_definition_id ? 'This routine has no agent attached — edit and save to attach one' : 'Run now'}
             className="inline-flex h-9 items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/85 px-3 text-[13px] font-[640] text-[#2f3743] transition hover:bg-white disabled:opacity-45"
           >
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
@@ -174,11 +174,11 @@ export function RoutineDetail({
         <div className="mt-1">
           <SummaryRow label="Trigger">{FREQUENCY_LABELS[routine.trigger_type] || routine.trigger_type}</SummaryRow>
           <SummaryRow label="Every">{interval} {interval === 1 ? unit : `${unit}s`}</SummaryRow>
-          <SummaryRow label="First run">{routine.first_run_at ? formatOccurrence(new Date(routine.first_run_at), now) : 'Next occurrence'}</SummaryRow>
-          <SummaryRow label="Ends">{routine.ends_at ? formatOccurrence(new Date(routine.ends_at), now) : 'Never'}</SummaryRow>
+          <SummaryRow label="First run">{routine.first_run_at ? formatOccurrence(toDate(routine.first_run_at)!, now) : 'Next occurrence'}</SummaryRow>
+          <SummaryRow label="Ends">{routine.ends_at ? formatOccurrence(toDate(routine.ends_at)!, now) : 'Never'}</SummaryRow>
         </div>
         <div className="border-t border-[rgba(15,23,42,0.06)] px-4 py-2.5 text-[12px] leading-5 text-[#8a929c]">
-          <div>Last: {routine.last_run_at ? formatOccurrence(new Date(routine.last_run_at), now) : '—'}</div>
+          <div>Last: {routine.last_run_at ? formatOccurrence(toDate(routine.last_run_at)!, now) : '—'}</div>
           <div>
             Next: {paused
               ? 'paused'

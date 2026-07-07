@@ -115,7 +115,7 @@ function RoutineRow({
         <button
           type="button"
           title={running ? 'Already running' : 'Run now'}
-          disabled={running || !item.definition}
+          disabled={running || !item.routine.ai_workflow_definition_id}
           onClick={() => actions.onRunNow(item)}
           className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-[#747b85] transition hover:bg-white/80 hover:text-[#171b22] disabled:opacity-40"
         >

@@ -995,12 +995,20 @@ class WorkflowService:
             run.window_end = window.end_utc
             await session.commit()
 
+            # Routine-queued runs carry a per-run agent config in plan_json
+            # (definitions are unique per kind, so routines share them and
+            # override instructions/tier/data sources at run level).
+            run_input = self._parse_json(run.plan_json, None)
+            config = self._parse_json(definition.config_json, {})
+            if isinstance(run_input, dict) and isinstance(run_input.get("config_override"), dict):
+                config = {**config, **run_input["config_override"]}
+
             payload = await self._call_dashboard_executor(
                 user_id=user.id,
                 run_id=run.id,
                 workflow_kind=definition.kind,
                 timezone_name=definition.timezone,
-                config=self._parse_json(definition.config_json, {}),
+                config=config,
                 window=window,
             )
             artifact_payload = payload.get("artifact") or {}
@@ -1062,7 +1070,10 @@ class WorkflowService:
                     ArtifactLinkCreate(target_type="fact", target_id=fact.id, relationship="suggested_from"),
                 )
 
-            run.plan_json = json.dumps(payload.get("plan") or {})
+            plan_payload = dict(payload.get("plan") or {})
+            if isinstance(run_input, dict) and run_input.get("routine_id"):
+                plan_payload.setdefault("routine_id", run_input["routine_id"])
+            run.plan_json = json.dumps(plan_payload)
             run.result_json = json.dumps(payload.get("result") or {})
             run.proposed_actions_json = json.dumps(proposed_actions)
             run.policy_decisions_json = json.dumps(policy_decisions_json)

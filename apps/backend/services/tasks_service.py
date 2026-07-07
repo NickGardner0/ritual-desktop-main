@@ -190,6 +190,27 @@ def _routine_run_to_schema(run: RoutineRunDB) -> RoutineRunRead:
     )
 
 
+def _routine_agent_plan(routine: RoutineDB) -> Dict[str, Any]:
+    """Per-run executor input for AI routines.
+
+    Agent settings (instructions, tier, data sources, notify flags) are stored
+    under `trigger_config.agent` on the routine — workflow definitions are
+    unique per (user_id, kind), so routines share definitions and carry their
+    own agent config into each run via the run's plan_json.
+    """
+    config = _json_load(routine.trigger_config_json, {})
+    agent = config.get("agent") if isinstance(config, dict) else None
+    plan: Dict[str, Any] = {"routine_id": routine.id}
+    if isinstance(agent, dict):
+        override = dict(agent)
+        override.setdefault("instructions", routine.description or "")
+        override["routine_name"] = routine.title
+        plan["config_override"] = override
+    elif routine.description:
+        plan["config_override"] = {"instructions": routine.description, "routine_name": routine.title}
+    return plan
+
+
 def _compute_routine_next(routine: RoutineDB, *, reference_utc: Optional[datetime] = None) -> Optional[datetime]:
     if routine.status != "scheduled":
         return None
@@ -561,6 +582,51 @@ class TasksService:
             ),
         )
 
+    async def run_routine_now(self, user_id: str, routine_id: str) -> RoutineRunRead:
+        """Queue an immediate manual run for an AI routine and process it."""
+        import asyncio
+
+        from services.workflow_service import workflow_service
+
+        async with get_db_session() as session:
+            routine = await session.get(RoutineDB, routine_id)
+            if not routine or routine.user_id != user_id:
+                raise RoutineNotFoundError("Routine not found")
+            if routine.kind not in {"ai_workflow", "mixed"} or not routine.ai_workflow_definition_id:
+                raise TaskRoutineValidationError("This routine has no agent attached")
+
+            now = _utcnow_naive()
+            workflow_run = WorkflowRunDB(
+                id=str(uuid4()),
+                workflow_definition_id=routine.ai_workflow_definition_id,
+                user_id=user_id,
+                status="queued",
+                trigger_source="manual",
+                plan_json=_json_dump(_routine_agent_plan(routine)),
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(workflow_run)
+            run = RoutineRunDB(
+                id=str(uuid4()),
+                routine_id=routine.id,
+                user_id=user_id,
+                scheduled_for=now,
+                status="generated",
+                workflow_run_id=workflow_run.id,
+                idempotency_key=f"routine:{routine.id}:manual:{workflow_run.id}",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(run)
+            routine.last_run_at = now
+            routine.updated_at = now
+            await session.commit()
+            await session.refresh(run)
+
+        asyncio.create_task(workflow_service.process_run_by_id(workflow_run.id))
+        return _routine_run_to_schema(run)
+
     async def generate_due_routines(
         self,
         user_id: str,
@@ -723,6 +789,7 @@ class TasksService:
                         user_id=user_id,
                         status="queued",
                         trigger_source="scheduled",
+                        plan_json=_json_dump(_routine_agent_plan(routine)),
                         idempotency_key=f"{idempotency_key}:workflow",
                         created_at=_utcnow_naive(),
                         updated_at=_utcnow_naive(),
