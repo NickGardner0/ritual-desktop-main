@@ -90,14 +90,17 @@ export function Sidebar() {
 
   return (
     <SidebarShell
-      data-tauri-drag-region
-      className="tauri-drag-region"
       style={{
         width,
         transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
       }}
       {...hoverProps}
     >
+      <div
+        aria-hidden
+        data-tauri-drag-region
+        className="tauri-drag-region absolute left-2 right-2 top-0 z-0 h-12"
+      />
       <div
         className={cn(
           "no-drag absolute z-20 flex items-center gap-0.5",
