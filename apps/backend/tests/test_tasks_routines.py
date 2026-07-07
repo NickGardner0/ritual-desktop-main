@@ -205,6 +205,49 @@ class TasksRoutinesServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.skipped, 1)
         self.assertEqual(len([task for task in tasks if task.routine_id == "routine-1"]), 1)
 
+    async def test_missed_occurrences_catch_up_once_and_skip_older(self):
+        # Daily 9:00 AM New York routine; the app was closed for six days.
+        first_due = datetime(2026, 6, 24, 13, 0, 0)  # 9:00 EDT in UTC
+        async with self.Session() as session:
+            session.add(
+                RoutineDB(
+                    id="routine-catchup",
+                    user_id="user-tasks",
+                    title="Daily brief",
+                    status="scheduled",
+                    kind="task",
+                    trigger_type="daily",
+                    trigger_config_json='{"interval":1,"hour":9,"minute":0}',
+                    task_template_json='{"title":"Daily brief task","category":"Personal","tags":[]}',
+                    tags_json='[]',
+                    timezone="America/New_York",
+                    next_run_at=first_due,
+                )
+            )
+            await session.commit()
+
+        reference = datetime(2026, 6, 29, 14, 0, 0)
+        with patch("services.tasks_service.get_db_session", self.db_session):
+            result = await tasks_service.generate_due_routines(
+                "user-tasks",
+                reference_utc=reference,
+            )
+            runs = await tasks_service.list_routine_runs("user-tasks", routine_id="routine-catchup", limit=20)
+
+        # Six occurrences were missed (6/24-6/29); only the latest runs.
+        self.assertEqual(result.queued, 1)
+        self.assertEqual(result.generated_tasks, 1)
+        self.assertEqual(result.skipped, 5)
+        statuses = sorted(run.status for run in runs)
+        self.assertEqual(statuses.count("skipped"), 5)
+        self.assertEqual(statuses.count("generated"), 1)
+        generated_run = next(run for run in runs if run.status == "generated")
+        self.assertEqual(generated_run.scheduled_for, datetime(2026, 6, 29, 13, 0, 0))
+
+        async with self.Session() as session:
+            routine = await session.get(RoutineDB, "routine-catchup")
+            self.assertEqual(routine.next_run_at, datetime(2026, 6, 30, 13, 0, 0))
+
     async def test_on_completion_routine_waits_for_generated_task_completion(self):
         scheduled_for = datetime(2026, 6, 29, 13, 0, 0)
         async with self.Session() as session:

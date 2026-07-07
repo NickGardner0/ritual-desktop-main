@@ -185,9 +185,10 @@ export function workflowScheduleMirror(draft: ScheduleDraft, timezone: string) {
   };
 }
 
-export function agentConfigPayload(agent: RoutineAgentConfig, templateKey: string | null): Record<string, unknown> {
+export function agentConfigPayload(agent: RoutineAgentConfig, templateKey: string | null, routineName?: string): Record<string, unknown> {
   return {
     routine_agent_version: 1,
+    routine_name: routineName || undefined,
     instructions: agent.instructions,
     agent_tier: agent.agent_tier,
     data_sources: agent.data_sources,
@@ -224,7 +225,7 @@ export function buildAgentDefinitionCreateInput({
     status: 'paused',
     schedule: workflowScheduleMirror(draft, timezone),
     delivery: { channel: 'in_app', publish: true, inbox: true },
-    config: agentConfigPayload(agent, templateKey),
+    config: agentConfigPayload(agent, templateKey, name),
   };
 }
 
@@ -239,7 +240,7 @@ export function buildAgentDefinitionUpdateInput(args: {
     name: args.name,
     status: 'paused',
     schedule: workflowScheduleMirror(args.draft, args.timezone),
-    config: agentConfigPayload(args.agent, args.templateKey),
+    config: agentConfigPayload(args.agent, args.templateKey, args.name),
   };
 }
 

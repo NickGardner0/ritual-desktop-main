@@ -593,6 +593,40 @@ class TasksService:
                 scheduled_for = routine.next_run_at
                 if scheduled_for is None:
                     continue
+
+                # Catch-up: when several occurrences were missed (app closed
+                # across fire times), run only the most recent one and record
+                # the older occurrences as skipped — never stampede.
+                if routine.trigger_type != "on_completion":
+                    missed: List[datetime] = []
+                    cursor: Optional[datetime] = scheduled_for
+                    while cursor is not None and cursor < reference and len(missed) < 60:
+                        missed.append(cursor)
+                        cursor = _compute_routine_next(routine, reference_utc=cursor + timedelta(seconds=1))
+                    if len(missed) > 1:
+                        for occurrence in missed[:-1]:
+                            skip_key = f"routine:{routine.id}:{occurrence.isoformat()}"
+                            skip_existing = await session.execute(
+                                select(RoutineRunDB).where(RoutineRunDB.idempotency_key == skip_key)
+                            )
+                            if skip_existing.scalar_one_or_none():
+                                continue
+                            session.add(
+                                RoutineRunDB(
+                                    id=str(uuid4()),
+                                    routine_id=routine.id,
+                                    user_id=user_id,
+                                    scheduled_for=occurrence,
+                                    status="skipped",
+                                    skipped_at=_utcnow_naive(),
+                                    idempotency_key=skip_key,
+                                    created_at=_utcnow_naive(),
+                                    updated_at=_utcnow_naive(),
+                                )
+                            )
+                            skipped += 1
+                        scheduled_for = missed[-1]
+
                 idempotency_key = f"routine:{routine.id}:{scheduled_for.isoformat()}"
                 existing_result = await session.execute(
                     select(RoutineRunDB).where(RoutineRunDB.idempotency_key == idempotency_key)

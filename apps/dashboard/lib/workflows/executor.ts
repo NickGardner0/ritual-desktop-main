@@ -15,11 +15,19 @@ import {
   inferRecapAnchorDate,
 } from '@ritual/chat-runtime';
 
+import {
+  buildCustomDeterministicArtifact,
+  collectCustomRoutine,
+  isCustomRoutine,
+  synthesizeCustomArtifactWithOpenAI,
+} from './custom-routine';
+
 export type WorkflowKind = 'morning_brief' | 'shutdown_review' | 'daily_narrative' | 'distraction_spiral';
 export type WorkflowArtifactKind =
   | 'morning_brief'
   | 'shutdown_review'
-  | 'ambient_digest';
+  | 'ambient_digest'
+  | 'report';
 
 export interface WorkflowExecuteWindow {
   start: string;
@@ -628,33 +636,42 @@ function chooseCollector(kind: WorkflowKind) {
 
 export async function executeWorkflow(payload: WorkflowExecutePayload, backendToken: string): Promise<WorkflowExecutionResult> {
   const compositeToken = `${backendToken}::${payload.user_id}`;
-  const collector = chooseCollector(payload.workflow_kind);
-  const collected = await collector(compositeToken, payload);
+  const config = payload.config || {};
+  const custom = isCustomRoutine(config);
+  const collected = custom
+    ? await collectCustomRoutine(compositeToken, payload)
+    : await chooseCollector(payload.workflow_kind)(compositeToken, payload);
 
   let artifact: WorkflowArtifactResult;
   let modelUsed = 'deterministic';
   if (process.env.RITUAL_WORKFLOW_EXECUTOR_DISABLE_OPENAI === '1') {
-    artifact = buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+    artifact = custom
+      ? buildCustomDeterministicArtifact(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+      : buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
   } else {
     try {
-      artifact = await synthesizeArtifactWithOpenAI(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+      artifact = custom
+        ? await synthesizeCustomArtifactWithOpenAI(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+        : await synthesizeArtifactWithOpenAI(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
       modelUsed = 'gpt-4o-mini';
     } catch (error) {
       console.warn('[workflow-executor] falling back to deterministic renderer', error);
-      artifact = buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
+      artifact = custom
+        ? buildCustomDeterministicArtifact(config, collected.dataset, collected.tool_calls_made, payload.timezone)
+        : buildDeterministicArtifact(payload.workflow_kind, collected.dataset, collected.tool_calls_made, payload.timezone);
     }
   }
 
   artifact.metadata = {
     ...artifact.metadata,
     workflow_run_id: payload.workflow_run_id,
-    workflow_kind: payload.workflow_kind,
+    workflow_kind: custom ? 'custom_routine' : payload.workflow_kind,
     template_version: 1,
   };
 
-  const factSuggestions = buildFactSuggestions(payload.workflow_kind, collected.dataset);
-  const queueSuggestions = buildQueueSuggestions(payload.workflow_kind);
-  const proposedActions = buildProposedActions(payload.workflow_kind, queueSuggestions);
+  const factSuggestions = custom ? [] : buildFactSuggestions(payload.workflow_kind, collected.dataset);
+  const queueSuggestions = custom ? [] : buildQueueSuggestions(payload.workflow_kind);
+  const proposedActions = custom ? [] : buildProposedActions(payload.workflow_kind, queueSuggestions);
 
   return {
     plan: {
