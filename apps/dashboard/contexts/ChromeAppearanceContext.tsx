@@ -33,7 +33,7 @@ export const CHROME_APPEARANCE_OPTIONS: ChromeAppearanceOption[] = [
   {
     value: "white",
     label: "White",
-    description: "Opaque white titlebar and sidebar",
+    description: "Soft white titlebar and sidebar material",
   },
   {
     value: "zed",
@@ -48,11 +48,11 @@ const DEFAULT_APPEARANCE: ChromeAppearance = "frosted";
 
 const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   frosted: {
-    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.20)",
-    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.038)",
-    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.28)",
-    "--titlebar-glass-bg": "rgba(255, 255, 255, 0.38)",
-    "--titlebar-glass-bg-strong": "rgba(255, 255, 255, 0.50)",
+    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.34)",
+    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.06)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.38)",
+    "--titlebar-glass-bg": "rgba(255, 255, 255, 0.46)",
+    "--titlebar-glass-bg-strong": "rgba(255, 255, 255, 0.62)",
     "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.42)",
     "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.58)",
     "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.74)",

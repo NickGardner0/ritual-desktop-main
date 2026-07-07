@@ -313,11 +313,11 @@ body[data-voice-hud-window="1"] {
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.20);
-  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.038);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.28);
-  --titlebar-glass-bg: rgba(255, 255, 255, 0.38);
-  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.50);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.34);
+  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.06);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.38);
+  --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
+  --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
   --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.58);
   --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.74);
@@ -329,7 +329,7 @@ body[data-voice-hud-window="1"] {
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
   --titlebar-glass-filter: saturate(1.08) blur(24px);
   --content-bg: #fefefe;
-  --content-shell-radius: 14px;
+  --content-shell-radius: 12px;
   --content-shell-border: rgba(15, 23, 42, 0.072);
   --content-shell-shadow: -10px 0 28px rgba(15, 23, 42, 0.035);
 
@@ -554,29 +554,10 @@ body[data-voice-hud-window="1"] {
     position: relative;
     isolation: isolate;
     background: var(--content-bg);
-    border-left: 0;
+    border-left: 1px solid var(--content-shell-border);
     border-top-left-radius: var(--content-shell-radius);
     border-bottom-left-radius: var(--content-shell-radius);
-    box-shadow: -1px 0 0 rgba(15, 23, 42, 0.025);
-  }
-
-  .integrated-window-chrome .content-shell::before {
-    content: "";
-    position: absolute;
-    top: 14px;
-    bottom: 14px;
-    left: 0;
-    z-index: 3;
-    width: 1px;
-    pointer-events: none;
-    background: linear-gradient(
-      180deg,
-      transparent 0%,
-      rgba(15, 23, 42, 0.018) 8%,
-      rgba(15, 23, 42, 0.034) 50%,
-      rgba(15, 23, 42, 0.018) 92%,
-      transparent 100%
-    );
+    box-shadow: var(--content-shell-shadow);
   }
 
   .integrated-window-chrome .app-toolbar-region {
@@ -1021,11 +1002,11 @@ body[data-voice-hud-window="1"] {
     background:
       linear-gradient(
         180deg,
-        rgba(255, 255, 255, 0.74) 0%,
-        rgba(250, 249, 246, 0.62) 46%,
-        rgba(246, 245, 242, 0.52) 100%
+        rgba(246, 245, 243, 0.97) 0%,
+        rgba(244, 243, 240, 0.95) 42%,
+        rgba(242, 241, 238, 0.93) 100%
       );
-    background-color: rgba(248, 247, 244, 0.58);
+    background-color: rgba(244, 243, 240, 0.95);
     border-right: 0;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
@@ -1156,11 +1137,11 @@ body[data-voice-hud-window="1"] {
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.30) 0%,
-      rgba(255, 255, 255, 0.18) 48%,
-      rgba(252, 252, 250, 0.12) 100%
+      rgba(255, 255, 255, 0.56) 0%,
+      rgba(255, 255, 255, 0.40) 48%,
+      rgba(252, 252, 250, 0.32) 100%
     ) !important;
-    background-color: rgba(255, 255, 255, 0.16) !important;
+    background-color: rgba(255, 255, 255, 0.36) !important;
     border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -1210,10 +1191,9 @@ body[data-voice-hud-window="1"] {
     inset: 0;
     pointer-events: none;
     background:
-      radial-gradient(110% 85% at 18% 2%, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0.10) 40%, rgba(255, 255, 255, 0) 72%),
-      radial-gradient(90% 70% at 92% 100%, rgba(210, 226, 255, 0.18) 0%, rgba(255, 255, 255, 0) 68%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.0) 48%);
-    opacity: 0.72;
+      linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
+    opacity: 0.9;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
@@ -1230,14 +1210,23 @@ body[data-voice-hud-window="1"] {
   }
 
   html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy {
-    background: #ffffff !important;
-    background-color: #ffffff !important;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.86) 0%,
+      rgba(249, 250, 251, 0.78) 48%,
+      rgba(244, 246, 248, 0.70) 100%
+    ) !important;
+    background-color: rgba(248, 249, 250, 0.78) !important;
     border-right: 0 !important;
   }
 
-  html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer,
-  html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy::before {
+  html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer {
     display: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy::before {
+    display: block !important;
+    opacity: 0.46 !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .titlebar-region,
@@ -1249,14 +1238,23 @@ body[data-voice-hud-window="1"] {
   }
 
   html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy {
-    background: #eeeeec !important;
-    background-color: #eeeeec !important;
+    background: linear-gradient(
+      180deg,
+      rgba(238, 238, 236, 0.92) 0%,
+      rgba(235, 235, 232, 0.84) 48%,
+      rgba(232, 232, 229, 0.76) 100%
+    ) !important;
+    background-color: rgba(236, 236, 233, 0.84) !important;
     border-right: 0 !important;
   }
 
-  html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer,
-  html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy::before {
+  html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer {
     display: none !important;
+  }
+
+  html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy::before {
+    display: block !important;
+    opacity: 0.36 !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .titlebar-icon-button {
@@ -1269,14 +1267,20 @@ body[data-voice-hud-window="1"] {
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy {
-    background: #ffffff !important;
-    background-color: #ffffff !important;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.86) 0%,
+      rgba(249, 250, 251, 0.78) 48%,
+      rgba(244, 246, 248, 0.70) 100%
+    ) !important;
+    background-color: rgba(248, 249, 250, 0.78) !important;
     border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before {
-    display: none !important;
+    display: block !important;
+    opacity: 0.46 !important;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
@@ -1290,14 +1294,20 @@ body[data-voice-hud-window="1"] {
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy {
-    background: #eeeeec !important;
-    background-color: #eeeeec !important;
+    background: linear-gradient(
+      180deg,
+      rgba(238, 238, 236, 0.92) 0%,
+      rgba(235, 235, 232, 0.84) 48%,
+      rgba(232, 232, 229, 0.76) 100%
+    ) !important;
+    background-color: rgba(236, 236, 233, 0.84) !important;
     border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before {
-    display: none !important;
+    display: block !important;
+    opacity: 0.36 !important;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
