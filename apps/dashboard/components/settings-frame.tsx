@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, MapPin, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, MapPin, Mic, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -18,6 +18,7 @@ import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
 import { PrivacySettingsPanel } from './privacy-settings-panel';
+import { VoiceSettings } from './voice-settings';
 import {
   SettingsGroup as RitualSettingsGroup,
   SettingsRow as RitualSettingsRow,
@@ -44,12 +45,13 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 const TABS: Record<DesktopSettingsView, TabConfig> = {
   account: { label: 'General', icon: Settings2 },
   privacy: { label: 'Privacy', icon: ShieldCheck },
+  voice: { label: 'Voice', icon: Mic },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
   'place-tagging': { label: 'Place Tagging', icon: MapPin },
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
-const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'computer-tracking', 'place-tagging', 'apple-health'];
+const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'voice', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -66,7 +68,7 @@ const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
 ];
 
 export function normalizeSettingsFrameView(value: unknown): DesktopSettingsView {
-  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'privacy' || value === 'voice' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
     : 'account';
 }
@@ -415,6 +417,12 @@ export function SettingsFrame({
         {activeTab === 'privacy' ? (
           <SettingsPage title="Privacy" embedded>
             <PrivacySettingsPanel />
+          </SettingsPage>
+        ) : null}
+
+        {activeTab === 'voice' ? (
+          <SettingsPage title="Voice" embedded>
+            <VoiceSettings />
           </SettingsPage>
         ) : null}
 

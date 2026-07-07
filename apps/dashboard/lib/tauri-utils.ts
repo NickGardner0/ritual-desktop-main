@@ -8,6 +8,11 @@ import {
   openDesktopExternalUrlWithFallback,
 } from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import type {
+  VoiceSessionSource,
+  VoiceSessionStartPayload,
+  VoiceTarget,
+} from '@/lib/voice/voice-session-contract';
 
 /**
  * Check if the app is running in Tauri
@@ -134,7 +139,7 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
-export type DesktopSettingsView = 'account' | 'privacy' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+export type DesktopSettingsView = 'account' | 'privacy' | 'voice' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
   const maxAttempts = 8;
@@ -158,6 +163,35 @@ export async function openDesktopSettingsWindow(initialView: DesktopSettingsView
   }
 
   throw new Error('Failed to open native settings window.');
+}
+
+export type OpenDesktopVoiceHudPayload = {
+  target: VoiceTarget;
+  source: VoiceSessionSource;
+  submitOnFinal?: false;
+};
+
+export type VoiceHotkeySettings = {
+  enabled: boolean;
+  shortcut: string;
+  registered?: boolean;
+  registrationError?: string | null;
+};
+
+export async function openDesktopVoiceHud(payload: OpenDesktopVoiceHudPayload): Promise<VoiceSessionStartPayload> {
+  return invokeDesktopCommand<VoiceSessionStartPayload>('open_voice_hud', payload);
+}
+
+export async function hideDesktopVoiceHud(): Promise<void> {
+  await invokeDesktopCommand('hide_voice_hud');
+}
+
+export async function getVoiceHotkeySettings(): Promise<VoiceHotkeySettings> {
+  return invokeDesktopCommand<VoiceHotkeySettings>('get_voice_hotkey_settings');
+}
+
+export async function setVoiceHotkeySettings(settings: VoiceHotkeySettings): Promise<VoiceHotkeySettings> {
+  return invokeDesktopCommand<VoiceHotkeySettings>('set_voice_hotkey_settings', { settings });
 }
 
 /**

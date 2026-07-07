@@ -15,6 +15,7 @@ import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
 import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { showMainWindow } from '@/lib/tauri-utils';
+import { VoiceSessionProvider } from '@/components/voice-session-provider';
 
 /**
  * Root Providers Wrapper
@@ -35,10 +36,19 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
   const isDesktopShell = typeof window !== 'undefined' && isDesktop;
+  const isVoiceHudWindow = () => {
+    if (typeof window === 'undefined') return false;
+    const params = new URLSearchParams(window.location.search);
+    return params.get('ritual_voice_hud_window') === '1';
+  };
   const isAuxiliaryDesktopWindow = () => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
-    return params.get('ritual_sidebar_window') === '1' || params.get('ritual_settings_window') === '1';
+    return (
+      params.get('ritual_sidebar_window') === '1' ||
+      params.get('ritual_settings_window') === '1' ||
+      params.get('ritual_voice_hud_window') === '1'
+    );
   };
   const [isTransparencyProbe] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -193,9 +203,11 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       <OpenPanelProvider>
         <QueryProvider>
           <HabitsProvider>
-            <DesktopAssetRecoveryBridge />
-            <DesktopAuthDeepLinkBridge />
-            {children}
+            <VoiceSessionProvider>
+              <DesktopAssetRecoveryBridge />
+              <DesktopAuthDeepLinkBridge />
+              {children}
+            </VoiceSessionProvider>
           </HabitsProvider>
         </QueryProvider>
       </OpenPanelProvider>
@@ -212,7 +224,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       <PlatformDetector />
       {isTransparencyProbe ? (
         <TransparencyProbe />
-      ) : isDesktopBootstrap ? (
+      ) : isDesktopBootstrap || isVoiceHudWindow() ? (
         children
       ) : (
         <ClerkProvider

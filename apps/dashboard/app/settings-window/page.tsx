@@ -10,7 +10,7 @@ type SettingsWindowPageProps = {
 };
 
 function normalizeView(value: string | undefined): DesktopSettingsView {
-  return value === 'privacy' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'privacy' || value === 'voice' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
     : 'account';
 }

@@ -22,6 +22,9 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent,
 };
+use tauri_plugin_global_shortcut::{
+    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
+};
 #[cfg(target_os = "macos")]
 use tauri_plugin_deep_link::DeepLinkExt;
 use tracing::{info, instrument, warn};
@@ -56,6 +59,10 @@ const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1280x80
 const MACOS_NATIVE_WINDOW_CORNER_RADIUS: f64 = 18.0;
 #[cfg(target_os = "macos")]
 const MACOS_SETTINGS_WINDOW_CORNER_RADIUS: f64 = 10.0;
+const VOICE_HUD_WINDOW_WIDTH: f64 = 860.0;
+const VOICE_HUD_WINDOW_HEIGHT: f64 = 244.0;
+const DEFAULT_VOICE_SHORTCUT: &str = "Alt+Space";
+const VOICE_HOTKEY_SETTINGS_FILE: &str = "voice-hotkey-settings.json";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -1117,14 +1124,460 @@ struct SettingsWindowPayload {
     initial_view: String,
 }
 
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHotkeySettings {
+    enabled: bool,
+    shortcut: String,
+    #[serde(default)]
+    registered: bool,
+    #[serde(default)]
+    registration_error: Option<String>,
+}
+
+impl Default for VoiceHotkeySettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shortcut: DEFAULT_VOICE_SHORTCUT.to_string(),
+            registered: false,
+            registration_error: None,
+        }
+    }
+}
+
+#[derive(Default)]
+struct VoiceHotkeyState {
+    inner: Mutex<VoiceHotkeySettings>,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceSessionStartPayload {
+    session_id: String,
+    target: String,
+    source: String,
+    submit_on_final: bool,
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHotkeyOpenPayload {
+    source: String,
+}
+
 const SETTINGS_WINDOW_WIDTH: f64 = 820.0;
 const SETTINGS_WINDOW_HEIGHT: f64 = 580.0;
 const SETTINGS_WINDOW_MIN_WIDTH: f64 = 720.0;
 const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 500.0;
 
+fn ritual_config_dir() -> Result<std::path::PathBuf, String> {
+    let dir = dirs::home_dir()
+        .ok_or_else(|| "Home directory is unavailable".to_string())?
+        .join(".ritual");
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("Failed to create Ritual config directory: {error}"))?;
+    Ok(dir)
+}
+
+fn voice_hotkey_settings_path() -> Result<std::path::PathBuf, String> {
+    Ok(ritual_config_dir()?.join(VOICE_HOTKEY_SETTINGS_FILE))
+}
+
+fn sanitize_voice_hotkey_settings(mut settings: VoiceHotkeySettings) -> VoiceHotkeySettings {
+    if settings.shortcut.trim().is_empty() {
+        settings.shortcut = DEFAULT_VOICE_SHORTCUT.to_string();
+    }
+    settings.shortcut = canonical_voice_shortcut_label(&settings.shortcut)
+        .unwrap_or_else(|| settings.shortcut.trim().to_string());
+    settings.registered = false;
+    settings.registration_error = None;
+    settings
+}
+
+fn load_voice_hotkey_settings() -> VoiceHotkeySettings {
+    let Ok(path) = voice_hotkey_settings_path() else {
+        return VoiceHotkeySettings::default();
+    };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return VoiceHotkeySettings::default();
+    };
+    serde_json::from_str::<VoiceHotkeySettings>(&raw)
+        .map(sanitize_voice_hotkey_settings)
+        .unwrap_or_default()
+}
+
+fn persist_voice_hotkey_settings(settings: &VoiceHotkeySettings) -> Result<(), String> {
+    let path = voice_hotkey_settings_path()?;
+    let mut persisted = settings.clone();
+    persisted.registered = false;
+    persisted.registration_error = None;
+    let raw = serde_json::to_string_pretty(&persisted)
+        .map_err(|error| format!("Failed to serialize voice hotkey settings: {error}"))?;
+    std::fs::write(path, raw)
+        .map_err(|error| format!("Failed to save voice hotkey settings: {error}"))
+}
+
+fn canonical_voice_shortcut_label(raw: &str) -> Option<String> {
+    let shortcut = raw.trim();
+    if shortcut.is_empty() {
+        return None;
+    }
+
+    let mut parts: Vec<String> = Vec::new();
+    let mut key: Option<String> = None;
+
+    for token in shortcut.split('+') {
+        let normalized = token.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "alt" | "option" | "opt" => {
+                if !parts.iter().any(|part| part == "Alt") {
+                    parts.push("Alt".to_string());
+                }
+            }
+            "control" | "ctrl" => {
+                if !parts.iter().any(|part| part == "Control") {
+                    parts.push("Control".to_string());
+                }
+            }
+            "command" | "cmd" | "meta" | "super" => {
+                if !parts.iter().any(|part| part == "Command") {
+                    parts.push("Command".to_string());
+                }
+            }
+            "shift" => {
+                if !parts.iter().any(|part| part == "Shift") {
+                    parts.push("Shift".to_string());
+                }
+            }
+            "space" => key = Some("Space".to_string()),
+            "enter" | "return" => key = Some("Enter".to_string()),
+            "tab" => key = Some("Tab".to_string()),
+            value if value.len() == 1 => key = Some(value.to_ascii_uppercase()),
+            value if value.starts_with("key") && value.len() == 4 => {
+                key = Some(value[3..].to_ascii_uppercase());
+            }
+            value if value.starts_with("digit") && value.len() == 6 => {
+                key = Some(value[5..].to_string());
+            }
+            _ => {}
+        }
+    }
+
+    let key = key?;
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(key);
+    Some(parts.join("+"))
+}
+
+fn parse_voice_shortcut(raw: &str) -> Result<Shortcut, String> {
+    let shortcut = raw.trim();
+    if shortcut.is_empty() {
+        return Err("Shortcut cannot be empty.".to_string());
+    }
+
+    let mut modifiers = Modifiers::empty();
+    let mut code: Option<Code> = None;
+
+    for token in shortcut.split('+') {
+        let normalized = token.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "alt" | "option" | "opt" => modifiers.insert(Modifiers::ALT),
+            "control" | "ctrl" => modifiers.insert(Modifiers::CONTROL),
+            "command" | "cmd" | "meta" | "super" => modifiers.insert(Modifiers::SUPER),
+            "shift" => modifiers.insert(Modifiers::SHIFT),
+            "space" => code = Some(Code::Space),
+            "enter" | "return" => code = Some(Code::Enter),
+            "tab" => code = Some(Code::Tab),
+            value => {
+                if let Some(next_code) = parse_voice_shortcut_key_code(value) {
+                    code = Some(next_code);
+                }
+            }
+        }
+    }
+
+    if modifiers.is_empty() {
+        return Err("Shortcut must include at least one modifier.".to_string());
+    }
+
+    let code = code.ok_or_else(|| "Shortcut must include a key.".to_string())?;
+    Ok(Shortcut::new(Some(modifiers), code))
+}
+
+fn parse_voice_shortcut_key_code(value: &str) -> Option<Code> {
+    let key = value
+        .strip_prefix("key")
+        .or_else(|| value.strip_prefix("digit"))
+        .unwrap_or(value)
+        .to_ascii_uppercase();
+
+    match key.as_str() {
+        "A" => Some(Code::KeyA),
+        "B" => Some(Code::KeyB),
+        "C" => Some(Code::KeyC),
+        "D" => Some(Code::KeyD),
+        "E" => Some(Code::KeyE),
+        "F" => Some(Code::KeyF),
+        "G" => Some(Code::KeyG),
+        "H" => Some(Code::KeyH),
+        "I" => Some(Code::KeyI),
+        "J" => Some(Code::KeyJ),
+        "K" => Some(Code::KeyK),
+        "L" => Some(Code::KeyL),
+        "M" => Some(Code::KeyM),
+        "N" => Some(Code::KeyN),
+        "O" => Some(Code::KeyO),
+        "P" => Some(Code::KeyP),
+        "Q" => Some(Code::KeyQ),
+        "R" => Some(Code::KeyR),
+        "S" => Some(Code::KeyS),
+        "T" => Some(Code::KeyT),
+        "U" => Some(Code::KeyU),
+        "V" => Some(Code::KeyV),
+        "W" => Some(Code::KeyW),
+        "X" => Some(Code::KeyX),
+        "Y" => Some(Code::KeyY),
+        "Z" => Some(Code::KeyZ),
+        "0" => Some(Code::Digit0),
+        "1" => Some(Code::Digit1),
+        "2" => Some(Code::Digit2),
+        "3" => Some(Code::Digit3),
+        "4" => Some(Code::Digit4),
+        "5" => Some(Code::Digit5),
+        "6" => Some(Code::Digit6),
+        "7" => Some(Code::Digit7),
+        "8" => Some(Code::Digit8),
+        "9" => Some(Code::Digit9),
+        _ => None,
+    }
+}
+
+fn register_voice_hotkey(
+    app: &tauri::AppHandle,
+    state: tauri::State<VoiceHotkeyState>,
+    settings: VoiceHotkeySettings,
+) -> VoiceHotkeySettings {
+    let mut next = sanitize_voice_hotkey_settings(settings);
+    if let Err(error) = app.global_shortcut().unregister_all() {
+        warn!(error = %error, "Failed to unregister previous voice shortcut");
+    }
+
+    if !next.enabled {
+        let mut guard = state.inner.lock().expect("voice hotkey state poisoned");
+        *guard = next.clone();
+        return next;
+    }
+
+    match parse_voice_shortcut(&next.shortcut)
+        .and_then(|shortcut| {
+            app.global_shortcut()
+                .register(shortcut)
+                .map_err(|error| format!("Failed to register shortcut: {error}"))
+        }) {
+        Ok(()) => {
+            next.registered = true;
+            next.registration_error = None;
+        }
+        Err(error) => {
+            next.registered = false;
+            next.registration_error = Some(error);
+        }
+    }
+
+    let mut guard = state.inner.lock().expect("voice hotkey state poisoned");
+    *guard = next.clone();
+    next
+}
+
+fn initialize_voice_hotkey(app: &tauri::AppHandle) {
+    let settings = load_voice_hotkey_settings();
+    let state = app.state::<VoiceHotkeyState>();
+    let registered = register_voice_hotkey(app, state, settings);
+    if let Some(error) = &registered.registration_error {
+        warn!(error = %error, shortcut = %registered.shortcut, "Voice shortcut registration failed");
+    } else if registered.enabled {
+        info!(shortcut = %registered.shortcut, "Voice shortcut registered");
+    }
+}
+
+fn normalize_voice_target(target: String) -> String {
+    match target.as_str() {
+        "habit-log" | "chat-query" => target,
+        _ => "chat-query".to_string(),
+    }
+}
+
+fn normalize_voice_source(source: Option<String>) -> String {
+    match source.as_deref().unwrap_or("composer") {
+        "hotkey" => "hotkey".to_string(),
+        _ => "composer".to_string(),
+    }
+}
+
+fn build_voice_session_payload(
+    target: String,
+    source: Option<String>,
+    submit_on_final: Option<bool>,
+) -> VoiceSessionStartPayload {
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    VoiceSessionStartPayload {
+        session_id: format!("voice-{timestamp}"),
+        target: normalize_voice_target(target),
+        source: normalize_voice_source(source),
+        submit_on_final: submit_on_final.unwrap_or(false),
+    }
+}
+
+fn build_voice_hud_url(payload: &VoiceSessionStartPayload) -> String {
+    let ritual_env = configured_ritual_env();
+    let app_origin = get_app_url();
+    let mut url = join_url_path(&app_origin, "/voice-hud");
+    url = with_query_param(&url, "ritual_voice_hud_window=1");
+    url = with_query_param(&url, &format!("ritual_desktop_env={ritual_env}"));
+    url = with_query_param(
+        &url,
+        &format!("sessionId={}", urlencoding::encode(&payload.session_id)),
+    );
+    url = with_query_param(
+        &url,
+        &format!("target={}", urlencoding::encode(&payload.target)),
+    );
+    with_query_param(
+        &url,
+        &format!("source={}", urlencoding::encode(&payload.source)),
+    )
+}
+
+fn resize_voice_hud_window(window: &tauri::WebviewWindow) {
+    let size = tauri::Size::Logical(tauri::LogicalSize {
+        width: VOICE_HUD_WINDOW_WIDTH,
+        height: VOICE_HUD_WINDOW_HEIGHT,
+    });
+    let _ = window.set_size(size);
+}
+
+fn show_voice_hud_window(
+    app: &tauri::AppHandle,
+    payload: VoiceSessionStartPayload,
+) -> Result<VoiceSessionStartPayload, String> {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        resize_voice_hud_window(&window);
+        let _ = window.center();
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+        return Ok(payload);
+    }
+
+    let url = build_voice_hud_url(&payload);
+    let external_url = url
+        .parse()
+        .map_err(|error| format!("Invalid voice HUD URL: {error}"))?;
+
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "voice-hud",
+        tauri::WebviewUrl::External(external_url),
+    )
+    .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
+    .title("")
+    .inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .min_inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .max_inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(true)
+    .focused(true)
+    .build()
+    .map_err(|error| format!("Failed to create voice HUD window: {error}"))?;
+
+    let _ = window.center();
+    let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+    Ok(payload)
+}
+
+const VOICE_EVENTS_START: &str = "voice:start";
+const VOICE_EVENTS_STOP_REQUEST: &str = "voice:stop-request";
+const VOICE_EVENTS_HOTKEY_OPEN: &str = "voice:hotkey-open";
+
+fn handle_voice_hotkey(app: &tauri::AppHandle) {
+    if let Some(hud) = app.get_webview_window("voice-hud") {
+        if hud.is_visible().unwrap_or(false) {
+            let _ = hud.emit(VOICE_EVENTS_STOP_REQUEST, ());
+            let _ = hud.set_focus();
+            return;
+        }
+    }
+
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.emit(
+            VOICE_EVENTS_HOTKEY_OPEN,
+            VoiceHotkeyOpenPayload {
+                source: "hotkey".to_string(),
+            },
+        );
+        return;
+    }
+
+    let payload = build_voice_session_payload(
+        "chat-query".to_string(),
+        Some("hotkey".to_string()),
+        Some(false),
+    );
+    let _ = show_voice_hud_window(app, payload);
+}
+
+#[tauri::command]
+fn open_voice_hud(
+    app: tauri::AppHandle,
+    target: String,
+    source: Option<String>,
+    submit_on_final: Option<bool>,
+) -> Result<VoiceSessionStartPayload, String> {
+    let payload = build_voice_session_payload(target, source, submit_on_final);
+    show_voice_hud_window(&app, payload)
+}
+
+#[tauri::command]
+fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        window
+            .hide()
+            .map_err(|error| format!("Failed to hide voice HUD: {error}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_voice_hotkey_settings(
+    state: tauri::State<VoiceHotkeyState>,
+) -> Result<VoiceHotkeySettings, String> {
+    let guard = state.inner.lock().map_err(|_| "Voice hotkey state poisoned".to_string())?;
+    Ok(guard.clone())
+}
+
+#[tauri::command]
+fn set_voice_hotkey_settings(
+    app: tauri::AppHandle,
+    state: tauri::State<VoiceHotkeyState>,
+    settings: VoiceHotkeySettings,
+) -> Result<VoiceHotkeySettings, String> {
+    let next = sanitize_voice_hotkey_settings(settings);
+    persist_voice_hotkey_settings(&next)?;
+    Ok(register_voice_hotkey(&app, state, next))
+}
+
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
-        "account" | "privacy" | "computer-tracking" | "place-tagging" | "apple-health" => {
+        "account" | "privacy" | "voice" | "computer-tracking" | "place-tagging" | "apple-health" => {
             view.unwrap_or_else(|| "account".to_string())
         }
         _ => "account".to_string(),
@@ -1351,6 +1804,15 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    if matches!(event.state(), ShortcutState::Pressed) {
+                        handle_voice_hotkey(app);
+                    }
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_updater::Builder::new().build());
     #[cfg(target_os = "macos")]
     let builder = builder.plugin(tauri_plugin_deep_link::init());
@@ -1359,6 +1821,7 @@ fn main() {
 
     builder
         .manage(SidebarWindowState::default())
+        .manage(VoiceHotkeyState::default())
         .manage(shell_feature_flags)
         .manage(desktop_runtime::DesktopShellState::default())
         // Only expose native macOS features - auth is handled by Clerk
@@ -1366,6 +1829,10 @@ fn main() {
             // Window management
             show_main_window,
             open_settings_window,
+            open_voice_hud,
+            hide_voice_hud,
+            get_voice_hotkey_settings,
+            set_voice_hotkey_settings,
             sidebar_set_width,
             sidebar_navigate,
             sidebar_get_main_state,
@@ -1454,6 +1921,7 @@ fn main() {
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
+            initialize_voice_hotkey(app.handle());
 
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let check_updates =
@@ -1666,4 +2134,47 @@ fn main() {
         duration_ms = startup_started_at.elapsed().as_millis() as u64,
         "Ritual desktop event loop exited"
     );
+}
+
+#[cfg(test)]
+mod voice_hotkey_tests {
+    use super::*;
+
+    #[test]
+    fn canonical_voice_shortcut_normalizes_option_space() {
+        assert_eq!(
+            canonical_voice_shortcut_label("Option + Space").as_deref(),
+            Some("Alt+Space"),
+        );
+    }
+
+    #[test]
+    fn parse_voice_shortcut_rejects_empty_or_unmodified_keys() {
+        assert!(parse_voice_shortcut("").is_err());
+        assert!(parse_voice_shortcut("Space").is_err());
+    }
+
+    #[test]
+    fn parse_voice_shortcut_accepts_default() {
+        assert!(parse_voice_shortcut(DEFAULT_VOICE_SHORTCUT).is_ok());
+    }
+
+    #[test]
+    fn voice_hotkey_settings_use_camel_case_json() {
+        let settings = VoiceHotkeySettings {
+            enabled: true,
+            shortcut: DEFAULT_VOICE_SHORTCUT.to_string(),
+            registered: false,
+            registration_error: Some("conflict".to_string()),
+        };
+
+        let raw = serde_json::to_string(&settings).expect("serialize settings");
+        assert!(raw.contains("registrationError"));
+        assert!(!raw.contains("registration_error"));
+
+        let parsed: VoiceHotkeySettings =
+            serde_json::from_str(&raw).expect("deserialize settings");
+        assert_eq!(parsed.shortcut, DEFAULT_VOICE_SHORTCUT);
+        assert_eq!(parsed.registration_error.as_deref(), Some("conflict"));
+    }
 }
