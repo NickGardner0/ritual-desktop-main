@@ -15,8 +15,14 @@ import { DesktopRuntimeBridge } from '@/components/desktop-runtime-bridge';
 import { AIProvider } from '@/contexts/AIContext';
 import { FontProvider } from '@/contexts/FontContext';
 import { SidebarModeProvider } from '@/contexts/SidebarModeContext';
+import { useRoutineScheduler } from '@/lib/routines/use-routine-scheduler';
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+
+function RoutineSchedulerBridge() {
+  useRoutineScheduler();
+  return null;
+}
 
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -38,6 +44,7 @@ export function DashboardLayoutClient({ children }: { children: React.ReactNode 
     <SidebarModeProvider>
     <AIProvider>
       <DesktopRuntimeBridge />
+      <RoutineSchedulerBridge />
       <DashboardLayout>
         {children}
       </DashboardLayout>
