@@ -15,7 +15,8 @@ mod watcher;
 mod watcher_activity;
 
 use std::env;
-use std::sync::Mutex;
+use std::ffi::{c_char, CString};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
@@ -63,6 +64,24 @@ const VOICE_HUD_WINDOW_WIDTH: f64 = 860.0;
 const VOICE_HUD_WINDOW_HEIGHT: f64 = 244.0;
 const DEFAULT_VOICE_SHORTCUT: &str = "Alt+Space";
 const VOICE_HOTKEY_SETTINGS_FILE: &str = "voice-hotkey-settings.json";
+
+#[cfg(target_os = "macos")]
+type NativeVoiceHudCallback = extern "C" fn();
+
+#[cfg(target_os = "macos")]
+extern "C" {
+    fn ritual_set_voice_hud_callbacks(
+        stop_callback: Option<NativeVoiceHudCallback>,
+        cancel_callback: Option<NativeVoiceHudCallback>,
+    );
+    fn ritual_show_voice_hud(state_json: *const c_char) -> bool;
+    fn ritual_update_voice_hud(state_json: *const c_char) -> bool;
+    fn ritual_hide_voice_hud() -> bool;
+    fn ritual_voice_hud_is_visible() -> bool;
+}
+
+#[cfg(target_os = "macos")]
+static VOICE_HUD_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -1151,6 +1170,23 @@ struct VoiceHotkeyState {
     inner: Mutex<VoiceHotkeySettings>,
 }
 
+#[derive(Default)]
+struct VoiceHudRuntimeState {
+    active: Mutex<bool>,
+}
+
+impl VoiceHudRuntimeState {
+    fn set_active(&self, active: bool) {
+        if let Ok(mut guard) = self.active.lock() {
+            *guard = active;
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        self.active.lock().map(|guard| *guard).unwrap_or(false)
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VoiceSessionStartPayload {
@@ -1164,6 +1200,20 @@ struct VoiceSessionStartPayload {
 #[serde(rename_all = "camelCase")]
 struct VoiceHotkeyOpenPayload {
     source: String,
+}
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudVisualState {
+    session_id: String,
+    #[serde(default)]
+    is_listening: bool,
+    #[serde(default)]
+    is_processing_voice: bool,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    partial_transcript: Option<String>,
 }
 
 const SETTINGS_WINDOW_WIDTH: f64 = 820.0;
@@ -1436,6 +1486,7 @@ fn build_voice_hud_url(payload: &VoiceSessionStartPayload) -> String {
     let app_origin = get_app_url();
     let mut url = join_url_path(&app_origin, "/voice-hud");
     url = with_query_param(&url, "ritual_voice_hud_window=1");
+    url = with_query_param(&url, "ritual_native_voice_hud=1");
     url = with_query_param(&url, &format!("ritual_desktop_env={ritual_env}"));
     url = with_query_param(
         &url,
@@ -1451,6 +1502,119 @@ fn build_voice_hud_url(payload: &VoiceSessionStartPayload) -> String {
     )
 }
 
+fn initial_voice_hud_visual_state(payload: &VoiceSessionStartPayload) -> VoiceHudVisualState {
+    VoiceHudVisualState {
+        session_id: payload.session_id.clone(),
+        is_listening: true,
+        is_processing_voice: false,
+        error: None,
+        partial_transcript: None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn send_native_voice_hud_state<F>(state: &VoiceHudVisualState, send: F) -> Result<bool, String>
+where
+    F: FnOnce(*const c_char) -> bool,
+{
+    let json = serde_json::to_string(state)
+        .map_err(|error| format!("Failed to serialize native voice HUD state: {error}"))?;
+    let c_json = CString::new(json)
+        .map_err(|error| format!("Failed to prepare native voice HUD state: {error}"))?;
+    Ok(send(c_json.as_ptr()))
+}
+
+#[cfg(target_os = "macos")]
+fn show_native_voice_hud(payload: &VoiceSessionStartPayload) -> bool {
+    let state = initial_voice_hud_visual_state(payload);
+    match send_native_voice_hud_state(&state, |state_json| unsafe {
+        ritual_show_voice_hud(state_json)
+    }) {
+        Ok(success) => success,
+        Err(error) => {
+            warn!(error = %error, "Failed to show native voice HUD");
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_native_voice_hud(_payload: &VoiceSessionStartPayload) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn update_native_voice_hud(state: &VoiceHudVisualState) -> bool {
+    match send_native_voice_hud_state(state, |state_json| unsafe {
+        ritual_update_voice_hud(state_json)
+    }) {
+        Ok(success) => success,
+        Err(error) => {
+            warn!(error = %error, "Failed to update native voice HUD");
+            false
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn update_native_voice_hud(_state: &VoiceHudVisualState) -> bool {
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn hide_native_voice_hud() {
+    unsafe {
+        let _ = ritual_hide_voice_hud();
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn hide_native_voice_hud() {}
+
+#[cfg(target_os = "macos")]
+fn native_voice_hud_visible() -> bool {
+    unsafe { ritual_voice_hud_is_visible() }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn native_voice_hud_visible() -> bool {
+    false
+}
+
+fn emit_voice_hud_control_event(app: &tauri::AppHandle, event: &str) {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        let _ = window.emit(event, ());
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn native_voice_hud_stop_requested() {
+    if let Some(app) = VOICE_HUD_APP_HANDLE.get() {
+        emit_voice_hud_control_event(app, VOICE_EVENTS_STOP_REQUEST);
+    }
+}
+
+#[cfg(target_os = "macos")]
+extern "C" fn native_voice_hud_cancel_requested() {
+    if let Some(app) = VOICE_HUD_APP_HANDLE.get() {
+        emit_voice_hud_control_event(app, VOICE_EVENTS_CANCEL_REQUEST);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn register_native_voice_hud_callbacks(app: tauri::AppHandle) {
+    let _ = VOICE_HUD_APP_HANDLE.set(app);
+    unsafe {
+        ritual_set_voice_hud_callbacks(
+            Some(native_voice_hud_stop_requested),
+            Some(native_voice_hud_cancel_requested),
+        );
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn register_native_voice_hud_callbacks(_app: tauri::AppHandle) {}
+
 fn resize_voice_hud_window(window: &tauri::WebviewWindow) {
     let size = tauri::Size::Logical(tauri::LogicalSize {
         width: VOICE_HUD_WINDOW_WIDTH,
@@ -1463,12 +1627,20 @@ fn show_voice_hud_window(
     app: &tauri::AppHandle,
     payload: VoiceSessionStartPayload,
 ) -> Result<VoiceSessionStartPayload, String> {
+    let native_hud_shown = show_native_voice_hud(&payload);
+    app.state::<VoiceHudRuntimeState>()
+        .set_active(native_hud_shown);
+
     if let Some(window) = app.get_webview_window("voice-hud") {
         resize_voice_hud_window(&window);
-        let _ = window.center();
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+        if native_hud_shown {
+            let _ = window.hide();
+        } else {
+            let _ = window.center();
+            let _ = window.show();
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
         let _ = window.emit(VOICE_EVENTS_START, payload.clone());
         return Ok(payload);
     }
@@ -1494,21 +1666,36 @@ fn show_voice_hud_window(
     .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
-    .visible(true)
-    .focused(true)
+    .visible(!native_hud_shown)
+    .focused(!native_hud_shown)
     .build()
     .map_err(|error| format!("Failed to create voice HUD window: {error}"))?;
 
-    let _ = window.center();
+    if native_hud_shown {
+        let _ = window.hide();
+    } else {
+        let _ = window.center();
+    }
     let _ = window.emit(VOICE_EVENTS_START, payload.clone());
     Ok(payload)
 }
 
 const VOICE_EVENTS_START: &str = "voice:start";
 const VOICE_EVENTS_STOP_REQUEST: &str = "voice:stop-request";
+const VOICE_EVENTS_CANCEL_REQUEST: &str = "voice:cancel-request";
 const VOICE_EVENTS_HOTKEY_OPEN: &str = "voice:hotkey-open";
 
 fn handle_voice_hotkey(app: &tauri::AppHandle) {
+    let native_active = app
+        .try_state::<VoiceHudRuntimeState>()
+        .map(|state| state.is_active())
+        .unwrap_or(false)
+        || native_voice_hud_visible();
+    if native_active {
+        emit_voice_hud_control_event(app, VOICE_EVENTS_STOP_REQUEST);
+        return;
+    }
+
     if let Some(hud) = app.get_webview_window("voice-hud") {
         if hud.is_visible().unwrap_or(false) {
             let _ = hud.emit(VOICE_EVENTS_STOP_REQUEST, ());
@@ -1552,6 +1739,19 @@ fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
         window
             .hide()
             .map_err(|error| format!("Failed to hide voice HUD: {error}"))?;
+    }
+    app.state::<VoiceHudRuntimeState>().set_active(false);
+    hide_native_voice_hud();
+    Ok(())
+}
+
+#[tauri::command]
+fn update_voice_hud_state(
+    app: tauri::AppHandle,
+    state: VoiceHudVisualState,
+) -> Result<(), String> {
+    if app.state::<VoiceHudRuntimeState>().is_active() || native_voice_hud_visible() {
+        let _ = update_native_voice_hud(&state);
     }
     Ok(())
 }
@@ -1822,6 +2022,7 @@ fn main() {
     builder
         .manage(SidebarWindowState::default())
         .manage(VoiceHotkeyState::default())
+        .manage(VoiceHudRuntimeState::default())
         .manage(shell_feature_flags)
         .manage(desktop_runtime::DesktopShellState::default())
         // Only expose native macOS features - auth is handled by Clerk
@@ -1831,6 +2032,7 @@ fn main() {
             open_settings_window,
             open_voice_hud,
             hide_voice_hud,
+            update_voice_hud_state,
             get_voice_hotkey_settings,
             set_voice_hotkey_settings,
             sidebar_set_width,
@@ -1921,6 +2123,7 @@ fn main() {
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
+            register_native_voice_hud_callbacks(app.handle().clone());
             initialize_voice_hotkey(app.handle());
 
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;

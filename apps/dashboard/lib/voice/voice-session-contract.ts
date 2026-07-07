@@ -31,6 +31,7 @@ export const VOICE_EVENTS = {
   cancelled: 'voice:cancelled',
   hotkeyOpen: 'voice:hotkey-open',
   stopRequest: 'voice:stop-request',
+  cancelRequest: 'voice:cancel-request',
 } as const;
 
 export function normalizeVoiceTarget(value: unknown): VoiceTarget {

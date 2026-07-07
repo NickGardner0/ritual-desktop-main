@@ -35,6 +35,7 @@ function buildSessionFromParams(searchParams: URLSearchParams): VoiceSessionStar
 
 export default function VoiceHudPage() {
   const searchParams = useSearchParams();
+  const nativeHudEnabled = searchParams.get('ritual_native_voice_hud') === '1';
   const initialSession = useMemo(() => buildSessionFromParams(searchParams), [searchParams]);
   const [session, setSession] = useState<VoiceSessionStartPayload | null>(initialSession);
   const [error, setError] = useState<string | null>(null);
@@ -162,14 +163,18 @@ export default function VoiceHudPage() {
       const stopUnlisten = await listen(VOICE_EVENTS.stopRequest, () => {
         stopSession();
       });
+      const cancelUnlisten = await listen(VOICE_EVENTS.cancelRequest, () => {
+        cancelSession();
+      });
 
       if (cancelled) {
         startUnlisten();
         stopUnlisten();
+        cancelUnlisten();
         return;
       }
 
-      unlisteners = [startUnlisten, stopUnlisten];
+      unlisteners = [startUnlisten, stopUnlisten, cancelUnlisten];
     });
 
     return () => {
@@ -177,7 +182,28 @@ export default function VoiceHudPage() {
       unlisteners.forEach((unlisten) => unlisten());
       unlisteners = [];
     };
-  }, [cancelVoiceRecording, stopSession]);
+  }, [cancelSession, cancelVoiceRecording, stopSession]);
+
+  useEffect(() => {
+    if (!nativeHudEnabled || !session) return;
+
+    void invokeDesktopCommand('update_voice_hud_state', {
+      state: {
+        sessionId: session.sessionId,
+        isListening,
+        isProcessingVoice,
+        error,
+        partialTranscript,
+      },
+    }).catch(() => undefined);
+  }, [
+    error,
+    isListening,
+    isProcessingVoice,
+    nativeHudEnabled,
+    partialTranscript,
+    session?.sessionId,
+  ]);
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -199,7 +225,7 @@ export default function VoiceHudPage() {
   }, []);
 
   const statusText = error
-    ? error
+    ? 'Stop'
     : isProcessingVoice
       ? 'Processing'
       : isListening
