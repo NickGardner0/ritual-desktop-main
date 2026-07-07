@@ -508,6 +508,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../../scripts/build-native-vision-helper.sh");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
+    println!("cargo:rerun-if-changed=native-voice/VoiceHud.swift");
     println!("cargo:rerun-if-changed=native-system-audio/main.swift");
     println!("cargo:rerun-if-changed=system-audio-min-macos-version.txt");
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
@@ -529,11 +530,13 @@ fn main() {
     let swift_files = [
         PathBuf::from("native-voice/MicrophonePermission.swift"),
         PathBuf::from("native-voice/SpeechRecognition.swift"),
+        PathBuf::from("native-voice/VoiceHud.swift"),
     ];
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let object_files = [
         out_dir.join("MicrophonePermission.o"),
         out_dir.join("SpeechRecognition.o"),
+        out_dir.join("VoiceHud.o"),
     ];
     let static_lib = out_dir.join("libspeech_native.a");
     let module_cache_dir = out_dir.join("swift-module-cache");
