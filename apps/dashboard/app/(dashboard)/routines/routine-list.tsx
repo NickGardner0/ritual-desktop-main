@@ -28,24 +28,26 @@ export type RoutineRowActions = {
   onDelete: (item: AgentRoutine) => void;
 };
 
-function LastRunBadge({ lastRun, now }: { lastRun: RoutineRunView | undefined; now: Date }) {
+/** Small quiet status dot for the row's last run; pulses while running. */
+function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now: Date }) {
   if (!lastRun) return null;
   if (lastRun.status === 'running' || lastRun.status === 'queued') {
     return (
-      <span className="flex items-center gap-1.5 text-[12px] font-[540] text-[#737b86]">
-        <span className="routine-running-dot inline-block h-2 w-2 rounded-full" style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral }} />
-        Running
-      </span>
+      <span
+        title="Running"
+        className="routine-running-dot inline-block h-2 w-2 shrink-0 rounded-full"
+        style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral }}
+      />
     );
   }
   const failed = lastRun.status === 'failed';
-  const color = failed ? ROUTINE_STATUS_COLORS.failure : ROUTINE_STATUS_COLORS.success;
-  const label = `${failed ? 'Failed' : 'Ran'} ${formatAgo(lastRun.finishedAt || lastRun.occurredAt, now)}`;
+  const when = formatAgo(lastRun.finishedAt || lastRun.occurredAt, now);
   return (
-    <span className="flex items-center gap-1.5 text-[12px] font-[540]" style={{ color: failed ? color : '#737b86' }}>
-      <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-      {label}
-    </span>
+    <span
+      title={`${failed ? 'Failed' : 'Ran'} ${when}`}
+      className="inline-block h-2 w-2 shrink-0 rounded-full"
+      style={{ backgroundColor: failed ? ROUTINE_STATUS_COLORS.failure : ROUTINE_STATUS_COLORS.success, opacity: failed ? 1 : 0.85 }}
+    />
   );
 }
 
@@ -85,37 +87,38 @@ function RoutineRow({
         }
       }}
       className={cn(
-        'group grid w-full cursor-pointer grid-cols-[26px_minmax(0,1fr)_auto] items-start gap-3 rounded-sm px-3 py-2.5 text-left outline-none transition',
+        'group relative grid w-full cursor-pointer grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-sm px-3 py-2 text-left outline-none transition',
         'focus-visible:ring-2 focus-visible:ring-[#111827]',
         selected ? 'bg-[#e6ecdf]' : 'hover:bg-[#f1f3ef]',
-        paused && 'opacity-60',
+        paused && 'opacity-55',
       )}
     >
-      <span className="mt-0.5 flex h-5 w-5 items-center justify-center">
+      <span className="flex h-5 w-5 items-center justify-center">
         <RoutineIcon name={agent.icon} className="h-4 w-4 text-[#4b5563]" />
       </span>
       <span className="min-w-0">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[15px] font-[640] text-[#1f242d]">{routine.title}</span>
+          <span className="truncate text-[14px] font-[640] leading-5 text-[#1f242d]">{routine.title}</span>
           {paused ? <PausedPill /> : null}
         </span>
-        <span className="mt-1 flex min-w-0 items-center gap-2 text-[12px] font-[520] text-[#737b86]">
-          <span className="truncate">{scheduleSummary}</span>
-          {nextLabel ? <span className="shrink-0 text-[#8a929c]">· Next {nextLabel}</span> : null}
-        </span>
-        <span className="mt-1 block">
-          <LastRunBadge lastRun={lastRun} now={now} />
+        <span className="mt-0.5 block truncate text-[12px] font-[520] leading-4 text-[#8a929c]">
+          {scheduleSummary}
+          {nextLabel ? ` · Next ${nextLabel}` : ''}
         </span>
       </span>
+      <span className="flex h-5 w-5 items-center justify-center group-hover:opacity-0 group-focus-within:opacity-0">
+        <LastRunDot lastRun={lastRun} now={now} />
+      </span>
+
       <span
-        className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
+        className="absolute right-2 top-1/2 flex -translate-y-1/2 items-center gap-0.5 rounded-sm opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
         <button
           type="button"
           title={running ? 'Already running' : 'Run now'}
-          disabled={running || !item.routine.ai_workflow_definition_id}
+          disabled={running || !routine.ai_workflow_definition_id}
           onClick={() => actions.onRunNow(item)}
           className="inline-flex h-7 w-7 items-center justify-center rounded-sm text-[#747b85] transition hover:bg-white/80 hover:text-[#171b22] disabled:opacity-40"
         >
@@ -204,7 +207,7 @@ export function RoutineList({
       ref={containerRef}
       role="listbox"
       aria-label="Routines"
-      className="space-y-0.5"
+      className="space-y-px"
       onKeyDown={(event) => {
         if (event.key === 'ArrowDown') {
           event.preventDefault();

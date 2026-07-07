@@ -420,23 +420,20 @@ export function RoutinesClient() {
 
   return (
     <ReferencePage>
-      <header className={cn('shrink-0 border-b px-8 pb-4 pt-7', subtleBorderClass)}>
-        <div className="flex items-start justify-between gap-5">
-          <div className="min-w-0">
-            <div className="text-[12px] font-[650] uppercase tracking-[0.16em] text-[#737b86]">Scheduled agents</div>
-            <h1 className="mt-2 truncate text-[36px] font-[680] leading-none tracking-[-0.035em] text-[#10141d]">Routines</h1>
-          </div>
-          <button
-            type="button"
-            title="New routine (⌘N)"
-            onClick={() => openCreateModal()}
-            className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-3 text-[14px] font-[650] text-white transition hover:bg-[#202938]"
-          >
-            <Plus className="h-4 w-4" />
-            New routine
-          </button>
+      <header className={cn('flex shrink-0 items-center justify-between gap-5 border-b px-6 pb-3.5 pt-5', subtleBorderClass)}>
+        <div className="flex min-w-0 items-center gap-5">
+          <h1 className="truncate text-[22px] font-[680] leading-none tracking-[-0.025em] text-[#10141d]">Routines</h1>
+          <SegmentedTabs value={activeTab} options={ROUTINE_TABS} onChange={setActiveTab} />
         </div>
-        <SegmentedTabs value={activeTab} options={ROUTINE_TABS} onChange={setActiveTab} className="mt-5" />
+        <button
+          type="button"
+          title="New routine (⌘N)"
+          onClick={() => openCreateModal()}
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm bg-[#111827] px-2.5 text-[13px] font-[650] text-white transition hover:bg-[#202938]"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          New routine
+        </button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -489,8 +486,8 @@ export function RoutinesClient() {
             </div>
           </div>
         ) : (
-          <div className="grid h-full min-h-0 grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-            <aside className={cn('min-h-0 overflow-auto border-r bg-white/42 px-3 py-4', subtleBorderClass)}>
+          <div className="grid h-full min-h-0 grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+            <aside className={cn('min-h-0 overflow-auto border-r bg-white/42 px-2.5 py-3', subtleBorderClass)}>
               <RoutineList
                 items={agentRoutines}
                 selectedId={selectedRoutineId}
