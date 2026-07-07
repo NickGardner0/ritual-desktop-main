@@ -73,7 +73,7 @@ function RunRow({
           <p className="min-w-0 whitespace-pre-wrap break-words text-[12px] leading-5 text-[#8b3f39]">
             {run.error || 'The run failed without an error message.'}
           </p>
-          {onRetry && run.definitionId ? (
+          {onRetry && run.routineId ? (
             <button
               type="button"
               onClick={(event) => {

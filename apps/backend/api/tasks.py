@@ -91,6 +91,15 @@ def create_tasks_router(*, get_current_user: Callable[..., Any]) -> APIRouter:
         except TaskRoutineValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @router.post("/api/routines/{routine_id}/run-now", response_model=RoutineRunRead)
+    async def run_routine_now(routine_id: str, current_user=Depends(get_current_user)):
+        try:
+            return await tasks_service.run_routine_now(current_user["id"], routine_id)
+        except RoutineNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except TaskRoutineValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @router.get("/api/routines/runs", response_model=list[RoutineRunRead])
     async def get_routine_runs(
         routine_id: Optional[str] = Query(default=None),

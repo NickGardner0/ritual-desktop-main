@@ -4,7 +4,11 @@ import type { WorkflowRun } from '@/lib/workflows/types';
 import type { AgentRoutine } from './model';
 import type { RunStatusKind } from './ui';
 
-/** Unified run row across workflow runs (AI routines) and routine runs (task routines). */
+/**
+ * Unified run row: routine runs are the source of attribution (every scheduled
+ * or manual routine occurrence records one), enriched with the linked workflow
+ * run's live status, artifact, and timing when the routine is an AI routine.
+ */
 export type RoutineRunView = {
   id: string;
   routineId: string | null;
@@ -17,7 +21,6 @@ export type RoutineRunView = {
   finishedAt: string | null;
   artifactId: string | null;
   error: string | null;
-  definitionId: string | null;
 };
 
 function workflowStatusToKind(status: WorkflowRun['status']): RunStatusKind {
@@ -55,51 +58,25 @@ export function buildRunViews({
   routineRuns: RoutineRun[];
   agentRoutines: AgentRoutine[];
 }): RoutineRunView[] {
-  const byDefinition = new Map<string, AgentRoutine>();
-  const byRoutineId = new Map<string, AgentRoutine>();
-  for (const item of agentRoutines) {
-    if (item.routine.ai_workflow_definition_id) byDefinition.set(item.routine.ai_workflow_definition_id, item);
-    byRoutineId.set(item.routine.id, item);
-  }
+  const workflowById = new Map(workflowRuns.map((run) => [run.id, run]));
+  const byRoutineId = new Map(agentRoutines.map((item) => [item.routine.id, item]));
 
   const views: RoutineRunView[] = [];
-
-  for (const run of workflowRuns) {
-    const owner = byDefinition.get(run.workflow_definition_id);
-    if (!owner) continue; // runs of non-routine workflows don't belong here
-    views.push({
-      id: run.id,
-      routineId: owner.routine.id,
-      routineName: owner.routine.title,
-      routineIcon: owner.agent.icon,
-      status: workflowStatusToKind(run.status),
-      trigger: run.trigger_source === 'manual' ? 'manual' : 'schedule',
-      occurredAt: run.started_at || run.created_at || new Date().toISOString(),
-      startedAt: run.started_at,
-      finishedAt: run.finished_at,
-      artifactId: run.artifact_id,
-      error: parseErrorJson(run.error_json),
-      definitionId: run.workflow_definition_id,
-    });
-  }
-
   for (const run of routineRuns) {
-    // AI routine occurrences surface through their workflow run instead.
-    if (run.workflow_run_id) continue;
     const owner = byRoutineId.get(run.routine_id);
+    const workflowRun = run.workflow_run_id ? workflowById.get(run.workflow_run_id) || null : null;
     views.push({
       id: run.id,
       routineId: run.routine_id,
       routineName: owner?.routine.title || 'Routine',
       routineIcon: owner?.agent.icon || 'sparkles',
-      status: routineRunStatusToKind(run.status),
-      trigger: 'schedule',
+      status: workflowRun ? workflowStatusToKind(workflowRun.status) : routineRunStatusToKind(run.status),
+      trigger: workflowRun?.trigger_source === 'manual' ? 'manual' : 'schedule',
       occurredAt: run.scheduled_for,
-      startedAt: run.scheduled_for,
-      finishedAt: run.completed_at,
-      artifactId: null,
-      error: parseErrorJson(run.error_json),
-      definitionId: null,
+      startedAt: workflowRun?.started_at || run.scheduled_for,
+      finishedAt: workflowRun?.finished_at || run.completed_at,
+      artifactId: workflowRun?.artifact_id || null,
+      error: parseErrorJson(workflowRun?.error_json || run.error_json),
     });
   }
 

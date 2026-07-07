@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
 import unittest
@@ -204,6 +205,49 @@ class TasksRoutinesServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second.generated_tasks, 0)
         self.assertEqual(second.skipped, 1)
         self.assertEqual(len([task for task in tasks if task.routine_id == "routine-1"]), 1)
+
+    async def test_run_routine_now_queues_manual_workflow_run_with_agent_config(self):
+        async with self.Session() as session:
+            session.add(
+                RoutineDB(
+                    id="routine-run-now",
+                    user_id="user-tasks",
+                    title="Screen Time Reality Check",
+                    description="Compare screen time to my weekly average.",
+                    status="scheduled",
+                    kind="ai_workflow",
+                    trigger_type="daily",
+                    trigger_config_json=(
+                        '{"interval":1,"hour":21,"minute":0,'
+                        '"agent":{"instructions":"Compare screen time.","agent_tier":"lite","data_sources":["screen_time"]}}'
+                    ),
+                    task_template_json="{}",
+                    tags_json='["ai"]',
+                    ai_workflow_definition_id="definition-shared",
+                )
+            )
+            await session.commit()
+
+        with patch("services.tasks_service.get_db_session", self.db_session), \
+             patch("services.workflow_service.workflow_service.process_run_by_id", new=AsyncMock()) as process_mock:
+            run = await tasks_service.run_routine_now("user-tasks", "routine-run-now")
+            await asyncio.sleep(0)  # let the fire-and-forget task start
+
+        self.assertEqual(run.routine_id, "routine-run-now")
+        self.assertEqual(run.status, "generated")
+        self.assertIsNotNone(run.workflow_run_id)
+        process_mock.assert_awaited_once_with(run.workflow_run_id)
+
+        async with self.Session() as session:
+            from database.models import WorkflowRunDB
+
+            workflow_run = await session.get(WorkflowRunDB, run.workflow_run_id)
+            self.assertEqual(workflow_run.trigger_source, "manual")
+            self.assertEqual(workflow_run.status, "queued")
+            plan = __import__("json").loads(workflow_run.plan_json)
+            self.assertEqual(plan["routine_id"], "routine-run-now")
+            self.assertEqual(plan["config_override"]["agent_tier"], "lite")
+            self.assertEqual(plan["config_override"]["routine_name"], "Screen Time Reality Check")
 
     async def test_missed_occurrences_catch_up_once_and_skip_older(self):
         # Daily 9:00 AM New York routine; the app was closed for six days.
