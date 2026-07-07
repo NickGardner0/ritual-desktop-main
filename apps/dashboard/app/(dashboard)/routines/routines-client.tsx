@@ -1,85 +1,54 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Bot,
-  Check,
-  Loader2,
-  Play,
-  Plus,
-  Sparkles,
-} from 'lucide-react';
+import { Plus, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { apiJsonWithAuth } from '@/lib/api/client';
 import {
   putLocalVaultRoutine,
-  putLocalVaultTaskRoutineWriteOutboxItem,
-  readLocalVaultRoutineRuns,
   readLocalVaultRoutines,
   readLocalVaultTaskRoutineWriteOutboxItems,
 } from '@/lib/privacy/task-vault-adapter';
+import { mergeRoutinesWithOutbox } from '@/lib/tasks/local-first-writes';
 import {
-  AI_ROUTINE_TEMPLATES,
-  ROUTINE_TEMPLATE_CATEGORIES,
-  workflowPayloadForTemplate,
-  workflowRoutineInput,
-  type AiRoutineTemplate,
-  type RoutineTemplateCategory,
-} from '@/lib/tasks/ai-routine-templates';
-import { formatDateTime } from '@/lib/tasks/date-format';
-import {
-  buildOptimisticRoutine,
-  buildOptimisticRoutineUpdate,
-  buildRoutineCreateOutboxItem,
-  buildRoutineUpdateOutboxItem,
-  mergeRoutinesWithOutbox,
-} from '@/lib/tasks/local-first-writes';
-import { nextRoutineDates, summarizeRecurrence } from '@/lib/tasks/recurrence';
-import { defaultRoutineInput, toRoutineEditor } from '@/lib/tasks/routine-editor';
-import {
-  HeaderPortal,
-  PillButton,
-  TaskPageShell,
-  ToolbarIconButton,
-  UnderlineTabs,
-  ViewPills,
-} from '@/lib/tasks/task-ui-shell';
-import {
-  appendDemoRoutineGeneration,
-  buildSeedRoutineRuns,
-  buildSeedRoutines,
-  dedupeById,
-  readDemoRoutineRuns,
-  subscribeDemoRoutineGeneration,
-} from '@/lib/tasks/seed-data';
-import type {
-  Routine,
-  RoutineCreateInput,
-  RoutineListResponse,
-  RoutineRun,
-  RoutineUpdateInput,
-} from '@/lib/tasks/types';
+  buildAgentDefinitionCreateInput,
+  buildAgentDefinitionUpdateInput,
+  buildAgentRoutineInput,
+  buildAgentRoutineUpdateInput,
+  currentTimezone,
+  joinAgentRoutines,
+  nameFromInstructions,
+  type AgentRoutine,
+} from '@/lib/routines/model';
+import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
+import { templateById } from '@/lib/routines/templates';
+import { useNow } from '@/lib/routines/time';
+import { ReferencePage, SegmentedTabs, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
+import type { Routine, RoutineListResponse, RoutineRun, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinition,
   WorkflowDefinitionListResponse,
   WorkflowDefinitionUpdateInput,
+  WorkflowRun,
+  WorkflowRunListResponse,
+  WorkflowRunQueueResponse,
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
+
 import {
-  RoutineEditorCards,
-  RoutineListItem,
-  RoutinePanelMenu,
-  TemplateIcon,
-  runOutputType,
-  runStatusClass,
-  templateScheduleSummary,
-} from './routines-ui';
-import { WindowSidePanel } from '@/lib/tasks/window-side-panel';
-import { taskContentMaxClass } from '@/lib/tasks/task-ui-shell';
+  RoutineConfigureModal,
+  configureStateFromRoutine,
+  configureStateFromTemplate,
+  type RoutineConfigureState,
+} from './routine-configure-modal';
+import { RoutineDetail } from './routine-detail';
+import { RoutineList } from './routine-list';
+import { RunHistory } from './routine-runs';
+import { RoutinesEmptyHero, TemplateLibrary } from './routine-templates';
 
 const ROUTINE_TABS = [
   { id: 'mine', label: 'Mine' },
@@ -87,26 +56,38 @@ const ROUTINE_TABS = [
   { id: 'runs', label: 'Runs' },
 ] as const;
 
+type RoutineTab = (typeof ROUTINE_TABS)[number]['id'];
+
+type ModalState = {
+  open: boolean;
+  mode: 'create' | 'edit';
+  initial: RoutineConfigureState;
+  editing: AgentRoutine | null;
+};
+
+const closedModal = (): ModalState => ({
+  open: false,
+  mode: 'create',
+  initial: configureStateFromTemplate(null),
+  editing: null,
+});
+
 export function RoutinesClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
   useTaskRoutineOutboxSync();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editorDraft, setEditor] = useState<Routine | null>(null);
-  const [activeTab, setActiveTab] = useState<'mine' | 'templates' | 'runs'>('mine');
-  const [activeTemplateCategory, setActiveTemplateCategory] = useState<RoutineTemplateCategory>('Suggested');
-  const [demoRuns, setDemoRuns] = useState<RoutineRun[]>([]);
+  const now = useNow(30_000);
 
-  useEffect(() => {
-    if (!user?.id) return;
-    const refreshDemoRuns = () => setDemoRuns(readDemoRoutineRuns(user.id));
-    refreshDemoRuns();
-    return subscribeDemoRoutineGeneration(refreshDemoRuns);
-  }, [user?.id]);
+  const [activeTab, setActiveTab] = useState<RoutineTab>('mine');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [runsFilter, setRunsFilter] = useState<string>('all');
+  const [modal, setModal] = useState<ModalState>(closedModal);
+
+  const routinesKey = useMemo(() => ['routines', user?.id] as const, [user?.id]);
 
   const routinesQuery = useQuery({
-    queryKey: ['routines', user?.id],
+    queryKey: routinesKey,
     queryFn: async () => {
       let backendItems: Routine[] | null = null;
       try {
@@ -119,484 +100,451 @@ export function RoutinesClient() {
             backendItems ? Promise.resolve(null) : readLocalVaultRoutines(user.id),
             readLocalVaultTaskRoutineWriteOutboxItems(user.id),
           ])
-        : [null, null] as const;
-      const merged = mergeRoutinesWithOutbox(backendItems || vaultItems || [], outboxItems);
-      return merged.length ? merged : buildSeedRoutines(user?.id || 'visual-seed');
+        : ([null, null] as const);
+      return mergeRoutinesWithOutbox(backendItems || vaultItems || [], outboxItems);
     },
     enabled: Boolean(user?.id),
     staleTime: 15_000,
   });
 
-  const workflowsQuery = useQuery({
+  const definitionsQuery = useQuery({
     queryKey: ['workflow-definitions', 'routines-page'],
     queryFn: async () => (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items,
     enabled: Boolean(user?.id),
     staleTime: 60_000,
   });
 
-  const routines = routinesQuery.data || [];
-  const selectedRoutineId = selectedId;
-  const selectedRoutine = selectedRoutineId ? routines.find((routine) => routine.id === selectedRoutineId) || null : null;
-  const editor = editorDraft || (selectedRoutine ? toRoutineEditor(selectedRoutine) : null);
-  const showListCadence = !editor;
+  const routines = useMemo(() => (routinesQuery.data || []).filter((routine) => routine.status !== 'archived'), [routinesQuery.data]);
+  const agentRoutines = useMemo(
+    () => joinAgentRoutines(routines, definitionsQuery.data || []),
+    [routines, definitionsQuery.data],
+  );
 
-  const runsQuery = useQuery({
-    queryKey: ['routine-runs', user?.id],
-    queryFn: async () => {
-      let backendRuns: RoutineRun[] | null = null;
-      try {
-        backendRuns = await apiJsonWithAuth<RoutineRun[]>('/api/routines/runs?limit=50', getToken, { userId: user?.id });
-      } catch (error) {
-        console.warn('[Routines] Backend routine run read failed; using local fallback', error);
-      }
-      const vaultRuns = user?.id && !backendRuns ? await readLocalVaultRoutineRuns(user.id) : null;
-      const runs = backendRuns || vaultRuns || [];
-      return runs.length ? runs : buildSeedRoutineRuns(user?.id || 'visual-seed', routines.length ? routines : undefined);
-    },
+  const workflowRunsQuery = useQuery({
+    queryKey: ['workflow-runs', 'routines-page', user?.id],
+    queryFn: async () => (await apiJsonWithAuth<WorkflowRunListResponse>('/api/workflows/runs?limit=100', getToken, { userId: user?.id })).items,
     enabled: Boolean(user?.id),
-    staleTime: 10_000,
-  });
-
-  const createRoutineMutation = useMutation({
-    mutationFn: async (input: RoutineCreateInput) => {
-      try {
-        return await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
-          method: 'POST',
-          body: JSON.stringify(input),
-          userId: user?.id,
-        });
-      } catch (error) {
-        if (!user?.id) throw error;
-        const optimistic = buildOptimisticRoutine(input, user.id);
-        await putLocalVaultRoutine(user.id, optimistic);
-        await putLocalVaultTaskRoutineWriteOutboxItem(
-          user.id,
-          buildRoutineCreateOutboxItem(user.id, input, optimistic),
-        );
-        toast.message('Routine saved locally. It will sync when the backend is available.');
-        return { items: [optimistic] };
-      }
-    },
-    onSuccess: (response) => {
-      const routine = response.items[0];
-      if (routine) {
-        setSelectedId(routine.id);
-        setEditor(toRoutineEditor(routine));
-        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
-      }
-      void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create routine.'),
-  });
-
-  const saveRoutineMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: RoutineUpdateInput }) => {
-      try {
-        return await apiJsonWithAuth<RoutineListResponse>(`/api/routines/${id}`, getToken, {
-          method: 'PATCH',
-          body: JSON.stringify(patch),
-          userId: user?.id,
-        });
-      } catch (error) {
-        if (!user?.id) throw error;
-        const current = (queryClient.getQueryData<Routine[]>(['routines', user.id]) || []).find((routine) => routine.id === id) || editor;
-        if (!current) throw error;
-        const optimistic = buildOptimisticRoutineUpdate(current, patch, user.id);
-        await putLocalVaultRoutine(user.id, optimistic);
-        await putLocalVaultTaskRoutineWriteOutboxItem(
-          user.id,
-          buildRoutineUpdateOutboxItem(user.id, patch, optimistic),
-        );
-        toast.message('Routine update saved locally. It will sync when the backend is available.');
-        return { items: [optimistic] };
-      }
-    },
-    onSuccess: (response) => {
-      const routine = response.items[0];
-      if (routine) {
-        setEditor(toRoutineEditor(routine));
-        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
-      }
-      void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
-      toast.success('Routine saved.');
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to save routine.'),
-  });
-
-  const generateDueMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        return await apiJsonWithAuth<{ generated_tasks?: number; generated_scheduled_blocks?: number; generated_workflow_runs?: number }>(
-          '/api/routines/generate-due?horizon_days=7',
-          getToken,
-          { method: 'POST', userId: user?.id },
-        );
-      } catch (error) {
-        console.warn('[Routines] Backend routine generation failed; using local visual fallback', error);
-        return { generated_tasks: 0, generated_scheduled_blocks: 0, generated_workflow_runs: 0 };
-      }
-    },
-    onSuccess: (response) => {
-      const generatedCount = Number(response.generated_tasks || 0)
-        + Number(response.generated_scheduled_blocks || 0)
-        + Number(response.generated_workflow_runs || 0);
-      if (generatedCount === 0 && user?.id) {
-        appendDemoRoutineGeneration(user.id, editor || selectedRoutine || routines[0]);
-        setDemoRuns(readDemoRoutineRuns(user.id));
-        toast.success('Generated a local due run and task.');
-      } else {
-        toast.success('Due routines generated.');
-      }
-      void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['routine-runs', user?.id] });
+    refetchInterval: (query) => {
+      const items = (query.state.data || []) as WorkflowRun[];
+      return items.some((run) => run.status === 'queued' || run.status === 'processing') ? 2_000 : 30_000;
     },
   });
 
-  const workflows = workflowsQuery.data || [];
-  const setupAiTemplateMutation = useMutation({
-    mutationFn: async (template: AiRoutineTemplate) => {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York';
-      const payload = workflowPayloadForTemplate(template, timezone);
-      const existing = workflows.find((workflow) => workflow.config?.ai_routine_template_key === template.id);
-      const patchPayload: WorkflowDefinitionUpdateInput = {
-        name: payload.name,
-        definition_family: payload.definition_family,
-        trigger_type: payload.trigger_type,
-        signal_kind: payload.signal_kind,
-        status: payload.status,
-        schedule: payload.schedule,
-        delivery: payload.delivery,
-        config: payload.config,
-      };
-      const definition = existing
-        ? await apiJsonWithAuth<WorkflowDefinition>(`/api/workflows/definitions/${existing.id}`, getToken, {
-            method: 'PATCH',
-            body: JSON.stringify(patchPayload),
-            userId: user?.id,
-          })
-        : await apiJsonWithAuth<WorkflowDefinition>('/api/workflows/definitions', getToken, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            userId: user?.id,
-          });
-      const routineResponse = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
-        method: 'POST',
-        body: JSON.stringify(workflowRoutineInput(definition, template)),
-        userId: user?.id,
-      });
-      return { definition, routine: routineResponse.items[0] || null };
-    },
-    onSuccess: ({ routine }) => {
-      if (routine) {
-        setSelectedId(routine.id);
-        setEditor(toRoutineEditor(routine));
-        setActiveTab('mine');
-        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
-      }
-      void queryClient.invalidateQueries({ queryKey: ['workflow-definitions', 'routines-page'] });
-      void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
-      toast.success('AI routine set up.');
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to set up AI routine.'),
+  const routineRunsQuery = useQuery({
+    queryKey: ['routine-runs', 'routines-page', user?.id],
+    queryFn: () => apiJsonWithAuth<RoutineRun[]>('/api/routines/runs?limit=100', getToken, { userId: user?.id }),
+    enabled: Boolean(user?.id),
+    staleTime: 15_000,
   });
 
-  const preview = useMemo(() => {
-    if (!editor) return { summary: '', dates: [] as Date[] };
-    return {
-      summary: summarizeRecurrence(editor.trigger_type, editor.trigger_config || {}),
-      dates: nextRoutineDates({
-        triggerType: editor.trigger_type,
-        config: editor.trigger_config || {},
-        firstRunAt: editor.first_run_at ? new Date(editor.first_run_at) : null,
-        endsAt: editor.ends_at ? new Date(editor.ends_at) : null,
-        lastCompletedAt: editor.last_run_at ? new Date(editor.last_run_at) : null,
-      }),
-    };
-  }, [editor]);
+  const runViews = useMemo(
+    () => buildRunViews({
+      workflowRuns: workflowRunsQuery.data || [],
+      routineRuns: routineRunsQuery.data || [],
+      agentRoutines,
+    }),
+    [workflowRunsQuery.data, routineRunsQuery.data, agentRoutines],
+  );
 
-  const routineById = useMemo(() => new Map(routines.map((routine) => [routine.id, routine])), [routines]);
-  const displayRuns = useMemo(() => {
-    const runs = dedupeById([...(demoRuns || []), ...(runsQuery.data || [])]);
-    return runs.slice().sort((a, b) => new Date(b.scheduled_for).getTime() - new Date(a.scheduled_for).getTime());
-  }, [demoRuns, runsQuery.data]);
-
-  const filteredTemplates = useMemo(() => {
-    if (activeTemplateCategory === 'Suggested') {
-      return AI_ROUTINE_TEMPLATES.filter((template) => template.category === 'Suggested').concat(
-        AI_ROUTINE_TEMPLATES.filter((template) => template.category !== 'Suggested').slice(0, 4),
-      );
+  const lastRunByRoutine = useMemo(() => {
+    const map = new Map<string, RoutineRunView>();
+    for (const run of runViews) {
+      if (run.routineId && !map.has(run.routineId)) map.set(run.routineId, run);
     }
-    return AI_ROUTINE_TEMPLATES.filter((template) => template.category === activeTemplateCategory);
-  }, [activeTemplateCategory]);
+    return map;
+  }, [runViews]);
 
-  const updateConfig = (patch: Record<string, unknown>) => {
-    setEditor((current) => {
-      const base = current || editor;
-      return base ? { ...base, trigger_config: { ...(base.trigger_config || {}), ...patch } } : base;
+  const runningRoutineIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const run of runViews) {
+      if (run.routineId && (run.status === 'queued' || run.status === 'running')) ids.add(run.routineId);
+    }
+    return ids;
+  }, [runViews]);
+
+  const selectedRoutineId = selectedId && routines.some((routine) => routine.id === selectedId)
+    ? selectedId
+    : routines[0]?.id || null;
+  const selectedItem = agentRoutines.find((item) => item.routine.id === selectedRoutineId) || null;
+
+  const invalidateAll = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: routinesKey });
+    void queryClient.invalidateQueries({ queryKey: ['workflow-definitions', 'routines-page'] });
+    void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
+  }, [queryClient, routinesKey, user?.id]);
+
+  // --- Optimistic routine patching -------------------------------------------------
+
+  const patchRoutineCache = useCallback((id: string, patch: Partial<Routine>) => {
+    queryClient.setQueryData<Routine[]>(routinesKey, (current) =>
+      (current || []).map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
+  }, [queryClient, routinesKey]);
+
+  const patchRoutineMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: RoutineUpdateInput; optimistic?: Partial<Routine> }) =>
+      apiJsonWithAuth<RoutineListResponse>(`/api/routines/${id}`, getToken, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+        userId: user?.id,
+      }),
+    onMutate: async ({ id, optimistic }) => {
+      await queryClient.cancelQueries({ queryKey: routinesKey });
+      const previous = queryClient.getQueryData<Routine[]>(routinesKey);
+      if (optimistic) patchRoutineCache(id, optimistic);
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      if (context?.previous) queryClient.setQueryData(routinesKey, context.previous);
+      toast.error(error instanceof Error ? error.message : 'Could not update the routine.');
+    },
+    onSuccess: (response) => {
+      const routine = response.items[0];
+      if (routine && user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
+      void queryClient.invalidateQueries({ queryKey: routinesKey });
+    },
+  });
+
+  const togglePause = (item: AgentRoutine) => {
+    const paused = item.routine.status === 'paused';
+    patchRoutineMutation.mutate({
+      id: item.routine.id,
+      patch: { status: paused ? 'scheduled' : 'paused' },
+      optimistic: { status: paused ? 'scheduled' : 'paused' },
     });
   };
 
-  const saveEditor = () => {
-    if (!editor) return;
-    saveRoutineMutation.mutate({
-      id: editor.id,
-      patch: {
-        title: editor.title,
-        description: editor.description,
-        status: editor.status,
-        kind: editor.kind,
-        trigger_type: editor.trigger_type,
-        trigger_config: editor.trigger_config,
-        timezone: editor.timezone,
-        priority: editor.priority,
-        tags: editor.tags,
-        task_template: editor.task_template,
-        ai_workflow_definition_id: editor.ai_workflow_definition_id,
-        first_run_at: editor.first_run_at,
-        ends_at: editor.ends_at,
+  const renameRoutine = (item: AgentRoutine, name: string) => {
+    patchRoutineMutation.mutate({
+      id: item.routine.id,
+      patch: { title: name },
+      optimistic: { title: name },
+    });
+    if (item.definition) {
+      void apiJsonWithAuth(`/api/workflows/definitions/${item.definition.id}`, getToken, {
+        method: 'PATCH',
+        body: JSON.stringify({ name } satisfies WorkflowDefinitionUpdateInput),
+        userId: user?.id,
+      }).catch(() => undefined);
+    }
+  };
+
+  const deleteRoutine = (item: AgentRoutine) => {
+    const previousStatus = item.routine.status;
+    queryClient.setQueryData<Routine[]>(routinesKey, (current) =>
+      (current || []).filter((routine) => routine.id !== item.routine.id));
+    void apiJsonWithAuth(`/api/routines/${item.routine.id}`, getToken, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'archived' } satisfies RoutineUpdateInput),
+      userId: user?.id,
+    }).catch(() => {
+      toast.error('Could not delete the routine.');
+      void queryClient.invalidateQueries({ queryKey: routinesKey });
+    });
+    toast('Routine deleted', {
+      action: {
+        label: 'Undo',
+        onClick: () => {
+          void apiJsonWithAuth(`/api/routines/${item.routine.id}`, getToken, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: previousStatus } satisfies RoutineUpdateInput),
+            userId: user?.id,
+          }).then(() => invalidateAll()).catch(() => toast.error('Could not restore the routine.'));
+        },
       },
     });
   };
 
-  const editorTimeValue = editor
-    ? `${String(Number(editor.trigger_config.hour || 9)).padStart(2, '0')}:${String(Number(editor.trigger_config.minute || 0)).padStart(2, '0')}`
-    : '09:00';
-  const nextPreviewText = preview.dates.map((date) => formatDateTime(date)).slice(0, 4).join(', ') || formatDateTime(editor?.next_run_at || null);
-  const lastRunText = formatDateTime(editor?.last_run_at || null);
-  const completionPreview = editor?.trigger_type === 'on_completion' && preview.dates[0]
-    ? `If completed today -> ${formatDateTime(preview.dates[0])}`
-    : null;
+  // --- Create / save through the configure modal -----------------------------------
 
-  const panelOpen = Boolean(editor);
+  const submitModalMutation = useMutation({
+    mutationFn: async ({ state, editing }: { state: RoutineConfigureState; editing: AgentRoutine | null }) => {
+      const timezone = currentTimezone();
+      const name = state.name.trim() || nameFromInstructions(state.instructions);
+      const template = templateById(state.templateKey);
+      const agent = {
+        instructions: state.instructions.trim(),
+        agent_tier: state.agentTier,
+        data_sources: state.dataSources,
+        notify_push: state.notifyPush,
+        notify_email: state.notifyEmail,
+        icon: state.icon,
+        template_key: state.templateKey,
+      };
 
-  const closePanel = () => {
-    setSelectedId(null);
-    setEditor(null);
+      if (editing) {
+        let definitionId = editing.definition?.id || null;
+        if (definitionId) {
+          await apiJsonWithAuth<WorkflowDefinition>(`/api/workflows/definitions/${definitionId}`, getToken, {
+            method: 'PATCH',
+            body: JSON.stringify(buildAgentDefinitionUpdateInput({ name, agent, draft: state.draft, timezone, templateKey: state.templateKey })),
+            userId: user?.id,
+          });
+        } else {
+          const definition = await apiJsonWithAuth<WorkflowDefinition>('/api/workflows/definitions', getToken, {
+            method: 'POST',
+            body: JSON.stringify(buildAgentDefinitionCreateInput({
+              name,
+              kind: template?.workflowKind || 'daily_narrative',
+              agent,
+              draft: state.draft,
+              timezone,
+              templateKey: state.templateKey,
+            })),
+            userId: user?.id,
+          });
+          definitionId = definition.id;
+        }
+        const patch: RoutineUpdateInput = {
+          ...buildAgentRoutineUpdateInput({ name, agent, draft: state.draft, paused: editing.routine.status === 'paused' }),
+          kind: 'ai_workflow',
+          ai_workflow_definition_id: definitionId,
+        };
+        const response = await apiJsonWithAuth<RoutineListResponse>(`/api/routines/${editing.routine.id}`, getToken, {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+          userId: user?.id,
+        });
+        return { routine: response.items[0] || null, created: false };
+      }
+
+      const definition = await apiJsonWithAuth<WorkflowDefinition>('/api/workflows/definitions', getToken, {
+        method: 'POST',
+        body: JSON.stringify(buildAgentDefinitionCreateInput({
+          name,
+          kind: template?.workflowKind || 'daily_narrative',
+          agent,
+          draft: state.draft,
+          timezone,
+          templateKey: state.templateKey,
+        })),
+        userId: user?.id,
+      });
+      const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
+        method: 'POST',
+        body: JSON.stringify(buildAgentRoutineInput({ name, agent, draft: state.draft, timezone, definitionId: definition.id })),
+        userId: user?.id,
+      });
+      return { routine: response.items[0] || null, created: true };
+    },
+    onSuccess: ({ routine, created }) => {
+      invalidateAll();
+      setModal(closedModal());
+      if (routine) {
+        setSelectedId(routine.id);
+        setActiveTab('mine');
+        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
+      }
+      toast.success(created ? 'Routine created' : 'Routine saved');
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not save the routine.'),
+  });
+
+  // --- Run now ----------------------------------------------------------------------
+
+  const runNowMutation = useMutation({
+    mutationFn: async (item: AgentRoutine) => {
+      if (!item.definition) throw new Error('This routine has no agent attached yet — edit it and save to attach one.');
+      return apiJsonWithAuth<WorkflowRunQueueResponse>(`/api/workflows/definitions/${item.definition.id}/run`, getToken, {
+        method: 'POST',
+        userId: user?.id,
+      });
+    },
+    onSuccess: (response) => {
+      queryClient.setQueryData<WorkflowRun[]>(['workflow-runs', 'routines-page', user?.id], (current) =>
+        [response.run, ...(current || []).filter((run) => run.id !== response.run.id)]);
+      void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not start the run.'),
+  });
+
+  const retryRun = (run: RoutineRunView) => {
+    const item = agentRoutines.find((candidate) => candidate.routine.id === run.routineId);
+    if (item) runNowMutation.mutate(item);
   };
 
+  // --- Modal openers & keyboard shortcuts --------------------------------------------
+
+  const openCreateModal = useCallback((templateKey?: string | null) => {
+    setModal({
+      open: true,
+      mode: 'create',
+      initial: configureStateFromTemplate(templateById(templateKey || null)),
+      editing: null,
+    });
+  }, []);
+
+  const openEditModal = useCallback((item: AgentRoutine) => {
+    setModal({ open: true, mode: 'edit', initial: configureStateFromRoutine(item), editing: item });
+  }, []);
+
+  const duplicateRoutine = (item: AgentRoutine) => {
+    const initial = configureStateFromRoutine(item);
+    setModal({
+      open: true,
+      mode: 'create',
+      initial: { ...initial, name: `${initial.name} copy` },
+      editing: null,
+    });
+  };
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n' && !modal.open) {
+        event.preventDefault();
+        openCreateModal();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [modal.open, openCreateModal]);
+
+  // --- Rendering ---------------------------------------------------------------------
+
+  const listActions = {
+    onSelect: (id: string) => setSelectedId(id),
+    onRunNow: (item: AgentRoutine) => runNowMutation.mutate(item),
+    onTogglePause: togglePause,
+    onEdit: openEditModal,
+    onDuplicate: duplicateRoutine,
+    onViewRuns: (item: AgentRoutine) => {
+      setRunsFilter(item.routine.id);
+      setActiveTab('runs');
+    },
+    onDelete: deleteRoutine,
+  };
+
+  const filteredRunViews = runsFilter === 'all' ? runViews : runViews.filter((run) => run.routineId === runsFilter);
+  const scopedRunViews = selectedRoutineId ? runViews.filter((run) => run.routineId === selectedRoutineId) : [];
+  const hasRoutines = routines.length > 0;
+  const installedTemplateKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const item of agentRoutines) {
+      if (item.agent.template_key) keys.add(item.agent.template_key);
+    }
+    return keys;
+  }, [agentRoutines]);
+
   return (
-    <TaskPageShell>
-      {editor ? (
-        <HeaderPortal>
-          <div className="flex items-center gap-2">
-            <PillButton
-              onClick={() => generateDueMutation.mutate()}
-              disabled={generateDueMutation.isPending}
-            >
-              {generateDueMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Play className="h-3.5 w-3.5" />
-              )}
-              Generate due
-            </PillButton>
-            <PillButton
-              onClick={saveEditor}
-              disabled={saveRoutineMutation.isPending}
-              className="border-[#27251E] bg-[#27251E] text-white hover:bg-[#1a1916]"
-            >
-              {saveRoutineMutation.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Check className="h-3.5 w-3.5" />
-              )}
-              Save
-            </PillButton>
+    <ReferencePage>
+      <header className={cn('shrink-0 border-b px-8 pb-4 pt-7', subtleBorderClass)}>
+        <div className="flex items-start justify-between gap-5">
+          <div className="min-w-0">
+            <div className="text-[12px] font-[650] uppercase tracking-[0.16em] text-[#737b86]">Scheduled agents</div>
+            <h1 className="mt-2 truncate text-[36px] font-[680] leading-none tracking-[-0.035em] text-[#10141d]">Routines</h1>
           </div>
-        </HeaderPortal>
-      ) : null}
-
-      <div className="relative h-full min-h-0">
-        <aside className={cn(taskContentMaxClass, 'relative z-0 mx-auto flex h-full min-h-0 w-full flex-col px-6 lg:px-8')}>
-          <div className="shrink-0 pb-3 pt-5">
-            <div className="flex items-center justify-between gap-3">
-              <h1 className="truncate text-[19px] font-medium leading-tight tracking-[-0.01em] text-[#27251E]">
-                Routines
-              </h1>
-              <ToolbarIconButton
-                onClick={() => createRoutineMutation.mutate(defaultRoutineInput())}
-                disabled={createRoutineMutation.isPending}
-                aria-label="New routine"
-                title="New routine"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </ToolbarIconButton>
-            </div>
-            <UnderlineTabs
-              value={activeTab}
-              options={ROUTINE_TABS}
-              onChange={setActiveTab}
-              className="mt-3"
-            />
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-auto pb-8">
-            {activeTab === 'mine' ? (
-              <div className="space-y-0.5">
-                {routinesQuery.isLoading ? [0, 1, 2].map((item) => (
-                  <div key={item} className="mx-1 h-9 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
-                )) : routines.length ? routines.map((routine) => (
-                  <RoutineListItem
-                    key={routine.id}
-                    title={routine.title}
-                    cadence={routine.cadence_summary}
-                    showCadence={showListCadence}
-                    selected={selectedRoutineId === routine.id}
-                    onClick={() => {
-                      setSelectedId(routine.id);
-                      setEditor(toRoutineEditor(routine));
-                      setActiveTab('mine');
-                    }}
-                  />
-                )) : (
-                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">No routines yet.</div>
-                )}
-              </div>
-            ) : activeTab === 'templates' ? (
-              <div className="space-y-3 px-1">
-                <ViewPills
-                  value={activeTemplateCategory}
-                  options={ROUTINE_TEMPLATE_CATEGORIES}
-                  onChange={(value) => setActiveTemplateCategory(value as RoutineTemplateCategory)}
-                />
-                {filteredTemplates.map((template) => {
-                  const existing = workflows.find((workflow) => workflow.config?.ai_routine_template_key === template.id);
-                  return (
-                    <div
-                      key={template.id}
-                      className="rounded-[6px] border border-[var(--border-subtle)] bg-white px-3 py-3 hover:bg-[#fafaf9]"
-                    >
-                      <div className="flex items-start gap-3">
-                        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-sm bg-[#F3F3F3] text-[#27251E]">
-                          <TemplateIcon sourceIcon={template.sourceIcon} />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="truncate text-[14px] font-medium text-[#27251E]">{template.title}</div>
-                              <div className="mt-1 line-clamp-2 text-[12px] leading-5 text-[rgba(39,37,30,0.55)]">
-                                {template.description}
-                              </div>
-                            </div>
-                            {existing ? (
-                              <span className="shrink-0 text-[11px] font-medium text-[#2d6a4f]">ready</span>
-                            ) : null}
-                          </div>
-                          <div className="mt-2.5 flex items-center justify-between gap-3">
-                            <span className="truncate text-[12px] text-[rgba(39,37,30,0.45)]">
-                              {templateScheduleSummary(template)}
-                            </span>
-                            <button
-                              type="button"
-                              className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2 text-[12px] text-[#27251E] shadow-sm hover:bg-[#F5F5F5] disabled:opacity-50"
-                              onClick={() => setupAiTemplateMutation.mutate(template)}
-                              disabled={setupAiTemplateMutation.isPending}
-                            >
-                              {setupAiTemplateMutation.isPending ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <Sparkles className="h-3 w-3" />
-                              )}
-                              Set up
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {workflows.length ? (
-                  <div className="space-y-0.5 border-t border-[var(--border-subtle)] pt-3">
-                    {workflows.slice(0, 6).map((workflow) => (
-                      <button
-                        key={workflow.id}
-                        type="button"
-                        className="ritual-snappy-row flex w-full items-center gap-2.5 rounded-[6px] px-2.5 py-2 text-left hover:bg-[#f6f6f5]"
-                        onClick={() => createRoutineMutation.mutate(workflowRoutineInput(workflow))}
-                        disabled={createRoutineMutation.isPending}
-                      >
-                        <Bot className="h-4 w-4 shrink-0 text-[rgba(39,37,30,0.45)]" />
-                        <span className="min-w-0 truncate text-[14px] font-medium text-[#27251E]">{workflow.name}</span>
-                        <Sparkles className="ml-auto h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.35)]" />
-                      </button>
-                    ))}
-                  </div>
-                ) : workflowsQuery.isLoading ? (
-                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">
-                    Workflow templates are loading.
-                  </div>
-                ) : null}
-              </div>
-            ) : (
-              <div className="space-y-0.5 px-1">
-                {displayRuns.map((run) => {
-                  const routine = routineById.get(run.routine_id);
-                  return (
-                    <div
-                      key={run.id}
-                      className="rounded-[6px] px-2.5 py-2.5 hover:bg-[#f6f6f5]"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate text-[14px] font-medium text-[#27251E]">
-                          {routine?.title || 'Routine run'}
-                        </span>
-                        <span className={cn('shrink-0 text-[12px] font-medium', runStatusClass(run.status))}>
-                          {run.status}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-[12px] text-[rgba(39,37,30,0.45)]">
-                        {formatDateTime(run.scheduled_for)} · {runOutputType(run)}
-                      </div>
-                    </div>
-                  );
-                })}
-                {!displayRuns.length && (
-                  <div className="px-3 py-8 text-center text-[13px] text-[rgba(39,37,30,0.45)]">No routine runs yet.</div>
-                )}
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {panelOpen ? (
           <button
             type="button"
-            className="absolute inset-0 z-10 bg-[#f7f6f2]/45 transition-opacity duration-300"
-            onClick={closePanel}
-            aria-label="Close routine panel"
-          />
-        ) : null}
+            title="New routine (⌘N)"
+            onClick={() => openCreateModal()}
+            className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-3 text-[14px] font-[650] text-white transition hover:bg-[#202938]"
+          >
+            <Plus className="h-4 w-4" />
+            New routine
+          </button>
+        </div>
+        <SegmentedTabs value={activeTab} options={ROUTINE_TABS} onChange={setActiveTab} className="mt-5" />
+      </header>
 
-        <WindowSidePanel
-          open={panelOpen}
-          onClose={closePanel}
-          title="Routine"
-          headerActions={<RoutinePanelMenu />}
-        >
-          {editor ? (
-            <div className="px-5 py-5 lg:px-6">
-              <input
-                value={editor.title}
-                onChange={(event) => setEditor({ ...editor, title: event.target.value })}
-                className="mb-5 w-full bg-transparent text-[20px] font-medium leading-tight tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.35)]"
-                placeholder="Routine title"
-              />
-
-              <RoutineEditorCards
-                editor={editor}
-                setEditor={setEditor}
-                updateConfig={updateConfig}
-                editorTimeValue={editorTimeValue}
-                completionPreview={completionPreview}
-                nextPreviewText={nextPreviewText}
-                lastRunText={lastRunText}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {activeTab === 'templates' ? (
+          <div className="h-full overflow-auto px-8 py-6">
+            <div className="mx-auto max-w-[980px]">
+              <TemplateLibrary
+                heading={null}
+                installedTemplateKeys={installedTemplateKeys}
+                onSetUp={(template) => openCreateModal(template.id)}
               />
             </div>
-          ) : null}
-        </WindowSidePanel>
+          </div>
+        ) : activeTab === 'runs' ? (
+          <div className="h-full overflow-auto px-8 py-6">
+            <div className="mx-auto max-w-[820px]">
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="text-[13px] font-[650] uppercase tracking-[0.12em] text-[#8a929c]">Run history</div>
+                <select
+                  value={runsFilter}
+                  onChange={(event) => setRunsFilter(event.target.value)}
+                  aria-label="Filter runs by routine"
+                  className="h-8 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-2 text-[13px] font-[560] text-[#22262d] outline-none focus:border-[rgba(15,23,42,0.24)]"
+                >
+                  <option value="all">All routines</option>
+                  {agentRoutines.map((item) => (
+                    <option key={item.routine.id} value={item.routine.id}>{item.routine.title}</option>
+                  ))}
+                </select>
+              </div>
+              <RunHistory runs={filteredRunViews} now={now} onRetry={retryRun} />
+            </div>
+          </div>
+        ) : !hasRoutines ? (
+          <div className="h-full overflow-auto px-8 py-8">
+            <div className="mx-auto max-w-[980px] space-y-8">
+              {routinesQuery.isLoading ? (
+                <div className="space-y-2">
+                  {[0, 1, 2].map((item) => <div key={item} className="h-16 animate-pulse rounded-[10px] bg-[#f1f3ef]" />)}
+                </div>
+              ) : (
+                <>
+                  <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
+                  <TemplateLibrary
+                    installedTemplateKeys={installedTemplateKeys}
+                    onSetUp={(template) => openCreateModal(template.id)}
+                  />
+                </>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="grid h-full min-h-0 grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+            <aside className={cn('min-h-0 overflow-auto border-r bg-white/42 px-3 py-4', subtleBorderClass)}>
+              <RoutineList
+                items={agentRoutines}
+                selectedId={selectedRoutineId}
+                now={now}
+                runningRoutineIds={runningRoutineIds}
+                lastRunByRoutine={lastRunByRoutine}
+                actions={listActions}
+              />
+            </aside>
+            <section className="min-h-0 overflow-auto px-8 py-7">
+              {selectedItem ? (
+                <RoutineDetail
+                  item={selectedItem}
+                  now={now}
+                  runs={scopedRunViews}
+                  running={runningRoutineIds.has(selectedItem.routine.id)}
+                  onRename={renameRoutine}
+                  onTogglePause={togglePause}
+                  onRunNow={(item) => runNowMutation.mutate(item)}
+                  onEdit={openEditModal}
+                  onDuplicate={duplicateRoutine}
+                  onDelete={deleteRoutine}
+                  onRetryRun={retryRun}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-center">
+                  <div>
+                    <RotateCw className="mx-auto h-8 w-8 text-[#a0a7b0]" />
+                    <div className="mt-3 text-[20px] font-[680] text-[#141922]">Select a routine</div>
+                    <p className="mt-2 text-[14px] text-[#737b86]">Pick a routine on the left to see its schedule and runs.</p>
+                  </div>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
       </div>
-    </TaskPageShell>
+
+      <RoutineConfigureModal
+        open={modal.open}
+        mode={modal.mode}
+        initial={modal.initial}
+        lastRunAt={modal.editing?.routine.last_run_at || null}
+        submitting={submitModalMutation.isPending}
+        onClose={() => setModal(closedModal())}
+        onSubmit={(state) => submitModalMutation.mutate({ state, editing: modal.editing })}
+      />
+    </ReferencePage>
   );
 }
