@@ -91,7 +91,12 @@ export function Sidebar() {
       }}
       {...hoverProps}
     >
-      <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
+      <div
+        aria-hidden
+        data-tauri-drag-region
+        className="tauri-drag-region absolute left-2 right-2 top-0 z-0 h-12"
+      />
+      <div className="no-drag flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
         />

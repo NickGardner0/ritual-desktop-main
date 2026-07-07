@@ -687,7 +687,7 @@ unsafe fn clip_macos_view_to_native_radius(view: cocoa::base::id, corner_radius:
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_window_chrome(window: &tauri::WebviewWindow, corner_radius: f64) {
-    use cocoa::base::{id, YES};
+    use cocoa::base::{id, NO, YES};
     use objc::{msg_send, sel, sel_impl};
 
     match window.ns_window() {
@@ -695,7 +695,7 @@ fn configure_macos_window_chrome(window: &tauri::WebviewWindow, corner_radius: f
             let ns_win: id = raw_window as id;
 
             let _: () = msg_send![ns_win, setHasShadow: YES];
-            let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
+            let _: () = msg_send![ns_win, setMovableByWindowBackground: NO];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
             let content_view: id = msg_send![ns_win, contentView];
