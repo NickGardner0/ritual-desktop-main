@@ -11,33 +11,41 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
-import type { AgentRoutine } from '@/lib/routines/model';
+import {
+  AGENT_TIERS,
+  scheduleDraftFromRoutine,
+  type AgentRoutine,
+  type RoutineAgentConfig,
+  type ScheduleDraft,
+} from '@/lib/routines/model';
 import type { RoutineRunView } from '@/lib/routines/runs';
-import { describeSchedule, nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
+import { nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
 import { formatOccurrence, toDate } from '@/lib/routines/time';
 import { DataSourceIcons } from '@/lib/routines/ui';
-import { FieldGroup, FieldRow, IconButton } from '@/lib/tasks/reference-task-shell';
+import { triggerConfigFromDraft } from '@/lib/routines/model';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
 import { cn } from '@/lib/utils';
 
 import { RunHistory } from './routine-runs';
 
-const FREQUENCY_LABELS: Record<string, string> = {
-  daily: 'Daily',
-  weekly: 'Weekly',
-  monthly: 'Monthly',
-  yearly: 'Yearly',
-  on_completion: 'On completion',
-};
+// Compact inline-editor styling, translated from the dark reference app into
+// Ritual's light tokens: quiet grouped rows, values as small editable chips.
+const groupClass = 'overflow-hidden rounded-[10px] bg-[var(--surface-panel)]';
+const rowClass = 'flex min-h-[42px] items-center justify-between gap-3 border-b border-[rgba(15,23,42,0.045)] px-3.5 last:border-b-0';
+const labelClass = 'text-[13.5px] font-[500] text-[var(--text-secondary)]';
+const chipClass = 'inline-flex h-[26px] cursor-pointer items-center rounded-[7px] bg-[rgba(15,23,42,0.055)] px-2.5 text-[13px] font-[580] text-[var(--text-primary)] transition hover:bg-[rgba(15,23,42,0.09)]';
+const chipInputClass = 'h-[26px] rounded-[7px] border-0 bg-[rgba(15,23,42,0.055)] px-2 text-[13px] font-[580] text-[var(--text-primary)] outline-none transition [appearance:none] hover:bg-[rgba(15,23,42,0.09)] focus:bg-[rgba(15,23,42,0.09)]';
+const mutedClass = 'text-[13px] font-[500] text-[var(--text-muted)]';
 
-/** Quiet read-only value chip, in the reference app's pill style. */
-function ValuePill({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <span className={cn('inline-flex h-7 items-center rounded-sm bg-white/82 px-2.5 text-[13px] font-[600] text-[#22262d]', className)}>
-      {children}
-    </span>
-  );
-}
+const FREQUENCIES: Array<{ id: ScheduleDraft['frequency']; label: string }> = [
+  { id: 'daily', label: 'Daily' },
+  { id: 'weekly', label: 'Weekly' },
+  { id: 'monthly', label: 'Monthly' },
+  { id: 'yearly', label: 'Yearly' },
+  { id: 'on_completion', label: 'On completion' },
+];
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -48,8 +56,6 @@ function ordinalSuffix(day: number): string {
   if (mod10 === 3) return `${day}rd`;
   return `${day}th`;
 }
-
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 export function RoutineDetail({
   item,
@@ -63,6 +69,8 @@ export function RoutineDetail({
   onDuplicate,
   onDelete,
   onRetryRun,
+  onSaveSchedule,
+  onSaveAgent,
 }: {
   item: AgentRoutine;
   now: Date;
@@ -75,24 +83,37 @@ export function RoutineDetail({
   onDuplicate: (item: AgentRoutine) => void;
   onDelete: (item: AgentRoutine) => void;
   onRetryRun: (run: RoutineRunView) => void;
+  onSaveSchedule: (item: AgentRoutine, draft: ScheduleDraft) => void;
+  onSaveAgent: (item: AgentRoutine, patch: Partial<RoutineAgentConfig>) => void;
 }) {
   const { routine, agent } = item;
+  const paused = routine.status === 'paused';
+
+  // Local editing state, re-derived when the routine changes underneath us.
   const [name, setName] = useState(routine.title);
-  const [syncedTitle, setSyncedTitle] = useState(routine.title);
-  if (syncedTitle !== routine.title) {
-    // Adjust local edit state when the routine changes underneath us.
-    setSyncedTitle(routine.title);
+  const [instructions, setInstructions] = useState(agent.instructions);
+  const [draft, setDraft] = useState<ScheduleDraft>(() => scheduleDraftFromRoutine(routine));
+  const [syncKey, setSyncKey] = useState(`${routine.id}:${routine.updated_at || ''}`);
+  const currentKey = `${routine.id}:${routine.updated_at || ''}`;
+  if (syncKey !== currentKey) {
+    setSyncKey(currentKey);
     setName(routine.title);
+    setInstructions(agent.instructions);
+    setDraft(scheduleDraftFromRoutine(routine));
   }
 
-  const paused = routine.status === 'paused';
-  const config = routine.trigger_config || {};
+  const apply = (patch: Partial<ScheduleDraft>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    onSaveSchedule(item, next);
+  };
+
   const upcoming = nextOccurrences({
-    triggerType: routine.trigger_type,
-    config,
+    triggerType: draft.frequency,
+    config: triggerConfigFromDraft(draft),
     from: now,
-    firstRunAt: toDate(routine.first_run_at),
-    endsAt: toDate(routine.ends_at),
+    firstRunAt: draft.firstRun ? new Date(`${draft.firstRun}T00:00:00`) : null,
+    endsAt: draft.ends ? new Date(`${draft.ends}T23:59:59`) : null,
     lastCompletedAt: toDate(routine.last_run_at),
     count: 4,
   });
@@ -106,21 +127,16 @@ export function RoutineDetail({
     onRename(item, trimmed);
   };
 
-  const interval = Math.max(1, Math.floor(Number(config.interval) || 1));
-  const intervalUnit = routine.trigger_type === 'daily' ? 'day'
-    : routine.trigger_type === 'weekly' ? 'week'
-      : routine.trigger_type === 'monthly' ? 'month'
-        : routine.trigger_type === 'yearly' ? 'year'
-          : String(config.unit || 'weeks').replace(/s$/, '');
-
-  const weekdays = Array.isArray(config.weekdays) ? config.weekdays.map(Number) : [];
-  const rawDay = (config as Record<string, unknown>).day;
-  const dayLabel = rawDay === 'first' ? 'first day' : rawDay === 'last' ? 'last day' : ordinalSuffix(Math.max(1, Math.min(31, Number(rawDay) || 1)));
-  const monthLabel = MONTHS[Math.max(0, Math.min(11, (Number(config.month) || 1) - 1))];
+  const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
+  const intervalUnit = draft.frequency === 'daily' ? 'day'
+    : draft.frequency === 'weekly' ? 'week'
+      : draft.frequency === 'monthly' ? 'month'
+        : draft.frequency === 'yearly' ? 'year'
+          : draft.onCompletionUnit.replace(/s$/, '');
 
   return (
-    <div className="mx-auto max-w-[560px]">
-      <div className="flex items-start justify-between gap-4">
+    <div className="mx-auto max-w-[500px]">
+      <div className="flex items-start justify-between gap-3">
         <input
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -130,28 +146,32 @@ export function RoutineDetail({
             if (event.key === 'Escape') setName(routine.title);
           }}
           aria-label="Routine name"
-          className="min-w-0 flex-1 bg-transparent text-[26px] font-[680] leading-tight tracking-[-0.03em] text-[#111827] outline-none"
+          className="min-w-0 flex-1 bg-transparent text-[21px] font-[650] leading-tight tracking-[-0.02em] text-[var(--text-primary)] outline-none"
         />
-        <div className="flex shrink-0 items-center gap-1 pt-1">
+        <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
             onClick={() => onRunNow(item)}
             disabled={running || !routine.ai_workflow_definition_id}
             title={running ? 'This routine is already running' : !routine.ai_workflow_definition_id ? 'This routine has no agent attached — edit and save to attach one' : 'Run now'}
-            className="inline-flex h-8 items-center gap-1.5 rounded-sm px-2.5 text-[13px] font-[640] text-[#4b5563] transition hover:bg-[#eef1ea] hover:text-[#171b22] disabled:opacity-40"
+            className="inline-flex h-7 items-center gap-1.5 rounded-[7px] px-2 text-[13px] font-[580] text-[var(--text-secondary)] transition hover:bg-[rgba(15,23,42,0.055)] hover:text-[var(--text-primary)] disabled:opacity-40"
           >
             {running ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
             {running ? 'Running' : 'Run now'}
           </button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <IconButton aria-label="More actions">
+              <button
+                type="button"
+                aria-label="More actions"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-[7px] text-[var(--text-secondary)] transition hover:bg-[rgba(15,23,42,0.055)] hover:text-[var(--text-primary)]"
+              >
                 <MoreHorizontal className="h-4 w-4" />
-              </IconButton>
+              </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onEdit(item)}>
-                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
+                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in modal
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDuplicate(item)}>
                 <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
@@ -164,58 +184,166 @@ export function RoutineDetail({
           </DropdownMenu>
         </div>
       </div>
-      <div className="mt-1 text-[13px] font-[540] text-[#737b86]">{describeSchedule(routine.trigger_type, config)}</div>
 
-      <div className="mt-6 space-y-3">
-        <FieldGroup>
-          <FieldRow label="Trigger">
-            <button type="button" onClick={() => onEdit(item)} title="Edit schedule">
-              <ValuePill className="transition hover:bg-white">{FREQUENCY_LABELS[routine.trigger_type] || routine.trigger_type}</ValuePill>
-            </button>
-          </FieldRow>
-          <FieldRow label="Paused">
+      <div className="mt-4 space-y-2.5">
+        <section className={groupClass}>
+          <div className={rowClass}>
+            <span className={labelClass}>Trigger</span>
+            <select
+              value={draft.frequency}
+              onChange={(event) => apply({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
+              className={chipInputClass}
+              aria-label="Trigger frequency"
+            >
+              {FREQUENCIES.map((frequency) => (
+                <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>Paused</span>
             <Switch checked={paused} onCheckedChange={() => onTogglePause(item)} />
-          </FieldRow>
-        </FieldGroup>
+          </div>
+        </section>
 
-        <FieldGroup>
-          <FieldRow label="Every">
-            <ValuePill>{interval}</ValuePill>
-            <span className="text-[13px] font-[560] text-[#6a717b]">{interval === 1 ? intervalUnit : `${intervalUnit}s`}</span>
-          </FieldRow>
-          {routine.trigger_type === 'weekly' && weekdays.length ? (
-            <FieldRow label="On">
+        <section className={groupClass}>
+          <div className={rowClass}>
+            <span className={labelClass}>Every</span>
+            <span className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={1}
+                max={99}
+                value={draft.interval}
+                onChange={(event) => setDraft({ ...draft, interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
+                onBlur={() => onSaveSchedule(item, draft)}
+                className={cn(chipInputClass, 'w-12 text-center')}
+                aria-label="Interval"
+              />
+              <span className={mutedClass}>{draft.interval === 1 ? intervalUnit : `${intervalUnit}s`}</span>
+            </span>
+          </div>
+
+          {draft.frequency === 'weekly' ? (
+            <div className={rowClass}>
+              <span className={labelClass}>On</span>
               <span className="flex flex-wrap justify-end gap-1">
-                {weekdays.sort((a, b) => a - b).map((day) => (
-                  <ValuePill key={day} className="h-6 px-2 text-[12px]">{WEEKDAYS[day]?.label || day}</ValuePill>
-                ))}
+                {WEEKDAYS.map((day) => {
+                  const active = draft.weekdays.includes(day.value);
+                  return (
+                    <button
+                      key={day.value}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => apply({
+                        weekdays: active
+                          ? draft.weekdays.filter((value) => value !== day.value)
+                          : [...draft.weekdays, day.value].sort((a, b) => a - b),
+                      })}
+                      className={cn(
+                        'h-[26px] rounded-[7px] px-2 text-[12px] font-[600] transition',
+                        active ? 'bg-[#111827] text-white' : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                      )}
+                    >
+                      {day.label}
+                    </button>
+                  );
+                })}
               </span>
-            </FieldRow>
+            </div>
           ) : null}
-          {routine.trigger_type === 'monthly' || routine.trigger_type === 'yearly' ? (
-            <FieldRow label="On the">
-              <ValuePill>{dayLabel}</ValuePill>
-              {routine.trigger_type === 'yearly' ? (
-                <>
-                  <span className="text-[13px] font-[560] text-[#6a717b]">in</span>
-                  <ValuePill>{monthLabel}</ValuePill>
-                </>
-              ) : null}
-            </FieldRow>
-          ) : null}
-          <FieldRow label="First run">
-            <ValuePill className={cn(!routine.first_run_at && 'text-[#8a929c]')}>
-              {routine.first_run_at ? formatOccurrence(toDate(routine.first_run_at)!, now) : 'Next occurrence'}
-            </ValuePill>
-          </FieldRow>
-          <FieldRow label="Ends">
-            <ValuePill className={cn(!routine.ends_at && 'text-[#8a929c]')}>
-              {routine.ends_at ? formatOccurrence(toDate(routine.ends_at)!, now) : 'Never'}
-            </ValuePill>
-          </FieldRow>
-        </FieldGroup>
 
-        <div className="px-4 text-[12px] leading-5 text-[#8a929c]">
+          {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
+            <div className={rowClass}>
+              <span className={labelClass}>On the</span>
+              <span className="flex items-center gap-1.5">
+                <select
+                  value={String(draft.day)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    apply({ day: value === 'first' || value === 'last' ? value : Number(value) });
+                  }}
+                  className={chipInputClass}
+                  aria-label="Day of month"
+                >
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <option key={day} value={day}>{ordinalSuffix(day)}</option>
+                  ))}
+                  <option value="first">first day</option>
+                  <option value="last">last day</option>
+                </select>
+                {draft.frequency === 'yearly' ? (
+                  <>
+                    <span className={mutedClass}>in</span>
+                    <select
+                      value={draft.month}
+                      onChange={(event) => apply({ month: Number(event.target.value) })}
+                      className={chipInputClass}
+                      aria-label="Month"
+                    >
+                      {MONTHS.map((month, index) => (
+                        <option key={month} value={index + 1}>{month}</option>
+                      ))}
+                    </select>
+                  </>
+                ) : null}
+              </span>
+            </div>
+          ) : null}
+
+          {draft.frequency !== 'on_completion' ? (
+            <div className={rowClass}>
+              <span className={labelClass}>At</span>
+              <input
+                type="time"
+                value={timeValue}
+                onChange={(event) => {
+                  const [hour, minute] = event.target.value.split(':').map(Number);
+                  if (Number.isFinite(hour) && Number.isFinite(minute)) apply({ hour, minute });
+                }}
+                className={cn(chipInputClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
+                aria-label="Time of day"
+              />
+            </div>
+          ) : (
+            <div className={rowClass}>
+              <span className={labelClass}>After</span>
+              <select
+                value={draft.onCompletionUnit}
+                onChange={(event) => apply({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
+                className={chipInputClass}
+                aria-label="Completion unit"
+              >
+                <option value="days">days</option>
+                <option value="weeks">weeks</option>
+                <option value="months">months</option>
+              </select>
+            </div>
+          )}
+
+          <div className={rowClass}>
+            <span className={labelClass}>First run</span>
+            <input
+              type="date"
+              value={draft.firstRun || ''}
+              onChange={(event) => apply({ firstRun: event.target.value || null })}
+              className={cn(chipInputClass, !draft.firstRun && 'text-[var(--text-muted)]')}
+              aria-label="First run date"
+            />
+          </div>
+          <div className={rowClass}>
+            <span className={labelClass}>Ends</span>
+            <input
+              type="date"
+              value={draft.ends || ''}
+              onChange={(event) => apply({ ends: event.target.value || null })}
+              className={cn(chipInputClass, !draft.ends && 'text-[var(--text-muted)]')}
+              aria-label="End date"
+            />
+          </div>
+        </section>
+
+        <div className="px-3.5 text-[12px] leading-5 text-[var(--text-muted)]">
           <div>Last: {routine.last_run_at ? formatOccurrence(toDate(routine.last_run_at)!, now) : '—'}</div>
           <div>
             Next: {paused
@@ -226,34 +354,69 @@ export function RoutineDetail({
           </div>
         </div>
 
-        <section
-          role="button"
-          tabIndex={0}
-          onClick={() => onEdit(item)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') onEdit(item);
-          }}
-          title="Edit instructions"
-          className="cursor-pointer overflow-hidden rounded-[8px] border border-[rgba(15,23,42,0.07)] bg-[#f4f5f2] outline-none transition hover:border-[rgba(15,23,42,0.14)] focus-visible:ring-2 focus-visible:ring-[#111827]"
-        >
-          <div className="flex min-h-[40px] items-center justify-between gap-4 px-4">
-            <span className="text-[13px] font-[560] text-[#6a717b]">Instructions</span>
-            <DataSourceIcons sources={agent.data_sources.slice(0, 6)} />
+        <section className={groupClass}>
+          <div className={rowClass}>
+            <span className={labelClass}>Agent</span>
+            <span className="flex items-center gap-1">
+              {AGENT_TIERS.map((tier) => (
+                <button
+                  key={tier.id}
+                  type="button"
+                  title={tier.description}
+                  aria-pressed={agent.agent_tier === tier.id}
+                  onClick={() => onSaveAgent(item, { agent_tier: tier.id })}
+                  className={cn(
+                    'h-[26px] rounded-[7px] px-2.5 text-[12.5px] font-[600] transition',
+                    agent.agent_tier === tier.id
+                      ? 'bg-[#111827] text-white'
+                      : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                  )}
+                >
+                  {tier.label}
+                </button>
+              ))}
+            </span>
           </div>
-          <p className="whitespace-pre-wrap px-4 pb-3.5 text-[13px] leading-6 text-[#3b414b]">
-            {agent.instructions || routine.description || 'No instructions yet — click to add what this routine should gather.'}
-          </p>
+          <div className={rowClass}>
+            <span className={labelClass}>Notify</span>
+            <Switch
+              checked={agent.notify_push}
+              onCheckedChange={(checked) => onSaveAgent(item, { notify_push: checked })}
+            />
+          </div>
+          {agent.data_sources.length ? (
+            <div className={rowClass}>
+              <span className={labelClass}>Watches</span>
+              <DataSourceIcons sources={agent.data_sources.slice(0, 7)} />
+            </div>
+          ) : null}
+        </section>
+
+        <section className={groupClass}>
+          <textarea
+            value={instructions}
+            onChange={(event) => setInstructions(event.target.value)}
+            onBlur={() => {
+              if (instructions.trim() !== agent.instructions.trim()) {
+                onSaveAgent(item, { instructions: instructions.trim() });
+              }
+            }}
+            rows={5}
+            placeholder="Describe what you'd like Ritual to gather, analyze, or summarize…"
+            aria-label="Instructions"
+            className="block w-full resize-none bg-transparent px-3.5 py-3 text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+          />
         </section>
 
         <section className="pt-3">
-          <div className="px-1 text-[12px] font-[650] uppercase tracking-[0.1em] text-[#8a929c]">Run history</div>
+          <div className="px-1 text-[11px] font-[650] uppercase tracking-[0.1em] text-[var(--text-muted)]">Run history</div>
           <RunHistory
             runs={runs}
             now={now}
             showRoutineName={false}
             onRetry={onRetryRun}
             emptyText="No runs yet. This routine records every run here once it starts."
-            className="mt-1.5"
+            className="mt-1"
           />
         </section>
       </div>

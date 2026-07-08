@@ -87,7 +87,7 @@ function RoutineRow({
         }
       }}
       className={cn(
-        'group relative grid w-full cursor-pointer grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-sm px-3 py-2 text-left outline-none transition',
+        'group relative grid w-full cursor-pointer grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 rounded-[7px] px-2.5 py-[7px] text-left outline-none transition',
         'focus-visible:ring-2 focus-visible:ring-[#111827]',
         selected ? 'bg-[#e6ecdf]' : 'hover:bg-[#f1f3ef]',
         paused && 'opacity-55',
@@ -98,10 +98,10 @@ function RoutineRow({
       </span>
       <span className="min-w-0">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-[14px] font-[640] leading-5 text-[#1f242d]">{routine.title}</span>
+          <span className="truncate text-[13.5px] font-[600] leading-5 text-[var(--text-primary)]">{routine.title}</span>
           {paused ? <PausedPill /> : null}
         </span>
-        <span className="mt-0.5 block truncate text-[12px] font-[520] leading-4 text-[#8a929c]">
+        <span className="mt-px block truncate text-[12px] font-[500] leading-4 text-[var(--text-muted)]">
           {scheduleSummary}
           {nextLabel ? ` · Next ${nextLabel}` : ''}
         </span>
