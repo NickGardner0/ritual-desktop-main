@@ -418,24 +418,28 @@ private final class RitualVoiceHudController {
         panel.contentView = hudView
     }
 
-    func show(_ state: RitualVoiceHudState) {
-        runOnMain {
+    func show(_ state: RitualVoiceHudState) -> Bool {
+        runOnMainSync {
+            self.panel.setContentSize(NSSize(width: hudWidth, height: hudHeight))
+            self.hudView.frame = NSRect(x: 0, y: 0, width: hudWidth, height: hudHeight)
             self.hudView.update(state)
             self.centerPanel()
+            self.panel.alphaValue = 1
             self.panel.orderFrontRegardless()
             self.panel.makeKey()
             self.hudView.window?.makeFirstResponder(self.hudView)
+            return self.panel.isVisible
         }
     }
 
     func update(_ state: RitualVoiceHudState) {
-        runOnMain {
+        runOnMainAsync {
             self.hudView.update(state)
         }
     }
 
     func hide() {
-        runOnMain {
+        runOnMainAsync {
             self.panel.orderOut(nil)
         }
     }
@@ -462,35 +466,42 @@ private final class RitualVoiceHudController {
             x: screenFrame.midX - hudWidth / 2,
             y: screenFrame.midY - hudHeight / 2 + 14
         )
-        panel.setFrameOrigin(origin)
+        panel.setFrame(NSRect(x: origin.x, y: origin.y, width: hudWidth, height: hudHeight), display: true)
     }
 
-    private func runOnMain(_ work: @escaping () -> Void) {
+    private func runOnMainAsync(_ work: @escaping () -> Void) {
         if Thread.isMainThread {
             work()
         } else {
             DispatchQueue.main.async(execute: work)
         }
     }
+
+    private func runOnMainSync<T>(_ work: () -> T) -> T {
+        if Thread.isMainThread {
+            return work()
+        }
+        return DispatchQueue.main.sync(execute: work)
+    }
 }
 
 private var ritualVoiceHudController: RitualVoiceHudController?
 
-private func withVoiceHudController(_ work: @escaping (RitualVoiceHudController) -> Void) {
-    let run = {
+private func withVoiceHudController<T>(_ fallback: T, _ work: @escaping (RitualVoiceHudController) -> T) -> T {
+    let run = { () -> T in
         if ritualVoiceHudController == nil {
             ritualVoiceHudController = RitualVoiceHudController()
         }
         if let controller = ritualVoiceHudController {
-            work(controller)
+            return work(controller)
         }
+        return fallback
     }
 
     if Thread.isMainThread {
-        run()
-    } else {
-        DispatchQueue.main.async(execute: run)
+        return run()
     }
+    return DispatchQueue.main.sync(execute: run)
 }
 
 private func voiceHudIsVisible() -> Bool {
@@ -514,27 +525,26 @@ func ritual_set_voice_hud_callbacks(_ stop: RitualVoiceHudCallback?, _ cancel: R
 @_cdecl("ritual_show_voice_hud")
 func ritual_show_voice_hud(_ stateJson: UnsafePointer<CChar>?) -> Bool {
     let state = RitualVoiceHudState.fromJson(stateJson)
-    withVoiceHudController { controller in
+    return withVoiceHudController(false) { controller in
         controller.show(state)
     }
-    return true
 }
 
 @_cdecl("ritual_update_voice_hud")
 func ritual_update_voice_hud(_ stateJson: UnsafePointer<CChar>?) -> Bool {
     let state = RitualVoiceHudState.fromJson(stateJson)
-    withVoiceHudController { controller in
+    return withVoiceHudController(false) { controller in
         controller.update(state)
+        return true
     }
-    return true
 }
 
 @_cdecl("ritual_hide_voice_hud")
 func ritual_hide_voice_hud() -> Bool {
-    withVoiceHudController { controller in
+    return withVoiceHudController(false) { controller in
         controller.hide()
+        return true
     }
-    return true
 }
 
 @_cdecl("ritual_voice_hud_is_visible")

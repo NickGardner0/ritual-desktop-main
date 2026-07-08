@@ -1627,7 +1627,16 @@ fn show_voice_hud_window(
     app: &tauri::AppHandle,
     payload: VoiceSessionStartPayload,
 ) -> Result<VoiceSessionStartPayload, String> {
-    let native_hud_shown = show_native_voice_hud(&payload);
+    let native_hud_shown = if show_native_voice_hud(&payload) {
+        let visible = native_voice_hud_visible();
+        if !visible {
+            warn!("Native voice HUD reported success but is not visible; falling back to web HUD");
+            hide_native_voice_hud();
+        }
+        visible
+    } else {
+        false
+    };
     app.state::<VoiceHudRuntimeState>()
         .set_active(native_hud_shown);
 
