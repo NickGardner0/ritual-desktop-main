@@ -4,10 +4,27 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { History, Library, Plus, RotateCw } from 'lucide-react';
+import {
+  Copy,
+  LayoutGrid,
+  List,
+  Loader2,
+  MoreHorizontal,
+  Pause,
+  Play,
+  Plus,
+  Repeat2,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { apiJsonWithAuth } from '@/lib/api/client';
 import {
@@ -17,26 +34,22 @@ import {
 } from '@/lib/privacy/task-vault-adapter';
 import { mergeRoutinesWithOutbox } from '@/lib/tasks/local-first-writes';
 import {
-  ALL_DATA_SOURCE_KEYS,
   buildAgentRoutineInput,
+  buildAgentRoutineUpdateInput,
   currentTimezone,
-  defaultScheduleDraft,
-  endsAtFromDraft,
-  firstRunAtFromDraft,
   joinAgentRoutines,
-  scheduleDraftFromRoutine,
+  nameFromInstructions,
   sharedDefinitionId,
-  triggerConfigWithAgent,
   type AgentRoutine,
   type RoutineAgentConfig,
-  type ScheduleDraft,
 } from '@/lib/routines/model';
 import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
+import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
-import { useNow } from '@/lib/routines/time';
+import { formatAgo, formatUpcoming, useNow } from '@/lib/routines/time';
 import { ReferencePage, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
-import type { Routine, RoutineListResponse, RoutineRun, RoutineUpdateInput } from '@/lib/tasks/types';
+import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinitionListResponse,
   WorkflowRun,
@@ -44,10 +57,242 @@ import type {
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
 
-import { RoutineDetail } from './routine-detail';
-import { RoutineList } from './routine-list';
-import { RunHistory } from './routine-runs';
-import { TemplateLibrary } from './routine-templates';
+import {
+  RoutineConfigureModal,
+  configureStateFromRoutine,
+  configureStateFromTemplate,
+  type RoutineConfigureState,
+} from './routine-configure-modal';
+import { RoutinesEmptyHero, TemplateLibrary } from './routine-templates';
+
+type ModalState = {
+  open: boolean;
+  mode: 'create' | 'edit';
+  initial: RoutineConfigureState;
+  editing: AgentRoutine | null;
+};
+
+type ViewMode = 'list' | 'card';
+
+const closedModal = (): ModalState => ({
+  open: false,
+  mode: 'create',
+  initial: configureStateFromTemplate(null),
+  editing: null,
+});
+
+function routineTaskTemplate(name: string, state: RoutineConfigureState, existing?: RoutineTaskTemplate): RoutineTaskTemplate {
+  return {
+    title: name,
+    notes: state.notes.trim() ? state.notes.trim() : null,
+    project: existing?.project || null,
+    category: existing?.category || null,
+    tags: state.tags,
+    linked_habit_id: existing?.linked_habit_id || null,
+  };
+}
+
+function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now: Date }) {
+  if (!lastRun) return <span className="h-2 w-2 rounded-full bg-[#3d7d58]" aria-label="No runs yet" />;
+  if (lastRun.status === 'queued' || lastRun.status === 'running') {
+    return (
+      <span
+        className="routine-running-dot h-2 w-2 rounded-full bg-[#8c8c8c]"
+        title={lastRun.status === 'queued' ? 'Queued' : 'Running'}
+      />
+    );
+  }
+  const failed = lastRun.status === 'failed';
+  return (
+    <span
+      className={cn('h-2 w-2 rounded-full', failed ? 'bg-[#b3261e]' : 'bg-[#3d7d58]')}
+      title={`${failed ? 'Failed' : 'Ran'} ${formatAgo(lastRun.finishedAt || lastRun.occurredAt, now)}`}
+    />
+  );
+}
+
+function RoutineActions({
+  item,
+  running,
+  onRunNow,
+  onTogglePause,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: {
+  item: AgentRoutine;
+  running: boolean;
+  onRunNow: (item: AgentRoutine) => void;
+  onTogglePause: (item: AgentRoutine) => void;
+  onEdit: (item: AgentRoutine) => void;
+  onDuplicate: (item: AgentRoutine) => void;
+  onDelete: (item: AgentRoutine) => void;
+}) {
+  const paused = item.routine.status === 'paused';
+  return (
+    <span className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        title={running ? 'Already running' : 'Run now'}
+        disabled={running || !item.routine.ai_workflow_definition_id}
+        onClick={() => onRunNow(item)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#777] transition hover:bg-[#f1f1f0] hover:text-black disabled:opacity-40"
+      >
+        {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+      </button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            title="More"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#777] transition hover:bg-[#f1f1f0] hover:text-black"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuItem onClick={() => onEdit(item)}>Edit</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onTogglePause(item)}>
+            {paused ? <Play className="mr-2 h-3.5 w-3.5" /> : <Pause className="mr-2 h-3.5 w-3.5" />}
+            {paused ? 'Resume' : 'Pause'}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onDuplicate(item)}>
+            <Copy className="mr-2 h-3.5 w-3.5" />
+            Duplicate
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem className="text-[#b3261e] focus:text-[#b3261e]" onClick={() => onDelete(item)}>
+            <Trash2 className="mr-2 h-3.5 w-3.5" />
+            Delete
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </span>
+  );
+}
+
+function RoutineListRow({
+  item,
+  selected,
+  now,
+  running,
+  lastRun,
+  onSelect,
+  onRunNow,
+  onTogglePause,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: {
+  item: AgentRoutine;
+  selected: boolean;
+  now: Date;
+  running: boolean;
+  lastRun: RoutineRunView | undefined;
+  onSelect: (item: AgentRoutine) => void;
+  onRunNow: (item: AgentRoutine) => void;
+  onTogglePause: (item: AgentRoutine) => void;
+  onEdit: (item: AgentRoutine) => void;
+  onDuplicate: (item: AgentRoutine) => void;
+  onDelete: (item: AgentRoutine) => void;
+}) {
+  const { routine } = item;
+  const paused = routine.status === 'paused';
+  const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
+  const nextLabel = paused ? '' : formatUpcoming(routine.next_run_at, now);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className={cn(
+        'group grid min-h-[58px] w-full grid-cols-[22px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[12px] px-3 text-left transition',
+        selected ? 'bg-[#efefed]' : 'hover:bg-[#f7f7f6]',
+        paused && 'opacity-55',
+      )}
+    >
+      <Repeat2 className="h-4 w-4 text-[#9a9a9a]" />
+      <span className="min-w-0">
+        <span className="block truncate text-[16px] font-[650] tracking-[-0.01em] text-black">{routine.title}</span>
+        <span className="mt-0.5 block truncate text-[14px] font-[500] text-[#777]">
+          {scheduleSummary}
+          {nextLabel ? ` · Next ${nextLabel}` : ''}
+        </span>
+      </span>
+      <LastRunDot lastRun={lastRun} now={now} />
+      <RoutineActions
+        item={item}
+        running={running}
+        onRunNow={onRunNow}
+        onTogglePause={onTogglePause}
+        onEdit={onEdit}
+        onDuplicate={onDuplicate}
+        onDelete={onDelete}
+      />
+    </button>
+  );
+}
+
+function RoutineCard({
+  item,
+  selected,
+  now,
+  running,
+  lastRun,
+  onSelect,
+  onRunNow,
+  onTogglePause,
+  onEdit,
+  onDuplicate,
+  onDelete,
+}: {
+  item: AgentRoutine;
+  selected: boolean;
+  now: Date;
+  running: boolean;
+  lastRun: RoutineRunView | undefined;
+  onSelect: (item: AgentRoutine) => void;
+  onRunNow: (item: AgentRoutine) => void;
+  onTogglePause: (item: AgentRoutine) => void;
+  onEdit: (item: AgentRoutine) => void;
+  onDuplicate: (item: AgentRoutine) => void;
+  onDelete: (item: AgentRoutine) => void;
+}) {
+  const { routine, agent } = item;
+  const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className={cn(
+        'flex min-h-[168px] flex-col rounded-[16px] border bg-white px-5 py-4 text-left transition hover:bg-[#fcfcfc]',
+        selected ? 'border-black' : subtleBorderClass,
+      )}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-[18px] font-[650] tracking-[-0.015em] text-black">{routine.title}</div>
+          <p className="mt-2 line-clamp-2 text-[15px] leading-[1.32] text-[#666]">
+            {agent.instructions || routine.description || 'No instructions set.'}
+          </p>
+        </div>
+        <LastRunDot lastRun={lastRun} now={now} />
+      </div>
+      <div className="mt-auto flex items-center justify-between gap-3 border-t border-[#ececec] pt-4">
+        <span className="min-w-0 truncate text-[14px] font-[500] text-[#9a9a9a]">{scheduleSummary}</span>
+        <RoutineActions
+          item={item}
+          running={running}
+          onRunNow={onRunNow}
+          onTogglePause={onTogglePause}
+          onEdit={onEdit}
+          onDuplicate={onDuplicate}
+          onDelete={onDelete}
+        />
+      </div>
+    </button>
+  );
+}
 
 export function RoutinesClient() {
   const { getToken } = useAuth();
@@ -58,7 +303,8 @@ export function RoutinesClient() {
   const now = useNow(30_000);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [showAllRuns, setShowAllRuns] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('list');
+  const [modal, setModal] = useState<ModalState>(closedModal);
 
   const routinesKey = useMemo(() => ['routines', user?.id] as const, [user?.id]);
 
@@ -135,7 +381,6 @@ export function RoutinesClient() {
     return ids;
   }, [runViews]);
 
-  // Notify when a run finishes (transition-only; the first snapshot is skipped).
   const seenRunStatuses = useRef<Map<string, RoutineRunView['status']> | null>(null);
   useEffect(() => {
     const current = new Map(runViews.map((run) => [run.id, run.status]));
@@ -159,10 +404,22 @@ export function RoutinesClient() {
     }
   }, [runViews, agentRoutines, router]);
 
-  const selectedRoutineId = selectedId && routines.some((routine) => routine.id === selectedId)
-    ? selectedId
-    : routines[0]?.id || null;
-  const selectedItem = agentRoutines.find((item) => item.routine.id === selectedRoutineId) || null;
+  const sortedRoutines = useMemo(() => [...agentRoutines].sort((a, b) => {
+    const pausedDelta = Number(a.routine.status === 'paused') - Number(b.routine.status === 'paused');
+    if (pausedDelta !== 0) return pausedDelta;
+    const aNext = a.routine.next_run_at ? new Date(a.routine.next_run_at).getTime() : Infinity;
+    const bNext = b.routine.next_run_at ? new Date(b.routine.next_run_at).getTime() : Infinity;
+    if (aNext !== bNext) return aNext - bNext;
+    return a.routine.title.localeCompare(b.routine.title);
+  }), [agentRoutines]);
+
+  const installedTemplateKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const item of agentRoutines) {
+      if (item.agent.template_key) keys.add(item.agent.template_key);
+    }
+    return keys;
+  }, [agentRoutines]);
 
   const invalidateAll = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: routinesKey });
@@ -170,8 +427,6 @@ export function RoutinesClient() {
     void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
     void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
   }, [queryClient, routinesKey, user?.id]);
-
-  // --- Optimistic routine patching -------------------------------------------------
 
   const patchRoutineCache = useCallback((id: string, patch: Partial<Routine>) => {
     queryClient.setQueryData<Routine[]>(routinesKey, (current) =>
@@ -202,64 +457,129 @@ export function RoutinesClient() {
     },
   });
 
+  const resolveDefinitionId = useCallback(async (templateKey?: string | null) => {
+    const template = templateById(templateKey || null);
+    const cached = definitionsQuery.data
+      || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
+    return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
+  }, [definitionsQuery.data, getToken, user?.id]);
+
+  const submitModalMutation = useMutation({
+    mutationFn: async ({ state, editing }: { state: RoutineConfigureState; editing: AgentRoutine | null }) => {
+      const name = state.name.trim() || nameFromInstructions(state.instructions);
+      const definitionId = editing?.routine.ai_workflow_definition_id || await resolveDefinitionId(state.templateKey);
+      if (!definitionId) throw new Error('Could not prepare the agent for this routine. Check the backend connection.');
+
+      const agent: RoutineAgentConfig = {
+        instructions: state.instructions.trim(),
+        agent_tier: state.agentTier,
+        data_sources: state.dataSources,
+        notify_push: state.notifyPush,
+        notify_email: state.notifyEmail,
+        icon: state.icon,
+        template_key: state.templateKey,
+      };
+
+      const taskTemplate = routineTaskTemplate(name, state, editing?.routine.task_template);
+
+      if (editing) {
+        const patch: RoutineUpdateInput = {
+          ...buildAgentRoutineUpdateInput({ name, agent, draft: state.draft, paused: state.paused }),
+          kind: 'ai_workflow',
+          priority: state.priority,
+          tags: state.tags,
+          task_template: taskTemplate,
+          ai_workflow_definition_id: definitionId,
+        };
+        const response = await apiJsonWithAuth<RoutineListResponse>(`/api/routines/${editing.routine.id}`, getToken, {
+          method: 'PATCH',
+          body: JSON.stringify(patch),
+          userId: user?.id,
+        });
+        return { routine: response.items[0] || null, created: false };
+      }
+
+      const payload = {
+        ...buildAgentRoutineInput({
+          name,
+          agent,
+          draft: state.draft,
+          timezone: currentTimezone(),
+          definitionId,
+          tags: state.tags.length ? state.tags : ['ai'],
+        }),
+        status: state.paused ? 'paused' as const : 'scheduled' as const,
+        priority: state.priority,
+        task_template: taskTemplate,
+      };
+      const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        userId: user?.id,
+      });
+      return { routine: response.items[0] || null, created: true };
+    },
+    onSuccess: ({ routine, created }) => {
+      invalidateAll();
+      setModal(closedModal());
+      if (routine) {
+        setSelectedId(routine.id);
+        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
+      }
+      toast.success(created ? 'Routine created' : 'Routine saved');
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not save the routine.'),
+  });
+
+  const runNowMutation = useMutation({
+    mutationFn: async (item: AgentRoutine) => {
+      if (!item.routine.ai_workflow_definition_id) {
+        throw new Error('This routine has no agent attached yet. Edit and save it to attach one.');
+      }
+      return apiJsonWithAuth<RoutineRun>(`/api/routines/${item.routine.id}/run-now`, getToken, {
+        method: 'POST',
+        userId: user?.id,
+      });
+    },
+    onSuccess: (run) => {
+      queryClient.setQueryData<RoutineRun[]>(['routine-runs', 'routines-page', user?.id], (current) =>
+        [run, ...(current || []).filter((item) => item.id !== run.id)]);
+      void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not start the run.'),
+  });
+
+  const openCreateModal = useCallback((templateKey?: string | null) => {
+    setModal({
+      open: true,
+      mode: 'create',
+      initial: configureStateFromTemplate(templateById(templateKey || null)),
+      editing: null,
+    });
+  }, []);
+
+  const openEditModal = useCallback((item: AgentRoutine) => {
+    setSelectedId(item.routine.id);
+    setModal({ open: true, mode: 'edit', initial: configureStateFromRoutine(item), editing: item });
+  }, []);
+
+  const duplicateRoutine = (item: AgentRoutine) => {
+    const initial = configureStateFromRoutine(item);
+    setModal({
+      open: true,
+      mode: 'create',
+      initial: { ...initial, name: `${initial.name} copy`, paused: false },
+      editing: null,
+    });
+  };
+
   const togglePause = (item: AgentRoutine) => {
     const paused = item.routine.status === 'paused';
     patchRoutineMutation.mutate({
       id: item.routine.id,
       patch: { status: paused ? 'scheduled' : 'paused' },
       optimistic: { status: paused ? 'scheduled' : 'paused' },
-    });
-  };
-
-  const renameRoutine = (item: AgentRoutine, name: string) => {
-    const draft = scheduleDraftFromRoutine(item.routine);
-    patchRoutineMutation.mutate({
-      id: item.routine.id,
-      patch: {
-        title: name,
-        trigger_config: triggerConfigWithAgent(draft, item.agent, name),
-      },
-      optimistic: {
-        title: name,
-        trigger_config: triggerConfigWithAgent(draft, item.agent, name),
-      },
-    });
-  };
-
-  // Inline detail edits: schedule fields and agent settings save immediately.
-  const saveSchedule = (item: AgentRoutine, draft: ScheduleDraft) => {
-    const patch: RoutineUpdateInput = {
-      trigger_type: draft.frequency,
-      trigger_config: triggerConfigWithAgent(draft, item.agent, item.routine.title),
-      first_run_at: firstRunAtFromDraft(draft),
-      ends_at: endsAtFromDraft(draft),
-    };
-    patchRoutineMutation.mutate({
-      id: item.routine.id,
-      patch,
-      optimistic: patch as Partial<Routine>,
-    });
-  };
-
-  const saveAgent = (item: AgentRoutine, agentPatch: Partial<RoutineAgentConfig>) => {
-    const agent = { ...item.agent, ...agentPatch };
-    const draft = scheduleDraftFromRoutine(item.routine);
-    const patch: RoutineUpdateInput = {
-      description: agent.instructions,
-      trigger_config: triggerConfigWithAgent(draft, agent, item.routine.title),
-    };
-    patchRoutineMutation.mutate({
-      id: item.routine.id,
-      patch,
-      optimistic: patch as Partial<Routine>,
-    });
-  };
-
-  const saveMeta = (item: AgentRoutine, patch: { priority?: Routine['priority']; tags?: string[] }) => {
-    patchRoutineMutation.mutate({
-      id: item.routine.id,
-      patch,
-      optimistic: patch as Partial<Routine>,
     });
   };
 
@@ -289,252 +609,129 @@ export function RoutinesClient() {
     });
   };
 
-  // --- Create / duplicate -----------------------------------------------------------
-
-  const resolveDefinitionId = useCallback(async (templateKey?: string | null) => {
-    const template = templateById(templateKey || null);
-    const cached = definitionsQuery.data
-      || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
-    return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
-  }, [definitionsQuery.data, getToken, user?.id]);
-
-  const createRoutineMutation = useMutation({
-    mutationFn: async ({ templateKey, source }: { templateKey?: string | null; source?: AgentRoutine }) => {
-      const template = templateById(templateKey || source?.agent.template_key || null);
-      const definitionId = source?.routine.ai_workflow_definition_id || await resolveDefinitionId(template?.id || null);
-      if (!definitionId) throw new Error('Could not prepare the agent for this routine — check the backend connection.');
-
-      const draft = source ? scheduleDraftFromRoutine(source.routine) : template ? { ...defaultScheduleDraft(), ...template.schedule } : defaultScheduleDraft();
-      const name = source ? `${source.routine.title} copy` : template?.title || 'Untitled routine';
-      const agent: RoutineAgentConfig = source ? {
-        ...source.agent,
-        template_key: source.agent.template_key,
-      } : {
-        instructions: template?.instructions || '',
-        agent_tier: 'regular',
-        data_sources: template ? [...template.dataSources] : [...ALL_DATA_SOURCE_KEYS],
-        notify_push: true,
-        notify_email: false,
-        icon: template?.icon || 'sparkles',
-        template_key: template?.id || null,
-      };
-
-      const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
-        method: 'POST',
-        body: JSON.stringify(buildAgentRoutineInput({
-          name,
-          agent,
-          draft,
-          timezone: currentTimezone(),
-          definitionId,
-          tags: source ? source.routine.tags : ['ai'],
-        })),
-        userId: user?.id,
-      });
-      return response.items[0] || null;
-    },
-    onSuccess: (routine) => {
-      invalidateAll();
-      if (routine) {
-        setSelectedId(routine.id);
-        if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
-      }
-      toast.success('Routine created');
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not create the routine.'),
-  });
-
-  // --- Run now ----------------------------------------------------------------------
-
-  const runNowMutation = useMutation({
-    mutationFn: async (item: AgentRoutine) => {
-      if (!item.routine.ai_workflow_definition_id) {
-        throw new Error('This routine has no agent attached yet — edit it and save to attach one.');
-      }
-      return apiJsonWithAuth<RoutineRun>(`/api/routines/${item.routine.id}/run-now`, getToken, {
-        method: 'POST',
-        userId: user?.id,
-      });
-    },
-    onSuccess: (run) => {
-      queryClient.setQueryData<RoutineRun[]>(['routine-runs', 'routines-page', user?.id], (current) =>
-        [run, ...(current || []).filter((item) => item.id !== run.id)]);
-      void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not start the run.'),
-  });
-
-  const retryRun = (run: RoutineRunView) => {
-    const item = agentRoutines.find((candidate) => candidate.routine.id === run.routineId);
-    if (item) runNowMutation.mutate(item);
-  };
-
-  // --- Keyboard shortcuts ------------------------------------------------------------
-
-  const createBlankRoutine = useCallback(() => {
-    createRoutineMutation.mutate({ templateKey: null });
-  }, [createRoutineMutation]);
-
-  const duplicateRoutine = (item: AgentRoutine) => {
-    createRoutineMutation.mutate({ source: item });
-  };
-
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n' && !modal.open) {
         event.preventDefault();
-        createBlankRoutine();
+        openCreateModal();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [createBlankRoutine]);
+  }, [modal.open, openCreateModal]);
 
-  // --- Rendering ---------------------------------------------------------------------
-
-  const listActions = {
-    onSelect: (id: string) => setSelectedId(id),
-    onRunNow: (item: AgentRoutine) => runNowMutation.mutate(item),
-    onTogglePause: togglePause,
-    onDuplicate: duplicateRoutine,
-    onViewRuns: (item: AgentRoutine) => {
-      setSelectedId(item.routine.id);
-      setShowAllRuns(false);
-    },
-    onDelete: deleteRoutine,
-  };
-
-  const scopedRunViews = selectedRoutineId ? runViews.filter((run) => run.routineId === selectedRoutineId) : [];
   const hasRoutines = routines.length > 0;
-  const installedTemplateKeys = useMemo(() => {
-    const keys = new Set<string>();
-    for (const item of agentRoutines) {
-      if (item.agent.template_key) keys.add(item.agent.template_key);
-    }
-    return keys;
-  }, [agentRoutines]);
 
   return (
-    <ReferencePage className="bg-white">
-      <div className="grid h-full min-h-0 grid-cols-1 bg-white md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
-        <aside className={cn('flex min-h-0 flex-col border-r bg-white', subtleBorderClass)}>
-          <header className={cn('flex h-[86px] shrink-0 items-end justify-between border-b px-6 pb-5', subtleBorderClass)}>
-            <h1 className="text-[32px] font-[690] leading-none tracking-[-0.025em] text-[#111318]">Routines</h1>
-            <div className="flex items-center gap-1">
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    title="Templates"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]"
-                  >
-                    <Library className="h-4 w-4" />
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent align="end" className="max-h-[620px] w-[760px] overflow-auto border-[rgba(15,23,42,0.10)] bg-white p-4">
-                  <TemplateLibrary
-                    heading={null}
-                    installedTemplateKeys={installedTemplateKeys}
-                    onSetUp={(template) => createRoutineMutation.mutate({ templateKey: template.id })}
-                  />
-                </PopoverContent>
-              </Popover>
-              <button
-                type="button"
-                title="Run history"
-                onClick={() => setShowAllRuns((value) => !value)}
-                className={cn(
-                  'inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]',
-                  showAllRuns && 'bg-[#f0f1ed] text-[#171b22]',
-                )}
-              >
-                <History className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                title="New routine (⌘N)"
-                disabled={createRoutineMutation.isPending}
-                onClick={createBlankRoutine}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22] disabled:opacity-40"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
-          </header>
-
-          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
-            {routinesQuery.isLoading ? (
-              <div className="space-y-1.5">
-                {[0, 1, 2, 3].map((item) => <div key={item} className="h-[58px] animate-pulse rounded-[7px] bg-[#f6f6f3]" />)}
-              </div>
-            ) : hasRoutines ? (
-              <RoutineList
-                items={agentRoutines}
-                selectedId={selectedRoutineId}
-                now={now}
-                runningRoutineIds={runningRoutineIds}
-                lastRunByRoutine={lastRunByRoutine}
-                actions={listActions}
-              />
-            ) : (
-              <div className="px-3 py-8">
-                <p className="text-[13px] leading-5 text-[#7b828c]">No routines yet.</p>
+    <ReferencePage className="bg-white text-black">
+      <div className="relative h-full min-h-0 overflow-auto bg-white">
+        <header className="sticky top-0 z-20 flex h-[74px] items-center justify-between bg-white/95 px-8 backdrop-blur">
+          <h1 className="text-[26px] font-[650] tracking-[-0.025em] text-black">Routines</h1>
+          <div className="flex items-center gap-3">
+            {hasRoutines ? (
+              <div className="flex h-10 items-center rounded-full bg-[#f1f1f0] p-1">
                 <button
                   type="button"
-                  onClick={createBlankRoutine}
-                  className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-[7px] bg-[#111827] px-3 text-[13px] font-[650] text-white transition hover:bg-[#202938]"
+                  aria-label="List view"
+                  onClick={() => setViewMode('list')}
+                  className={cn(
+                    'inline-flex h-8 w-8 items-center justify-center rounded-full transition',
+                    viewMode === 'list' ? 'bg-white text-black shadow-sm' : 'text-[#777] hover:text-black',
+                  )}
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  New routine
+                  <List className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Card view"
+                  onClick={() => setViewMode('card')}
+                  className={cn(
+                    'inline-flex h-8 w-8 items-center justify-center rounded-full transition',
+                    viewMode === 'card' ? 'bg-white text-black shadow-sm' : 'text-[#777] hover:text-black',
+                  )}
+                >
+                  <LayoutGrid className="h-4 w-4" />
                 </button>
               </div>
-            )}
+            ) : null}
+            <button
+              type="button"
+              title="New routine (⌘N)"
+              disabled={submitModalMutation.isPending}
+              onClick={() => openCreateModal()}
+              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#fbfbfb] text-black shadow-[0_12px_42px_rgba(0,0,0,0.10)] transition hover:bg-[#f0f0ef] disabled:opacity-40"
+            >
+              <Plus className="h-6 w-6" />
+            </button>
           </div>
-        </aside>
+        </header>
 
-        <section className="min-h-0 overflow-auto bg-white px-5 py-6 md:px-10 md:py-9">
-          {showAllRuns ? (
-            <div className="mx-auto max-w-[700px]">
-              <div className="mb-4 flex items-center justify-between gap-4">
-                <h2 className="text-[21px] font-[650] tracking-[-0.02em] text-[#15181e]">Run history</h2>
-                <button
-                  type="button"
-                  onClick={() => setShowAllRuns(false)}
-                  className="h-8 rounded-[7px] px-2.5 text-[13px] font-[600] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]"
-                >
-                  Detail
-                </button>
-              </div>
-              <RunHistory runs={runViews} now={now} onRetry={retryRun} />
+        <main className="mx-auto max-w-[1110px] px-8 pb-12 pt-4">
+          {routinesQuery.isLoading ? (
+            <div className="mx-auto max-w-[860px] space-y-4">
+              {[0, 1, 2, 3].map((item) => (
+                <div key={item} className="h-[88px] animate-pulse rounded-[16px] border border-[#ececec] bg-[#fafafa]" />
+              ))}
             </div>
-          ) : selectedItem ? (
-            <RoutineDetail
-              item={selectedItem}
-              now={now}
-              runs={scopedRunViews}
-              running={runningRoutineIds.has(selectedItem.routine.id)}
-              onRename={renameRoutine}
-              onTogglePause={togglePause}
-              onRunNow={(item) => runNowMutation.mutate(item)}
-              onDuplicate={duplicateRoutine}
-              onDelete={deleteRoutine}
-              onRetryRun={retryRun}
-              onSaveSchedule={saveSchedule}
-              onSaveAgent={saveAgent}
-              onSaveMeta={saveMeta}
-            />
+          ) : !hasRoutines ? (
+            <div className="mx-auto max-w-[860px] space-y-10">
+              <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
+              <TemplateLibrary
+                installedTemplateKeys={installedTemplateKeys}
+                onSetUp={(template) => openCreateModal(template.id)}
+              />
+            </div>
+          ) : viewMode === 'card' ? (
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              {sortedRoutines.map((item) => (
+                <RoutineCard
+                  key={item.routine.id}
+                  item={item}
+                  selected={selectedId === item.routine.id}
+                  now={now}
+                  running={runningRoutineIds.has(item.routine.id)}
+                  lastRun={lastRunByRoutine.get(item.routine.id)}
+                  onSelect={openEditModal}
+                  onRunNow={(candidate) => runNowMutation.mutate(candidate)}
+                  onTogglePause={togglePause}
+                  onEdit={openEditModal}
+                  onDuplicate={duplicateRoutine}
+                  onDelete={deleteRoutine}
+                />
+              ))}
+            </div>
           ) : (
-            <div className="flex h-full min-h-[420px] items-center justify-center text-center">
-              <div>
-                <RotateCw className="mx-auto h-7 w-7 text-[#a0a7b0]" />
-                <div className="mt-3 text-[18px] font-[650] text-[#141922]">Select a routine</div>
-                <p className="mt-2 text-[13px] text-[#737b86]">Pick a routine to edit its schedule and agent.</p>
-              </div>
+            <div className="mx-auto max-w-[760px] space-y-1">
+              {sortedRoutines.map((item) => (
+                <RoutineListRow
+                  key={item.routine.id}
+                  item={item}
+                  selected={selectedId === item.routine.id}
+                  now={now}
+                  running={runningRoutineIds.has(item.routine.id)}
+                  lastRun={lastRunByRoutine.get(item.routine.id)}
+                  onSelect={openEditModal}
+                  onRunNow={(candidate) => runNowMutation.mutate(candidate)}
+                  onTogglePause={togglePause}
+                  onEdit={openEditModal}
+                  onDuplicate={duplicateRoutine}
+                  onDelete={deleteRoutine}
+                />
+              ))}
             </div>
           )}
-        </section>
+        </main>
       </div>
+
+      <RoutineConfigureModal
+        open={modal.open}
+        mode={modal.mode}
+        initial={modal.initial}
+        lastRunAt={modal.editing?.routine.last_run_at || null}
+        submitting={submitModalMutation.isPending}
+        onClose={() => setModal(closedModal())}
+        onSubmit={(state) => submitModalMutation.mutate({ state, editing: modal.editing })}
+      />
     </ReferencePage>
   );
 }

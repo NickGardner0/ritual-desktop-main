@@ -33,7 +33,7 @@ const items = [
   { path: "/tasks", name: "Tasks", icon: TocIcon },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
   { path: "/reports", name: "Reports", icon: FileText },
-  { path: "/reports?view=routines", name: "Routines", icon: Repeat2 },
+  { path: "/routines", name: "Routines", icon: Repeat2 },
   { path: "/experiments", name: "Experiments", icon: FlaskConical },
   { path: "/integrations", name: "Integrations", icon: Plug2 },
   { path: "/settings", name: "Settings", icon: Settings },

@@ -1,12 +1,10 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, Clock, Loader2, RefreshCw, X } from 'lucide-react';
+import { Loader2, Repeat, X } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   AGENT_TIERS,
   ALL_DATA_SOURCE_KEYS,
@@ -22,11 +20,16 @@ import { ROUTINE_TEMPLATES, templateScheduleDraft, type RoutineTemplate } from '
 import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
 import { RoutineIcon } from '@/lib/routines/ui';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
+import type { TaskPriority } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
 export type RoutineConfigureState = {
   name: string;
   instructions: string;
+  notes: string;
+  tags: string[];
+  priority: TaskPriority;
+  paused: boolean;
   agentTier: AgentTier;
   notifyPush: boolean;
   notifyEmail: boolean;
@@ -41,6 +44,10 @@ export function configureStateFromTemplate(template: RoutineTemplate | null): Ro
     return {
       name: '',
       instructions: '',
+      notes: '',
+      tags: [],
+      priority: 'none',
+      paused: false,
       agentTier: 'regular',
       notifyPush: true,
       notifyEmail: false,
@@ -53,6 +60,10 @@ export function configureStateFromTemplate(template: RoutineTemplate | null): Ro
   return {
     name: template.title,
     instructions: template.instructions,
+    notes: '',
+    tags: [],
+    priority: 'none',
+    paused: false,
     agentTier: 'regular',
     notifyPush: true,
     notifyEmail: false,
@@ -67,6 +78,10 @@ export function configureStateFromRoutine(item: AgentRoutine): RoutineConfigureS
   return {
     name: item.routine.title,
     instructions: item.agent.instructions,
+    notes: item.routine.task_template?.notes || '',
+    tags: item.routine.tags || [],
+    priority: item.routine.priority,
+    paused: item.routine.status === 'paused',
     agentTier: item.agent.agent_tier,
     notifyPush: item.agent.notify_push,
     notifyEmail: item.agent.notify_email,
@@ -77,89 +92,215 @@ export function configureStateFromRoutine(item: AgentRoutine): RoutineConfigureS
   };
 }
 
-const SIMPLE_FREQUENCIES = [
+const FREQUENCIES: Array<{ id: ScheduleDraft['frequency']; label: string }> = [
   { id: 'daily', label: 'Daily' },
   { id: 'weekly', label: 'Weekly' },
   { id: 'monthly', label: 'Monthly' },
-] as const;
+  { id: 'yearly', label: 'Yearly' },
+  { id: 'on_completion', label: 'On completion' },
+];
 
-const FREQUENCY_UNITS: Record<string, string> = {
-  daily: 'days',
-  weekly: 'weeks',
-  monthly: 'months',
-  yearly: 'years',
-};
+const PRIORITIES: Array<{ id: TaskPriority; label: string }> = [
+  { id: 'none', label: 'None' },
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
+];
 
-const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS = [
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
 
-function fieldLabelClass() {
-  return 'text-[13px] font-[650] text-[#3b414b]';
+const groupClass = 'overflow-hidden rounded-[14px] bg-[#f6f6f5]';
+const rowClass = 'flex min-h-[56px] items-center justify-between gap-4 border-b border-[#e9e9e7] px-4 last:border-b-0';
+const labelClass = 'text-[17px] font-[560] text-[#6f6f6f]';
+const chipClass =
+  'h-10 rounded-[11px] border-0 bg-[#ececeb] px-3 text-[17px] font-[650] text-black outline-none transition focus:bg-[#e5e5e3]';
+const textInputClass =
+  'h-[46px] w-full rounded-[12px] border border-[#b8b8b6] bg-white px-4 text-[18px] font-[430] text-black outline-none transition placeholder:text-[#aaa] focus:border-[#777]';
+const textareaClass =
+  'w-full resize-none rounded-[14px] border border-[#d0d0ce] bg-white px-5 py-4 text-[18px] font-[430] leading-[1.35] text-black outline-none transition placeholder:text-[#aaa] focus:border-[#777]';
+
+function ordinalSuffix(day: number): string {
+  const mod100 = day % 100;
+  if (mod100 >= 11 && mod100 <= 13) return `${day}th`;
+  const mod10 = day % 10;
+  if (mod10 === 1) return `${day}st`;
+  if (mod10 === 2) return `${day}nd`;
+  if (mod10 === 3) return `${day}rd`;
+  return `${day}th`;
 }
 
-const inputClass =
-  'h-9 w-full rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-3 text-[14px] font-[540] text-[#22262d] outline-none transition focus:border-[rgba(15,23,42,0.24)]';
+function intervalUnit(draft: ScheduleDraft): string {
+  if (draft.frequency === 'daily') return draft.interval === 1 ? 'day' : 'days';
+  if (draft.frequency === 'weekly') return draft.interval === 1 ? 'week' : 'weeks';
+  if (draft.frequency === 'monthly') return draft.interval === 1 ? 'month' : 'months';
+  if (draft.frequency === 'yearly') return draft.interval === 1 ? 'year' : 'years';
+  return draft.onCompletionUnit;
+}
 
-const smallControlClass =
-  'h-8 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-2 text-[13px] font-[560] text-[#22262d] outline-none transition focus:border-[rgba(15,23,42,0.24)]';
-
-function SegmentedControl<T extends string>({
+function TagsField({
   value,
-  options,
   onChange,
 }: {
-  value: T | null;
-  options: ReadonlyArray<{ id: T; label: string }>;
-  onChange: (value: T) => void;
+  value: string[];
+  onChange: (tags: string[]) => void;
 }) {
+  const [text, setText] = useState(value.join(', '));
+  const commit = () => {
+    onChange(text.split(',').map((tag) => tag.trim()).filter(Boolean));
+  };
   return (
-    <div className="flex w-full items-center gap-1 rounded-sm bg-[#eef1ea] p-1">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          onClick={() => onChange(option.id)}
-          className={cn(
-            'h-8 flex-1 rounded-sm px-3 text-[13px] font-[640] transition',
-            value === option.id
-              ? 'bg-white text-[#111827] shadow-[0_1px_2px_rgba(15,23,42,0.06)]'
-              : 'text-[#6b7280] hover:bg-white/55 hover:text-[#20242b]',
-          )}
-        >
-          {option.label}
-        </button>
-      ))}
+    <div className="space-y-2">
+      <label htmlFor="routine-tags" className="text-[15px] font-[560] text-[#dadada]">Tags</label>
+      <input
+        id="routine-tags"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+        }}
+        placeholder="Optional tags"
+        className="h-10 w-full rounded-[11px] border border-[#ececea] bg-white px-3 text-[16px] text-black outline-none placeholder:text-[#c7c7c7] focus:border-[#b8b8b6]"
+      />
     </div>
   );
 }
 
 function ScheduleEditor({
   draft,
+  paused,
   onChange,
+  onPausedChange,
 }: {
   draft: ScheduleDraft;
+  paused: boolean;
   onChange: (patch: Partial<ScheduleDraft>) => void;
+  onPausedChange: (paused: boolean) => void;
 }) {
-  const [advanced, setAdvanced] = useState(
-    draft.frequency === 'yearly' || draft.frequency === 'on_completion' || draft.interval > 1 || Boolean(draft.firstRun) || Boolean(draft.ends),
-  );
-  const simpleValue = (SIMPLE_FREQUENCIES.some((option) => option.id === draft.frequency)
-    ? draft.frequency
-    : null) as 'daily' | 'weekly' | 'monthly' | null;
-
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-3">
-      <SegmentedControl
-        value={simpleValue}
-        options={SIMPLE_FREQUENCIES}
-        onChange={(frequency) => onChange({ frequency, interval: 1 })}
-      />
+    <div className="space-y-5">
+      <section className={groupClass}>
+        <div className={rowClass}>
+          <span className={labelClass}>Trigger</span>
+          <select
+            value={draft.frequency}
+            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
+            className={cn(chipClass, 'min-w-[150px]')}
+            aria-label="Trigger frequency"
+          >
+            {FREQUENCIES.map((frequency) => (
+              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Paused</span>
+          <Switch checked={paused} onCheckedChange={onPausedChange} />
+        </div>
+      </section>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <section className={groupClass}>
+        <div className={rowClass}>
+          <span className={labelClass}>Every</span>
+          <span className="flex items-center gap-3">
+            <input
+              type="number"
+              min={1}
+              max={99}
+              value={draft.interval}
+              onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
+              className={cn(chipClass, 'w-[76px] text-center')}
+              aria-label="Interval"
+            />
+            <span className="text-[17px] font-[560] text-[#777]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
+          </span>
+        </div>
+
+        {draft.frequency === 'weekly' ? (
+          <div className={rowClass}>
+            <span className={labelClass}>On</span>
+            <span className="flex flex-wrap justify-end gap-1.5">
+              {WEEKDAYS.map((day) => {
+                const active = draft.weekdays.includes(day.value);
+                return (
+                  <button
+                    key={day.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => onChange({
+                      weekdays: active
+                        ? draft.weekdays.filter((value) => value !== day.value)
+                        : [...draft.weekdays, day.value].sort((a, b) => a - b),
+                    })}
+                    className={cn(
+                      'h-9 rounded-[10px] px-3 text-[14px] font-[650] transition',
+                      active ? 'bg-[#0f172a] text-white' : 'bg-[#ececeb] text-[#666] hover:bg-[#e3e3e1]',
+                    )}
+                  >
+                    {day.label}
+                  </button>
+                );
+              })}
+            </span>
+          </div>
+        ) : null}
+
+        {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
+          <div className={rowClass}>
+            <span className={labelClass}>On the</span>
+            <span className="flex items-center gap-2">
+              <select
+                value={String(draft.day)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
+                }}
+                className={chipClass}
+                aria-label="Day of month"
+              >
+                {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                  <option key={day} value={day}>{ordinalSuffix(day)}</option>
+                ))}
+                <option value="first">first day</option>
+                <option value="last">last day</option>
+              </select>
+              {draft.frequency === 'yearly' ? (
+                <>
+                  <span className="text-[17px] text-[#777]">in</span>
+                  <select
+                    value={draft.month}
+                    onChange={(event) => onChange({ month: Number(event.target.value) })}
+                    className={chipClass}
+                    aria-label="Month"
+                  >
+                    {MONTHS.map((month, index) => (
+                      <option key={month} value={index + 1}>{month}</option>
+                    ))}
+                  </select>
+                </>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
+
         {draft.frequency !== 'on_completion' ? (
-          <label className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-3 text-[14px] font-[560] text-[#22262d] transition focus-within:border-[rgba(15,23,42,0.24)]">
-            <Clock className="h-3.5 w-3.5 text-[#8a929c]" />
+          <div className={rowClass}>
+            <span className={labelClass}>At</span>
             <input
               type="time"
               value={timeValue}
@@ -167,142 +308,47 @@ function ScheduleEditor({
                 const [hour, minute] = event.target.value.split(':').map(Number);
                 if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
               }}
-              className="bg-transparent outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+              className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
+              aria-label="Time of day"
             />
-          </label>
-        ) : null}
-        {draft.frequency === 'weekly' ? (
-          <span className="flex flex-wrap gap-1.5">
-            {WEEKDAYS.map((day) => {
-              const active = draft.weekdays.includes(day.value);
-              return (
-                <button
-                  key={day.value}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => onChange({
-                    weekdays: active
-                      ? draft.weekdays.filter((value) => value !== day.value)
-                      : [...draft.weekdays, day.value].sort((a, b) => a - b),
-                  })}
-                  className={cn(
-                    'h-8 rounded-sm px-2.5 text-[12px] font-[640] transition',
-                    active ? 'bg-[#111827] text-white' : 'border border-[rgba(15,23,42,0.10)] bg-white/85 text-[#626a75] hover:bg-white',
-                  )}
-                >
-                  {day.label}
-                </button>
-              );
-            })}
-          </span>
-        ) : null}
-        {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
-          <label className="inline-flex h-9 items-center gap-2 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-3 text-[13px] font-[560] text-[#6a717b]">
-            On the
+          </div>
+        ) : (
+          <div className={rowClass}>
+            <span className={labelClass}>After</span>
             <select
-              value={String(draft.day)}
-              onChange={(event) => {
-                const value = event.target.value;
-                onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
-              }}
-              className="bg-transparent text-[13px] font-[620] text-[#22262d] outline-none"
+              value={draft.onCompletionUnit}
+              onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
+              className={chipClass}
+              aria-label="Completion interval unit"
             >
-              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                <option key={day} value={day}>{day}</option>
-              ))}
-              <option value="first">first day</option>
-              <option value="last">last day</option>
-            </select>
-            {draft.frequency === 'yearly' ? (
-              <>
-                in
-                <select
-                  value={draft.month}
-                  onChange={(event) => onChange({ month: Number(event.target.value) })}
-                  className="bg-transparent text-[13px] font-[620] text-[#22262d] outline-none"
-                >
-                  {MONTHS.map((month, index) => (
-                    <option key={month} value={index + 1}>{month}</option>
-                  ))}
-                </select>
-              </>
-            ) : null}
-          </label>
-        ) : null}
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setAdvanced((value) => !value)}
-        aria-expanded={advanced}
-        className="inline-flex items-center gap-1 text-[12px] font-[640] text-[#6a717b] transition hover:text-[#22262d]"
-      >
-        <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', advanced && 'rotate-180')} />
-        Advanced
-      </button>
-
-      {advanced ? (
-        <div className="space-y-2.5 rounded-[8px] border border-[rgba(15,23,42,0.07)] bg-[#f4f5f2] p-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] font-[560] text-[#6a717b]">Frequency</span>
-            <select
-              value={draft.frequency}
-              onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'] })}
-              className={cn(smallControlClass, 'w-[150px]')}
-            >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="yearly">Yearly</option>
-              <option value="on_completion">On completion</option>
+              <option value="days">days</option>
+              <option value="weeks">weeks</option>
+              <option value="months">months</option>
             </select>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] font-[560] text-[#6a717b]">Every</span>
-            <span className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={99}
-                value={draft.interval}
-                onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-                className={cn(smallControlClass, 'w-16 text-right')}
-              />
-              {draft.frequency === 'on_completion' ? (
-                <select
-                  value={draft.onCompletionUnit}
-                  onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
-                  className={cn(smallControlClass, 'w-[120px]')}
-                >
-                  <option value="days">days after</option>
-                  <option value="weeks">weeks after</option>
-                  <option value="months">months after</option>
-                </select>
-              ) : (
-                <span className="text-[13px] font-[560] text-[#6a717b]">{FREQUENCY_UNITS[draft.frequency]}</span>
-              )}
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] font-[560] text-[#6a717b]">First run</span>
-            <input
-              type="date"
-              value={draft.firstRun || ''}
-              onChange={(event) => onChange({ firstRun: event.target.value || null })}
-              className={cn(smallControlClass, 'w-[150px]')}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[13px] font-[560] text-[#6a717b]">Ends</span>
-            <input
-              type="date"
-              value={draft.ends || ''}
-              onChange={(event) => onChange({ ends: event.target.value || null })}
-              className={cn(smallControlClass, 'w-[150px]')}
-            />
-          </div>
+        )}
+
+        <div className={rowClass}>
+          <span className={labelClass}>First run</span>
+          <input
+            type="date"
+            value={draft.firstRun || ''}
+            onChange={(event) => onChange({ firstRun: event.target.value || null })}
+            className={cn(chipClass, 'text-right', !draft.firstRun && 'text-[#8d8d8d]')}
+            aria-label="First run date"
+          />
         </div>
-      ) : null}
+        <div className={rowClass}>
+          <span className={labelClass}>Ends</span>
+          <input
+            type="date"
+            value={draft.ends || ''}
+            onChange={(event) => onChange({ ends: event.target.value || null })}
+            className={cn(chipClass, 'text-right', !draft.ends && 'text-[#8d8d8d]')}
+            aria-label="End date"
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -327,14 +373,13 @@ export function RoutineConfigureModal({
   const [state, setState] = useState<RoutineConfigureState>(initial);
   const [lastInitial, setLastInitial] = useState(initial);
   if (lastInitial !== initial) {
-    // A new modal session started — adopt its initial state.
     setLastInitial(initial);
     setState(initial);
   }
   const now = useNow(30_000);
 
   const dirty = JSON.stringify(state) !== JSON.stringify(initial);
-  const canSubmit = state.instructions.trim().length > 0 && !submitting;
+  const canSubmit = (state.name.trim().length > 0 || state.instructions.trim().length > 0) && !submitting;
 
   const preview = useMemo(() => nextOccurrences({
     triggerType: state.draft.frequency,
@@ -347,16 +392,7 @@ export function RoutineConfigureModal({
   }), [state.draft, now, lastRunAt]);
 
   const template = ROUTINE_TEMPLATES.find((item) => item.id === state.templateKey) || null;
-  const bannerSummary = describeSchedule(state.draft.frequency, triggerConfigFromDraft(state.draft));
-
-  const applyTemplate = (nextTemplate: RoutineTemplate | null) => {
-    setState((current) => ({
-      ...configureStateFromTemplate(nextTemplate),
-      notifyPush: current.notifyPush,
-      notifyEmail: current.notifyEmail,
-      agentTier: current.agentTier,
-    }));
-  };
+  const bannerSummary = template?.scheduleLabel || describeSchedule(state.draft.frequency, triggerConfigFromDraft(state.draft));
 
   const requestClose = () => {
     if (dirty && !window.confirm('Discard your changes to this routine?')) return;
@@ -368,12 +404,10 @@ export function RoutineConfigureModal({
     onSubmit(state);
   };
 
-  const selectedTier = AGENT_TIERS.find((tier) => tier.id === state.agentTier) || AGENT_TIERS[1];
-
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        className="max-w-[980px] gap-0 border-[rgba(15,23,42,0.10)] bg-[#fbfbf9] p-0 text-[#16181d] shadow-2xl duration-150 motion-reduce:duration-0 sm:rounded-[12px] [&>button]:hidden"
+        className="max-h-[calc(100vh-54px)] max-w-[1040px] gap-0 overflow-auto border-[#c9c9c7] bg-[#fbfbfa] p-0 text-black shadow-2xl duration-150 motion-reduce:duration-0 sm:rounded-[28px] [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -389,152 +423,137 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-7 pt-6">
+        <div className="flex items-start justify-between px-7 pt-7">
           <div>
-            <DialogTitle className="text-[20px] font-[680] tracking-[-0.02em] text-[#10141d]">Configure routine</DialogTitle>
-            <p className="mt-1 text-[13px] text-[#737b86]">
-              {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save your changes.'}
+            <DialogTitle className="text-[26px] font-[650] tracking-[-0.025em] text-black">Configure routine</DialogTitle>
+            <p className="mt-2 text-[18px] font-[430] text-[#777]">
+              {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
             </p>
           </div>
           <button
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-sm text-[#747b85] transition hover:bg-[#eef1ea] hover:text-[#171b22]"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#777] transition hover:bg-[#eeeeec] hover:text-black"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        <div className="mx-7 mt-5 flex items-center justify-between gap-4 rounded-[10px] border border-[rgba(15,23,42,0.08)] bg-white/80 px-4 py-3">
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] border border-[rgba(15,23,42,0.08)] bg-[#f4f5f2]">
-              <RoutineIcon name={template ? template.icon : 'sparkles'} className="h-4 w-4 text-[#374151]" />
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[14px] font-[660] text-[#1f242d]">{template ? template.title : 'Custom routine'}</span>
-              <span className="block truncate text-[12px] text-[#8a929c]">{bannerSummary}</span>
-            </span>
+        <div className="mx-7 mt-7 flex items-center gap-4 rounded-[16px] bg-[#f6f6f5] px-5 py-4">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-[#dededc]">
+            {template ? <RoutineIcon name={template.icon} className="h-5 w-5 text-[#9a9a9a]" /> : <Repeat className="h-5 w-5 text-[#9a9a9a]" />}
           </span>
-          <Popover>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm px-2.5 text-[13px] font-[640] text-[#4b5563] transition hover:bg-[#eef1ea] hover:text-[#171b22]"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                Change template
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-72 p-1.5">
-              <button
-                type="button"
-                onClick={() => applyTemplate(null)}
-                className={cn('flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[13px] font-[600] transition hover:bg-[#f1f3ef]', !template && 'bg-[#eef1ea]')}
-              >
-                Custom routine
-              </button>
-              <div className="my-1 h-px bg-[rgba(15,23,42,0.06)]" />
-              {ROUTINE_TEMPLATES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => applyTemplate(item)}
-                  className={cn('flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-[13px] font-[560] transition hover:bg-[#f1f3ef]', template?.id === item.id && 'bg-[#eef1ea]')}
-                >
-                  <RoutineIcon name={item.icon} className="h-3.5 w-3.5 shrink-0 text-[#69727d]" />
-                  <span className="truncate">{item.title}</span>
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
+          <span className="min-w-0">
+            <span className="block truncate text-[18px] font-[650] text-black">{template ? template.title : 'Custom routine'}</span>
+            <span className="block truncate text-[15px] font-[430] text-[#9a9a9a]">{bannerSummary}</span>
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-8 px-7 pb-2 pt-6 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+        <div className="grid grid-cols-1 gap-9 px-7 pb-4 pt-7 md:grid-cols-[minmax(0,5fr)_minmax(0,5fr)]">
           <div className="space-y-6">
-            <div className="space-y-2">
-              <label htmlFor="routine-name" className={fieldLabelClass()}>Name</label>
+            <div className="space-y-3">
+              <label htmlFor="routine-name" className="text-[18px] font-[560] text-black">Name</label>
               <input
                 id="routine-name"
+                autoFocus
                 value={state.name}
                 onChange={(event) => setState({ ...state, name: event.target.value })}
-                placeholder="e.g. Weekly training review"
-                className={inputClass}
+                placeholder="e.g. Weekly work review"
+                className={textInputClass}
               />
             </div>
 
-            <div className="space-y-2">
-              <span className={fieldLabelClass()}>Schedule</span>
-              <ScheduleEditor
-                draft={state.draft}
-                onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
-              />
-              <p className="text-[12px] leading-5 text-[#8a929c]" aria-live="polite">
-                {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
-                Next: {preview.length ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}…` : 'no upcoming runs — check the end date'}
+            <ScheduleEditor
+              draft={state.draft}
+              paused={state.paused}
+              onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
+              onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
+            />
+
+            <p className="px-1 text-[16px] font-[430] leading-7 text-[#b7b7b7]" aria-live="polite">
+              {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
+              Next: {state.paused
+                ? 'paused'
+                : preview.length
+                  ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
+                  : 'no upcoming runs'}
+            </p>
+
+            <section className={groupClass}>
+              <div className={rowClass}>
+                <span className={labelClass}>Priority</span>
+                <select
+                  value={state.priority}
+                  onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
+                  className={chipClass}
+                  aria-label="Priority"
+                >
+                  {PRIORITIES.map((priority) => (
+                    <option key={priority.id} value={priority.id}>{priority.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className={rowClass}>
+                <span className={labelClass}>Agent</span>
+                <span className="flex items-center gap-1.5">
+                  {AGENT_TIERS.map((tier) => (
+                    <button
+                      key={tier.id}
+                      type="button"
+                      aria-pressed={state.agentTier === tier.id}
+                      onClick={() => setState({ ...state, agentTier: tier.id })}
+                      className={cn(
+                        'h-9 rounded-[10px] px-3 text-[15px] font-[650] transition',
+                        state.agentTier === tier.id ? 'bg-[#0f172a] text-white' : 'bg-[#ececeb] text-[#666] hover:bg-[#e3e3e1]',
+                      )}
+                    >
+                      {tier.label}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            </section>
+          </div>
+
+          <div className="flex min-h-0 flex-col gap-6">
+            <div className="space-y-3">
+              <label htmlFor="routine-instructions" className="text-[18px] font-[560] text-black">Instructions</label>
+              <p className="text-[15px] font-[430] leading-6 text-[#777]">
+                Describe what you&rsquo;d like the AI to gather, analyze, or do.
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <span className={fieldLabelClass()}>Agent</span>
-              <SegmentedControl
-                value={state.agentTier}
-                options={AGENT_TIERS.map((tier) => ({ id: tier.id, label: tier.label }))}
-                onChange={(agentTier) => setState({ ...state, agentTier })}
+              <textarea
+                id="routine-instructions"
+                value={state.instructions}
+                onChange={(event) => setState({ ...state, instructions: event.target.value })}
+                placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
+                className={cn(textareaClass, 'min-h-[224px]')}
               />
-              <p className="text-[12px] text-[#8a929c]">{selectedTier.description}</p>
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-4">
-                <span className="min-w-0">
-                  <span className={fieldLabelClass()}>Notifications</span>
-                  <span className="block text-[12px] text-[#8a929c]">Push when a new report is ready.</span>
-                </span>
-                <Switch
-                  checked={state.notifyPush}
-                  onCheckedChange={(checked) => setState({ ...state, notifyPush: checked })}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="min-w-0">
-                  <span className={fieldLabelClass()}>Email</span>
-                  <span className="block text-[12px] text-[#8a929c]">Email me when a new report is ready.</span>
-                </span>
-                <TooltipProvider delayDuration={200}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span>
-                        <Switch checked={false} disabled aria-label="Email notifications (unavailable)" />
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="left" className="max-w-[240px]">
-                      Email notifications need a connected email account — routines deliver in-app for now.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
+              <label htmlFor="routine-notes" className="text-[18px] font-[560] text-black">Notes</label>
+              <textarea
+                id="routine-notes"
+                value={state.notes}
+                onChange={(event) => setState({ ...state, notes: event.target.value })}
+                placeholder="Optional notes"
+                className={cn(textareaClass, 'min-h-[112px]')}
+              />
             </div>
-          </div>
 
-          <div className="flex min-h-0 flex-col space-y-2">
-            <label htmlFor="routine-instructions" className={fieldLabelClass()}>Instructions</label>
-            <p className="text-[12px] text-[#8a929c]">Describe what you&rsquo;d like Ritual to gather, analyze, or summarize.</p>
-            <textarea
-              id="routine-instructions"
-              value={state.instructions}
-              onChange={(event) => setState({ ...state, instructions: event.target.value })}
-              placeholder="e.g. Compare this week's sleep and workouts against my 30-day baseline and tell me what to change"
-              className="min-h-[320px] flex-1 resize-none rounded-[8px] border border-[rgba(15,23,42,0.10)] bg-white/90 px-4 py-3 text-[14px] leading-6 text-[#22262d] outline-none transition placeholder:text-[#9aa1aa] focus:border-[rgba(15,23,42,0.24)]"
+            <TagsField
+              value={state.tags}
+              onChange={(tags) => setState((current) => ({ ...current, tags }))}
             />
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-[rgba(15,23,42,0.06)] px-7 py-4">
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 bg-[#fbfbfa]/95 px-7 py-5 backdrop-blur">
           <button
             type="button"
             onClick={requestClose}
-            className="inline-flex h-9 items-center rounded-sm px-3.5 text-[14px] font-[640] text-[#4b5563] transition hover:bg-[#eef1ea] hover:text-[#171b22]"
+            className="inline-flex h-11 items-center rounded-full bg-[#e9e9e8] px-5 text-[17px] font-[650] text-black transition hover:bg-[#dededc]"
           >
             Cancel
           </button>
@@ -542,10 +561,10 @@ export function RoutineConfigureModal({
             type="button"
             onClick={submit}
             disabled={!canSubmit}
-            className="inline-flex h-9 items-center gap-2 rounded-sm bg-[#111827] px-3.5 text-[14px] font-[650] text-white transition hover:bg-[#202938] disabled:opacity-45"
+            className="inline-flex h-11 items-center gap-2 rounded-full bg-[#86b8ff] px-6 text-[17px] font-[650] text-white transition hover:bg-[#71aaff] disabled:opacity-45"
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {mode === 'create' ? 'Create routine' : 'Save changes'}
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
+            {mode === 'create' ? 'Create routine' : 'Save routine'}
           </button>
         </div>
       </DialogContent>
