@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { useVoiceSession } from '@/components/voice-session-provider';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { getVoiceHudAnchorRect } from '@/lib/voice/voice-hud-anchor';
 import { useRitualVoiceInput } from '@/lib/voice/use-ritual-voice-input';
 import { normalizeLoggerVoiceTranscript } from './local-log-parser';
 
@@ -39,12 +40,16 @@ export function useAiHabitVoice({ textareaRef, setInput, setError }: UseAiHabitV
     }
 
     try {
-      await openVoiceHud({ target: 'habit-log', source: 'composer' });
+      await openVoiceHud({
+        target: 'habit-log',
+        source: 'composer',
+        anchorRect: getVoiceHudAnchorRect(textareaRef.current),
+      });
     } catch (error) {
       console.error('Failed to open voice HUD:', error);
       await inlineVoiceInput.startVoiceRecognition();
     }
-  }, [inlineVoiceInput, isDesktop, openVoiceHud, setError, setLastActiveVoiceTarget]);
+  }, [inlineVoiceInput, isDesktop, openVoiceHud, setError, setLastActiveVoiceTarget, textareaRef]);
 
   return {
     ...inlineVoiceInput,

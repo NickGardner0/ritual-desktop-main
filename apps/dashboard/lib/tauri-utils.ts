@@ -9,6 +9,7 @@ import {
 } from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 import type {
+  VoiceHudAnchorRect,
   VoiceSessionSource,
   VoiceSessionStartPayload,
   VoiceTarget,
@@ -169,6 +170,7 @@ export type OpenDesktopVoiceHudPayload = {
   target: VoiceTarget;
   source: VoiceSessionSource;
   submitOnFinal?: false;
+  anchorRect?: VoiceHudAnchorRect;
 };
 
 export type VoiceHotkeySettings = {

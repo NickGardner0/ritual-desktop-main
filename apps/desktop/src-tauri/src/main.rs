@@ -1191,6 +1191,7 @@ struct VoiceHudHelperSession {
     command_dir: PathBuf,
     status_path: PathBuf,
     log_path: PathBuf,
+    anchor_rect: Option<VoiceHudAnchorRect>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1200,12 +1201,23 @@ struct VoiceSessionStartPayload {
     target: String,
     source: String,
     submit_on_final: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    anchor_rect: Option<VoiceHudAnchorRect>,
 }
 
 #[derive(Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct VoiceHotkeyOpenPayload {
     source: String,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudAnchorRect {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -1216,6 +1228,8 @@ struct VoiceHudVisualState {
     is_listening: bool,
     #[serde(default)]
     is_processing_voice: bool,
+    #[serde(default)]
+    audio_level: Option<f64>,
     #[serde(default)]
     error: Option<String>,
     #[serde(default)]
@@ -1476,6 +1490,7 @@ fn build_voice_session_payload(
     target: String,
     source: Option<String>,
     submit_on_final: Option<bool>,
+    anchor_rect: Option<VoiceHudAnchorRect>,
 ) -> VoiceSessionStartPayload {
     let timestamp = chrono::Utc::now().timestamp_millis();
     VoiceSessionStartPayload {
@@ -1483,6 +1498,7 @@ fn build_voice_session_payload(
         target: normalize_voice_target(target),
         source: normalize_voice_source(source),
         submit_on_final: submit_on_final.unwrap_or(false),
+        anchor_rect,
     }
 }
 
@@ -1512,6 +1528,7 @@ fn initial_voice_hud_visual_state(payload: &VoiceSessionStartPayload) -> VoiceHu
         session_id: payload.session_id.clone(),
         is_listening: true,
         is_processing_voice: false,
+        audio_level: Some(0.18),
         error: None,
         partial_transcript: None,
     }
@@ -1626,6 +1643,7 @@ fn create_voice_hud_helper_session(
         command_dir,
         status_path: dir.join("status.json"),
         log_path: dir.join("helper.log"),
+        anchor_rect: payload.anchor_rect.clone(),
     };
     let _ = std::fs::remove_file(&session.status_path);
     let _ = std::fs::remove_file(session.command_dir.join("stop"));
@@ -1645,7 +1663,8 @@ fn launch_voice_hud_helper(session: &VoiceHudHelperSession) -> Result<(), String
         ));
     }
 
-    let status = Command::new("/usr/bin/open")
+    let mut command = Command::new("/usr/bin/open");
+    command
         .arg("-n")
         .arg(&helper_app)
         .arg("--args")
@@ -1658,7 +1677,21 @@ fn launch_voice_hud_helper(session: &VoiceHudHelperSession) -> Result<(), String
         .arg("--status")
         .arg(&session.status_path)
         .arg("--log")
-        .arg(&session.log_path)
+        .arg(&session.log_path);
+
+    if let Some(anchor) = &session.anchor_rect {
+        command
+            .arg("--anchor-x")
+            .arg(anchor.x.to_string())
+            .arg("--anchor-y")
+            .arg(anchor.y.to_string())
+            .arg("--anchor-width")
+            .arg(anchor.width.to_string())
+            .arg("--anchor-height")
+            .arg(anchor.height.to_string());
+    }
+
+    let status = command
         .status()
         .map_err(|error| format!("Failed to launch voice HUD helper: {error}"))?;
 
@@ -1882,6 +1915,7 @@ fn handle_voice_hotkey(app: &tauri::AppHandle) {
         "chat-query".to_string(),
         Some("hotkey".to_string()),
         Some(false),
+        None,
     );
     let _ = show_voice_hud_window(app, payload);
 }
@@ -1892,8 +1926,9 @@ fn open_voice_hud(
     target: String,
     source: Option<String>,
     submit_on_final: Option<bool>,
+    anchor_rect: Option<VoiceHudAnchorRect>,
 ) -> Result<VoiceSessionStartPayload, String> {
-    let payload = build_voice_session_payload(target, source, submit_on_final);
+    let payload = build_voice_session_payload(target, source, submit_on_final, anchor_rect);
     show_voice_hud_window(&app, payload)
 }
 

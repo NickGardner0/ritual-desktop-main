@@ -12,6 +12,10 @@ private struct Arguments {
     var commandDir = ""
     var statusPath = ""
     var logPath = ""
+    var anchorX: CGFloat?
+    var anchorY: CGFloat?
+    var anchorWidth: CGFloat?
+    var anchorHeight: CGFloat?
 
     static func parse(_ raw: [String]) -> Arguments {
         var args = Arguments()
@@ -35,11 +39,33 @@ private struct Arguments {
             case "--log":
                 args.logPath = value
                 index += 2
+            case "--anchor-x":
+                args.anchorX = Double(value).map { CGFloat($0) }
+                index += 2
+            case "--anchor-y":
+                args.anchorY = Double(value).map { CGFloat($0) }
+                index += 2
+            case "--anchor-width":
+                args.anchorWidth = Double(value).map { CGFloat($0) }
+                index += 2
+            case "--anchor-height":
+                args.anchorHeight = Double(value).map { CGFloat($0) }
+                index += 2
             default:
                 index += 1
             }
         }
         return args
+    }
+
+    var anchor: HudAnchor? {
+        guard let anchorX, let anchorY, let anchorWidth, let anchorHeight else {
+            return nil
+        }
+        guard anchorWidth > 0, anchorHeight > 0 else {
+            return nil
+        }
+        return HudAnchor(x: anchorX, y: anchorY, width: anchorWidth, height: anchorHeight)
     }
 }
 
@@ -47,8 +73,16 @@ private struct HudState: Decodable {
     var sessionId: String
     var isListening: Bool
     var isProcessingVoice: Bool
+    var audioLevel: Double?
     var error: String?
     var partialTranscript: String?
+}
+
+private struct HudAnchor {
+    var x: CGFloat
+    var y: CGFloat
+    var width: CGFloat
+    var height: CGFloat
 }
 
 private final class HudPanel: NSPanel {
@@ -61,6 +95,7 @@ private class HudRootView: NSView {
     var onCancel: (() -> Void)?
 
     override var acceptsFirstResponder: Bool { true }
+    override var mouseDownCanMoveWindow: Bool { true }
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
@@ -77,17 +112,19 @@ private class HudRootView: NSView {
 private final class SurfaceView: NSVisualEffectView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        material = .popover
+        material = .hudWindow
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
         layer?.cornerRadius = hudCornerRadius
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.91, alpha: 0.82).cgColor
-        layer?.borderColor = NSColor(calibratedWhite: 0.62, alpha: 0.52).cgColor
+        layer?.backgroundColor = NSColor(calibratedWhite: 0.91, alpha: 0.78).cgColor
+        layer?.borderColor = NSColor(calibratedWhite: 0.62, alpha: 0.44).cgColor
         layer?.borderWidth = 1
     }
+
+    override var mouseDownCanMoveWindow: Bool { true }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -99,10 +136,12 @@ private final class ShadowView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.shadowColor = NSColor.black.cgColor
-        layer?.shadowOpacity = 0.20
-        layer?.shadowRadius = 18
-        layer?.shadowOffset = CGSize(width: 0, height: -8)
+        layer?.shadowOpacity = 0.18
+        layer?.shadowRadius = 17
+        layer?.shadowOffset = CGSize(width: 0, height: -7)
     }
+
+    override var mouseDownCanMoveWindow: Bool { true }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -129,10 +168,12 @@ private final class RailView: NSVisualEffectView {
         layer?.cornerRadius = 9
         layer?.cornerCurve = .continuous
         layer?.masksToBounds = true
-        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.62).cgColor
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.38).cgColor
+        layer?.backgroundColor = NSColor.white.withAlphaComponent(0.68).cgColor
+        layer?.borderColor = NSColor.white.withAlphaComponent(0.44).cgColor
         layer?.borderWidth = 1
     }
+
+    override var mouseDownCanMoveWindow: Bool { true }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -142,6 +183,7 @@ private final class RailView: NSVisualEffectView {
 private final class WaveformView: NSView {
     var isListening = false { didSet { setNeedsDisplay(bounds) } }
     var isProcessing = false { didSet { setNeedsDisplay(bounds) } }
+    var audioLevel: CGFloat = 0 { didSet { setNeedsDisplay(bounds) } }
     private var phase: CGFloat = 0
     private var timer: Timer?
 
@@ -156,6 +198,8 @@ private final class WaveformView: NSView {
         }
         RunLoop.main.add(timer!, forMode: .common)
     }
+
+    override var mouseDownCanMoveWindow: Bool { true }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -187,14 +231,17 @@ private final class WaveformView: NSView {
         let barWidth: CGFloat = 2
         let gap: CGFloat = 2.2
         let barCount = 54
-        let maxHeight = bounds.height * (isProcessing ? 0.40 : 0.68)
+        let fallbackLevel: CGFloat = isProcessing ? 0.18 : 0.22
+        let liveLevel = min(1, max(audioLevel, fallbackLevel))
+        let maxHeight = bounds.height * (0.24 + liveLevel * (isProcessing ? 0.36 : 0.58))
 
         for index in 0..<barCount {
             let offset = CGFloat(index) - CGFloat(barCount - 1) / 2.0
             let distance = abs(offset) / (CGFloat(barCount) / 2.0)
             let envelope = pow(max(0, 1 - distance), 1.8)
-            let motion = 0.60 + 0.40 * sin(phase + CGFloat(index) * 0.42)
-            let height = max(4, maxHeight * (0.18 + envelope * 0.52 * motion))
+            let motion = 0.58 + 0.42 * sin(phase + CGFloat(index) * 0.42)
+            let noise = 0.88 + 0.12 * sin(phase * 0.7 + CGFloat(index) * 0.19)
+            let height = max(3.5, maxHeight * (0.12 + envelope * 0.76 * motion * noise))
             let rect = NSRect(
                 x: center + offset * (barWidth + gap) - barWidth / 2,
                 y: baselineY - height / 2,
@@ -207,19 +254,41 @@ private final class WaveformView: NSView {
 }
 
 private final class MarkView: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor(calibratedWhite: 0.45, alpha: 0.78).setStroke()
-        let rect = bounds.insetBy(dx: 3, dy: 2.5)
-        let path = NSBezierPath()
-        path.lineWidth = 2.3
-        path.lineCapStyle = .round
-        path.lineJoinStyle = .round
-        path.move(to: NSPoint(x: rect.midX, y: rect.maxY))
-        path.line(to: NSPoint(x: rect.maxX, y: rect.minY + 1))
-        path.line(to: NSPoint(x: rect.minX, y: rect.minY + 1))
-        path.close()
-        path.stroke()
+        let rect = bounds.insetBy(dx: 1.8, dy: 1.8)
+        NSGraphicsContext.saveGraphicsState()
+        NSBezierPath(ovalIn: rect).addClip()
+
+        NSColor(calibratedWhite: 0.43, alpha: 0.84).setStroke()
+        let strokes: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+            (-0.12, 0.68, 0.18, 0.83),
+            (-0.18, 0.52, 0.30, 0.72),
+            (-0.08, 0.36, 0.46, 0.58),
+            (0.12, 0.21, 0.64, 0.42),
+        ]
+
+        for (startX, startY, controlY, endY) in strokes {
+            let path = NSBezierPath()
+            path.lineWidth = 3.4
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            path.move(to: NSPoint(x: rect.minX + rect.width * startX, y: rect.minY + rect.height * startY))
+            path.curve(
+                to: NSPoint(x: rect.maxX + rect.width * 0.12, y: rect.minY + rect.height * endY),
+                controlPoint1: NSPoint(x: rect.minX + rect.width * 0.34, y: rect.minY + rect.height * controlY),
+                controlPoint2: NSPoint(x: rect.minX + rect.width * 0.66, y: rect.minY + rect.height * (controlY - 0.20))
+            )
+            path.stroke()
+        }
+
+        NSColor(calibratedWhite: 0.43, alpha: 0.35).setStroke()
+        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.2, dy: 0.2))
+        ring.lineWidth = 1.2
+        ring.stroke()
+        NSGraphicsContext.restoreGraphicsState()
     }
 }
 
@@ -247,9 +316,9 @@ private final class Keycap: NSTextField {
         font = .systemFont(ofSize: text == "esc" ? 11.5 : 13, weight: .semibold)
         textColor = NSColor(calibratedWhite: 0.12, alpha: 1)
         wantsLayer = true
-        layer?.cornerRadius = 6
+        layer?.cornerRadius = 6.5
         layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.80, alpha: 0.72).cgColor
+        layer?.backgroundColor = NSColor(calibratedWhite: 0.80, alpha: 0.76).cgColor
     }
 
     required init?(coder: NSCoder) {
@@ -264,8 +333,8 @@ private final class TextButton: NSButton {
         isBordered = false
         bezelStyle = .regularSquare
         setButtonType(.momentaryChange)
-        font = .systemFont(ofSize: fontSize, weight: .medium)
-        contentTintColor = NSColor(calibratedWhite: 0.50, alpha: 1)
+        font = .systemFont(ofSize: fontSize, weight: .semibold)
+        contentTintColor = NSColor(calibratedWhite: 0.48, alpha: 1)
     }
 
     required init?(coder: NSCoder) {
@@ -330,7 +399,7 @@ private final class HudView: HudRootView {
         waveformView.frame = NSRect(x: 30, y: 65, width: bounds.width - 60, height: 28)
         messageLabel.frame = NSRect(x: 56, y: 48, width: bounds.width - 112, height: 15)
         railView.frame = NSRect(x: 7, y: 7, width: bounds.width - 14, height: 36)
-        markView.frame = NSRect(x: 19, y: 8.5, width: 19, height: 19)
+        markView.frame = NSRect(x: 18.5, y: 8.5, width: 19, height: 19)
 
         let keyY: CGFloat = 6
         let buttonY: CGFloat = 6
@@ -344,6 +413,7 @@ private final class HudView: HudRootView {
     func update(_ state: HudState) {
         waveformView.isListening = state.isListening
         waveformView.isProcessing = state.isProcessingVoice
+        waveformView.audioLevel = CGFloat(max(0, min(1, state.audioLevel ?? 0)))
 
         if state.isProcessingVoice {
             statusButton.title = "Processing"
@@ -414,6 +484,7 @@ private final class VoiceHudApp: NSObject, NSApplicationDelegate {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = true
 
         let view = HudView(frame: NSRect(x: 0, y: 0, width: hudWidth, height: hudHeight))
         view.onStop = { [weak self] in self?.writeCommand("stop") }
@@ -426,7 +497,7 @@ private final class VoiceHudApp: NSObject, NSApplicationDelegate {
 
         self.panel = panel
         self.hudView = view
-        center(panel)
+        position(panel)
         panel.orderFrontRegardless()
         panel.makeKeyAndOrderFront(nil)
         panel.makeFirstResponder(view)
@@ -435,17 +506,63 @@ private final class VoiceHudApp: NSObject, NSApplicationDelegate {
         writeStatus("shown")
     }
 
-    private func center(_ panel: NSPanel) {
+    private func position(_ panel: NSPanel) {
+        if let anchor = args.anchor {
+            position(panel, near: anchor)
+            return
+        }
+        positionNearPointer(panel)
+    }
+
+    private func position(_ panel: NSPanel, near anchor: HudAnchor) {
+        let screen = screen(containingTopLeftAnchor: anchor)
+        let visible = screen.visibleFrame
+        let gap: CGFloat = 8
+        let preferredTopY = anchor.y + anchor.height + gap
+        var originY = screen.frame.maxY - preferredTopY - hudHeight
+        if originY < visible.minY + 8 {
+            originY = screen.frame.maxY - anchor.y + gap
+        }
+        let origin = NSPoint(
+            x: anchor.x + anchor.width / 2 - hudWidth / 2,
+            y: originY
+        )
+        panel.setFrame(clampedFrame(origin: origin, visibleFrame: visible), display: true)
+    }
+
+    private func positionNearPointer(_ panel: NSPanel) {
         let pointerLocation = NSEvent.mouseLocation
         let screenFrame = NSScreen.screens.first(where: { $0.frame.contains(pointerLocation) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? NSScreen.screens.first?.visibleFrame
             ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        var originY = pointerLocation.y - hudHeight - 10
+        if originY < screenFrame.minY + 8 {
+            originY = pointerLocation.y + 10
+        }
         let origin = NSPoint(
-            x: screenFrame.midX - hudWidth / 2,
-            y: screenFrame.midY - hudHeight / 2 + 14
+            x: pointerLocation.x - hudWidth / 2,
+            y: originY
         )
-        panel.setFrame(NSRect(x: origin.x, y: origin.y, width: hudWidth, height: hudHeight), display: true)
+        panel.setFrame(clampedFrame(origin: origin, visibleFrame: screenFrame), display: true)
+    }
+
+    private func screen(containingTopLeftAnchor anchor: HudAnchor) -> NSScreen {
+        let screens = NSScreen.screens
+        for screen in screens {
+            let anchorBottomY = screen.frame.maxY - (anchor.y + anchor.height)
+            let anchorRect = NSRect(x: anchor.x, y: anchorBottomY, width: anchor.width, height: anchor.height)
+            if screen.frame.intersects(anchorRect) || screen.frame.contains(NSPoint(x: anchor.x + anchor.width / 2, y: anchorBottomY + anchor.height / 2)) {
+                return screen
+            }
+        }
+        return NSScreen.main ?? screens.first!
+    }
+
+    private func clampedFrame(origin: NSPoint, visibleFrame: NSRect) -> NSRect {
+        let x = min(max(origin.x, visibleFrame.minX + 8), visibleFrame.maxX - hudWidth - 8)
+        let y = min(max(origin.y, visibleFrame.minY + 8), visibleFrame.maxY - hudHeight - 8)
+        return NSRect(x: x, y: y, width: hudWidth, height: hudHeight)
     }
 
     private func startPolling() {

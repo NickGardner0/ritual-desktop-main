@@ -15,6 +15,7 @@ import { openDesktopVoiceHud } from '@/lib/tauri-utils';
 import {
   VOICE_EVENTS,
   type VoiceHotkeyOpenPayload,
+  type VoiceHudAnchorRect,
   type VoiceSessionCancelledPayload,
   type VoiceSessionFinalPayload,
   type VoiceSessionSource,
@@ -26,6 +27,7 @@ type VoiceTargetHandler = (text: string) => void;
 type OpenVoiceHudOptions = {
   target: VoiceTarget;
   source?: VoiceSessionSource;
+  anchorRect?: VoiceHudAnchorRect;
 };
 
 type VoiceSessionContextValue = {
@@ -107,7 +109,7 @@ export function VoiceSessionProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   const openVoiceHud = useCallback(
-    async ({ target, source = 'composer' }: OpenVoiceHudOptions) => {
+    async ({ target, source = 'composer', anchorRect }: OpenVoiceHudOptions) => {
       lastActiveTargetRef.current = target;
       if (!isDesktop) {
         return false;
@@ -117,6 +119,7 @@ export function VoiceSessionProvider({ children }: { children: ReactNode }) {
         target,
         source,
         submitOnFinal: false,
+        anchorRect,
       });
       return true;
     },

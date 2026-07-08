@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useVoiceSession } from '@/components/voice-session-provider';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { getVoiceHudAnchorRect } from '@/lib/voice/voice-hud-anchor';
 import { useRitualVoiceInput } from '@/lib/voice/use-ritual-voice-input';
 
 interface UseChatVoiceInputParams {
@@ -38,12 +39,16 @@ export function useChatVoiceInput({ setInput, textareaRef }: UseChatVoiceInputPa
     }
 
     try {
-      await openVoiceHud({ target: 'chat-query', source: 'composer' });
+      await openVoiceHud({
+        target: 'chat-query',
+        source: 'composer',
+        anchorRect: getVoiceHudAnchorRect(textareaRef.current),
+      });
     } catch (error) {
       console.error('Failed to open voice HUD:', error);
       await inlineVoiceInput.startVoiceRecognition();
     }
-  }, [inlineVoiceInput, isDesktop, openVoiceHud, setLastActiveVoiceTarget]);
+  }, [inlineVoiceInput, isDesktop, openVoiceHud, setLastActiveVoiceTarget, textareaRef]);
 
   return {
     ...inlineVoiceInput,

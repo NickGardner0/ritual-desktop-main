@@ -33,6 +33,72 @@ function buildSessionFromParams(searchParams: URLSearchParams): VoiceSessionStar
   };
 }
 
+function useVoiceAudioLevel(audioStream: MediaStream | null, isActive: boolean): number {
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  useEffect(() => {
+    if (!audioStream || !isActive) {
+      setAudioLevel(0);
+      return;
+    }
+
+    const AudioContextCtor =
+      window.AudioContext ??
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    if (!AudioContextCtor) {
+      setAudioLevel(0);
+      return;
+    }
+
+    const audioContext = new AudioContextCtor();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.68;
+
+    const source = audioContext.createMediaStreamSource(audioStream);
+    source.connect(analyser);
+
+    const samples = new Uint8Array(analyser.fftSize);
+    let frame = 0;
+    let lastPublishAt = 0;
+    let lastPublishedLevel = 0;
+
+    const tick = (timestamp: number) => {
+      analyser.getByteTimeDomainData(samples);
+      let sum = 0;
+      for (const sample of samples) {
+        const normalized = (sample - 128) / 128;
+        sum += normalized * normalized;
+      }
+
+      const rms = Math.sqrt(sum / samples.length);
+      const nextLevel = Math.min(1, Math.max(0, (rms - 0.01) * 9));
+      if (
+        timestamp - lastPublishAt > 42 &&
+        Math.abs(nextLevel - lastPublishedLevel) > 0.012
+      ) {
+        lastPublishAt = timestamp;
+        lastPublishedLevel = nextLevel;
+        setAudioLevel(nextLevel);
+      }
+
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      source.disconnect();
+      audioContext.close().catch(() => undefined);
+      setAudioLevel(0);
+    };
+  }, [audioStream, isActive]);
+
+  return audioLevel;
+}
+
 export default function VoiceHudPage() {
   const searchParams = useSearchParams();
   const nativeHudEnabled = searchParams.get('ritual_native_voice_hud') === '1';
@@ -92,6 +158,8 @@ export default function VoiceHudPage() {
     setInput: setTranscript,
     textareaRef,
   });
+  const audioLevel = useVoiceAudioLevel(audioStream, isListening || isProcessingVoice);
+  const nativeIsListening = isListening || Boolean(session && !isProcessingVoice && !error);
   const startVoiceRecognitionRef = useRef(startVoiceRecognition);
 
   useEffect(() => {
@@ -190,17 +258,19 @@ export default function VoiceHudPage() {
     void invokeDesktopCommand('update_voice_hud_state', {
       state: {
         sessionId: session.sessionId,
-        isListening,
+        isListening: nativeIsListening,
         isProcessingVoice,
+        audioLevel,
         error,
         partialTranscript,
       },
     }).catch(() => undefined);
   }, [
+    audioLevel,
     error,
-    isListening,
     isProcessingVoice,
     nativeHudEnabled,
+    nativeIsListening,
     partialTranscript,
     session?.sessionId,
   ]);

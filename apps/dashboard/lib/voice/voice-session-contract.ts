@@ -3,11 +3,19 @@
 export type VoiceTarget = 'habit-log' | 'chat-query';
 export type VoiceSessionSource = 'composer' | 'hotkey';
 
+export type VoiceHudAnchorRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 export type VoiceSessionStartPayload = {
   sessionId: string;
   target: VoiceTarget;
   source: VoiceSessionSource;
   submitOnFinal?: false;
+  anchorRect?: VoiceHudAnchorRect;
 };
 
 export type VoiceSessionFinalPayload = {
