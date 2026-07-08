@@ -19,10 +19,16 @@ import {
   buildAgentRoutineInput,
   buildAgentRoutineUpdateInput,
   currentTimezone,
+  endsAtFromDraft,
+  firstRunAtFromDraft,
   joinAgentRoutines,
   nameFromInstructions,
+  scheduleDraftFromRoutine,
   sharedDefinitionId,
+  triggerConfigWithAgent,
   type AgentRoutine,
+  type RoutineAgentConfig,
+  type ScheduleDraft,
 } from '@/lib/routines/model';
 import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
@@ -239,6 +245,35 @@ export function RoutinesClient() {
       id: item.routine.id,
       patch: { title: name },
       optimistic: { title: name },
+    });
+  };
+
+  // Inline detail edits: schedule fields and agent settings save immediately.
+  const saveSchedule = (item: AgentRoutine, draft: ScheduleDraft) => {
+    const patch: RoutineUpdateInput = {
+      trigger_type: draft.frequency,
+      trigger_config: triggerConfigWithAgent(draft, item.agent, item.routine.title),
+      first_run_at: firstRunAtFromDraft(draft),
+      ends_at: endsAtFromDraft(draft),
+    };
+    patchRoutineMutation.mutate({
+      id: item.routine.id,
+      patch,
+      optimistic: patch as Partial<Routine>,
+    });
+  };
+
+  const saveAgent = (item: AgentRoutine, agentPatch: Partial<RoutineAgentConfig>) => {
+    const agent = { ...item.agent, ...agentPatch };
+    const draft = scheduleDraftFromRoutine(item.routine);
+    const patch: RoutineUpdateInput = {
+      description: agent.instructions,
+      trigger_config: triggerConfigWithAgent(draft, agent, item.routine.title),
+    };
+    patchRoutineMutation.mutate({
+      id: item.routine.id,
+      patch,
+      optimistic: patch as Partial<Routine>,
     });
   };
 
@@ -511,6 +546,8 @@ export function RoutinesClient() {
                   onDuplicate={duplicateRoutine}
                   onDelete={deleteRoutine}
                   onRetryRun={retryRun}
+                  onSaveSchedule={saveSchedule}
+                  onSaveAgent={saveAgent}
                 />
               ) : (
                 <div className="flex h-full items-center justify-center text-center">
