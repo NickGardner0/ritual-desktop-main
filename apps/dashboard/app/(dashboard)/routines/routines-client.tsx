@@ -4,9 +4,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, RotateCw } from 'lucide-react';
+import { History, Library, Plus, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { apiJsonWithAuth } from '@/lib/api/client';
 import {
@@ -16,13 +17,13 @@ import {
 } from '@/lib/privacy/task-vault-adapter';
 import { mergeRoutinesWithOutbox } from '@/lib/tasks/local-first-writes';
 import {
+  ALL_DATA_SOURCE_KEYS,
   buildAgentRoutineInput,
-  buildAgentRoutineUpdateInput,
   currentTimezone,
+  defaultScheduleDraft,
   endsAtFromDraft,
   firstRunAtFromDraft,
   joinAgentRoutines,
-  nameFromInstructions,
   scheduleDraftFromRoutine,
   sharedDefinitionId,
   triggerConfigWithAgent,
@@ -34,7 +35,7 @@ import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
 import { templateById } from '@/lib/routines/templates';
 import { useNow } from '@/lib/routines/time';
-import { ReferencePage, SegmentedTabs, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
+import { ReferencePage, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinitionListResponse,
@@ -43,38 +44,10 @@ import type {
 } from '@/lib/workflows/types';
 import { cn } from '@/lib/utils';
 
-import {
-  RoutineConfigureModal,
-  configureStateFromRoutine,
-  configureStateFromTemplate,
-  type RoutineConfigureState,
-} from './routine-configure-modal';
 import { RoutineDetail } from './routine-detail';
 import { RoutineList } from './routine-list';
 import { RunHistory } from './routine-runs';
-import { RoutinesEmptyHero, TemplateLibrary } from './routine-templates';
-
-const ROUTINE_TABS = [
-  { id: 'mine', label: 'Mine' },
-  { id: 'templates', label: 'Templates' },
-  { id: 'runs', label: 'Runs' },
-] as const;
-
-type RoutineTab = (typeof ROUTINE_TABS)[number]['id'];
-
-type ModalState = {
-  open: boolean;
-  mode: 'create' | 'edit';
-  initial: RoutineConfigureState;
-  editing: AgentRoutine | null;
-};
-
-const closedModal = (): ModalState => ({
-  open: false,
-  mode: 'create',
-  initial: configureStateFromTemplate(null),
-  editing: null,
-});
+import { TemplateLibrary } from './routine-templates';
 
 export function RoutinesClient() {
   const { getToken } = useAuth();
@@ -84,10 +57,8 @@ export function RoutinesClient() {
   useTaskRoutineOutboxSync();
   const now = useNow(30_000);
 
-  const [activeTab, setActiveTab] = useState<RoutineTab>('mine');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [runsFilter, setRunsFilter] = useState<string>('all');
-  const [modal, setModal] = useState<ModalState>(closedModal);
+  const [showAllRuns, setShowAllRuns] = useState(false);
 
   const routinesKey = useMemo(() => ['routines', user?.id] as const, [user?.id]);
 
@@ -241,10 +212,17 @@ export function RoutinesClient() {
   };
 
   const renameRoutine = (item: AgentRoutine, name: string) => {
+    const draft = scheduleDraftFromRoutine(item.routine);
     patchRoutineMutation.mutate({
       id: item.routine.id,
-      patch: { title: name },
-      optimistic: { title: name },
+      patch: {
+        title: name,
+        trigger_config: triggerConfigWithAgent(draft, item.agent, name),
+      },
+      optimistic: {
+        title: name,
+        trigger_config: triggerConfigWithAgent(draft, item.agent, name),
+      },
     });
   };
 
@@ -270,6 +248,14 @@ export function RoutinesClient() {
       description: agent.instructions,
       trigger_config: triggerConfigWithAgent(draft, agent, item.routine.title),
     };
+    patchRoutineMutation.mutate({
+      id: item.routine.id,
+      patch,
+      optimistic: patch as Partial<Routine>,
+    });
+  };
+
+  const saveMeta = (item: AgentRoutine, patch: { priority?: Routine['priority']; tags?: string[] }) => {
     patchRoutineMutation.mutate({
       id: item.routine.id,
       patch,
@@ -303,66 +289,59 @@ export function RoutinesClient() {
     });
   };
 
-  // --- Create / save through the configure modal -----------------------------------
+  // --- Create / duplicate -----------------------------------------------------------
 
-  const submitModalMutation = useMutation({
-    mutationFn: async ({ state, editing }: { state: RoutineConfigureState; editing: AgentRoutine | null }) => {
-      const timezone = currentTimezone();
-      const name = state.name.trim() || nameFromInstructions(state.instructions);
-      const template = templateById(state.templateKey);
-      const agent = {
-        instructions: state.instructions.trim(),
-        agent_tier: state.agentTier,
-        data_sources: state.dataSources,
-        notify_push: state.notifyPush,
-        notify_email: state.notifyEmail,
-        icon: state.icon,
-        template_key: state.templateKey,
-      };
+  const resolveDefinitionId = useCallback(async (templateKey?: string | null) => {
+    const template = templateById(templateKey || null);
+    const cached = definitionsQuery.data
+      || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
+    return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
+  }, [definitionsQuery.data, getToken, user?.id]);
 
-      // Runs execute against the shared per-kind definition (definitions are
-      // unique per user+kind); listing them also seeds the defaults.
-      const resolveDefinitionId = async () => {
-        const cached = definitionsQuery.data
-          || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
-        return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
-      };
-
-      if (editing) {
-        const definitionId = editing.routine.ai_workflow_definition_id || (await resolveDefinitionId());
-        const patch: RoutineUpdateInput = {
-          ...buildAgentRoutineUpdateInput({ name, agent, draft: state.draft, paused: editing.routine.status === 'paused' }),
-          kind: 'ai_workflow',
-          ai_workflow_definition_id: definitionId,
-        };
-        const response = await apiJsonWithAuth<RoutineListResponse>(`/api/routines/${editing.routine.id}`, getToken, {
-          method: 'PATCH',
-          body: JSON.stringify(patch),
-          userId: user?.id,
-        });
-        return { routine: response.items[0] || null, created: false };
-      }
-
-      const definitionId = await resolveDefinitionId();
+  const createRoutineMutation = useMutation({
+    mutationFn: async ({ templateKey, source }: { templateKey?: string | null; source?: AgentRoutine }) => {
+      const template = templateById(templateKey || source?.agent.template_key || null);
+      const definitionId = source?.routine.ai_workflow_definition_id || await resolveDefinitionId(template?.id || null);
       if (!definitionId) throw new Error('Could not prepare the agent for this routine — check the backend connection.');
+
+      const draft = source ? scheduleDraftFromRoutine(source.routine) : template ? { ...defaultScheduleDraft(), ...template.schedule } : defaultScheduleDraft();
+      const name = source ? `${source.routine.title} copy` : template?.title || 'Untitled routine';
+      const agent: RoutineAgentConfig = source ? {
+        ...source.agent,
+        template_key: source.agent.template_key,
+      } : {
+        instructions: template?.instructions || '',
+        agent_tier: 'regular',
+        data_sources: template ? [...template.dataSources] : [...ALL_DATA_SOURCE_KEYS],
+        notify_push: true,
+        notify_email: false,
+        icon: template?.icon || 'sparkles',
+        template_key: template?.id || null,
+      };
+
       const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
         method: 'POST',
-        body: JSON.stringify(buildAgentRoutineInput({ name, agent, draft: state.draft, timezone, definitionId })),
+        body: JSON.stringify(buildAgentRoutineInput({
+          name,
+          agent,
+          draft,
+          timezone: currentTimezone(),
+          definitionId,
+          tags: source ? source.routine.tags : ['ai'],
+        })),
         userId: user?.id,
       });
-      return { routine: response.items[0] || null, created: true };
+      return response.items[0] || null;
     },
-    onSuccess: ({ routine, created }) => {
+    onSuccess: (routine) => {
       invalidateAll();
-      setModal(closedModal());
       if (routine) {
         setSelectedId(routine.id);
-        setActiveTab('mine');
         if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
       }
-      toast.success(created ? 'Routine created' : 'Routine saved');
+      toast.success('Routine created');
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not save the routine.'),
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not create the routine.'),
   });
 
   // --- Run now ----------------------------------------------------------------------
@@ -391,41 +370,26 @@ export function RoutinesClient() {
     if (item) runNowMutation.mutate(item);
   };
 
-  // --- Modal openers & keyboard shortcuts --------------------------------------------
+  // --- Keyboard shortcuts ------------------------------------------------------------
 
-  const openCreateModal = useCallback((templateKey?: string | null) => {
-    setModal({
-      open: true,
-      mode: 'create',
-      initial: configureStateFromTemplate(templateById(templateKey || null)),
-      editing: null,
-    });
-  }, []);
-
-  const openEditModal = useCallback((item: AgentRoutine) => {
-    setModal({ open: true, mode: 'edit', initial: configureStateFromRoutine(item), editing: item });
-  }, []);
+  const createBlankRoutine = useCallback(() => {
+    createRoutineMutation.mutate({ templateKey: null });
+  }, [createRoutineMutation]);
 
   const duplicateRoutine = (item: AgentRoutine) => {
-    const initial = configureStateFromRoutine(item);
-    setModal({
-      open: true,
-      mode: 'create',
-      initial: { ...initial, name: `${initial.name} copy` },
-      editing: null,
-    });
+    createRoutineMutation.mutate({ source: item });
   };
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n' && !modal.open) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault();
-        openCreateModal();
+        createBlankRoutine();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [modal.open, openCreateModal]);
+  }, [createBlankRoutine]);
 
   // --- Rendering ---------------------------------------------------------------------
 
@@ -433,16 +397,14 @@ export function RoutinesClient() {
     onSelect: (id: string) => setSelectedId(id),
     onRunNow: (item: AgentRoutine) => runNowMutation.mutate(item),
     onTogglePause: togglePause,
-    onEdit: openEditModal,
     onDuplicate: duplicateRoutine,
     onViewRuns: (item: AgentRoutine) => {
-      setRunsFilter(item.routine.id);
-      setActiveTab('runs');
+      setSelectedId(item.routine.id);
+      setShowAllRuns(false);
     },
     onDelete: deleteRoutine,
   };
 
-  const filteredRunViews = runsFilter === 'all' ? runViews : runViews.filter((run) => run.routineId === runsFilter);
   const scopedRunViews = selectedRoutineId ? runViews.filter((run) => run.routineId === selectedRoutineId) : [];
   const hasRoutines = routines.length > 0;
   const installedTemplateKeys = useMemo(() => {
@@ -454,75 +416,59 @@ export function RoutinesClient() {
   }, [agentRoutines]);
 
   return (
-    <ReferencePage>
-      <header className={cn('flex shrink-0 items-center justify-between gap-5 border-b px-6 pb-3.5 pt-5', subtleBorderClass)}>
-        <div className="flex min-w-0 items-center gap-5">
-          <h1 className="truncate text-[22px] font-[680] leading-none tracking-[-0.025em] text-[#10141d]">Routines</h1>
-          <SegmentedTabs value={activeTab} options={ROUTINE_TABS} onChange={setActiveTab} />
-        </div>
-        <button
-          type="button"
-          title="New routine (⌘N)"
-          onClick={() => openCreateModal()}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm bg-[#111827] px-2.5 text-[13px] font-[650] text-white transition hover:bg-[#202938]"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New routine
-        </button>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {activeTab === 'templates' ? (
-          <div className="h-full overflow-auto px-8 py-6">
-            <div className="mx-auto max-w-[980px]">
-              <TemplateLibrary
-                heading={null}
-                installedTemplateKeys={installedTemplateKeys}
-                onSetUp={(template) => openCreateModal(template.id)}
-              />
-            </div>
-          </div>
-        ) : activeTab === 'runs' ? (
-          <div className="h-full overflow-auto px-8 py-6">
-            <div className="mx-auto max-w-[820px]">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="text-[13px] font-[650] uppercase tracking-[0.12em] text-[#8a929c]">Run history</div>
-                <select
-                  value={runsFilter}
-                  onChange={(event) => setRunsFilter(event.target.value)}
-                  aria-label="Filter runs by routine"
-                  className="h-8 rounded-sm border border-[rgba(15,23,42,0.10)] bg-white/90 px-2 text-[13px] font-[560] text-[#22262d] outline-none focus:border-[rgba(15,23,42,0.24)]"
-                >
-                  <option value="all">All routines</option>
-                  {agentRoutines.map((item) => (
-                    <option key={item.routine.id} value={item.routine.id}>{item.routine.title}</option>
-                  ))}
-                </select>
-              </div>
-              <RunHistory runs={filteredRunViews} now={now} onRetry={retryRun} />
-            </div>
-          </div>
-        ) : !hasRoutines ? (
-          <div className="h-full overflow-auto px-8 py-8">
-            <div className="mx-auto max-w-[980px] space-y-8">
-              {routinesQuery.isLoading ? (
-                <div className="space-y-2">
-                  {[0, 1, 2].map((item) => <div key={item} className="h-16 animate-pulse rounded-[10px] bg-[#f1f3ef]" />)}
-                </div>
-              ) : (
-                <>
-                  <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
+    <ReferencePage className="bg-white">
+      <div className="grid h-full min-h-0 grid-cols-1 bg-white md:grid-cols-[minmax(300px,380px)_minmax(0,1fr)]">
+        <aside className={cn('flex min-h-0 flex-col border-r bg-white', subtleBorderClass)}>
+          <header className={cn('flex h-[86px] shrink-0 items-end justify-between border-b px-6 pb-5', subtleBorderClass)}>
+            <h1 className="text-[32px] font-[690] leading-none tracking-[-0.025em] text-[#111318]">Routines</h1>
+            <div className="flex items-center gap-1">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    title="Templates"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]"
+                  >
+                    <Library className="h-4 w-4" />
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="max-h-[620px] w-[760px] overflow-auto border-[rgba(15,23,42,0.10)] bg-white p-4">
                   <TemplateLibrary
+                    heading={null}
                     installedTemplateKeys={installedTemplateKeys}
-                    onSetUp={(template) => openCreateModal(template.id)}
+                    onSetUp={(template) => createRoutineMutation.mutate({ templateKey: template.id })}
                   />
-                </>
-              )}
+                </PopoverContent>
+              </Popover>
+              <button
+                type="button"
+                title="Run history"
+                onClick={() => setShowAllRuns((value) => !value)}
+                className={cn(
+                  'inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]',
+                  showAllRuns && 'bg-[#f0f1ed] text-[#171b22]',
+                )}
+              >
+                <History className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                title="New routine (⌘N)"
+                disabled={createRoutineMutation.isPending}
+                onClick={createBlankRoutine}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22] disabled:opacity-40"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
             </div>
-          </div>
-        ) : (
-          <div className="grid h-full min-h-0 grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
-            <aside className={cn('min-h-0 overflow-auto border-r bg-white/42 px-2.5 py-3', subtleBorderClass)}>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
+            {routinesQuery.isLoading ? (
+              <div className="space-y-1.5">
+                {[0, 1, 2, 3].map((item) => <div key={item} className="h-[58px] animate-pulse rounded-[7px] bg-[#f6f6f3]" />)}
+              </div>
+            ) : hasRoutines ? (
               <RoutineList
                 items={agentRoutines}
                 selectedId={selectedRoutineId}
@@ -531,47 +477,64 @@ export function RoutinesClient() {
                 lastRunByRoutine={lastRunByRoutine}
                 actions={listActions}
               />
-            </aside>
-            <section className="min-h-0 overflow-auto px-8 py-7">
-              {selectedItem ? (
-                <RoutineDetail
-                  item={selectedItem}
-                  now={now}
-                  runs={scopedRunViews}
-                  running={runningRoutineIds.has(selectedItem.routine.id)}
-                  onRename={renameRoutine}
-                  onTogglePause={togglePause}
-                  onRunNow={(item) => runNowMutation.mutate(item)}
-                  onEdit={openEditModal}
-                  onDuplicate={duplicateRoutine}
-                  onDelete={deleteRoutine}
-                  onRetryRun={retryRun}
-                  onSaveSchedule={saveSchedule}
-                  onSaveAgent={saveAgent}
-                />
-              ) : (
-                <div className="flex h-full items-center justify-center text-center">
-                  <div>
-                    <RotateCw className="mx-auto h-8 w-8 text-[#a0a7b0]" />
-                    <div className="mt-3 text-[20px] font-[680] text-[#141922]">Select a routine</div>
-                    <p className="mt-2 text-[14px] text-[#737b86]">Pick a routine on the left to see its schedule and runs.</p>
-                  </div>
-                </div>
-              )}
-            </section>
+            ) : (
+              <div className="px-3 py-8">
+                <p className="text-[13px] leading-5 text-[#7b828c]">No routines yet.</p>
+                <button
+                  type="button"
+                  onClick={createBlankRoutine}
+                  className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-[7px] bg-[#111827] px-3 text-[13px] font-[650] text-white transition hover:bg-[#202938]"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  New routine
+                </button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </aside>
 
-      <RoutineConfigureModal
-        open={modal.open}
-        mode={modal.mode}
-        initial={modal.initial}
-        lastRunAt={modal.editing?.routine.last_run_at || null}
-        submitting={submitModalMutation.isPending}
-        onClose={() => setModal(closedModal())}
-        onSubmit={(state) => submitModalMutation.mutate({ state, editing: modal.editing })}
-      />
+        <section className="min-h-0 overflow-auto bg-white px-5 py-6 md:px-10 md:py-9">
+          {showAllRuns ? (
+            <div className="mx-auto max-w-[700px]">
+              <div className="mb-4 flex items-center justify-between gap-4">
+                <h2 className="text-[21px] font-[650] tracking-[-0.02em] text-[#15181e]">Run history</h2>
+                <button
+                  type="button"
+                  onClick={() => setShowAllRuns(false)}
+                  className="h-8 rounded-[7px] px-2.5 text-[13px] font-[600] text-[#717883] transition hover:bg-[#f6f6f3] hover:text-[#171b22]"
+                >
+                  Detail
+                </button>
+              </div>
+              <RunHistory runs={runViews} now={now} onRetry={retryRun} />
+            </div>
+          ) : selectedItem ? (
+            <RoutineDetail
+              item={selectedItem}
+              now={now}
+              runs={scopedRunViews}
+              running={runningRoutineIds.has(selectedItem.routine.id)}
+              onRename={renameRoutine}
+              onTogglePause={togglePause}
+              onRunNow={(item) => runNowMutation.mutate(item)}
+              onDuplicate={duplicateRoutine}
+              onDelete={deleteRoutine}
+              onRetryRun={retryRun}
+              onSaveSchedule={saveSchedule}
+              onSaveAgent={saveAgent}
+              onSaveMeta={saveMeta}
+            />
+          ) : (
+            <div className="flex h-full min-h-[420px] items-center justify-center text-center">
+              <div>
+                <RotateCw className="mx-auto h-7 w-7 text-[#a0a7b0]" />
+                <div className="mt-3 text-[18px] font-[650] text-[#141922]">Select a routine</div>
+                <p className="mt-2 text-[13px] text-[#737b86]">Pick a routine to edit its schedule and agent.</p>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
     </ReferencePage>
   );
 }

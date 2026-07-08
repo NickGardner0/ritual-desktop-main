@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Copy, Loader2, MoreHorizontal, Pencil, Play, Trash2 } from 'lucide-react';
+import { Copy, Loader2, MoreHorizontal, Play, Trash2 } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -13,6 +13,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import {
   AGENT_TIERS,
+  ROUTINE_DATA_SOURCES,
   scheduleDraftFromRoutine,
   type AgentRoutine,
   type RoutineAgentConfig,
@@ -24,7 +25,9 @@ import { formatOccurrence, toDate } from '@/lib/routines/time';
 import { DataSourceIcons } from '@/lib/routines/ui';
 import { triggerConfigFromDraft } from '@/lib/routines/model';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
+import type { TaskPriority } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 import { RunHistory } from './routine-runs';
 
@@ -43,6 +46,13 @@ const FREQUENCIES: Array<{ id: ScheduleDraft['frequency']; label: string }> = [
   { id: 'monthly', label: 'Monthly' },
   { id: 'yearly', label: 'Yearly' },
   { id: 'on_completion', label: 'On completion' },
+];
+
+const PRIORITIES: Array<{ id: TaskPriority; label: string }> = [
+  { id: 'none', label: 'None' },
+  { id: 'low', label: 'Low' },
+  { id: 'medium', label: 'Medium' },
+  { id: 'high', label: 'High' },
 ];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -65,12 +75,12 @@ export function RoutineDetail({
   onRename,
   onTogglePause,
   onRunNow,
-  onEdit,
   onDuplicate,
   onDelete,
   onRetryRun,
   onSaveSchedule,
   onSaveAgent,
+  onSaveMeta,
 }: {
   item: AgentRoutine;
   now: Date;
@@ -79,12 +89,12 @@ export function RoutineDetail({
   onRename: (item: AgentRoutine, name: string) => void;
   onTogglePause: (item: AgentRoutine) => void;
   onRunNow: (item: AgentRoutine) => void;
-  onEdit: (item: AgentRoutine) => void;
   onDuplicate: (item: AgentRoutine) => void;
   onDelete: (item: AgentRoutine) => void;
   onRetryRun: (run: RoutineRunView) => void;
   onSaveSchedule: (item: AgentRoutine, draft: ScheduleDraft) => void;
   onSaveAgent: (item: AgentRoutine, patch: Partial<RoutineAgentConfig>) => void;
+  onSaveMeta: (item: AgentRoutine, patch: { priority?: TaskPriority; tags?: string[] }) => void;
 }) {
   const { routine, agent } = item;
   const paused = routine.status === 'paused';
@@ -92,6 +102,7 @@ export function RoutineDetail({
   // Local editing state, re-derived when the routine changes underneath us.
   const [name, setName] = useState(routine.title);
   const [instructions, setInstructions] = useState(agent.instructions);
+  const [tagsText, setTagsText] = useState(routine.tags.join(', '));
   const [draft, setDraft] = useState<ScheduleDraft>(() => scheduleDraftFromRoutine(routine));
   const [syncKey, setSyncKey] = useState(`${routine.id}:${routine.updated_at || ''}`);
   const currentKey = `${routine.id}:${routine.updated_at || ''}`;
@@ -99,6 +110,7 @@ export function RoutineDetail({
     setSyncKey(currentKey);
     setName(routine.title);
     setInstructions(agent.instructions);
+    setTagsText(routine.tags.join(', '));
     setDraft(scheduleDraftFromRoutine(routine));
   }
 
@@ -125,6 +137,22 @@ export function RoutineDetail({
       return;
     }
     onRename(item, trimmed);
+  };
+
+  const commitTags = () => {
+    const tags = tagsText
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter(Boolean);
+    if (tags.join(',') !== routine.tags.join(',')) onSaveMeta(item, { tags });
+  };
+
+  const toggleDataSource = (source: string) => {
+    const active = agent.data_sources.includes(source);
+    const next = active
+      ? agent.data_sources.filter((item) => item !== source)
+      : [...agent.data_sources, source];
+    onSaveAgent(item, { data_sources: next });
   };
 
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
@@ -170,9 +198,6 @@ export function RoutineDetail({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => onEdit(item)}>
-                <Pencil className="mr-2 h-3.5 w-3.5" /> Edit in modal
-              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => onDuplicate(item)}>
                 <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
               </DropdownMenuItem>
@@ -356,6 +381,19 @@ export function RoutineDetail({
 
         <section className={groupClass}>
           <div className={rowClass}>
+            <span className={labelClass}>Priority</span>
+            <select
+              value={routine.priority}
+              onChange={(event) => onSaveMeta(item, { priority: event.target.value as TaskPriority })}
+              className={chipInputClass}
+              aria-label="Priority"
+            >
+              {PRIORITIES.map((priority) => (
+                <option key={priority.id} value={priority.id}>{priority.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className={rowClass}>
             <span className={labelClass}>Agent</span>
             <span className="flex items-center gap-1">
               {AGENT_TIERS.map((tier) => (
@@ -384,12 +422,44 @@ export function RoutineDetail({
               onCheckedChange={(checked) => onSaveAgent(item, { notify_push: checked })}
             />
           </div>
-          {agent.data_sources.length ? (
-            <div className={rowClass}>
-              <span className={labelClass}>Watches</span>
-              <DataSourceIcons sources={agent.data_sources.slice(0, 7)} />
-            </div>
-          ) : null}
+          <div className={rowClass}>
+            <span className={labelClass}>Email</span>
+            <TooltipProvider delayDuration={160}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span>
+                    <Switch checked={false} disabled aria-label="Email notifications unavailable" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-[240px]">
+                  Email delivery is not connected for workflow routines yet. Runs notify in-app for now.
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          </div>
+          <div className={cn(rowClass, 'items-start py-2.5')}>
+            <span className={labelClass}>Watches</span>
+            <span className="flex max-w-[330px] flex-wrap justify-end gap-1">
+              {ROUTINE_DATA_SOURCES.map((source) => {
+                const active = agent.data_sources.includes(source.key);
+                return (
+                  <button
+                    key={source.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => toggleDataSource(source.key)}
+                    className={cn(
+                      'inline-flex h-[26px] items-center gap-1.5 rounded-[7px] px-2 text-[12px] font-[600] transition',
+                      active ? 'bg-[#111827] text-white' : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                    )}
+                  >
+                    <DataSourceIcons sources={[source.key]} className={active ? '[&_svg]:text-white' : ''} />
+                    {source.label}
+                  </button>
+                );
+              })}
+            </span>
+          </div>
         </section>
 
         <section className={groupClass}>
@@ -406,6 +476,24 @@ export function RoutineDetail({
             aria-label="Instructions"
             className="block w-full resize-none bg-transparent px-3.5 py-3 text-[13.5px] leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
+        </section>
+
+        <section className={groupClass}>
+          <div className={rowClass}>
+            <span className={labelClass}>Tags</span>
+            <input
+              value={tagsText}
+              onChange={(event) => setTagsText(event.target.value)}
+              onBlur={commitTags}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
+                if (event.key === 'Escape') setTagsText(routine.tags.join(', '));
+              }}
+              placeholder="+ tag"
+              aria-label="Tags"
+              className="min-w-0 flex-1 bg-transparent text-right text-[13px] font-[560] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+          </div>
         </section>
 
         <section className="pt-3">

@@ -2,7 +2,7 @@
 
 import React, { useRef } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { Copy, ListChecks, MoreHorizontal, Pause, Pencil, Play, Trash2 } from 'lucide-react';
+import { Copy, ListChecks, MoreHorizontal, Pause, Play, Repeat2, Trash2 } from 'lucide-react';
 
 import {
   DropdownMenu,
@@ -15,14 +15,13 @@ import type { AgentRoutine } from '@/lib/routines/model';
 import type { RoutineRunView } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { formatAgo, formatUpcoming } from '@/lib/routines/time';
-import { PausedPill, ROUTINE_STATUS_COLORS, RoutineIcon } from '@/lib/routines/ui';
+import { PausedPill, ROUTINE_STATUS_COLORS } from '@/lib/routines/ui';
 import { cn } from '@/lib/utils';
 
 export type RoutineRowActions = {
   onSelect: (id: string) => void;
   onRunNow: (item: AgentRoutine) => void;
   onTogglePause: (item: AgentRoutine) => void;
-  onEdit: (item: AgentRoutine) => void;
   onDuplicate: (item: AgentRoutine) => void;
   onViewRuns: (item: AgentRoutine) => void;
   onDelete: (item: AgentRoutine) => void;
@@ -68,7 +67,7 @@ function RoutineRow({
   actions: RoutineRowActions;
   first: boolean;
 }) {
-  const { routine, agent } = item;
+  const { routine } = item;
   const paused = routine.status === 'paused';
   const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
   const nextLabel = paused ? '' : formatUpcoming(routine.next_run_at, now);
@@ -89,12 +88,12 @@ function RoutineRow({
       className={cn(
         'group relative grid w-full cursor-pointer grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-2 rounded-[7px] px-2.5 py-[7px] text-left outline-none transition',
         'focus-visible:ring-2 focus-visible:ring-[#111827]',
-        selected ? 'bg-[#e6ecdf]' : 'hover:bg-[#f1f3ef]',
+        selected ? 'bg-[#f0f1ed]' : 'hover:bg-[#f6f6f3]',
         paused && 'opacity-55',
       )}
     >
       <span className="flex h-5 w-5 items-center justify-center">
-        <RoutineIcon name={agent.icon} className="h-4 w-4 text-[#4b5563]" />
+        <Repeat2 className="h-4 w-4 text-[#8a929c]" />
       </span>
       <span className="min-w-0">
         <span className="flex min-w-0 items-center gap-2">
@@ -143,9 +142,6 @@ function RoutineRow({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-44">
-            <DropdownMenuItem onClick={() => actions.onEdit(item)}>
-              <Pencil className="mr-2 h-3.5 w-3.5" /> Edit
-            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => actions.onDuplicate(item)}>
               <Copy className="mr-2 h-3.5 w-3.5" /> Duplicate
             </DropdownMenuItem>
