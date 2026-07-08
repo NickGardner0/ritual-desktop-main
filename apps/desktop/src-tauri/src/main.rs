@@ -15,19 +15,19 @@ mod watcher;
 mod watcher_activity;
 
 use std::env;
-use std::ffi::{c_char, CString};
-use std::sync::{Mutex, OnceLock};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
+use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent,
 };
-use tauri_plugin_global_shortcut::{
-    Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState,
-};
 #[cfg(target_os = "macos")]
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tracing::{info, instrument, warn};
 
 // ============================================================================
@@ -64,24 +64,10 @@ const VOICE_HUD_WINDOW_WIDTH: f64 = 860.0;
 const VOICE_HUD_WINDOW_HEIGHT: f64 = 244.0;
 const DEFAULT_VOICE_SHORTCUT: &str = "Alt+Space";
 const VOICE_HOTKEY_SETTINGS_FILE: &str = "voice-hotkey-settings.json";
-
 #[cfg(target_os = "macos")]
-type NativeVoiceHudCallback = extern "C" fn();
-
+const VOICE_HUD_HELPER_APP_NAME: &str = "RitualVoiceHud.app";
 #[cfg(target_os = "macos")]
-extern "C" {
-    fn ritual_set_voice_hud_callbacks(
-        stop_callback: Option<NativeVoiceHudCallback>,
-        cancel_callback: Option<NativeVoiceHudCallback>,
-    );
-    fn ritual_show_voice_hud(state_json: *const c_char) -> bool;
-    fn ritual_update_voice_hud(state_json: *const c_char) -> bool;
-    fn ritual_hide_voice_hud() -> bool;
-    fn ritual_voice_hud_is_visible() -> bool;
-}
-
-#[cfg(target_os = "macos")]
-static VOICE_HUD_APP_HANDLE: OnceLock<tauri::AppHandle> = OnceLock::new();
+const VOICE_HUD_HELPER_EXECUTABLE: &str = "ritual-voice-hud";
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -1173,6 +1159,7 @@ struct VoiceHotkeyState {
 #[derive(Default)]
 struct VoiceHudRuntimeState {
     active: Mutex<bool>,
+    helper: Mutex<Option<VoiceHudHelperSession>>,
 }
 
 impl VoiceHudRuntimeState {
@@ -1185,6 +1172,25 @@ impl VoiceHudRuntimeState {
     fn is_active(&self) -> bool {
         self.active.lock().map(|guard| *guard).unwrap_or(false)
     }
+
+    fn set_helper(&self, helper: Option<VoiceHudHelperSession>) {
+        if let Ok(mut guard) = self.helper.lock() {
+            *guard = helper;
+        }
+    }
+
+    fn helper(&self) -> Option<VoiceHudHelperSession> {
+        self.helper.lock().ok().and_then(|guard| guard.clone())
+    }
+}
+
+#[derive(Clone, Debug)]
+struct VoiceHudHelperSession {
+    session_id: String,
+    state_path: PathBuf,
+    command_dir: PathBuf,
+    status_path: PathBuf,
+    log_path: PathBuf,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -1421,12 +1427,11 @@ fn register_voice_hotkey(
         return next;
     }
 
-    match parse_voice_shortcut(&next.shortcut)
-        .and_then(|shortcut| {
-            app.global_shortcut()
-                .register(shortcut)
-                .map_err(|error| format!("Failed to register shortcut: {error}"))
-        }) {
+    match parse_voice_shortcut(&next.shortcut).and_then(|shortcut| {
+        app.global_shortcut()
+            .register(shortcut)
+            .map_err(|error| format!("Failed to register shortcut: {error}"))
+    }) {
         Ok(()) => {
             next.registered = true;
             next.registration_error = None;
@@ -1513,107 +1518,267 @@ fn initial_voice_hud_visual_state(payload: &VoiceSessionStartPayload) -> VoiceHu
 }
 
 #[cfg(target_os = "macos")]
-fn send_native_voice_hud_state<F>(state: &VoiceHudVisualState, send: F) -> Result<bool, String>
-where
-    F: FnOnce(*const c_char) -> bool,
-{
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VoiceHudHelperStatus {
+    session_id: String,
+    event: String,
+    width: f64,
+    height: f64,
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_available_at(helper_app: &Path) -> bool {
+    helper_app
+        .join("Contents")
+        .join("MacOS")
+        .join(VOICE_HUD_HELPER_EXECUTABLE)
+        .is_file()
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_app_path() -> PathBuf {
+    let dev_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")))
+        .join(".tauri-helper")
+        .join(VOICE_HUD_HELPER_APP_NAME);
+    if voice_hud_helper_available_at(&dev_path) {
+        return dev_path;
+    }
+
+    if let Ok(current_exe) = std::env::current_exe() {
+        if let Some(contents_dir) = current_exe
+            .ancestors()
+            .find(|path| path.file_name().and_then(|name| name.to_str()) == Some("Contents"))
+        {
+            let resource_path = contents_dir
+                .join("Resources")
+                .join("native")
+                .join("bin")
+                .join(VOICE_HUD_HELPER_APP_NAME);
+            if voice_hud_helper_available_at(&resource_path) {
+                return resource_path;
+            }
+        }
+    }
+
+    dev_path
+}
+
+#[cfg(target_os = "macos")]
+fn voice_hud_helper_temp_dir(session_id: &str) -> Result<PathBuf, String> {
+    let dir = std::env::temp_dir()
+        .join("ritual-voice-hud")
+        .join(session_id);
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("Failed to create voice HUD helper temp directory: {error}"))?;
+    Ok(dir)
+}
+
+#[cfg(target_os = "macos")]
+fn write_voice_hud_helper_state(
+    session: &VoiceHudHelperSession,
+    state: &VoiceHudVisualState,
+) -> Result<(), String> {
     let json = serde_json::to_string(state)
         .map_err(|error| format!("Failed to serialize native voice HUD state: {error}"))?;
-    let c_json = CString::new(json)
-        .map_err(|error| format!("Failed to prepare native voice HUD state: {error}"))?;
-    Ok(send(c_json.as_ptr()))
+    std::fs::write(&session.state_path, json)
+        .map_err(|error| format!("Failed to write native voice HUD state: {error}"))
 }
 
 #[cfg(target_os = "macos")]
-fn show_native_voice_hud(payload: &VoiceSessionStartPayload) -> bool {
+fn read_voice_hud_helper_status(path: &Path) -> Option<VoiceHudHelperStatus> {
+    let data = std::fs::read(path).ok()?;
+    serde_json::from_slice(&data).ok()
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_voice_hud_helper_shown(session: &VoiceHudHelperSession) -> bool {
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(2) {
+        if let Some(status) = read_voice_hud_helper_status(&session.status_path) {
+            if status.session_id == session.session_id
+                && status.event == "shown"
+                && status.width >= 400.0
+                && status.height >= 100.0
+            {
+                return true;
+            }
+        }
+        thread::sleep(Duration::from_millis(40));
+    }
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn create_voice_hud_helper_session(
+    payload: &VoiceSessionStartPayload,
+    state: &VoiceHudVisualState,
+) -> Result<VoiceHudHelperSession, String> {
+    let dir = voice_hud_helper_temp_dir(&payload.session_id)?;
+    let command_dir = dir.join("commands");
+    std::fs::create_dir_all(&command_dir)
+        .map_err(|error| format!("Failed to create voice HUD command directory: {error}"))?;
+    let session = VoiceHudHelperSession {
+        session_id: payload.session_id.clone(),
+        state_path: dir.join("state.json"),
+        command_dir,
+        status_path: dir.join("status.json"),
+        log_path: dir.join("helper.log"),
+    };
+    let _ = std::fs::remove_file(&session.status_path);
+    let _ = std::fs::remove_file(session.command_dir.join("stop"));
+    let _ = std::fs::remove_file(session.command_dir.join("cancel"));
+    let _ = std::fs::remove_file(session.command_dir.join("quit"));
+    write_voice_hud_helper_state(&session, state)?;
+    Ok(session)
+}
+
+#[cfg(target_os = "macos")]
+fn launch_voice_hud_helper(session: &VoiceHudHelperSession) -> Result<(), String> {
+    let helper_app = voice_hud_helper_app_path();
+    if !voice_hud_helper_available_at(&helper_app) {
+        return Err(format!(
+            "Voice HUD helper is not bundled at {}",
+            helper_app.display()
+        ));
+    }
+
+    let status = Command::new("/usr/bin/open")
+        .arg("-n")
+        .arg(&helper_app)
+        .arg("--args")
+        .arg("--session")
+        .arg(&session.session_id)
+        .arg("--state")
+        .arg(&session.state_path)
+        .arg("--command-dir")
+        .arg(&session.command_dir)
+        .arg("--status")
+        .arg(&session.status_path)
+        .arg("--log")
+        .arg(&session.log_path)
+        .status()
+        .map_err(|error| format!("Failed to launch voice HUD helper: {error}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!("Voice HUD helper launch failed: {status}"))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn emit_voice_hud_control_event_with_retry(app: &tauri::AppHandle, event: &str) {
+    for _ in 0..30 {
+        if emit_voice_hud_control_event(app, event) {
+            return;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn spawn_voice_hud_command_monitor(app: tauri::AppHandle, session: VoiceHudHelperSession) {
+    thread::spawn(move || {
+        let stop_path = session.command_dir.join("stop");
+        let cancel_path = session.command_dir.join("cancel");
+        loop {
+            let still_current = app
+                .try_state::<VoiceHudRuntimeState>()
+                .and_then(|state| state.helper())
+                .is_some_and(|helper| helper.session_id == session.session_id);
+            if !still_current {
+                break;
+            }
+
+            if stop_path.exists() {
+                let _ = std::fs::remove_file(&stop_path);
+                emit_voice_hud_control_event_with_retry(&app, VOICE_EVENTS_STOP_REQUEST);
+            }
+
+            if cancel_path.exists() {
+                let _ = std::fs::remove_file(&cancel_path);
+                emit_voice_hud_control_event_with_retry(&app, VOICE_EVENTS_CANCEL_REQUEST);
+            }
+
+            thread::sleep(Duration::from_millis(50));
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn show_native_voice_hud(app: &tauri::AppHandle, payload: &VoiceSessionStartPayload) -> bool {
     let state = initial_voice_hud_visual_state(payload);
-    match send_native_voice_hud_state(&state, |state_json| unsafe {
-        ritual_show_voice_hud(state_json)
-    }) {
-        Ok(success) => success,
+    let session = match create_voice_hud_helper_session(payload, &state) {
+        Ok(session) => session,
         Err(error) => {
-            warn!(error = %error, "Failed to show native voice HUD");
-            false
+            warn!(error = %error, "Failed to prepare native voice HUD helper");
+            return false;
         }
+    };
+
+    if let Err(error) = launch_voice_hud_helper(&session) {
+        warn!(error = %error, "Failed to launch native voice HUD helper");
+        return false;
     }
+
+    if !wait_for_voice_hud_helper_shown(&session) {
+        warn!("Native voice HUD helper did not report visible bounds; falling back to web HUD");
+        let _ = std::fs::write(session.command_dir.join("quit"), "");
+        return false;
+    }
+
+    app.state::<VoiceHudRuntimeState>()
+        .set_helper(Some(session.clone()));
+    spawn_voice_hud_command_monitor(app.clone(), session);
+    true
 }
 
 #[cfg(not(target_os = "macos"))]
-fn show_native_voice_hud(_payload: &VoiceSessionStartPayload) -> bool {
+fn show_native_voice_hud(_app: &tauri::AppHandle, _payload: &VoiceSessionStartPayload) -> bool {
     false
 }
 
 #[cfg(target_os = "macos")]
-fn update_native_voice_hud(state: &VoiceHudVisualState) -> bool {
-    match send_native_voice_hud_state(state, |state_json| unsafe {
-        ritual_update_voice_hud(state_json)
-    }) {
-        Ok(success) => success,
-        Err(error) => {
-            warn!(error = %error, "Failed to update native voice HUD");
-            false
-        }
+fn update_native_voice_hud(app: &tauri::AppHandle, state: &VoiceHudVisualState) -> bool {
+    let Some(session) = app.state::<VoiceHudRuntimeState>().helper() else {
+        return false;
+    };
+    if session.session_id != state.session_id {
+        return false;
     }
+    if let Err(error) = write_voice_hud_helper_state(&session, state) {
+        warn!(error = %error, "Failed to update native voice HUD helper");
+        return false;
+    }
+    true
 }
 
 #[cfg(not(target_os = "macos"))]
-fn update_native_voice_hud(_state: &VoiceHudVisualState) -> bool {
+fn update_native_voice_hud(_app: &tauri::AppHandle, _state: &VoiceHudVisualState) -> bool {
     false
 }
 
 #[cfg(target_os = "macos")]
-fn hide_native_voice_hud() {
-    unsafe {
-        let _ = ritual_hide_voice_hud();
+fn hide_native_voice_hud(app: &tauri::AppHandle) {
+    if let Some(session) = app.state::<VoiceHudRuntimeState>().helper() {
+        let _ = std::fs::write(session.command_dir.join("quit"), "");
     }
+    app.state::<VoiceHudRuntimeState>().set_helper(None);
 }
 
 #[cfg(not(target_os = "macos"))]
-fn hide_native_voice_hud() {}
+fn hide_native_voice_hud(_app: &tauri::AppHandle) {}
 
-#[cfg(target_os = "macos")]
-fn native_voice_hud_visible() -> bool {
-    unsafe { ritual_voice_hud_is_visible() }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn native_voice_hud_visible() -> bool {
-    false
-}
-
-fn emit_voice_hud_control_event(app: &tauri::AppHandle, event: &str) {
+fn emit_voice_hud_control_event(app: &tauri::AppHandle, event: &str) -> bool {
     if let Some(window) = app.get_webview_window("voice-hud") {
         let _ = window.emit(event, ());
+        return true;
     }
+    false
 }
-
-#[cfg(target_os = "macos")]
-extern "C" fn native_voice_hud_stop_requested() {
-    if let Some(app) = VOICE_HUD_APP_HANDLE.get() {
-        emit_voice_hud_control_event(app, VOICE_EVENTS_STOP_REQUEST);
-    }
-}
-
-#[cfg(target_os = "macos")]
-extern "C" fn native_voice_hud_cancel_requested() {
-    if let Some(app) = VOICE_HUD_APP_HANDLE.get() {
-        emit_voice_hud_control_event(app, VOICE_EVENTS_CANCEL_REQUEST);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn register_native_voice_hud_callbacks(app: tauri::AppHandle) {
-    let _ = VOICE_HUD_APP_HANDLE.set(app);
-    unsafe {
-        ritual_set_voice_hud_callbacks(
-            Some(native_voice_hud_stop_requested),
-            Some(native_voice_hud_cancel_requested),
-        );
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn register_native_voice_hud_callbacks(_app: tauri::AppHandle) {}
 
 fn resize_voice_hud_window(window: &tauri::WebviewWindow) {
     let size = tauri::Size::Logical(tauri::LogicalSize {
@@ -1627,16 +1792,7 @@ fn show_voice_hud_window(
     app: &tauri::AppHandle,
     payload: VoiceSessionStartPayload,
 ) -> Result<VoiceSessionStartPayload, String> {
-    let native_hud_shown = if show_native_voice_hud(&payload) {
-        let visible = native_voice_hud_visible();
-        if !visible {
-            warn!("Native voice HUD reported success but is not visible; falling back to web HUD");
-            hide_native_voice_hud();
-        }
-        visible
-    } else {
-        false
-    };
+    let native_hud_shown = show_native_voice_hud(app, &payload);
     app.state::<VoiceHudRuntimeState>()
         .set_active(native_hud_shown);
 
@@ -1698,8 +1854,7 @@ fn handle_voice_hotkey(app: &tauri::AppHandle) {
     let native_active = app
         .try_state::<VoiceHudRuntimeState>()
         .map(|state| state.is_active())
-        .unwrap_or(false)
-        || native_voice_hud_visible();
+        .unwrap_or(false);
     if native_active {
         emit_voice_hud_control_event(app, VOICE_EVENTS_STOP_REQUEST);
         return;
@@ -1750,17 +1905,14 @@ fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
             .map_err(|error| format!("Failed to hide voice HUD: {error}"))?;
     }
     app.state::<VoiceHudRuntimeState>().set_active(false);
-    hide_native_voice_hud();
+    hide_native_voice_hud(&app);
     Ok(())
 }
 
 #[tauri::command]
-fn update_voice_hud_state(
-    app: tauri::AppHandle,
-    state: VoiceHudVisualState,
-) -> Result<(), String> {
-    if app.state::<VoiceHudRuntimeState>().is_active() || native_voice_hud_visible() {
-        let _ = update_native_voice_hud(&state);
+fn update_voice_hud_state(app: tauri::AppHandle, state: VoiceHudVisualState) -> Result<(), String> {
+    if app.state::<VoiceHudRuntimeState>().is_active() {
+        let _ = update_native_voice_hud(&app, &state);
     }
     Ok(())
 }
@@ -1769,7 +1921,10 @@ fn update_voice_hud_state(
 fn get_voice_hotkey_settings(
     state: tauri::State<VoiceHotkeyState>,
 ) -> Result<VoiceHotkeySettings, String> {
-    let guard = state.inner.lock().map_err(|_| "Voice hotkey state poisoned".to_string())?;
+    let guard = state
+        .inner
+        .lock()
+        .map_err(|_| "Voice hotkey state poisoned".to_string())?;
     Ok(guard.clone())
 }
 
@@ -1786,9 +1941,8 @@ fn set_voice_hotkey_settings(
 
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
-        "account" | "privacy" | "voice" | "computer-tracking" | "place-tagging" | "apple-health" => {
-            view.unwrap_or_else(|| "account".to_string())
-        }
+        "account" | "privacy" | "voice" | "computer-tracking" | "place-tagging"
+        | "apple-health" => view.unwrap_or_else(|| "account".to_string()),
         _ => "account".to_string(),
     }
 }
@@ -2132,7 +2286,6 @@ fn main() {
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
-            register_native_voice_hud_callbacks(app.handle().clone());
             initialize_voice_hotkey(app.handle());
 
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
@@ -2384,8 +2537,7 @@ mod voice_hotkey_tests {
         assert!(raw.contains("registrationError"));
         assert!(!raw.contains("registration_error"));
 
-        let parsed: VoiceHotkeySettings =
-            serde_json::from_str(&raw).expect("deserialize settings");
+        let parsed: VoiceHotkeySettings = serde_json::from_str(&raw).expect("deserialize settings");
         assert_eq!(parsed.shortcut, DEFAULT_VOICE_SHORTCUT);
         assert_eq!(parsed.registration_error.as_deref(), Some("conflict"));
     }

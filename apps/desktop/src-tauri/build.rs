@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const SYSTEM_AUDIO_MIN_MACOS_VERSION_FILE: &str = "system-audio-min-macos-version.txt";
+const VOICE_HUD_HELPER_APP_NAME: &str = "RitualVoiceHud.app";
+const VOICE_HUD_HELPER_EXECUTABLE: &str = "ritual-voice-hud";
 
 fn binaries_match(source: &Path, destination: &Path) -> bool {
     let Ok(source_metadata) = fs::metadata(source) else {
@@ -344,6 +346,110 @@ fn ensure_system_audio_helper_for_tauri() {
     }
 }
 
+fn ensure_voice_hud_helper_for_tauri() {
+    if !running_on_macos_target() {
+        return;
+    }
+
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"),
+    );
+    let source = manifest_dir.join("native-voice-hud").join("main.swift");
+    println!("cargo:rerun-if-changed={}", source.display());
+    if !source.exists() {
+        panic!(
+            "Ritual voice HUD helper source is missing at {}",
+            source.display()
+        );
+    }
+
+    let helper_dir = manifest_dir
+        .parent()
+        .expect("src-tauri should have a repository parent")
+        .join(".tauri-helper");
+    let app_dir = helper_dir.join(VOICE_HUD_HELPER_APP_NAME);
+    let contents_dir = app_dir.join("Contents");
+    let macos_dir = contents_dir.join("MacOS");
+    fs::create_dir_all(&macos_dir).unwrap_or_else(|err| {
+        panic!(
+            "Failed to create voice HUD helper app directory {}: {}",
+            macos_dir.display(),
+            err
+        )
+    });
+
+    let executable = macos_dir.join(VOICE_HUD_HELPER_EXECUTABLE);
+    let mut should_sign = false;
+    if !swift_helper_executable_current(&source, &executable) {
+        let built = build_universal_swift_executable(
+            "voice HUD helper",
+            &manifest_dir,
+            &source,
+            &executable,
+            "14.0",
+            &["Foundation", "AppKit", "CoreGraphics"],
+        );
+        if !built {
+            panic!("voice HUD helper could not be built");
+        }
+        should_sign = true;
+    }
+
+    let plist = contents_dir.join("Info.plist");
+    let plist_contents = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>Ritual Voice HUD</string>
+  <key>CFBundleExecutable</key>
+  <string>ritual-voice-hud</string>
+  <key>CFBundleIdentifier</key>
+  <string>com.ritual.desktop.voice-hud</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>Ritual Voice HUD</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>14.0</string>
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>
+"#;
+    if fs::read_to_string(&plist).is_ok_and(|current| current != plist_contents) {
+        fs::write(&plist, plist_contents).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write voice HUD helper Info.plist {}: {}",
+                plist.display(),
+                err
+            )
+        });
+        should_sign = true;
+    } else if !plist.exists() {
+        fs::write(&plist, plist_contents).unwrap_or_else(|err| {
+            panic!(
+                "Failed to write voice HUD helper Info.plist {}: {}",
+                plist.display(),
+                err
+            )
+        });
+        should_sign = true;
+    }
+
+    if should_sign || has_signing_identity() {
+        sign_helper_app(&manifest_dir, &app_dir);
+    }
+}
+
 fn read_system_audio_min_macos_version(manifest_dir: &Path) -> Option<String> {
     let version_file = manifest_dir.join(SYSTEM_AUDIO_MIN_MACOS_VERSION_FILE);
     println!("cargo:rerun-if-changed={}", version_file.display());
@@ -508,7 +614,7 @@ fn main() {
     println!("cargo:rerun-if-changed=../../../scripts/build-native-vision-helper.sh");
     println!("cargo:rerun-if-changed=native-voice/MicrophonePermission.swift");
     println!("cargo:rerun-if-changed=native-voice/SpeechRecognition.swift");
-    println!("cargo:rerun-if-changed=native-voice/VoiceHud.swift");
+    println!("cargo:rerun-if-changed=native-voice-hud/main.swift");
     println!("cargo:rerun-if-changed=native-system-audio/main.swift");
     println!("cargo:rerun-if-changed=system-audio-min-macos-version.txt");
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
@@ -518,6 +624,7 @@ fn main() {
     ensure_watcher_sidecar_for_tauri();
     ensure_vision_helper_for_tauri();
     ensure_system_audio_helper_for_tauri();
+    ensure_voice_hud_helper_for_tauri();
     tauri_build::build();
 
     if !running_on_macos_target() {
@@ -530,13 +637,11 @@ fn main() {
     let swift_files = [
         PathBuf::from("native-voice/MicrophonePermission.swift"),
         PathBuf::from("native-voice/SpeechRecognition.swift"),
-        PathBuf::from("native-voice/VoiceHud.swift"),
     ];
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let object_files = [
         out_dir.join("MicrophonePermission.o"),
         out_dir.join("SpeechRecognition.o"),
-        out_dir.join("VoiceHud.o"),
     ];
     let static_lib = out_dir.join("libspeech_native.a");
     let module_cache_dir = out_dir.join("swift-module-cache");

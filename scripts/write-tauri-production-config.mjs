@@ -67,6 +67,7 @@ function normalizeResources(resources) {
 const bundleResources = {
   ...normalizeResources(baseConfig.bundle?.resources),
   '../.tauri-helper/Ritual.app': 'native/bin/Ritual.app',
+  '../.tauri-helper/RitualVoiceHud.app': 'native/bin/RitualVoiceHud.app',
 };
 
 const generatedConfig = {
