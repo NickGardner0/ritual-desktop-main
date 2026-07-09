@@ -104,7 +104,7 @@ export function Sidebar() {
       <div
         className={cn(
           "no-drag absolute z-20 flex items-center",
-          isExpanded ? "left-[93px] top-[4px]" : "left-[18px] top-[70px]",
+          isExpanded ? "left-[93px] top-[2px]" : "left-[18px] top-[70px]",
         )}
       >
         <ToolbarButton
@@ -122,7 +122,7 @@ export function Sidebar() {
         </ToolbarButton>
       </div>
       {isExpanded ? (
-        <div className="no-drag absolute right-[6px] top-[4px] z-20 flex items-center gap-0.5">
+        <div className="no-drag absolute right-[6px] top-[2px] z-20 flex items-center gap-0.5">
           <ToolbarButton
             type="button"
             onMouseDown={(event) => event.stopPropagation()}
