@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  CalendarPlus,
   Copy,
   LayoutGrid,
   List,
@@ -12,7 +13,6 @@ import {
   MoreHorizontal,
   Pause,
   Play,
-  Plus,
   Repeat2,
   Trash2,
 } from 'lucide-react';
@@ -48,7 +48,7 @@ import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
 import { formatAgo, formatUpcoming, useNow } from '@/lib/routines/time';
-import { ReferencePage, subtleBorderClass } from '@/lib/tasks/reference-task-shell';
+import { ReferencePage } from '@/lib/tasks/reference-task-shell';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinitionListResponse,
@@ -136,7 +136,7 @@ function RoutineActions({
         title={running ? 'Already running' : 'Run now'}
         disabled={running || !item.routine.ai_workflow_definition_id}
         onClick={() => onRunNow(item)}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#777] transition hover:bg-[#f1f1f0] hover:text-black disabled:opacity-40"
+        className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#747981] transition hover:bg-[#f3f2ee] hover:text-[#27251e] disabled:opacity-40"
       >
         {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
       </button>
@@ -145,7 +145,7 @@ function RoutineActions({
           <button
             type="button"
             title="More"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-[#777] transition hover:bg-[#f1f1f0] hover:text-black"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#747981] transition hover:bg-[#f3f2ee] hover:text-[#27251e]"
           >
             <MoreHorizontal className="h-4 w-4" />
           </button>
@@ -206,15 +206,15 @@ function RoutineListRow({
       type="button"
       onClick={() => onSelect(item)}
       className={cn(
-        'group grid min-h-[58px] w-full grid-cols-[22px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[12px] px-3 text-left transition',
-        selected ? 'bg-[#efefed]' : 'hover:bg-[#f7f7f6]',
+        'group grid min-h-[52px] w-full grid-cols-[22px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[8px] px-3 text-left transition',
+        selected ? 'bg-[#f3f2ee]' : 'hover:bg-[#f8f7f3]',
         paused && 'opacity-55',
       )}
     >
-      <Repeat2 className="h-4 w-4 text-[#9a9a9a]" />
+      <Repeat2 className="h-4 w-4 text-[#7a7f86]" />
       <span className="min-w-0">
-        <span className="block truncate text-[16px] font-[650] tracking-[-0.01em] text-black">{routine.title}</span>
-        <span className="mt-0.5 block truncate text-[14px] font-[500] text-[#777]">
+        <span className="block truncate text-[14px] font-medium leading-5 text-[#27251e]">{routine.title}</span>
+        <span className="mt-0.5 block truncate text-[13px] font-normal text-[#7b8087]">
           {scheduleSummary}
           {nextLabel ? ` · Next ${nextLabel}` : ''}
         </span>
@@ -265,21 +265,21 @@ function RoutineCard({
       type="button"
       onClick={() => onSelect(item)}
       className={cn(
-        'flex min-h-[168px] flex-col rounded-[16px] border bg-white px-5 py-4 text-left transition hover:bg-[#fcfcfc]',
-        selected ? 'border-black' : subtleBorderClass,
+        'flex min-h-[188px] flex-col rounded-[14px] border bg-[#fffefa] px-5 py-4 text-left shadow-[0_1px_2px_rgba(15,23,42,0.025)] transition hover:bg-white',
+        selected ? 'border-[#27251e]' : 'border-[#ece6db]',
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="truncate text-[18px] font-[650] tracking-[-0.015em] text-black">{routine.title}</div>
-          <p className="mt-2 line-clamp-2 text-[15px] leading-[1.32] text-[#666]">
+          <div className="truncate text-[17px] font-medium leading-6 text-[#27251e]">{routine.title}</div>
+          <p className="mt-2 line-clamp-3 text-[15px] font-normal leading-[1.42] text-[#808080]">
             {agent.instructions || routine.description || 'No instructions set.'}
           </p>
         </div>
         <LastRunDot lastRun={lastRun} now={now} />
       </div>
-      <div className="mt-auto flex items-center justify-between gap-3 border-t border-[#ececec] pt-4">
-        <span className="min-w-0 truncate text-[14px] font-[500] text-[#9a9a9a]">{scheduleSummary}</span>
+      <div className="mt-auto flex items-center justify-between gap-3 border-t border-[#ebe4d8] pt-4">
+        <span className="min-w-0 truncate text-[14px] font-normal text-[#8a8d92]">{scheduleSummary}</span>
         <RoutineActions
           item={item}
           running={running}
@@ -623,58 +623,59 @@ export function RoutinesClient() {
   const hasRoutines = routines.length > 0;
 
   return (
-    <ReferencePage className="bg-white text-black">
-      <div className="relative h-full min-h-0 overflow-auto bg-white">
-        <header className="sticky top-0 z-20 flex h-[74px] items-center justify-between bg-white/95 px-8 backdrop-blur">
-          <h1 className="text-[26px] font-[650] tracking-[-0.025em] text-black">Routines</h1>
-          <div className="flex items-center gap-3">
-            {hasRoutines ? (
-              <div className="flex h-10 items-center rounded-full bg-[#f1f1f0] p-1">
-                <button
-                  type="button"
-                  aria-label="List view"
-                  onClick={() => setViewMode('list')}
-                  className={cn(
-                    'inline-flex h-8 w-8 items-center justify-center rounded-full transition',
-                    viewMode === 'list' ? 'bg-white text-black shadow-sm' : 'text-[#777] hover:text-black',
-                  )}
-                >
-                  <List className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  aria-label="Card view"
-                  onClick={() => setViewMode('card')}
-                  className={cn(
-                    'inline-flex h-8 w-8 items-center justify-center rounded-full transition',
-                    viewMode === 'card' ? 'bg-white text-black shadow-sm' : 'text-[#777] hover:text-black',
-                  )}
-                >
-                  <LayoutGrid className="h-4 w-4" />
-                </button>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              title="New routine (⌘N)"
-              disabled={submitModalMutation.isPending}
-              onClick={() => openCreateModal()}
-              className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-[#fbfbfb] text-black shadow-[0_12px_42px_rgba(0,0,0,0.10)] transition hover:bg-[#f0f0ef] disabled:opacity-40"
-            >
-              <Plus className="h-6 w-6" />
-            </button>
-          </div>
-        </header>
+    <ReferencePage className="bg-[var(--content-bg)] text-[#27251e]">
+      <div className="relative h-full min-h-0 overflow-auto bg-[var(--content-bg)]">
+        <main className="mx-auto flex w-full max-w-[1160px] flex-col px-8 pb-12 pt-8">
+          <header className="mb-7 flex items-center justify-between gap-4">
+            <h1 className="text-[28px] font-normal leading-none text-[#27251e]">Routines</h1>
+            <div className="flex items-center gap-3">
+              {hasRoutines ? (
+                <div className="flex h-9 items-center rounded-[8px] border border-black/[0.07] bg-white/65 p-[3px] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+                  <button
+                    type="button"
+                    aria-label="List view"
+                    onClick={() => setViewMode('list')}
+                    className={cn(
+                      'inline-flex h-7 w-7 items-center justify-center rounded-[6px] transition',
+                      viewMode === 'list' ? 'bg-white text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.06)]' : 'text-[#747981] hover:text-[#27251e]',
+                    )}
+                  >
+                    <List className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Card view"
+                    onClick={() => setViewMode('card')}
+                    className={cn(
+                      'inline-flex h-7 w-7 items-center justify-center rounded-[6px] transition',
+                      viewMode === 'card' ? 'bg-white text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.06)]' : 'text-[#747981] hover:text-[#27251e]',
+                    )}
+                  >
+                    <LayoutGrid className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                title="New routine (⌘N)"
+                disabled={submitModalMutation.isPending}
+                onClick={() => openCreateModal()}
+                className="inline-flex h-9 items-center gap-2 rounded-[8px] bg-[#191814] px-4 text-[14px] font-medium text-white shadow-[0_1px_2px_rgba(15,23,42,0.16)] transition hover:bg-[#2b2a25] disabled:opacity-40"
+              >
+                <CalendarPlus className="h-4 w-4" strokeWidth={1.9} />
+                New routine
+              </button>
+            </div>
+          </header>
 
-        <main className="mx-auto max-w-[1110px] px-8 pb-12 pt-4">
           {routinesQuery.isLoading ? (
-            <div className="mx-auto max-w-[860px] space-y-4">
+            <div className="space-y-4">
               {[0, 1, 2, 3].map((item) => (
-                <div key={item} className="h-[88px] animate-pulse rounded-[16px] border border-[#ececec] bg-[#fafafa]" />
+                <div key={item} className="h-[64px] animate-pulse rounded-[12px] border border-[#ece6db] bg-[#fffefa]" />
               ))}
             </div>
           ) : !hasRoutines ? (
-            <div className="mx-auto max-w-[860px] space-y-10">
+            <div className="space-y-11">
               <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
               <TemplateLibrary
                 installedTemplateKeys={installedTemplateKeys}
@@ -701,7 +702,7 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : (
-            <div className="mx-auto max-w-[760px] space-y-1">
+            <div className="space-y-1 rounded-[14px] border border-[#ece6db] bg-[#fffefa] p-2 shadow-[0_1px_2px_rgba(15,23,42,0.025)]">
               {sortedRoutines.map((item) => (
                 <RoutineListRow
                   key={item.routine.id}

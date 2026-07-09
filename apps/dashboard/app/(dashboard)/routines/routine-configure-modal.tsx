@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Loader2, Repeat, X } from 'lucide-react';
+import { CalendarPlus, Clock, Loader2, Repeat, X } from 'lucide-react';
 
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
@@ -122,15 +122,18 @@ const MONTHS = [
   'December',
 ];
 
-const groupClass = 'overflow-hidden rounded-[14px] bg-[#f6f6f5]';
-const rowClass = 'flex min-h-[56px] items-center justify-between gap-4 border-b border-[#e9e9e7] px-4 last:border-b-0';
-const labelClass = 'text-[17px] font-[560] text-[#6f6f6f]';
+const groupClass = 'overflow-hidden rounded-[10px] border border-[#e9e1d2] bg-[#fffefa] shadow-[0_1px_2px_rgba(15,23,42,0.025)]';
+const rowClass = 'flex min-h-[44px] items-center justify-between gap-3 border-b border-[#eee8dc] px-3.5 last:border-b-0';
+const labelClass = 'text-[14px] font-normal text-[#5c5f63]';
 const chipClass =
-  'h-10 rounded-[11px] border-0 bg-[#ececeb] px-3 text-[17px] font-[650] text-black outline-none transition focus:bg-[#e5e5e3]';
+  'h-8 rounded-[7px] border border-[#e1dacd] bg-white px-2.5 text-[14px] font-medium text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.035)] outline-none transition focus:border-[#cfc5b4]';
 const textInputClass =
-  'h-[46px] w-full rounded-[12px] border border-[#b8b8b6] bg-white px-4 text-[18px] font-[430] text-black outline-none transition placeholder:text-[#aaa] focus:border-[#777]';
+  'h-9 w-full rounded-[8px] border border-[#ddd5c7] bg-white px-3 text-[15px] font-normal text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.035)] outline-none transition placeholder:text-[#8f9194] focus:border-[#c8bfad]';
 const textareaClass =
-  'w-full resize-none rounded-[14px] border border-[#d0d0ce] bg-white px-5 py-4 text-[18px] font-[430] leading-[1.35] text-black outline-none transition placeholder:text-[#aaa] focus:border-[#777]';
+  'w-full resize-none rounded-[10px] border border-[#ddd5c7] bg-white px-4 py-3 text-[15px] font-normal leading-[1.45] text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.035)] outline-none transition placeholder:text-[#8f9194] focus:border-[#c8bfad]';
+const fieldLabelClass = 'text-[16px] font-medium leading-none text-[#27251e]';
+const fieldHintClass = 'text-[14px] font-normal leading-5 text-[#83868a]';
+const switchClass = 'data-[state=checked]:bg-[#3b82f6] data-[state=unchecked]:bg-[#ddd9d2]';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -147,7 +150,7 @@ function intervalUnit(draft: ScheduleDraft): string {
   if (draft.frequency === 'weekly') return draft.interval === 1 ? 'week' : 'weeks';
   if (draft.frequency === 'monthly') return draft.interval === 1 ? 'month' : 'months';
   if (draft.frequency === 'yearly') return draft.interval === 1 ? 'year' : 'years';
-  return draft.onCompletionUnit;
+  return draft.interval === 1 ? draft.onCompletionUnit.replace(/s$/, '') : draft.onCompletionUnit;
 }
 
 function TagsField({
@@ -163,7 +166,7 @@ function TagsField({
   };
   return (
     <div className="space-y-2">
-      <label htmlFor="routine-tags" className="text-[15px] font-[560] text-[#dadada]">Tags</label>
+      <label htmlFor="routine-tags" className={fieldLabelClass}>Tags</label>
       <input
         id="routine-tags"
         value={text}
@@ -173,7 +176,7 @@ function TagsField({
           if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
         }}
         placeholder="Optional tags"
-        className="h-10 w-full rounded-[11px] border border-[#ececea] bg-white px-3 text-[16px] text-black outline-none placeholder:text-[#c7c7c7] focus:border-[#b8b8b6]"
+        className={textInputClass}
       />
     </div>
   );
@@ -193,47 +196,64 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-5">
-      <section className={groupClass}>
-        <div className={rowClass}>
-          <span className={labelClass}>Trigger</span>
-          <select
-            value={draft.frequency}
-            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
-            className={cn(chipClass, 'min-w-[150px]')}
-            aria-label="Trigger frequency"
+    <div className="space-y-4">
+      <div className="grid grid-cols-3 gap-1 rounded-[10px] border border-[#e9e1d2] bg-white/70 p-1 shadow-[0_1px_2px_rgba(15,23,42,0.025)]">
+        {FREQUENCIES.map((frequency) => (
+          <button
+            key={frequency.id}
+            type="button"
+            aria-pressed={draft.frequency === frequency.id}
+            onClick={() => onChange({ frequency: frequency.id, interval: 1 })}
+            className={cn(
+              'h-8 rounded-[7px] px-2 text-[13px] font-normal transition',
+              draft.frequency === frequency.id
+                ? 'bg-[#ede8dc] text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.035)]'
+                : 'text-[#4f5358] hover:bg-[#f7f5ef] hover:text-[#27251e]',
+            )}
           >
-            {FREQUENCIES.map((frequency) => (
-              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className={rowClass}>
-          <span className={labelClass}>Paused</span>
-          <Switch checked={paused} onCheckedChange={onPausedChange} />
-        </div>
-      </section>
+            {frequency.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        {draft.frequency !== 'on_completion' ? (
+          <label className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-[#e1dacd] bg-white px-3 text-[15px] font-normal text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <Clock className="h-4 w-4 text-[#6f747b]" strokeWidth={1.8} />
+            <input
+              type="time"
+              value={timeValue}
+              onChange={(event) => {
+                const [hour, minute] = event.target.value.split(':').map(Number);
+                if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
+              }}
+              className="w-[86px] bg-transparent text-[15px] font-normal text-[#27251e] outline-none [&::-webkit-calendar-picker-indicator]:hidden"
+              aria-label="Time of day"
+            />
+          </label>
+        ) : null}
+      </div>
 
       <section className={groupClass}>
         <div className={rowClass}>
           <span className={labelClass}>Every</span>
-          <span className="flex items-center gap-3">
+          <span className="flex items-center gap-2">
             <input
               type="number"
               min={1}
               max={99}
               value={draft.interval}
               onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-              className={cn(chipClass, 'w-[76px] text-center')}
+              className={cn(chipClass, 'w-[62px] text-center')}
               aria-label="Interval"
             />
-            <span className="text-[17px] font-[560] text-[#777]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
+            <span className="text-[14px] font-normal text-[#6f747b]">{intervalUnit(draft)}</span>
           </span>
         </div>
 
         {draft.frequency === 'weekly' ? (
-          <div className={rowClass}>
-            <span className={labelClass}>On</span>
+          <div className={cn(rowClass, 'items-start py-2.5')}>
+            <span className={cn(labelClass, 'pt-1')}>On</span>
             <span className="flex flex-wrap justify-end gap-1.5">
               {WEEKDAYS.map((day) => {
                 const active = draft.weekdays.includes(day.value);
@@ -248,8 +268,8 @@ function ScheduleEditor({
                         : [...draft.weekdays, day.value].sort((a, b) => a - b),
                     })}
                     className={cn(
-                      'h-9 rounded-[10px] px-3 text-[14px] font-[650] transition',
-                      active ? 'bg-[#0f172a] text-white' : 'bg-[#ececeb] text-[#666] hover:bg-[#e3e3e1]',
+                      'h-7 rounded-[7px] px-2.5 text-[12px] font-medium transition',
+                      active ? 'bg-[#27251e] text-white' : 'border border-[#e1dacd] bg-white text-[#5c5f63] hover:bg-[#f7f5ef]',
                     )}
                   >
                     {day.label}
@@ -280,39 +300,22 @@ function ScheduleEditor({
                 <option value="last">last day</option>
               </select>
               {draft.frequency === 'yearly' ? (
-                <>
-                  <span className="text-[17px] text-[#777]">in</span>
-                  <select
-                    value={draft.month}
-                    onChange={(event) => onChange({ month: Number(event.target.value) })}
-                    className={chipClass}
-                    aria-label="Month"
-                  >
-                    {MONTHS.map((month, index) => (
-                      <option key={month} value={index + 1}>{month}</option>
-                    ))}
-                  </select>
-                </>
+                <select
+                  value={draft.month}
+                  onChange={(event) => onChange({ month: Number(event.target.value) })}
+                  className={chipClass}
+                  aria-label="Month"
+                >
+                  {MONTHS.map((month, index) => (
+                    <option key={month} value={index + 1}>{month}</option>
+                  ))}
+                </select>
               ) : null}
             </span>
           </div>
         ) : null}
 
-        {draft.frequency !== 'on_completion' ? (
-          <div className={rowClass}>
-            <span className={labelClass}>At</span>
-            <input
-              type="time"
-              value={timeValue}
-              onChange={(event) => {
-                const [hour, minute] = event.target.value.split(':').map(Number);
-                if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
-              }}
-              className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
-              aria-label="Time of day"
-            />
-          </div>
-        ) : (
+        {draft.frequency === 'on_completion' ? (
           <div className={rowClass}>
             <span className={labelClass}>After</span>
             <select
@@ -326,7 +329,7 @@ function ScheduleEditor({
               <option value="months">months</option>
             </select>
           </div>
-        )}
+        ) : null}
 
         <div className={rowClass}>
           <span className={labelClass}>First run</span>
@@ -334,7 +337,7 @@ function ScheduleEditor({
             type="date"
             value={draft.firstRun || ''}
             onChange={(event) => onChange({ firstRun: event.target.value || null })}
-            className={cn(chipClass, 'text-right', !draft.firstRun && 'text-[#8d8d8d]')}
+            className={cn(chipClass, 'text-right', !draft.firstRun && 'text-[#8b8d90]')}
             aria-label="First run date"
           />
         </div>
@@ -344,9 +347,13 @@ function ScheduleEditor({
             type="date"
             value={draft.ends || ''}
             onChange={(event) => onChange({ ends: event.target.value || null })}
-            className={cn(chipClass, 'text-right', !draft.ends && 'text-[#8d8d8d]')}
+            className={cn(chipClass, 'text-right', !draft.ends && 'text-[#8b8d90]')}
             aria-label="End date"
           />
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Paused</span>
+          <Switch checked={paused} onCheckedChange={onPausedChange} className={switchClass} />
         </div>
       </section>
     </div>
@@ -407,7 +414,7 @@ export function RoutineConfigureModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        className="max-h-[calc(100vh-54px)] max-w-[1040px] gap-0 overflow-auto border-[#c9c9c7] bg-[#fbfbfa] p-0 text-black shadow-2xl duration-150 motion-reduce:duration-0 sm:rounded-[28px] [&>button]:hidden"
+        className="max-h-[calc(100vh-44px)] max-w-[1160px] gap-0 overflow-auto border-[#d9d0bf] bg-[#fefdf9] p-0 text-[#27251e] shadow-[0_24px_70px_rgba(15,23,42,0.22)] duration-150 motion-reduce:duration-0 sm:rounded-[18px] [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -423,10 +430,10 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-7 pt-7">
+        <div className="flex items-start justify-between px-8 pt-8">
           <div>
-            <DialogTitle className="text-[26px] font-[650] tracking-[-0.025em] text-black">Configure routine</DialogTitle>
-            <p className="mt-2 text-[18px] font-[430] text-[#777]">
+            <DialogTitle className="text-[25px] font-normal leading-none text-[#27251e]">Configure routine</DialogTitle>
+            <p className="mt-3 text-[16px] font-normal text-[#7d8085]">
               {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
             </p>
           </div>
@@ -434,26 +441,34 @@ export function RoutineConfigureModal({
             type="button"
             onClick={requestClose}
             aria-label="Close"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#777] transition hover:bg-[#eeeeec] hover:text-black"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-[#6f747b] transition hover:bg-[#f3f1e8] hover:text-[#27251e]"
           >
-            <X className="h-5 w-5" />
+            <X className="h-[18px] w-[18px]" />
           </button>
         </div>
 
-        <div className="mx-7 mt-7 flex items-center gap-4 rounded-[16px] bg-[#f6f6f5] px-5 py-4">
-          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] bg-[#dededc]">
-            {template ? <RoutineIcon name={template.icon} className="h-5 w-5 text-[#9a9a9a]" /> : <Repeat className="h-5 w-5 text-[#9a9a9a]" />}
+        <div className="mx-8 mt-7 flex items-center justify-between gap-4 rounded-[12px] border border-[#e4dccd] bg-[#fffefa] px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.025)]">
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[9px] bg-[#f3f1e8] text-[#7a7d82]">
+              {template ? <RoutineIcon name={template.icon} className="h-5 w-5" /> : <CalendarPlus className="h-5 w-5" />}
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate text-[16px] font-medium text-[#27251e]">{template ? template.title : 'Custom routine'}</span>
+              <span className="mt-0.5 block truncate text-[14px] font-normal text-[#7d8085]">{bannerSummary}</span>
+            </span>
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[18px] font-[650] text-black">{template ? template.title : 'Custom routine'}</span>
-            <span className="block truncate text-[15px] font-[430] text-[#9a9a9a]">{bannerSummary}</span>
-          </span>
+          {template ? (
+            <span className="hidden shrink-0 items-center gap-2 text-[14px] font-normal text-[#27251e] sm:inline-flex">
+              <Repeat className="h-4 w-4" />
+              Template
+            </span>
+          ) : null}
         </div>
 
-        <div className="grid grid-cols-1 gap-9 px-7 pb-4 pt-7 md:grid-cols-[minmax(0,5fr)_minmax(0,5fr)]">
-          <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-0 px-8 pt-7 md:grid-cols-[minmax(300px,0.95fr)_minmax(0,1.65fr)]">
+          <div className="space-y-6 pb-8 md:pr-8">
             <div className="space-y-3">
-              <label htmlFor="routine-name" className="text-[18px] font-[560] text-black">Name</label>
+              <label htmlFor="routine-name" className={fieldLabelClass}>Name</label>
               <input
                 id="routine-name"
                 autoFocus
@@ -464,23 +479,70 @@ export function RoutineConfigureModal({
               />
             </div>
 
-            <ScheduleEditor
-              draft={state.draft}
-              paused={state.paused}
-              onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
-              onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
-            />
+            <div className="space-y-3">
+              <h3 className={fieldLabelClass}>Schedule</h3>
+              <ScheduleEditor
+                draft={state.draft}
+                paused={state.paused}
+                onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
+                onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
+              />
 
-            <p className="px-1 text-[16px] font-[430] leading-7 text-[#b7b7b7]" aria-live="polite">
-              {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
-              Next: {state.paused
-                ? 'paused'
-                : preview.length
-                  ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
-                  : 'no upcoming runs'}
-            </p>
+              <p className="px-1 text-[13px] font-normal leading-5 text-[#9a9c9f]" aria-live="polite">
+                {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
+                Next: {state.paused
+                  ? 'paused'
+                  : preview.length
+                    ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
+                    : 'no upcoming runs'}
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className={fieldLabelClass}>Agent</h3>
+              <div className="grid grid-cols-3 gap-1 rounded-[10px] border border-[#e9e1d2] bg-white/70 p-1 shadow-[0_1px_2px_rgba(15,23,42,0.025)]">
+                {AGENT_TIERS.map((tier) => (
+                  <button
+                    key={tier.id}
+                    type="button"
+                    aria-pressed={state.agentTier === tier.id}
+                    onClick={() => setState({ ...state, agentTier: tier.id })}
+                    className={cn(
+                      'h-8 rounded-[7px] px-2 text-[14px] font-normal transition',
+                      state.agentTier === tier.id
+                        ? 'bg-[#ede8dc] text-[#27251e] shadow-[0_1px_2px_rgba(15,23,42,0.035)]'
+                        : 'text-[#5c5f63] hover:bg-[#f7f5ef] hover:text-[#27251e]',
+                    )}
+                  >
+                    {tier.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <section className={groupClass}>
+              <div className={rowClass}>
+                <span>
+                  <span className="block text-[15px] font-normal text-[#27251e]">Notifications</span>
+                  <span className="mt-0.5 block text-[13px] font-normal text-[#85878b]">Push when a new report is ready.</span>
+                </span>
+                <Switch
+                  checked={state.notifyPush}
+                  onCheckedChange={(notifyPush) => setState({ ...state, notifyPush })}
+                  className={switchClass}
+                />
+              </div>
+              <div className={rowClass}>
+                <span>
+                  <span className="block text-[15px] font-normal text-[#27251e]">Email</span>
+                  <span className="mt-0.5 block text-[13px] font-normal text-[#85878b]">Email me when a report is ready.</span>
+                </span>
+                <Switch
+                  checked={state.notifyEmail}
+                  onCheckedChange={(notifyEmail) => setState({ ...state, notifyEmail })}
+                  className={switchClass}
+                />
+              </div>
               <div className={rowClass}>
                 <span className={labelClass}>Priority</span>
                 <select
@@ -494,51 +556,32 @@ export function RoutineConfigureModal({
                   ))}
                 </select>
               </div>
-              <div className={rowClass}>
-                <span className={labelClass}>Agent</span>
-                <span className="flex items-center gap-1.5">
-                  {AGENT_TIERS.map((tier) => (
-                    <button
-                      key={tier.id}
-                      type="button"
-                      aria-pressed={state.agentTier === tier.id}
-                      onClick={() => setState({ ...state, agentTier: tier.id })}
-                      className={cn(
-                        'h-9 rounded-[10px] px-3 text-[15px] font-[650] transition',
-                        state.agentTier === tier.id ? 'bg-[#0f172a] text-white' : 'bg-[#ececeb] text-[#666] hover:bg-[#e3e3e1]',
-                      )}
-                    >
-                      {tier.label}
-                    </button>
-                  ))}
-                </span>
-              </div>
             </section>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-6">
+          <div className="flex min-h-0 flex-col gap-6 border-t border-[#e8e0d2] pb-8 pt-7 md:border-l md:border-t-0 md:pl-8 md:pt-0">
             <div className="space-y-3">
-              <label htmlFor="routine-instructions" className="text-[18px] font-[560] text-black">Instructions</label>
-              <p className="text-[15px] font-[430] leading-6 text-[#777]">
-                Describe what you&rsquo;d like the AI to gather, analyze, or do.
+              <label htmlFor="routine-instructions" className={fieldLabelClass}>Instructions</label>
+              <p className={fieldHintClass}>
+                Describe what you&rsquo;d like Ritual to gather, analyze, or summarize.
               </p>
               <textarea
                 id="routine-instructions"
                 value={state.instructions}
                 onChange={(event) => setState({ ...state, instructions: event.target.value })}
-                placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-                className={cn(textareaClass, 'min-h-[224px]')}
+                placeholder="e.g. Create a well rounded report on my ongoing projects, todos, and goals"
+                className={cn(textareaClass, 'min-h-[340px] lg:min-h-[420px]')}
               />
             </div>
 
             <div className="space-y-3">
-              <label htmlFor="routine-notes" className="text-[18px] font-[560] text-black">Notes</label>
+              <label htmlFor="routine-notes" className={fieldLabelClass}>Notes</label>
               <textarea
                 id="routine-notes"
                 value={state.notes}
                 onChange={(event) => setState({ ...state, notes: event.target.value })}
                 placeholder="Optional notes"
-                className={cn(textareaClass, 'min-h-[112px]')}
+                className={cn(textareaClass, 'min-h-[104px]')}
               />
             </div>
 
@@ -549,11 +592,11 @@ export function RoutineConfigureModal({
           </div>
         </div>
 
-        <div className="sticky bottom-0 flex items-center justify-end gap-3 bg-[#fbfbfa]/95 px-7 py-5 backdrop-blur">
+        <div className="sticky bottom-0 flex items-center gap-3 border-t border-[#e8e0d2] bg-[#fefdf9]/95 px-8 py-5 backdrop-blur">
           <button
             type="button"
             onClick={requestClose}
-            className="inline-flex h-11 items-center rounded-full bg-[#e9e9e8] px-5 text-[17px] font-[650] text-black transition hover:bg-[#dededc]"
+            className="inline-flex h-9 items-center rounded-[8px] px-3.5 text-[15px] font-normal text-[#27251e] transition hover:bg-[#f3f1e8]"
           >
             Cancel
           </button>
@@ -561,9 +604,14 @@ export function RoutineConfigureModal({
             type="button"
             onClick={submit}
             disabled={!canSubmit}
-            className="inline-flex h-11 items-center gap-2 rounded-full bg-[#86b8ff] px-6 text-[17px] font-[650] text-white transition hover:bg-[#71aaff] disabled:opacity-45"
+            className={cn(
+              'inline-flex h-9 min-w-[150px] items-center justify-center gap-2 rounded-[8px] px-4 text-[15px] font-medium shadow-[0_1px_2px_rgba(15,23,42,0.08)] transition',
+              canSubmit
+                ? 'bg-[#191814] text-white hover:bg-[#2b2a25]'
+                : 'bg-[#9a9892] text-white/92 opacity-60',
+            )}
           >
-            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : null}
+            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             {mode === 'create' ? 'Create routine' : 'Save routine'}
           </button>
         </div>
