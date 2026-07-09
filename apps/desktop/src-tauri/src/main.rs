@@ -55,7 +55,7 @@ const DESKTOP_SHELL_DEV_URL: &str = "http://127.0.0.1:1420";
 const DESKTOP_WEBVIEW_USER_AGENT: &str = "RitualDesktop/0.1.0";
 const MAIN_WINDOW_DEFAULT_WIDTH: f64 = 1270.0;
 const MAIN_WINDOW_DEFAULT_HEIGHT: f64 = 780.0;
-const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_size_1270x780_v1.done";
+const MAIN_WINDOW_DEFAULT_SIZE_MARKER: &str = ".main_window_default_frame_1270x780_v1.done";
 #[cfg(target_os = "macos")]
 const MACOS_NATIVE_WINDOW_CORNER_RADIUS: f64 = 18.0;
 #[cfg(target_os = "macos")]
@@ -143,6 +143,35 @@ fn read_nonempty_env(name: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+#[cfg(target_os = "macos")]
+#[allow(unexpected_cfgs)]
+fn set_macos_window_outer_frame_size(
+    window: &tauri::WebviewWindow,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    use cocoa::base::{id, YES};
+    use cocoa::foundation::{NSPoint, NSRect, NSSize};
+    use objc::{msg_send, sel, sel_impl};
+
+    let raw_window = window
+        .ns_window()
+        .map_err(|error| format!("NSWindow handle not available: {error}"))?;
+
+    unsafe {
+        let ns_win: id = raw_window as id;
+        let frame: NSRect = msg_send![ns_win, frame];
+        let next_origin = NSPoint::new(
+            frame.origin.x + ((frame.size.width - width) / 2.0),
+            frame.origin.y + ((frame.size.height - height) / 2.0),
+        );
+        let next_frame = NSRect::new(next_origin, NSSize::new(width, height));
+        let _: () = msg_send![ns_win, setFrame: next_frame display: YES];
+    }
+
+    Ok(())
+}
+
 fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
     let Some(ritual_dir) = dirs::home_dir().map(|home| home.join(".ritual")) else {
         return;
@@ -152,12 +181,27 @@ fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
         return;
     }
 
-    if let Err(error) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
-        width: MAIN_WINDOW_DEFAULT_WIDTH,
-        height: MAIN_WINDOW_DEFAULT_HEIGHT,
-    })) {
-        warn!(error = %error, "Failed to apply one-time main window default size");
-        return;
+    #[cfg(target_os = "macos")]
+    {
+        if let Err(error) = set_macos_window_outer_frame_size(
+            window,
+            MAIN_WINDOW_DEFAULT_WIDTH,
+            MAIN_WINDOW_DEFAULT_HEIGHT,
+        ) {
+            warn!(error = %error, "Failed to apply one-time main window default outer frame");
+            return;
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Err(error) = window.set_size(tauri::Size::Logical(tauri::LogicalSize {
+            width: MAIN_WINDOW_DEFAULT_WIDTH,
+            height: MAIN_WINDOW_DEFAULT_HEIGHT,
+        })) {
+            warn!(error = %error, "Failed to apply one-time main window default size");
+            return;
+        }
     }
 
     if let Err(error) = window.center() {
