@@ -49,6 +49,15 @@ fn copy_if_different(source: &Path, destination: &Path) -> Result<bool, std::io:
     Ok(true)
 }
 
+fn copy_resource_if_different(source: &Path, destination: &Path) -> Result<bool, std::io::Error> {
+    if binaries_match(source, destination) {
+        return Ok(false);
+    }
+
+    fs::copy(source, destination)?;
+    Ok(true)
+}
+
 fn ensure_watcher_sidecar_for_tauri() {
     if !running_on_macos_target() {
         println!("cargo:warning=ℹ️ Skipping watcher sidecar preparation for non-macOS target");
@@ -370,6 +379,7 @@ fn ensure_voice_hud_helper_for_tauri() {
     let app_dir = helper_dir.join(VOICE_HUD_HELPER_APP_NAME);
     let contents_dir = app_dir.join("Contents");
     let macos_dir = contents_dir.join("MacOS");
+    let resources_dir = contents_dir.join("Resources");
     fs::create_dir_all(&macos_dir).unwrap_or_else(|err| {
         panic!(
             "Failed to create voice HUD helper app directory {}: {}",
@@ -377,6 +387,27 @@ fn ensure_voice_hud_helper_for_tauri() {
             err
         )
     });
+    fs::create_dir_all(&resources_dir).unwrap_or_else(|err| {
+        panic!(
+            "Failed to create voice HUD helper resources directory {}: {}",
+            resources_dir.display(),
+            err
+        )
+    });
+
+    let logo_source = manifest_dir
+        .parent()
+        .expect("src-tauri should have a desktop parent")
+        .join("ritual-icon")
+        .join("assets")
+        .join("eclipse.svg");
+    println!("cargo:rerun-if-changed={}", logo_source.display());
+    if !logo_source.exists() {
+        panic!(
+            "Ritual voice HUD logo asset is missing at {}",
+            logo_source.display()
+        );
+    }
 
     let executable = macos_dir.join(VOICE_HUD_HELPER_EXECUTABLE);
     let mut should_sign = false;
@@ -392,6 +423,19 @@ fn ensure_voice_hud_helper_for_tauri() {
         if !built {
             panic!("voice HUD helper could not be built");
         }
+        should_sign = true;
+    }
+
+    let logo_dest = resources_dir.join("eclipse.svg");
+    let copied_logo = copy_resource_if_different(&logo_source, &logo_dest).unwrap_or_else(|err| {
+        panic!(
+            "Failed to copy voice HUD logo asset {} -> {}: {}",
+            logo_source.display(),
+            logo_dest.display(),
+            err
+        )
+    });
+    if copied_logo {
         should_sign = true;
     }
 

@@ -254,41 +254,37 @@ private final class WaveformView: NSView {
 }
 
 private final class MarkView: NSView {
+    private lazy var logoImage: NSImage? = {
+        guard let url = Bundle.main.url(forResource: "eclipse", withExtension: "svg"),
+              let image = NSImage(contentsOf: url)
+        else {
+            return nil
+        }
+        return image
+    }()
+
     override var mouseDownCanMoveWindow: Bool { true }
+    override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        let rect = bounds.insetBy(dx: 1.8, dy: 1.8)
-        NSGraphicsContext.saveGraphicsState()
-        NSBezierPath(ovalIn: rect).addClip()
 
-        NSColor(calibratedWhite: 0.43, alpha: 0.84).setStroke()
-        let strokes: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
-            (-0.12, 0.68, 0.18, 0.83),
-            (-0.18, 0.52, 0.30, 0.72),
-            (-0.08, 0.36, 0.46, 0.58),
-            (0.12, 0.21, 0.64, 0.42),
-        ]
-
-        for (startX, startY, controlY, endY) in strokes {
-            let path = NSBezierPath()
-            path.lineWidth = 3.4
-            path.lineCapStyle = .round
-            path.lineJoinStyle = .round
-            path.move(to: NSPoint(x: rect.minX + rect.width * startX, y: rect.minY + rect.height * startY))
-            path.curve(
-                to: NSPoint(x: rect.maxX + rect.width * 0.12, y: rect.minY + rect.height * endY),
-                controlPoint1: NSPoint(x: rect.minX + rect.width * 0.34, y: rect.minY + rect.height * controlY),
-                controlPoint2: NSPoint(x: rect.minX + rect.width * 0.66, y: rect.minY + rect.height * (controlY - 0.20))
-            )
-            path.stroke()
+        guard let logoImage else {
+            NSColor(calibratedWhite: 0.42, alpha: 0.72).setStroke()
+            let fallback = NSBezierPath(ovalIn: bounds.insetBy(dx: 1.5, dy: 1.5))
+            fallback.lineWidth = 1.4
+            fallback.stroke()
+            return
         }
 
-        NSColor(calibratedWhite: 0.43, alpha: 0.35).setStroke()
-        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.2, dy: 0.2))
-        ring.lineWidth = 1.2
-        ring.stroke()
-        NSGraphicsContext.restoreGraphicsState()
+        logoImage.draw(
+            in: bounds.insetBy(dx: 0.5, dy: 0.5),
+            from: .zero,
+            operation: .sourceOver,
+            fraction: 0.54,
+            respectFlipped: true,
+            hints: [.interpolation: NSImageInterpolation.high]
+        )
     }
 }
 
@@ -304,21 +300,126 @@ private final class ExpandView: NSView {
     }
 }
 
-private final class Keycap: NSTextField {
-    init(text: String, width: CGFloat) {
+private class CenteredTextControl: NSControl {
+    var label: String {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var labelFont: NSFont {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var labelColor: NSColor {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    var fillColor: NSColor? {
+        didSet {
+            needsDisplay = true
+        }
+    }
+
+    private var isPressed = false
+
+    init(
+        label: String,
+        width: CGFloat,
+        font: NSFont,
+        labelColor: NSColor,
+        fillColor: NSColor? = nil
+    ) {
+        self.label = label
+        self.labelFont = font
+        self.labelColor = labelColor
+        self.fillColor = fillColor
         super.init(frame: NSRect(x: 0, y: 0, width: width, height: 24))
-        stringValue = text
-        isEditable = false
-        isSelectable = false
-        isBordered = false
-        drawsBackground = false
-        alignment = .center
-        font = .systemFont(ofSize: text == "esc" ? 11.5 : 13, weight: .semibold)
-        textColor = NSColor(calibratedWhite: 0.12, alpha: 1)
         wantsLayer = true
-        layer?.cornerRadius = 6.5
+        layer?.cornerRadius = fillColor == nil ? 0 : 6.5
         layer?.cornerCurve = .continuous
-        layer?.backgroundColor = NSColor(calibratedWhite: 0.80, alpha: 0.76).cgColor
+        layer?.masksToBounds = false
+    }
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { false }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        if let fillColor {
+            let pressedOffset = isPressed ? 0.03 : 0
+            fillColor.withAlphaComponent(max(0, fillColor.alphaComponent - pressedOffset)).setFill()
+            NSBezierPath(
+                roundedRect: bounds,
+                xRadius: 6.5,
+                yRadius: 6.5
+            ).fill()
+        }
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineBreakMode = .byClipping
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: labelColor,
+            .paragraphStyle: paragraph,
+            .kern: 0
+        ]
+        let textSize = (label as NSString).size(withAttributes: attributes)
+        let textRect = NSRect(
+            x: 0,
+            y: floor((bounds.height - textSize.height) / 2.0) - 0.5,
+            width: bounds.width,
+            height: ceil(textSize.height) + 1
+        )
+        (label as NSString).draw(with: textRect, options: [.usesLineFragmentOrigin], attributes: attributes)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard action != nil else {
+            window?.performDrag(with: event)
+            return
+        }
+        isPressed = true
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer {
+            isPressed = false
+            needsDisplay = true
+        }
+
+        guard action != nil else {
+            return
+        }
+
+        let point = convert(event.locationInWindow, from: nil)
+        if bounds.contains(point) {
+            sendAction(action, to: target)
+        }
+    }
+}
+
+private final class Keycap: CenteredTextControl {
+    init(text: String, width: CGFloat) {
+        let size: CGFloat = text == "esc" ? 11.2 : 13
+        super.init(
+            label: text,
+            width: width,
+            font: .systemFont(ofSize: size, weight: .medium),
+            labelColor: NSColor(calibratedWhite: 0.12, alpha: 1),
+            fillColor: NSColor(calibratedWhite: 0.80, alpha: 0.78)
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -326,15 +427,14 @@ private final class Keycap: NSTextField {
     }
 }
 
-private final class TextButton: NSButton {
-    init(title: String, fontSize: CGFloat) {
-        super.init(frame: .zero)
-        self.title = title
-        isBordered = false
-        bezelStyle = .regularSquare
-        setButtonType(.momentaryChange)
-        font = .systemFont(ofSize: fontSize, weight: .semibold)
-        contentTintColor = NSColor(calibratedWhite: 0.48, alpha: 1)
+private final class TextButton: CenteredTextControl {
+    init(title: String, width: CGFloat) {
+        super.init(
+            label: title,
+            width: width,
+            font: .systemFont(ofSize: 13, weight: .medium),
+            labelColor: NSColor(calibratedWhite: 0.47, alpha: 1)
+        )
     }
 
     required init?(coder: NSCoder) {
@@ -349,10 +449,10 @@ private final class HudView: HudRootView {
     private let railView = RailView()
     private let markView = MarkView()
     private let expandView = ExpandView()
-    private let statusButton = TextButton(title: "Stop", fontSize: 13)
+    private let statusButton = TextButton(title: "Stop", width: 38)
     private let optionKey = Keycap(text: "⌥", width: 22)
     private let spaceKey = Keycap(text: "Space", width: 50)
-    private let cancelButton = TextButton(title: "Cancel", fontSize: 13)
+    private let cancelButton = TextButton(title: "Cancel", width: 50)
     private let escapeKey = Keycap(text: "esc", width: 34)
     private let messageLabel = NSTextField(labelWithString: "")
     private var statusButtonWidth: CGFloat = 38
@@ -399,15 +499,15 @@ private final class HudView: HudRootView {
         waveformView.frame = NSRect(x: 30, y: 65, width: bounds.width - 60, height: 28)
         messageLabel.frame = NSRect(x: 56, y: 48, width: bounds.width - 112, height: 15)
         railView.frame = NSRect(x: 7, y: 7, width: bounds.width - 14, height: 36)
-        markView.frame = NSRect(x: 18.5, y: 8.5, width: 19, height: 19)
+        markView.frame = NSRect(x: 19, y: 8.5, width: 19, height: 19)
 
-        let keyY: CGFloat = 6
-        let buttonY: CGFloat = 6
-        escapeKey.frame.origin = NSPoint(x: railView.bounds.width - 18 - escapeKey.frame.width, y: keyY)
-        cancelButton.frame = NSRect(x: escapeKey.frame.minX - 56, y: buttonY - 1, width: 46, height: 24)
-        spaceKey.frame.origin = NSPoint(x: cancelButton.frame.minX - 58, y: keyY)
-        optionKey.frame.origin = NSPoint(x: spaceKey.frame.minX - 28, y: keyY)
-        statusButton.frame = NSRect(x: optionKey.frame.minX - statusButtonWidth - 15, y: buttonY - 1, width: statusButtonWidth, height: 24)
+        let rowHeight: CGFloat = 24
+        let rowY = floor((railView.bounds.height - rowHeight) / 2.0)
+        escapeKey.frame = NSRect(x: railView.bounds.width - 18 - escapeKey.frame.width, y: rowY, width: escapeKey.frame.width, height: rowHeight)
+        cancelButton.frame = NSRect(x: escapeKey.frame.minX - 62, y: rowY, width: 50, height: rowHeight)
+        spaceKey.frame = NSRect(x: cancelButton.frame.minX - 58, y: rowY, width: spaceKey.frame.width, height: rowHeight)
+        optionKey.frame = NSRect(x: spaceKey.frame.minX - 28, y: rowY, width: optionKey.frame.width, height: rowHeight)
+        statusButton.frame = NSRect(x: optionKey.frame.minX - statusButtonWidth - 15, y: rowY, width: statusButtonWidth, height: rowHeight)
     }
 
     func update(_ state: HudState) {
@@ -416,10 +516,10 @@ private final class HudView: HudRootView {
         waveformView.audioLevel = CGFloat(max(0, min(1, state.audioLevel ?? 0)))
 
         if state.isProcessingVoice {
-            statusButton.title = "Processing"
+            statusButton.label = "Processing"
             statusButtonWidth = 70
         } else {
-            statusButton.title = "Stop"
+            statusButton.label = "Stop"
             statusButtonWidth = 38
         }
 

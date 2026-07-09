@@ -103,8 +103,8 @@ export function Sidebar() {
       />
       <div
         className={cn(
-          "no-drag absolute z-20 flex items-center gap-0.5",
-          isExpanded ? "right-[14px] top-0" : "left-[18px] top-[70px]",
+          "no-drag absolute z-20 flex items-center",
+          isExpanded ? "left-[93px] top-[4px]" : "left-[18px] top-[70px]",
         )}
       >
         <ToolbarButton
@@ -120,39 +120,39 @@ export function Sidebar() {
         >
           <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
         </ToolbarButton>
-        {isExpanded ? (
-          <>
-            <ToolbarButton
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                if (window.history.length > 1) {
-                  router.back();
-                }
-              }}
-              className="app-toolbar-icon-button"
-              aria-label="Go back"
-              title="Go back"
-            >
-              <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
-            </ToolbarButton>
-            <ToolbarButton
-              type="button"
-              onMouseDown={(event) => event.stopPropagation()}
-              onClick={(event) => {
-                event.stopPropagation();
-                router.forward();
-              }}
-              className="app-toolbar-icon-button"
-              aria-label="Go forward"
-              title="Go forward"
-            >
-              <ChevronRight className="h-4 w-4 stroke-[2.05]" />
-            </ToolbarButton>
-          </>
-        ) : null}
       </div>
+      {isExpanded ? (
+        <div className="no-drag absolute right-[6px] top-[4px] z-20 flex items-center gap-0.5">
+          <ToolbarButton
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (window.history.length > 1) {
+                router.back();
+              }
+            }}
+            className="app-toolbar-icon-button"
+            aria-label="Go back"
+            title="Go back"
+          >
+            <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+          </ToolbarButton>
+          <ToolbarButton
+            type="button"
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              router.forward();
+            }}
+            className="app-toolbar-icon-button"
+            aria-label="Go forward"
+            title="Go forward"
+          >
+            <ChevronRight className="h-4 w-4 stroke-[2.05]" />
+          </ToolbarButton>
+        </div>
+      ) : null}
 
       <div className="no-drag flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
