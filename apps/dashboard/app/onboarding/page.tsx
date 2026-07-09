@@ -9,7 +9,7 @@ import { ChevronLeft } from "lucide-react"
 import { AuthFlowIntent } from "@/components/auth-flow-intent"
 import { ClerkOAuthHandler } from "@/components/clerk-oauth-handler"
 import { DashboardPreviewWindow } from "@/components/onboarding/dashboard-preview-window"
-import { OnboardingSetupStep } from "@/components/onboarding/onboarding-setup-step"
+import { clearSetupSubstep, SetupWizard } from "@/components/onboarding/setup-wizard"
 import {
   normalizeOnboardingStep,
   onboardingRouteForStep,
@@ -210,6 +210,7 @@ export default function OnboardingPage() {
 
         if (redirectRoute === "/dashboard") {
           clearPersistedStep()
+          clearSetupSubstep()
           await restoreDashboardWindowSize()
           router.replace("/dashboard")
           return
@@ -428,6 +429,7 @@ export default function OnboardingPage() {
     try {
       await markSetupSeen()
       clearPersistedStep()
+      clearSetupSubstep()
       await restoreDashboardWindowSize()
       router.replace("/dashboard")
       void requestDesktopPermissions().catch((permissionError) => {
@@ -440,20 +442,6 @@ export default function OnboardingPage() {
     }
   }, [busy, requestDesktopPermissions, markSetupSeen, router])
 
-  useEffect(() => {
-    if (step !== "setup" || busy) return
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Enter") {
-        event.preventDefault()
-        void finishSetupFlow()
-      }
-    }
-
-    window.addEventListener("keydown", onKeyDown)
-    return () => window.removeEventListener("keydown", onKeyDown)
-  }, [busy, finishSetupFlow, step])
-
   if (!isLoaded && step !== "welcome") {
     return (
       <div className="flex min-h-screen items-center justify-center bg-white">
@@ -464,6 +452,23 @@ export default function OnboardingPage() {
 
   if (step === "signup") {
     return <SignUpStep desktopMode={isDesktop} oauthFlowMode={oauthFlow} />
+  }
+
+  if (step === "setup") {
+    return (
+      <>
+        <SetupWizard
+          busy={busy}
+          userId={user?.id}
+          onFinish={() => void finishSetupFlow()}
+        />
+        {error ? (
+          <p className="fixed bottom-4 left-1/2 z-[60] max-w-[680px] -translate-x-1/2 rounded-sm border border-red-200 bg-white px-4 py-3 text-[13px] text-red-700 shadow-sm">
+            {error}
+          </p>
+        ) : null}
+      </>
+    )
   }
 
   const pageClassName = isDesktop
@@ -509,14 +514,6 @@ export default function OnboardingPage() {
               </OnboardingButton>
             </div>
           }
-        />
-      ) : null}
-
-      {step === "setup" ? (
-        <OnboardingSetupStep
-          busy={busy}
-          userId={user?.id}
-          onFinish={() => void finishSetupFlow()}
         />
       ) : null}
 

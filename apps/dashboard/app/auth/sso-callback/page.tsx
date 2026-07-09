@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth, useUser } from '@clerk/nextjs'
 
+import { clearSetupSubstep } from '@/components/onboarding/setup-wizard'
 import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import {
   clearFromWelcomeFlow,
@@ -65,6 +66,7 @@ function resolveFallbackRedirect(dashboardReturnUrl: string | null): string {
 async function restoreDashboardSizeBeforeRedirect(target: string): Promise<void> {
   if (target.startsWith('/dashboard')) {
     clearPersistedOnboardingStep()
+    clearSetupSubstep()
     await restoreDashboardWindowSize()
   }
 }
