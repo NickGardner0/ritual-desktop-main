@@ -43,6 +43,11 @@ function readPersistedOnboardingStep(): string | null {
   return window.localStorage.getItem(ONBOARDING_V3_STEP_KEY)
 }
 
+function clearPersistedOnboardingStep(): void {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(ONBOARDING_V3_STEP_KEY)
+}
+
 function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string | null): string {
   const redirectRoute = resolveSsoRedirectRoute(nextRoute, dashboardReturnUrl)
   if (redirectRoute === '/dashboard' || !redirectRoute.startsWith('/onboarding')) {
@@ -54,17 +59,12 @@ function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string
 }
 
 function resolveFallbackRedirect(dashboardReturnUrl: string | null): string {
-  const cachedStep = readPersistedOnboardingStep()
-  if (cachedStep) {
-    const resolvedStep = resolveOnboardingStep(`/onboarding?s=${cachedStep}`, cachedStep)
-    return onboardingRouteForStep(resolvedStep)
-  }
-
   return resolveBootstrapRedirect('/dashboard', dashboardReturnUrl)
 }
 
 async function restoreDashboardSizeBeforeRedirect(target: string): Promise<void> {
   if (target.startsWith('/dashboard')) {
+    clearPersistedOnboardingStep()
     await restoreDashboardWindowSize()
   }
 }

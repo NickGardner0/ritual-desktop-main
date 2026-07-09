@@ -206,7 +206,7 @@ export function HomeClient() {
 
   const startSignup = () => {
     if (typeof window !== 'undefined') {
-      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'setup');
+      window.localStorage.setItem(ONBOARDING_V3_STEP_KEY, 'signup');
     }
     router.push('/onboarding?s=signup');
   };

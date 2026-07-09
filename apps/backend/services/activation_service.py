@@ -363,6 +363,7 @@ class ActivationService:
                 state.first_log_id = log.id
                 state.first_behavior_logged_at = log.completed_at and _utcnow() or now
                 state.activation_completed_at = state.activation_completed_at or now
+                state.permissions_seen_at = state.permissions_seen_at or now
                 state.updated_at = now
                 user.onboarding_completed = True
                 if user.onboarding_completed and not user.timezone:
@@ -479,6 +480,7 @@ class ActivationService:
     ) -> UserBootstrapResponse:
         profile_complete = bool(user.full_name and user.timezone)
         first_behavior_logged = bool(state.first_behavior_logged_at)
+        activation_completed = bool(state.activation_completed_at)
         checklist_by_key = {row.key: row for row in checklist_rows}
 
         checklist = []
@@ -501,7 +503,7 @@ class ActivationService:
 
         if not profile_complete:
             next_route = "/onboarding?s=signup"
-        elif not state.permissions_seen_at:
+        elif not state.permissions_seen_at and not activation_completed:
             next_route = "/onboarding?s=setup"
         else:
             next_route = "/dashboard"
@@ -520,7 +522,7 @@ class ActivationService:
             activation=ActivationState(
                 firstHabitId=state.first_habit_id,
                 firstLogId=state.first_log_id,
-                activationCompleted=bool(state.activation_completed_at),
+                activationCompleted=activation_completed,
                 checklist=checklist,
             ),
             integrations=integrations,
