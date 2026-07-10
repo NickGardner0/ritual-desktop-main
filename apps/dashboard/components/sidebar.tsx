@@ -6,7 +6,7 @@ import { startTransition, useState, useRef, useCallback, useEffect } from "react
 import { MainMenu } from "./main-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight, PanelLeft, Settings } from "lucide-react";
+import { ArrowLeft, ArrowRight, PanelLeft, Settings } from "lucide-react";
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
 import { NavRowSurface, SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 
@@ -118,7 +118,7 @@ export function Sidebar() {
           aria-label={sidebarToggleLabel}
           title={sidebarToggleLabel}
         >
-          <PanelLeft className="h-[15px] w-[15px] stroke-[2.05]" />
+          <PanelLeft className="h-[19px] w-[19px] stroke-[2.1]" />
         </ToolbarButton>
       </div>
       {isExpanded ? (
@@ -136,7 +136,7 @@ export function Sidebar() {
             aria-label="Go back"
             title="Go back"
           >
-            <ChevronLeft className="h-4 w-4 stroke-[2.05]" />
+            <ArrowLeft className="h-5 w-5 stroke-[2]" />
           </ToolbarButton>
           <ToolbarButton
             type="button"
@@ -149,7 +149,7 @@ export function Sidebar() {
             aria-label="Go forward"
             title="Go forward"
           >
-            <ChevronRight className="h-4 w-4 stroke-[2.05]" />
+            <ArrowRight className="h-5 w-5 stroke-[2]" />
           </ToolbarButton>
         </div>
       ) : null}

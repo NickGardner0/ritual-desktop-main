@@ -766,19 +766,19 @@ body[data-voice-hud-window="1"] {
     border-radius: var(--radius-control) !important;
     border: 1px solid transparent !important;
     background: transparent !important;
-    color: var(--titlebar-glass-control-text-muted);
+    color: rgba(72, 77, 82, 0.84) !important;
     box-shadow: none !important;
   }
 
   .app-toolbar-icon-button:hover {
-    background: rgba(15, 23, 42, 0.04) !important;
-    color: var(--titlebar-glass-control-text-active) !important;
+    background: transparent !important;
+    color: rgba(55, 60, 65, 0.94) !important;
   }
 
   .app-toolbar-icon-button:active,
   .app-toolbar-icon-button[data-state="open"] {
-    background: rgba(15, 23, 42, 0.065) !important;
-    color: var(--titlebar-glass-control-text-active) !important;
+    background: transparent !important;
+    color: rgba(42, 47, 52, 0.98) !important;
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-control {
