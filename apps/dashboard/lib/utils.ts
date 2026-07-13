@@ -1,6 +1,2 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
-}
+/** @deprecated Import `cn` from `@ritual/ui/cn` in new shared code. */
+export { cn } from "@ritual/ui/cn";

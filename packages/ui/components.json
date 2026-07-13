@@ -4,18 +4,18 @@
   "rsc": true,
   "tsx": true,
   "tailwind": {
-    "config": "tailwind.config.js",
-    "css": "app/globals.css",
+    "config": "tailwind.config.cjs",
+    "css": "src/globals.css",
     "baseColor": "neutral",
     "cssVariables": true,
     "prefix": ""
   },
   "aliases": {
-    "components": "@/components",
-    "utils": "@/lib/utils",
-    "ui": "@/components/ui",
-    "lib": "@/lib",
-    "hooks": "@/hooks"
+    "components": "@ritual/ui/components",
+    "utils": "@ritual/ui/cn",
+    "ui": "@ritual/ui/components",
+    "lib": "@ritual/ui",
+    "hooks": "@ritual/ui/hooks"
   },
   "iconLibrary": "lucide"
 }

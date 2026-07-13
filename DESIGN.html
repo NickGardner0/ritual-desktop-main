@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Ritual Design System</title>
+    <link rel="stylesheet" href="./variables.css" />
+    <link rel="stylesheet" href="./theme.css" />
+    <style>
+      @font-face {
+        font-family: "FK Grotesk Neue";
+        src: url("./apps/dashboard/public/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Regular-BF6576818c3af74c.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "FK Grotesk Neue";
+        src: url("./apps/dashboard/public/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Medium-BF6576818c3a00a.otf") format("opentype");
+        font-weight: 500;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: "FK Grotesk Neue";
+        src: url("./apps/dashboard/public/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf") format("opentype");
+        font-weight: 600;
+        font-style: normal;
+        font-display: swap;
+      }
+
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--ritual-surface-canvas);
+        color: var(--ritual-text-primary);
+        font-family: var(--ritual-font-sans);
+        font-size: var(--ritual-text-body);
+        line-height: 1.5;
+        font-feature-settings: "kern", "liga", "tnum";
+        text-rendering: optimizeLegibility;
+      }
+      button, input, textarea, select { font: inherit; }
+      button, a { -webkit-tap-highlight-color: transparent; }
+      :focus-visible { outline: 2px solid var(--ritual-focus-ring); outline-offset: 2px; }
+      ::selection { background: color-mix(in srgb, var(--ritual-status-info) 28%, transparent); }
+
+      .shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+      .sidebar {
+        position: sticky; top: 0; height: 100vh; overflow: auto;
+        border-right: 1px solid var(--ritual-border-subtle);
+        background: color-mix(in srgb, var(--ritual-surface-panel) 76%, transparent);
+        padding: var(--ritual-space-5) var(--ritual-space-3);
+      }
+      .brand { display: flex; align-items: center; gap: 9px; padding: 0 8px 18px; font-weight: 500; letter-spacing: -0.01em; }
+      .mark { width: 20px; height: 20px; border-radius: 50%; background: var(--ritual-text-primary); position: relative; box-shadow: inset 0 0 0 5px var(--ritual-surface-panel); }
+      .mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--ritual-text-primary); }
+      .version { margin-left: auto; color: var(--ritual-text-muted); font: 11px/1 var(--ritual-font-mono); }
+      .nav-label { margin: 17px 8px 5px; color: var(--ritual-text-muted); font-size: 10px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
+      .nav a { display: flex; align-items: center; height: 30px; padding: 0 9px; border-radius: var(--ritual-radius-row); color: var(--ritual-text-secondary); text-decoration: none; font-size: 13px; }
+      .nav a:hover { color: var(--ritual-text-primary); background: var(--ritual-interactive-hover); }
+      .sidebar-note { margin: 22px 8px 0; padding-top: 15px; border-top: 1px solid var(--ritual-border-subtle); color: var(--ritual-text-muted); font-size: 11px; line-height: 1.45; }
+
+      .main { min-width: 0; }
+      .topbar {
+        position: sticky; top: 0; z-index: 10; height: 48px; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+        padding: 0 28px; border-bottom: 1px solid var(--ritual-border-subtle);
+        background: color-mix(in srgb, var(--ritual-surface-canvas) 84%, transparent); backdrop-filter: blur(18px) saturate(1.1);
+      }
+      .theme-button { display: inline-flex; align-items: center; gap: 7px; height: 28px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-row); padding: 0 9px; background: var(--ritual-surface-control); color: var(--ritual-text-secondary); cursor: pointer; font-size: 12px; }
+      .theme-button:hover { background: var(--ritual-surface-control-hover); color: var(--ritual-text-primary); }
+      .theme-button svg { width: 14px; height: 14px; }
+
+      .content { width: min(100% - 48px, 1080px); margin: 0 auto; padding: 68px 0 96px; }
+      .hero { max-width: 790px; padding-bottom: 64px; }
+      .eyebrow { margin: 0 0 12px; color: var(--ritual-text-muted); font-size: 11px; font-weight: 500; letter-spacing: .09em; text-transform: uppercase; }
+      h1 { margin: 0; font-size: clamp(34px, 5vw, 58px); line-height: 1.02; font-weight: 500; letter-spacing: -.038em; }
+      .hero-copy { max-width: 660px; margin: 20px 0 0; color: var(--ritual-text-secondary); font-size: 16px; line-height: 1.55; }
+      .hero-meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 24px; color: var(--ritual-text-muted); font: 11px/1.4 var(--ritual-font-mono); }
+      .provisional { display: inline-flex; align-items: center; gap: 6px; }
+      .provisional::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--ritual-status-warning); }
+
+      section { scroll-margin-top: 68px; padding: 54px 0; border-top: 1px solid var(--ritual-border-subtle); }
+      .section-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 430px); gap: 32px; align-items: end; margin-bottom: 28px; }
+      h2 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 500; letter-spacing: -.02em; }
+      .section-description { margin: 0; color: var(--ritual-text-secondary); font-size: 13px; }
+      h3 { margin: 0 0 14px; font-size: 14px; font-weight: 500; letter-spacing: -.005em; }
+
+      .grid { display: grid; gap: 12px; }
+      .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .specimen { border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); background: var(--ritual-surface-raised); padding: 20px; }
+      .specimen.recessed { background: var(--ritual-surface-recessed); }
+      .specimen-label { margin: 0 0 14px; color: var(--ritual-text-muted); font: 10px/1.2 var(--ritual-font-mono); letter-spacing: .04em; text-transform: uppercase; }
+
+      .swatch-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+      .swatch { overflow: hidden; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); background: var(--ritual-surface-raised); }
+      .swatch-color { height: 88px; background: var(--swatch); }
+      .swatch-copy { padding: 10px; }
+      .swatch-name { display: block; font-size: 12px; font-weight: 500; }
+      .swatch-value { display: block; margin-top: 2px; color: var(--ritual-text-muted); font: 10px/1.4 var(--ritual-font-mono); }
+      .status-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; }
+      .status { display: flex; align-items: center; gap: 8px; height: 38px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-row); padding: 0 11px; background: var(--ritual-surface-raised); color: var(--ritual-text-secondary); font-size: 12px; }
+      .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--status); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status) 13%, transparent); }
+
+      .type-row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 140px; gap: 20px; align-items: baseline; padding: 17px 0; border-top: 1px solid var(--ritual-border-subtle); }
+      .type-row:first-child { border-top: 0; padding-top: 0; }
+      .type-role { color: var(--ritual-text-muted); font: 10px/1.4 var(--ritual-font-mono); }
+      .type-meta { color: var(--ritual-text-muted); font: 10px/1.4 var(--ritual-font-mono); text-align: right; }
+      .type-display { font-size: 32px; font-weight: 500; line-height: 1.12; letter-spacing: -.025em; }
+      .type-heading { font-size: 24px; font-weight: 500; line-height: 1.2; letter-spacing: -.02em; }
+      .type-title { font-size: 20px; font-weight: 500; line-height: 1.25; letter-spacing: -.015em; }
+      .type-title-sm { font-size: 16px; font-weight: 500; line-height: 1.35; letter-spacing: -.01em; }
+      .type-body { font-size: 14px; font-weight: 400; line-height: 1.5; letter-spacing: -.005em; }
+      .type-caption { font-size: 11px; font-weight: 400; line-height: 1.35; letter-spacing: .01em; }
+
+      .spacing-stack { display: grid; gap: 9px; }
+      .spacing-row { display: grid; grid-template-columns: 44px minmax(0, 1fr) 52px; gap: 12px; align-items: center; color: var(--ritual-text-muted); font: 10px/1 var(--ritual-font-mono); }
+      .spacing-bar { height: 7px; width: var(--space); max-width: 100%; border-radius: 1px; background: var(--ritual-text-primary); opacity: .78; }
+      .radius-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
+      .radius-sample { aspect-ratio: 1.35; border: 1px solid var(--ritual-border-default); background: var(--ritual-surface-panel); border-radius: var(--radius); display: grid; place-items: center; color: var(--ritual-text-muted); font: 10px/1 var(--ritual-font-mono); }
+
+      .component-stack { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+      .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--ritual-radius-row); padding: 0 13px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 500; transition: background var(--ritual-duration-fast) var(--ritual-ease-standard), border-color var(--ritual-duration-fast) var(--ritual-ease-standard); }
+      .button.primary { background: var(--ritual-interactive-primary); color: var(--ritual-interactive-primary-foreground); }
+      .button.primary:hover { background: color-mix(in srgb, var(--ritual-interactive-primary) 88%, var(--ritual-surface-canvas)); }
+      .button.secondary { background: var(--ritual-surface-panel); color: var(--ritual-text-primary); border-color: var(--ritual-border-subtle); }
+      .button.secondary:hover, .button.ghost:hover { background: var(--ritual-interactive-hover); }
+      .button.ghost { background: transparent; color: var(--ritual-text-secondary); }
+      .button.danger { background: var(--ritual-status-danger); color: white; }
+      .button.compact { min-height: 28px; padding: 0 10px; font-size: 12px; }
+      .button.icon { width: 32px; padding: 0; }
+      .button:disabled { opacity: .42; cursor: not-allowed; }
+
+      .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+      .field { display: grid; gap: 6px; }
+      .field-label { font-size: 12px; font-weight: 500; }
+      .field-hint { color: var(--ritual-text-muted); font-size: 11px; }
+      .input { width: 100%; height: 36px; border: 1px solid var(--ritual-border-default); border-radius: var(--ritual-radius-row); padding: 0 10px; background: var(--ritual-surface-raised); color: var(--ritual-text-primary); font-size: 13px; }
+      .input::placeholder { color: var(--ritual-text-muted); }
+      .input:focus { outline: 2px solid color-mix(in srgb, var(--ritual-focus-ring) 28%, transparent); outline-offset: 1px; border-color: var(--ritual-focus-ring); }
+      textarea.input { height: 78px; padding-top: 8px; resize: vertical; }
+
+      .badge { display: inline-flex; align-items: center; height: 22px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-full); padding: 0 8px; background: var(--ritual-surface-panel); color: var(--ritual-text-secondary); font-size: 11px; font-weight: 500; }
+      .badge.success { border-color: color-mix(in srgb, var(--ritual-status-success) 24%, transparent); color: var(--ritual-status-success); background: color-mix(in srgb, var(--ritual-status-success) 8%, transparent); }
+      .badge.warning { border-color: color-mix(in srgb, var(--ritual-status-warning) 24%, transparent); color: var(--ritual-status-warning); background: color-mix(in srgb, var(--ritual-status-warning) 8%, transparent); }
+      .badge.danger { border-color: color-mix(in srgb, var(--ritual-status-danger) 24%, transparent); color: var(--ritual-status-danger); background: color-mix(in srgb, var(--ritual-status-danger) 8%, transparent); }
+
+      .card-demo { border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); background: var(--ritual-surface-raised); overflow: hidden; }
+      .card-head, .card-body, .card-foot { padding: 16px; }
+      .card-head { padding-bottom: 10px; }
+      .card-title { font-size: 16px; font-weight: 500; letter-spacing: -.01em; }
+      .card-description { margin-top: 3px; color: var(--ritual-text-secondary); font-size: 12px; }
+      .card-body { padding-top: 6px; color: var(--ritual-text-secondary); font-size: 13px; }
+      .card-foot { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--ritual-border-subtle); background: var(--ritual-surface-recessed); }
+
+      .window { overflow: hidden; border: 1px solid var(--ritual-border-subtle); border-radius: 10px; background: var(--ritual-surface-content); box-shadow: var(--ritual-shadow-dialog); }
+      .window-titlebar { height: 36px; display: grid; grid-template-columns: 72px 1fr 72px; align-items: center; border-bottom: 1px solid var(--ritual-border-subtle); background: var(--ritual-surface-chrome); font-family: var(--ritual-font-native); }
+      .traffic { display: flex; gap: 6px; padding-left: 13px; }
+      .traffic i { width: 10px; height: 10px; border-radius: 50%; background: var(--ritual-neutral-300); }
+      .window-name { text-align: center; color: var(--ritual-text-secondary); font-size: 11px; }
+      .window-body { min-height: 300px; display: grid; grid-template-columns: 170px 1fr; }
+      .window-side { padding: 12px 8px; border-right: 1px solid var(--ritual-border-subtle); background: var(--ritual-surface-sidebar); }
+      .window-side-label { padding: 3px 8px 7px; color: var(--ritual-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
+      .window-row { height: 30px; display: flex; align-items: center; gap: 8px; border-radius: var(--ritual-radius-row); padding: 0 8px; color: var(--ritual-text-secondary); font-size: 12px; }
+      .window-row.active { background: var(--ritual-interactive-selected); color: var(--ritual-text-primary); }
+      .window-row svg { width: 14px; height: 14px; color: var(--ritual-icon-default); }
+      .window-content { padding: 26px; }
+      .window-content h4 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.015em; }
+      .window-content > p { margin: 5px 0 20px; color: var(--ritual-text-secondary); font-size: 13px; }
+      .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
+      .metric { padding: 12px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-row); background: var(--ritual-surface-raised); }
+      .metric-label { color: var(--ritual-text-muted); font-size: 10px; }
+      .metric-value { margin-top: 6px; font-size: 20px; font-weight: 500; letter-spacing: -.015em; }
+      .routine-list { margin-top: 18px; border-top: 1px solid var(--ritual-border-subtle); }
+      .routine { min-height: 44px; display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; border-bottom: 1px solid var(--ritual-border-subtle); font-size: 12px; }
+      .check { width: 15px; height: 15px; border: 1px solid var(--ritual-border-default); border-radius: 50%; }
+      .routine small { color: var(--ritual-text-muted); }
+
+      .code { overflow: auto; margin: 0; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); padding: 16px; background: var(--ritual-surface-recessed); color: var(--ritual-text-secondary); font: 12px/1.65 var(--ritual-font-mono); white-space: pre; }
+      .code strong { color: var(--ritual-text-primary); font-weight: 500; }
+      .file-map { display: grid; gap: 0; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); overflow: hidden; }
+      .file-row { display: grid; grid-template-columns: 150px 1fr; gap: 18px; padding: 12px 14px; border-top: 1px solid var(--ritual-border-subtle); background: var(--ritual-surface-raised); }
+      .file-row:first-child { border-top: 0; }
+      .file-row code { color: var(--ritual-text-primary); font: 11px/1.5 var(--ritual-font-mono); }
+      .file-row span { color: var(--ritual-text-secondary); font-size: 12px; }
+      .footer { padding: 28px 0 0; border-top: 1px solid var(--ritual-border-subtle); color: var(--ritual-text-muted); font-size: 11px; }
+
+      @media (max-width: 900px) {
+        .shell { grid-template-columns: 1fr; }
+        .sidebar { display: none; }
+        .content { width: min(100% - 32px, 720px); padding-top: 42px; }
+        .section-head { grid-template-columns: 1fr; gap: 10px; }
+        .grid.three, .grid.four { grid-template-columns: repeat(2, 1fr); }
+        .swatch-grid { grid-template-columns: repeat(3, 1fr); }
+        .window-body { grid-template-columns: 145px 1fr; }
+      }
+      @media (max-width: 620px) {
+        .topbar { padding: 0 16px; }
+        .content { width: min(100% - 24px, 560px); }
+        .grid.two, .grid.three, .grid.four, .field-grid { grid-template-columns: 1fr; }
+        .swatch-grid { grid-template-columns: repeat(2, 1fr); }
+        .status-row { grid-template-columns: repeat(2, 1fr); }
+        .type-row { grid-template-columns: 88px 1fr; gap: 12px; }
+        .type-meta { display: none; }
+        .radius-grid { grid-template-columns: repeat(3, 1fr); }
+        .window-side { display: none; }
+        .window-body { display: block; }
+        .window-content { padding: 18px; }
+        .metric-grid { grid-template-columns: 1fr; }
+        .file-row { grid-template-columns: 1fr; gap: 3px; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html { scroll-behavior: auto; }
+        *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand"><span class="mark" aria-hidden="true"></span>Ritual <span class="version">0.1</span></div>
+        <nav class="nav" aria-label="Design system sections">
+          <div class="nav-label">Foundation</div>
+          <a href="#character">Character</a><a href="#color">Color</a><a href="#typography">Typography</a><a href="#spacing">Spacing &amp; shape</a>
+          <div class="nav-label">System</div>
+          <a href="#components">Components</a><a href="#patterns">Desktop pattern</a><a href="#tokens">Agent handoff</a>
+        </nav>
+        <p class="sidebar-note">Reference only. This page and its CSS are not imported by the production Ritual application.</p>
+      </aside>
+
+      <main class="main">
+        <div class="topbar">
+          <button class="theme-button" id="theme-toggle" type="button" aria-label="Switch to dark theme">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9c0-.5-.04-1-.12-1.48A7 7 0 0 1 12 3Z"/></svg>
+            <span id="theme-label">Dark</span>
+          </button>
+        </div>
+
+        <div class="content">
+          <header class="hero" id="character">
+            <p class="eyebrow">Ritual design system</p>
+            <h1>Quiet structure for a personal operating system.</h1>
+            <p class="hero-copy">A compact desktop language built from warm paper surfaces, graphite type, native restraint, and semantic color. Hierarchy comes from spacing and tone before decoration.</p>
+            <div class="hero-meta"><span class="provisional">Provisional baseline</span><span>Updated 2026-07-13</span><span>Light + dark</span><span>4px base unit</span></div>
+          </header>
+
+          <section>
+            <div class="section-head"><h2>Character</h2><p class="section-description">Ritual should feel stable, private, and quietly capable—a desktop instrument that recedes while the user’s work stays prominent.</p></div>
+            <div class="grid three">
+              <article class="specimen"><p class="specimen-label">01 / Quiet</p><h3>Neutral by default</h3><p class="section-description">Warm whites and restrained graphite establish hierarchy without turning every section into a card or every action into color.</p></article>
+              <article class="specimen"><p class="specimen-label">02 / Compact</p><h3>Dense, not cramped</h3><p class="section-description">Thirty-pixel rows and short controls support desktop efficiency while consistent groups preserve breathing room.</p></article>
+              <article class="specimen"><p class="specimen-label">03 / Semantic</p><h3>Meaning over decoration</h3><p class="section-description">Teal, green, amber, and red communicate focus or state. They are punctuation, never ambient decoration.</p></article>
+            </div>
+          </section>
+
+          <section id="color">
+            <div class="section-head"><h2>Color</h2><p class="section-description">Surface roles remain stable across modes. Toggle the theme to inspect the semantic remapping rather than a separate visual language.</p></div>
+            <div class="swatch-grid">
+              <div class="swatch"><div class="swatch-color" style="--swatch:var(--ritual-surface-canvas)"></div><div class="swatch-copy"><span class="swatch-name">Canvas</span><span class="swatch-value">surface-canvas</span></div></div>
+              <div class="swatch"><div class="swatch-color" style="--swatch:var(--ritual-surface-raised)"></div><div class="swatch-copy"><span class="swatch-name">Raised</span><span class="swatch-value">surface-raised</span></div></div>
+              <div class="swatch"><div class="swatch-color" style="--swatch:var(--ritual-surface-panel)"></div><div class="swatch-copy"><span class="swatch-name">Panel</span><span class="swatch-value">surface-panel</span></div></div>
+              <div class="swatch"><div class="swatch-color" style="--swatch:var(--ritual-surface-recessed)"></div><div class="swatch-copy"><span class="swatch-name">Recessed</span><span class="swatch-value">surface-recessed</span></div></div>
+              <div class="swatch"><div class="swatch-color" style="--swatch:var(--ritual-interactive-primary)"></div><div class="swatch-copy"><span class="swatch-name">Primary</span><span class="swatch-value">interactive-primary</span></div></div>
+            </div>
+            <div class="status-row">
+              <div class="status"><span class="status-dot" style="--status:var(--ritual-status-info)"></span>Information</div>
+              <div class="status"><span class="status-dot" style="--status:var(--ritual-status-success)"></span>Success</div>
+              <div class="status"><span class="status-dot" style="--status:var(--ritual-status-warning)"></span>Warning</div>
+              <div class="status"><span class="status-dot" style="--status:var(--ritual-status-danger)"></span>Danger</div>
+            </div>
+          </section>
+
+          <section id="typography">
+            <div class="section-head"><h2>Typography</h2><p class="section-description">FK Grotesk Neue is the product voice. Medium weight and modest negative tracking create hierarchy without heavy display typography.</p></div>
+            <div class="specimen">
+              <div class="type-row"><span class="type-role">display</span><span class="type-display">Your day, in focus.</span><span class="type-meta">32 / 500 / 1.12</span></div>
+              <div class="type-row"><span class="type-role">heading</span><span class="type-heading">Weekly overview</span><span class="type-meta">24 / 500 / 1.20</span></div>
+              <div class="type-row"><span class="type-role">title</span><span class="type-title">Morning routine</span><span class="type-meta">20 / 500 / 1.25</span></div>
+              <div class="type-row"><span class="type-role">title-sm</span><span class="type-title-sm">Connected services</span><span class="type-meta">16 / 500 / 1.35</span></div>
+              <div class="type-row"><span class="type-role">body</span><span class="type-body">Ritual turns daily signals into calm, actionable context.</span><span class="type-meta">14 / 400 / 1.50</span></div>
+              <div class="type-row"><span class="type-role">caption</span><span class="type-caption">SYNCED 4 MINUTES AGO</span><span class="type-meta">11 / 400 / 1.35</span></div>
+            </div>
+          </section>
+
+          <section id="spacing">
+            <div class="section-head"><h2>Spacing &amp; shape</h2><p class="section-description">A 4px unit keeps dense desktop layouts predictable. Shape increases with elevation: controls are sharper than cards, cards sharper than dialogs.</p></div>
+            <div class="grid two">
+              <div class="specimen"><p class="specimen-label">Spacing scale</p><div class="spacing-stack">
+                <div class="spacing-row"><span>1</span><i class="spacing-bar" style="--space:4px"></i><span>4px</span></div><div class="spacing-row"><span>2</span><i class="spacing-bar" style="--space:8px"></i><span>8px</span></div><div class="spacing-row"><span>3</span><i class="spacing-bar" style="--space:12px"></i><span>12px</span></div><div class="spacing-row"><span>4</span><i class="spacing-bar" style="--space:16px"></i><span>16px</span></div><div class="spacing-row"><span>6</span><i class="spacing-bar" style="--space:24px"></i><span>24px</span></div><div class="spacing-row"><span>8</span><i class="spacing-bar" style="--space:32px"></i><span>32px</span></div><div class="spacing-row"><span>12</span><i class="spacing-bar" style="--space:48px"></i><span>48px</span></div><div class="spacing-row"><span>16</span><i class="spacing-bar" style="--space:64px"></i><span>64px</span></div>
+              </div></div>
+              <div class="specimen"><p class="specimen-label">Radius scale</p><div class="radius-grid"><div class="radius-sample" style="--radius:0">0</div><div class="radius-sample" style="--radius:2px">2</div><div class="radius-sample" style="--radius:4px">4</div><div class="radius-sample" style="--radius:8px">8</div><div class="radius-sample" style="--radius:12px">12</div></div><p class="section-description" style="margin-top:18px">Use full rounding only for inherently circular forms, avatars, status dots, and short tags.</p></div>
+            </div>
+          </section>
+
+          <section id="components">
+            <div class="section-head"><h2>Verified components</h2><p class="section-description">These specimens represent the current safe `@ritual/ui` boundary. Exact production styles remain unchanged until explicit adoption.</p></div>
+            <div class="grid two">
+              <div class="specimen"><p class="specimen-label">Button variants</p><div class="component-stack"><button class="button primary">Save changes</button><button class="button secondary">Cancel</button><button class="button ghost">Learn more</button><button class="button danger">Delete</button><button class="button secondary" disabled>Disabled</button></div><div class="component-stack" style="margin-top:12px"><button class="button primary compact">Continue</button><button class="button ghost icon" aria-label="More options">•••</button></div></div>
+              <div class="specimen"><p class="specimen-label">Badge variants</p><div class="component-stack"><span class="badge">Draft</span><span class="badge success">Connected</span><span class="badge warning">Needs attention</span><span class="badge danger">Failed</span></div></div>
+              <div class="specimen"><p class="specimen-label">Inputs &amp; labels</p><div class="field-grid"><label class="field"><span class="field-label">Routine name</span><input class="input" value="Morning reset" /><span class="field-hint">Shown in your daily plan.</span></label><label class="field"><span class="field-label">Start time</span><input class="input" type="time" value="07:30" /><span class="field-hint">Uses your local timezone.</span></label></div></div>
+              <div class="specimen recessed"><p class="specimen-label">Card composition</p><article class="card-demo"><div class="card-head"><div class="card-title">Private sync</div><div class="card-description">Keep your Ritual data available across devices.</div></div><div class="card-body">Data is encrypted before leaving this device. You can disable sync at any time.</div><div class="card-foot"><button class="button ghost compact">Not now</button><button class="button primary compact">Enable sync</button></div></article></div>
+            </div>
+          </section>
+
+          <section id="patterns">
+            <div class="section-head"><h2>Desktop composition</h2><p class="section-description">Native chrome, a compact sidebar, and an opaque content canvas form the core shell. Glass stays in chrome; content remains quiet and legible.</p></div>
+            <div class="window">
+              <div class="window-titlebar"><div class="traffic"><i></i><i></i><i></i></div><div class="window-name">Ritual</div><div></div></div>
+              <div class="window-body">
+                <aside class="window-side"><div class="window-side-label">Today</div><div class="window-row active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 12h16M12 4v16"/></svg>Overview</div><div class="window-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4m8-4v4M4 10h16"/></svg>Calendar</div><div class="window-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m5 12 4 4L19 6"/></svg>Routines</div><div class="window-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>Activity</div></aside>
+                <div class="window-content"><h4>Good morning, Nick</h4><p>Monday, July 13 · Three routines planned</p><div class="metric-grid"><div class="metric"><div class="metric-label">FOCUS</div><div class="metric-value">3h 24m</div></div><div class="metric"><div class="metric-label">ROUTINES</div><div class="metric-value">2 / 3</div></div><div class="metric"><div class="metric-label">RECOVERY</div><div class="metric-value">74%</div></div></div><div class="routine-list"><div class="routine"><span class="check"></span><span>Morning reset</span><small>7:30 AM</small></div><div class="routine"><span class="check"></span><span>Deep work block</span><small>9:00 AM</small></div><div class="routine"><span class="check"></span><span>Evening review</span><small>6:00 PM</small></div></div></div>
+              </div>
+            </div>
+          </section>
+
+          <section id="tokens">
+            <div class="section-head"><h2>Agent &amp; v0 handoff</h2><p class="section-description">One source package, one consuming app, and focused references. Agents must verify APIs rather than infer components from appearance.</p></div>
+            <div class="grid two">
+              <div><h3>Reference map</h3><div class="file-map"><div class="file-row"><code>DESIGN.md</code><span>Human and agent contract</span></div><div class="file-row"><code>tokens.json</code><span>Machine-readable source</span></div><div class="file-row"><code>variables.css</code><span>Framework-neutral values</span></div><div class="file-row"><code>theme.css</code><span>Tailwind v4 / v0 adapter</span></div><div class="file-row"><code>packages/ui</code><span>Verified component implementation</span></div></div></div>
+              <div><h3>Correct shared import</h3><pre class="code"><strong>import</strong> { Button } from "@ritual/ui/button";
+<strong>import</strong> { Card, CardContent } from "@ritual/ui/card";
+<strong>import</strong> { cn } from "@ritual/ui/cn";
+
+&lt;Card&gt;
+  &lt;CardContent&gt;
+    &lt;Button variant="default"&gt;Continue&lt;/Button&gt;
+  &lt;/CardContent&gt;
+&lt;/Card&gt;</pre></div>
+            </div>
+          </section>
+
+          <footer class="footer">Ritual design system · Reference baseline · Production adoption requires explicit approval.</footer>
+        </div>
+      </main>
+    </div>
+    <script>
+      const root = document.documentElement;
+      const button = document.getElementById("theme-toggle");
+      const label = document.getElementById("theme-label");
+      const stored = localStorage.getItem("ritual-design-theme");
+      const preferred = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+      const setTheme = (theme) => {
+        root.dataset.theme = theme;
+        label.textContent = theme === "dark" ? "Light" : "Dark";
+        button.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} theme`);
+      };
+      setTheme(stored || preferred);
+      button.addEventListener("click", () => {
+        const theme = root.dataset.theme === "dark" ? "light" : "dark";
+        localStorage.setItem("ritual-design-theme", theme);
+        setTheme(theme);
+      });
+    </script>
+  </body>
+</html>
