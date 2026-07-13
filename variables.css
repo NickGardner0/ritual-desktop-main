@@ -1,0 +1,163 @@
+/*
+ * Ritual design-system reference variables.
+ * Standalone on purpose: the production app does not import this file.
+ */
+:root {
+  color-scheme: light;
+
+  /* Primitive color palette */
+  --ritual-neutral-0: #ffffff;
+  --ritual-neutral-25: #fefefe;
+  --ritual-neutral-50: #fbfcfb;
+  --ritual-neutral-75: #f7f8f5;
+  --ritual-neutral-100: #f4f4f3;
+  --ritual-neutral-150: #eeeeec;
+  --ritual-neutral-200: #e7e5dd;
+  --ritual-neutral-300: #dad9d7;
+  --ritual-neutral-400: #9a9a94;
+  --ritual-neutral-500: #7a7a7a;
+  --ritual-neutral-600: #666666;
+  --ritual-neutral-700: #5f6368;
+  --ritual-neutral-800: #27251e;
+  --ritual-neutral-900: #111111;
+  --ritual-neutral-950: #0b0b0c;
+
+  --ritual-teal: #306774;
+  --ritual-teal-strong: #24515c;
+  --ritual-green: #167046;
+  --ritual-amber: #b45309;
+  --ritual-red: #9f2d20;
+  --ritual-blue: #2563eb;
+
+  /* Semantic color contract — light */
+  --ritual-background: var(--ritual-neutral-25);
+  --ritual-foreground: var(--ritual-neutral-900);
+  --ritual-surface-canvas: var(--ritual-neutral-25);
+  --ritual-surface-content: var(--ritual-neutral-25);
+  --ritual-surface-raised: var(--ritual-neutral-0);
+  --ritual-surface-panel: var(--ritual-neutral-100);
+  --ritual-surface-recessed: var(--ritual-neutral-75);
+  --ritual-surface-control: rgba(255, 255, 255, 0.42);
+  --ritual-surface-control-hover: rgba(255, 255, 255, 0.58);
+  --ritual-surface-sidebar: rgba(255, 255, 255, 0.34);
+  --ritual-surface-chrome: rgba(255, 255, 255, 0.46);
+
+  --ritual-text-primary: var(--ritual-neutral-900);
+  --ritual-text-secondary: var(--ritual-neutral-600);
+  --ritual-text-muted: var(--ritual-neutral-500);
+  --ritual-text-inverse: var(--ritual-neutral-0);
+  --ritual-text-link: var(--ritual-teal);
+  --ritual-icon-default: var(--ritual-neutral-700);
+  --ritual-icon-muted: #888888;
+
+  --ritual-border-default: var(--ritual-neutral-300);
+  --ritual-border-subtle: rgba(15, 23, 42, 0.052);
+  --ritual-border-muted: rgba(15, 23, 42, 0.035);
+  --ritual-border-strong: rgba(15, 23, 42, 0.08);
+
+  --ritual-interactive-primary: var(--ritual-neutral-800);
+  --ritual-interactive-primary-foreground: var(--ritual-neutral-0);
+  --ritual-interactive-hover: rgba(17, 24, 39, 0.032);
+  --ritual-interactive-selected: var(--ritual-neutral-150);
+  --ritual-focus-ring: var(--ritual-teal);
+  --ritual-status-info: var(--ritual-teal);
+  --ritual-status-success: var(--ritual-green);
+  --ritual-status-warning: var(--ritual-amber);
+  --ritual-status-danger: var(--ritual-red);
+
+  /* Typography */
+  --ritual-font-sans: "FK Grotesk Neue", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --ritual-font-native: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --ritual-font-mono: "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --ritual-font-regular: 400;
+  --ritual-font-medium: 500;
+  --ritual-font-semibold: 600;
+  --ritual-text-caption: 11px;
+  --ritual-text-label: 12px;
+  --ritual-text-body-sm: 13px;
+  --ritual-text-body: 14px;
+  --ritual-text-title-sm: 16px;
+  --ritual-text-title: 20px;
+  --ritual-text-heading: 24px;
+  --ritual-text-display: 32px;
+
+  /* Spacing — 4px base unit */
+  --ritual-space-0: 0px;
+  --ritual-space-1: 4px;
+  --ritual-space-2: 8px;
+  --ritual-space-3: 12px;
+  --ritual-space-4: 16px;
+  --ritual-space-5: 20px;
+  --ritual-space-6: 24px;
+  --ritual-space-8: 32px;
+  --ritual-space-10: 40px;
+  --ritual-space-12: 48px;
+  --ritual-space-16: 64px;
+
+  /* Shape and elevation */
+  --ritual-radius-none: 0px;
+  --ritual-radius-control: 2px;
+  --ritual-radius-row: 4px;
+  --ritual-radius-card: 8px;
+  --ritual-radius-dialog: 12px;
+  --ritual-radius-full: 9999px;
+  --ritual-shadow-hairline: 0 0 0 1px rgba(15, 23, 42, 0.052);
+  --ritual-shadow-popover: 0 12px 32px rgba(17, 17, 17, 0.10), 0 2px 8px rgba(17, 17, 17, 0.06);
+  --ritual-shadow-dialog: 0 24px 64px rgba(17, 17, 17, 0.16), 0 4px 16px rgba(17, 17, 17, 0.08);
+
+  /* Layout */
+  --ritual-sidebar-width: 240px;
+  --ritual-titlebar-height: 36px;
+  --ritual-sidebar-row-height: 30px;
+  --ritual-control-height-sm: 28px;
+  --ritual-control-height: 36px;
+  --ritual-control-height-lg: 40px;
+  --ritual-content-max-width: 1200px;
+
+  /* Motion */
+  --ritual-duration-instant: 0ms;
+  --ritual-duration-fast: 100ms;
+  --ritual-duration-normal: 160ms;
+  --ritual-duration-slow: 240ms;
+  --ritual-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ritual-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+:root[data-theme="dark"],
+.ritual-dark {
+  color-scheme: dark;
+  --ritual-background: var(--ritual-neutral-950);
+  --ritual-foreground: #f7f7f3;
+  --ritual-surface-canvas: var(--ritual-neutral-950);
+  --ritual-surface-content: var(--ritual-neutral-950);
+  --ritual-surface-raised: #151516;
+  --ritual-surface-panel: #151516;
+  --ritual-surface-recessed: #101011;
+  --ritual-surface-control: rgba(255, 255, 255, 0.10);
+  --ritual-surface-control-hover: rgba(255, 255, 255, 0.16);
+  --ritual-surface-sidebar: rgba(20, 20, 22, 0.15);
+  --ritual-surface-chrome: rgba(31, 32, 34, 0.44);
+  --ritual-text-primary: #f7f7f3;
+  --ritual-text-secondary: #b8b8b2;
+  --ritual-text-muted: #9a9a94;
+  --ritual-text-inverse: var(--ritual-neutral-900);
+  --ritual-text-link: #72a8b4;
+  --ritual-icon-default: #b7b7b0;
+  --ritual-icon-muted: #969690;
+  --ritual-border-default: #1d1d1d;
+  --ritual-border-subtle: rgba(255, 255, 255, 0.08);
+  --ritual-border-muted: rgba(255, 255, 255, 0.06);
+  --ritual-border-strong: rgba(255, 255, 255, 0.13);
+  --ritual-interactive-primary: #f7f7f3;
+  --ritual-interactive-primary-foreground: var(--ritual-neutral-900);
+  --ritual-interactive-hover: rgba(255, 255, 255, 0.055);
+  --ritual-interactive-selected: rgba(255, 255, 255, 0.08);
+  --ritual-focus-ring: #72a8b4;
+  --ritual-status-info: #72a8b4;
+  --ritual-status-success: #55a67c;
+  --ritual-status-warning: #d49a56;
+  --ritual-status-danger: #d97368;
+  --ritual-shadow-hairline: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --ritual-shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.42), 0 2px 8px rgba(0, 0, 0, 0.28);
+  --ritual-shadow-dialog: 0 24px 64px rgba(0, 0, 0, 0.55), 0 4px 16px rgba(0, 0, 0, 0.32);
+}

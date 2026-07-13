@@ -28,8 +28,14 @@
       "@/*": [
         "./*"
       ],
+      "@ritual/ui": [
+        "../../packages/ui/src/index.ts"
+      ],
+      "@ritual/ui/cn": [
+        "../../packages/ui/src/cn.ts"
+      ],
       "@ritual/ui/*": [
-        "../../packages/ui/src/*"
+        "../../packages/ui/src/components/*"
       ],
       "@ritual/shared-contracts/*": [
         "../../packages/shared-contracts/src/*"

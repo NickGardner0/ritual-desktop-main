@@ -1,6 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  darkMode: ["class"],
+  presets: [require("@ritual/ui/tailwind-config")],
   content: [
     "./pages/**/*.{ts,tsx}",
     "./components/**/*.{ts,tsx}",
@@ -8,6 +8,7 @@ module.exports = {
     "./src/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
     "./styles/**/*.css",
+    "../../packages/ui/src/**/*.{ts,tsx}",
   ],
   safelist: [
     'font-sans',
