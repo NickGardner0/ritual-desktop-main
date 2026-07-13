@@ -529,7 +529,7 @@ body[data-voice-hud-window="1"] {
     position: absolute;
     right: 0;
     bottom: 0;
-    left: var(--ritual-sidebar-current-width, 202px);
+    left: var(--ritual-sidebar-current-width, 240px);
     z-index: 46;
     height: 1px;
     pointer-events: none;
@@ -550,7 +550,7 @@ body[data-voice-hud-window="1"] {
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--ritual-sidebar-current-width, 202px);
+    left: var(--ritual-sidebar-current-width, 240px);
     z-index: 45;
     width: 1px;
     pointer-events: none;
@@ -699,7 +699,7 @@ body[data-voice-hud-window="1"] {
   }
 
   .titlebar-sidebar-lane {
-    width: max(var(--ritual-sidebar-current-width, 76px), 202px);
+    width: max(var(--ritual-sidebar-current-width, 76px), 240px);
     background: var(--surface-sidebar);
     border-right: 0;
   }
@@ -766,7 +766,7 @@ body[data-voice-hud-window="1"] {
     border-radius: var(--radius-control) !important;
     border: 1px solid transparent !important;
     background: transparent !important;
-    color: rgba(72, 77, 82, 0.84) !important;
+    color: rgba(72, 77, 82, 0.72) !important;
     box-shadow: none !important;
   }
 
@@ -779,6 +779,19 @@ body[data-voice-hud-window="1"] {
   .app-toolbar-icon-button[data-state="open"] {
     background: transparent !important;
     color: rgba(42, 47, 52, 0.98) !important;
+  }
+
+  .app-toolbar-nav-button {
+    color: rgba(74, 79, 84, 0.46) !important;
+  }
+
+  .app-toolbar-nav-button:hover {
+    color: rgba(74, 79, 84, 0.62) !important;
+  }
+
+  .app-toolbar-nav-button:active,
+  .app-toolbar-nav-button[data-state="open"] {
+    color: rgba(74, 79, 84, 0.74) !important;
   }
 
   html.desktop[data-glass-chrome="1"] .titlebar-control {
