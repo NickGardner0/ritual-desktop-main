@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
+import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
 import { TeamDropdown } from '@/components/team-dropdown';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -229,6 +230,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   className="flex h-full min-w-0 flex-1 items-center justify-end"
                 >
                   <div className="no-drag flex items-center gap-1">
+                    <PinnedSummaryPopover />
                     <TeamDropdown isExpanded={false} placement="header" />
                   </div>
                 </div>
