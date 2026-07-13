@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
+import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -171,6 +172,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   />
 
                   <div className="no-drag flex min-w-0 items-center justify-end gap-1">
+                    <PinnedSummaryPopover />
                     <div
                       id="header-right-slot"
                       className="flex min-w-0 items-center gap-1"
