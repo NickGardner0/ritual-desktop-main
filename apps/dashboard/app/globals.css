@@ -325,9 +325,9 @@ body[data-voice-hud-window="1"] {
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.34);
-  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.06);
-  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.38);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.27);
+  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.05);
+  --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.33);
   --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
   --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.42);
@@ -1027,11 +1027,11 @@ body[data-voice-hud-window="1"] {
     background:
       linear-gradient(
         180deg,
-        rgba(246, 245, 243, 0.97) 0%,
-        rgba(244, 243, 240, 0.95) 42%,
-        rgba(242, 241, 238, 0.93) 100%
+        rgba(250, 249, 247, 0.88) 0%,
+        rgba(247, 246, 243, 0.82) 44%,
+        rgba(244, 243, 240, 0.76) 100%
       );
-    background-color: rgba(244, 243, 240, 0.95);
+    background-color: rgba(247, 246, 243, 0.82);
     border-right: 0;
     /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
        forces expensive GPU recomposites on every hover/scroll, causing
@@ -1162,11 +1162,11 @@ body[data-voice-hud-window="1"] {
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
     background: linear-gradient(
       180deg,
-      rgba(255, 255, 255, 0.56) 0%,
-      rgba(255, 255, 255, 0.40) 48%,
-      rgba(252, 252, 250, 0.32) 100%
+      rgba(255, 255, 255, 0.44) 0%,
+      rgba(255, 255, 255, 0.29) 48%,
+      rgba(252, 252, 250, 0.22) 100%
     ) !important;
-    background-color: rgba(255, 255, 255, 0.36) !important;
+    background-color: rgba(255, 255, 255, 0.26) !important;
     border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
@@ -1218,7 +1218,7 @@ body[data-voice-hud-window="1"] {
     background:
       linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
       linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
-    opacity: 0.9;
+    opacity: 0.82;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,

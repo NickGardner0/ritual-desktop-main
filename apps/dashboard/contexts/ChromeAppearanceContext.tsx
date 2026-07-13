@@ -48,9 +48,9 @@ const DEFAULT_APPEARANCE: ChromeAppearance = "frosted";
 
 const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   frosted: {
-    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.34)",
-    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.06)",
-    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.38)",
+    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.27)",
+    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.05)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.33)",
     "--titlebar-glass-bg": "rgba(255, 255, 255, 0.46)",
     "--titlebar-glass-bg-strong": "rgba(255, 255, 255, 0.62)",
     "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.42)",
