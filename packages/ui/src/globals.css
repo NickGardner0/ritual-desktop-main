@@ -4,8 +4,7 @@
  * These defaults intentionally match the current product. Paper/v0 can change
  * their values without changing component APIs or feature markup.
  */
-@layer base {
-  :root {
+:root {
     --background: 0 0% 99.6%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
@@ -45,9 +44,9 @@
     --icon-muted: #888888;
     --radius-control: 0.125rem;
     --radius-row: 0.25rem;
-  }
+}
 
-  .dark {
+.dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
     --card: 222.2 84% 4.9%;
@@ -84,9 +83,8 @@
     --text-muted: #9a9a94;
     --icon-default: #b7b7b0;
     --icon-muted: #969690;
-  }
+}
 
-  * {
-    @apply border-border;
-  }
+* {
+  border-color: hsl(var(--border));
 }
