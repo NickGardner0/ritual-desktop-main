@@ -771,18 +771,23 @@ fn configure_macos_settings_window_chrome(window: &tauri::WebviewWindow) {
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_sidebar_titlebar_glass(window: &tauri::WebviewWindow) {
-    use cocoa::base::id;
+    use cocoa::appkit::{NSColor, NSWindow};
+    use cocoa::base::{id, nil};
     use objc::{msg_send, sel, sel_impl};
     use window_vibrancy::{apply_liquid_glass, NSGlassEffectViewStyle};
 
-    println!("🔧 Configuring macOS sidebar/titlebar glass behind native window chrome…");
+    println!("🔧 Configuring transparent macOS window with native sidebar/titlebar glass…");
+
+    let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
 
     match window.ns_window() {
         Ok(raw_window) => unsafe {
             let ns_win: id = raw_window as id;
+            ns_win.setOpaque_(cocoa::base::NO);
+            ns_win.setBackgroundColor_(NSColor::clearColor(nil));
             let content_view: id = msg_send![ns_win, contentView];
             clip_macos_view_to_native_radius(content_view, MACOS_NATIVE_WINDOW_CORNER_RADIUS);
-            println!("✅ NSWindow kept native/opaque; rounded content clipping configured");
+            println!("✅ NSWindow configured non-opaque with a clear native background");
         },
         Err(e) => eprintln!("❌ NSWindow handle not available for glass setup: {e}"),
     }
@@ -2453,7 +2458,7 @@ fn main() {
                         .min_inner_size(800.0, 450.0)
                         .resizable(true)
                         .decorations(true)
-                        .transparent(transparency_probe)
+                        .transparent(main_glass_enabled)
                         .shadow(true)
                         .visible(true);
 
