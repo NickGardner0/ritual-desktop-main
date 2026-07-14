@@ -1,9 +1,15 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { CalendarPlus, Clock, Loader2, Repeat, X } from 'lucide-react';
+import { Loader2, Repeat, X } from 'lucide-react';
+import { Button } from '@ritual/ui/button';
+import { Card } from '@ritual/ui/card';
+import { cn } from '@ritual/ui/cn';
+import { Input } from '@ritual/ui/input';
+import { Label } from '@ritual/ui/label';
+import { Separator } from '@ritual/ui/separator';
 
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import {
   AGENT_TIERS,
@@ -21,7 +27,6 @@ import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
 import { RoutineIcon } from '@/lib/routines/ui';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
 import type { TaskPriority } from '@/lib/tasks/types';
-import { cn } from '@/lib/utils';
 
 export type RoutineConfigureState = {
   name: string;
@@ -100,9 +105,6 @@ const FREQUENCIES: Array<{ id: ScheduleDraft['frequency']; label: string }> = [
   { id: 'on_completion', label: 'On completion' },
 ];
 
-const BASIC_FREQUENCIES = FREQUENCIES.filter((frequency) =>
-  frequency.id === 'daily' || frequency.id === 'weekly' || frequency.id === 'monthly');
-
 const PRIORITIES: Array<{ id: TaskPriority; label: string }> = [
   { id: 'none', label: 'None' },
   { id: 'low', label: 'Low' },
@@ -125,18 +127,15 @@ const MONTHS = [
   'December',
 ];
 
-const groupClass = 'overflow-hidden rounded-[9px] border border-neutral-200 bg-white shadow-sm';
-const rowClass = 'flex min-h-[42px] items-center justify-between gap-3 border-b border-neutral-100 px-3 last:border-b-0';
-const labelClass = 'text-[13px] font-medium text-neutral-500';
+const groupClass = 'overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-surface-panel';
+const rowClass = 'flex min-h-12 items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 last:border-b-0';
+const labelClass = 'text-sm font-medium text-[var(--text-secondary)]';
 const chipClass =
-  'h-8 rounded-[7px] border border-neutral-200 bg-white px-2.5 text-[13px] font-medium text-neutral-950 shadow-sm outline-none transition focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100';
+  'h-8 rounded-control border border-transparent bg-background px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20';
 const textInputClass =
-  'h-10 w-full rounded-[9px] border border-neutral-200 bg-white px-3 text-[14px] text-neutral-950 shadow-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100';
+  'h-9 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
 const textareaClass =
-  'w-full resize-none rounded-[10px] border border-neutral-200 bg-white p-4 text-[14px] leading-6 text-neutral-950 shadow-sm outline-none transition placeholder:text-neutral-400 focus:border-neutral-300 focus:ring-2 focus:ring-neutral-100';
-const fieldLabelClass = 'text-[14px] font-medium leading-none text-neutral-950';
-const fieldHintClass = 'text-[14px] leading-5 text-neutral-500';
-const switchClass = 'data-[state=checked]:bg-[#3b82f6] data-[state=unchecked]:bg-[#ddd9d2]';
+  'w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -153,7 +152,7 @@ function intervalUnit(draft: ScheduleDraft): string {
   if (draft.frequency === 'weekly') return draft.interval === 1 ? 'week' : 'weeks';
   if (draft.frequency === 'monthly') return draft.interval === 1 ? 'month' : 'months';
   if (draft.frequency === 'yearly') return draft.interval === 1 ? 'year' : 'years';
-  return draft.interval === 1 ? draft.onCompletionUnit.replace(/s$/, '') : draft.onCompletionUnit;
+  return draft.onCompletionUnit;
 }
 
 function TagsField({
@@ -169,8 +168,8 @@ function TagsField({
   };
   return (
     <div className="space-y-2">
-      <label htmlFor="routine-tags" className={fieldLabelClass}>Tags</label>
-      <input
+      <Label htmlFor="routine-tags">Tags</Label>
+      <Input
         id="routine-tags"
         value={text}
         onChange={(event) => setText(event.target.value)}
@@ -199,115 +198,94 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-4">
-      <div className="grid h-10 grid-cols-3 gap-1 rounded-[9px] border border-neutral-200 bg-white p-1 shadow-sm">
-        {BASIC_FREQUENCIES.map((frequency) => (
-          <button
-            key={frequency.id}
-            type="button"
-            aria-pressed={draft.frequency === frequency.id}
-            onClick={() => onChange({ frequency: frequency.id, interval: 1 })}
-            className={cn(
-              'rounded-[7px] px-2 text-[13px] font-medium transition-colors',
-              draft.frequency === frequency.id
-                ? 'bg-neutral-100 text-neutral-950'
-                : 'text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950',
-            )}
+    <div className="space-y-5">
+      <section className={groupClass}>
+        <div className={rowClass}>
+          <span className={labelClass}>Trigger</span>
+          <select
+            value={draft.frequency}
+            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
+            className={cn(chipClass, 'min-w-[150px]')}
+            aria-label="Trigger frequency"
           >
-            {frequency.label}
-          </button>
-        ))}
-      </div>
+            {FREQUENCIES.map((frequency) => (
+              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Paused</span>
+          <Switch checked={paused} onCheckedChange={onPausedChange} />
+        </div>
+      </section>
 
-      <div className="flex flex-wrap items-center gap-3">
-        {draft.frequency !== 'on_completion' ? (
-          <label className="inline-flex h-10 w-[138px] items-center gap-2 rounded-[9px] border border-neutral-200 bg-white px-3 text-[14px] text-neutral-900 shadow-sm">
-            <Clock className="h-4 w-4 text-neutral-500" strokeWidth={1.8} />
-            <input
-              type="time"
-              value={timeValue}
-              onChange={(event) => {
-                const [hour, minute] = event.target.value.split(':').map(Number);
-                if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
-              }}
-              className="w-[86px] bg-transparent text-[14px] text-neutral-900 outline-none [&::-webkit-calendar-picker-indicator]:hidden"
-              aria-label="Time of day"
+      <section className={groupClass}>
+        <div className={rowClass}>
+          <span className={labelClass}>Every</span>
+          <span className="flex items-center gap-3">
+            <Input
+              type="number"
+              min={1}
+              max={99}
+              value={draft.interval}
+              onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
+              className={cn(chipClass, 'w-[76px] text-center')}
+              aria-label="Interval"
             />
-          </label>
-        ) : null}
-      </div>
+            <span className="text-sm font-medium text-[var(--text-secondary)]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
+          </span>
+        </div>
 
-      <details className="group rounded-[9px] border border-neutral-200 bg-white shadow-sm">
-        <summary className="flex h-9 cursor-default list-none items-center justify-between px-3 text-[13px] font-medium text-neutral-500 transition hover:text-neutral-950 [&::-webkit-details-marker]:hidden">
-          Advanced schedule
-          <span className="text-neutral-400 transition group-open:rotate-180">v</span>
-        </summary>
-        <section className="border-t border-neutral-100">
+        {draft.frequency === 'weekly' ? (
           <div className={rowClass}>
-            <span className={labelClass}>Every</span>
-            <span className="flex items-center gap-2">
-              <input
-                type="number"
-                min={1}
-                max={99}
-                value={draft.interval}
-                onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-                className={cn(chipClass, 'w-[62px] text-center')}
-                aria-label="Interval"
-              />
-              <span className="text-[13px] text-neutral-500">{intervalUnit(draft)}</span>
+            <span className={labelClass}>On</span>
+            <span className="flex flex-wrap justify-end gap-1.5">
+              {WEEKDAYS.map((day) => {
+                const active = draft.weekdays.includes(day.value);
+                return (
+                  <Button
+                    key={day.value}
+                    type="button"
+                    variant={active ? 'default' : 'secondary'}
+                    size="sm"
+                    aria-pressed={active}
+                    onClick={() => onChange({
+                      weekdays: active
+                        ? draft.weekdays.filter((value) => value !== day.value)
+                        : [...draft.weekdays, day.value].sort((a, b) => a - b),
+                    })}
+                    className="h-8 rounded-control px-2.5 text-[13px]"
+                  >
+                    {day.label}
+                  </Button>
+                );
+              })}
             </span>
           </div>
+        ) : null}
 
-          {draft.frequency === 'weekly' ? (
-            <div className={cn(rowClass, 'items-start py-2.5')}>
-              <span className={cn(labelClass, 'pt-1')}>On</span>
-              <span className="flex flex-wrap justify-end gap-1.5">
-                {WEEKDAYS.map((day) => {
-                  const active = draft.weekdays.includes(day.value);
-                  return (
-                    <button
-                      key={day.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => onChange({
-                        weekdays: active
-                          ? draft.weekdays.filter((value) => value !== day.value)
-                          : [...draft.weekdays, day.value].sort((a, b) => a - b),
-                      })}
-                      className={cn(
-                        'h-7 rounded-[7px] px-2.5 text-[12px] font-medium transition',
-                        active ? 'bg-neutral-950 text-white' : 'border border-neutral-200 bg-white text-neutral-500 hover:bg-neutral-50',
-                      )}
-                    >
-                      {day.label}
-                    </button>
-                  );
-                })}
-              </span>
-            </div>
-          ) : null}
-
-          {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
-            <div className={rowClass}>
-              <span className={labelClass}>On the</span>
-              <span className="flex items-center gap-2">
-                <select
-                  value={String(draft.day)}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
-                  }}
-                  className={chipClass}
-                  aria-label="Day of month"
-                >
-                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                    <option key={day} value={day}>{ordinalSuffix(day)}</option>
-                  ))}
-                  <option value="first">first day</option>
-                  <option value="last">last day</option>
-                </select>
-                {draft.frequency === 'yearly' ? (
+        {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
+          <div className={rowClass}>
+            <span className={labelClass}>On the</span>
+            <span className="flex items-center gap-2">
+              <select
+                value={String(draft.day)}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
+                }}
+                className={chipClass}
+                aria-label="Day of month"
+              >
+                {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                  <option key={day} value={day}>{ordinalSuffix(day)}</option>
+                ))}
+                <option value="first">first day</option>
+                <option value="last">last day</option>
+              </select>
+              {draft.frequency === 'yearly' ? (
+                <>
+                  <span className="text-sm text-[var(--text-secondary)]">in</span>
                   <select
                     value={draft.month}
                     onChange={(event) => onChange({ month: Number(event.target.value) })}
@@ -318,53 +296,63 @@ function ScheduleEditor({
                       <option key={month} value={index + 1}>{month}</option>
                     ))}
                   </select>
-                ) : null}
-              </span>
-            </div>
-          ) : null}
+                </>
+              ) : null}
+            </span>
+          </div>
+        ) : null}
 
-          {draft.frequency === 'on_completion' ? (
-            <div className={rowClass}>
-              <span className={labelClass}>After</span>
-              <select
-                value={draft.onCompletionUnit}
-                onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
-                className={chipClass}
-                aria-label="Completion interval unit"
-              >
-                <option value="days">days</option>
-                <option value="weeks">weeks</option>
-                <option value="months">months</option>
-              </select>
-            </div>
-          ) : null}
-
+        {draft.frequency !== 'on_completion' ? (
           <div className={rowClass}>
-            <span className={labelClass}>First run</span>
-            <input
-              type="date"
-              value={draft.firstRun || ''}
-              onChange={(event) => onChange({ firstRun: event.target.value || null })}
-              className={cn(chipClass, 'text-right', !draft.firstRun && 'text-neutral-400')}
-              aria-label="First run date"
+            <span className={labelClass}>At</span>
+            <Input
+              type="time"
+              value={timeValue}
+              onChange={(event) => {
+                const [hour, minute] = event.target.value.split(':').map(Number);
+                if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
+              }}
+              className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
+              aria-label="Time of day"
             />
           </div>
+        ) : (
           <div className={rowClass}>
-            <span className={labelClass}>Ends</span>
-            <input
-              type="date"
-              value={draft.ends || ''}
-              onChange={(event) => onChange({ ends: event.target.value || null })}
-              className={cn(chipClass, 'text-right', !draft.ends && 'text-neutral-400')}
-              aria-label="End date"
-            />
+            <span className={labelClass}>After</span>
+            <select
+              value={draft.onCompletionUnit}
+              onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
+              className={chipClass}
+              aria-label="Completion interval unit"
+            >
+              <option value="days">days</option>
+              <option value="weeks">weeks</option>
+              <option value="months">months</option>
+            </select>
           </div>
-          <div className={rowClass}>
-            <span className={labelClass}>Paused</span>
-            <Switch checked={paused} onCheckedChange={onPausedChange} className={switchClass} />
-          </div>
-        </section>
-      </details>
+        )}
+
+        <div className={rowClass}>
+          <span className={labelClass}>First run</span>
+          <Input
+            type="date"
+            value={draft.firstRun || ''}
+            onChange={(event) => onChange({ firstRun: event.target.value || null })}
+            className={cn(chipClass, 'text-right', !draft.firstRun && 'text-[var(--text-muted)]')}
+            aria-label="First run date"
+          />
+        </div>
+        <div className={rowClass}>
+          <span className={labelClass}>Ends</span>
+          <Input
+            type="date"
+            value={draft.ends || ''}
+            onChange={(event) => onChange({ ends: event.target.value || null })}
+            className={cn(chipClass, 'text-right', !draft.ends && 'text-[var(--text-muted)]')}
+            aria-label="End date"
+          />
+        </div>
+      </section>
     </div>
   );
 }
@@ -423,8 +411,7 @@ export function RoutineConfigureModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        overlayClassName="bg-black/55"
-        className="max-h-[calc(100vh-140px)] w-[1104px] max-w-[calc(100vw-96px)] gap-0 overflow-auto rounded-[12px] border border-neutral-200 bg-white p-0 text-neutral-950 shadow-2xl duration-150 motion-reduce:duration-0 [&>button]:hidden"
+        className="max-h-[calc(100vh-48px)] max-w-4xl gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -440,48 +427,40 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="px-7 pt-7">
-          <div className="flex items-start justify-between">
-            <div>
-              <DialogTitle className="text-[20px] font-medium leading-none tracking-[-0.015em] text-neutral-950">Configure routine</DialogTitle>
-              <p className="mt-2 text-[14px] text-neutral-500">
-                {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={requestClose}
-              aria-label="Close"
-              className="rounded-md p-1 text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
-            >
-              <X className="h-4 w-4" />
-            </button>
+        <div className="flex items-start justify-between px-6 pt-6">
+          <div>
+            <DialogTitle className="text-xl font-medium leading-tight tracking-normal">Configure routine</DialogTitle>
+            <DialogDescription className="mt-2 text-sm text-[var(--text-secondary)]">
+              {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
+            </DialogDescription>
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={requestClose}
+            aria-label="Close"
+            className="h-9 w-9 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+          >
+            <X />
+          </Button>
         </div>
 
-        <div className="mx-7 mt-5 flex h-[78px] items-center justify-between gap-4 rounded-[10px] border border-neutral-200 bg-white px-4 shadow-sm">
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[9px] bg-neutral-100 text-neutral-500">
-              {template ? <RoutineIcon name={template.icon} className="h-4 w-4" /> : <CalendarPlus className="h-4 w-4" />}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-[14px] font-medium text-neutral-950">{template ? template.title : 'Custom routine'}</span>
-              <span className="mt-1 block truncate text-[13px] text-neutral-500">{bannerSummary}</span>
-            </span>
+        <Card className="mx-6 mt-6 flex items-center gap-3 border-[var(--border-subtle)] bg-surface-panel px-4 py-3 shadow-none">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
+            {template ? <RoutineIcon name={template.icon} className="h-4 w-4" /> : <Repeat className="h-4 w-4" />}
           </span>
-          {template ? (
-            <span className="hidden shrink-0 items-center gap-2 text-[13px] font-medium text-neutral-700 sm:inline-flex">
-              <Repeat className="h-4 w-4" />
-              Change template
-            </span>
-          ) : null}
-        </div>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">{template ? template.title : 'Custom routine'}</span>
+            <span className="block truncate text-[13px] text-[var(--text-muted)]">{bannerSummary}</span>
+          </span>
+        </Card>
 
-        <div className="mt-6 grid grid-cols-1 gap-6 px-7 pb-6 md:grid-cols-[350px_1fr]">
-          <div className="space-y-6 md:border-r md:border-neutral-200 md:pr-6">
-            <div className="space-y-3">
-              <label htmlFor="routine-name" className={fieldLabelClass}>Name</label>
-              <input
+        <div className="grid grid-cols-1 gap-6 px-6 pb-6 pt-6 md:grid-cols-2">
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="routine-name">Name</Label>
+              <Input
                 id="routine-name"
                 autoFocus
                 value={state.name}
@@ -491,148 +470,107 @@ export function RoutineConfigureModal({
               />
             </div>
 
-            <div className="space-y-3">
-              <h3 className={fieldLabelClass}>Schedule</h3>
-              <ScheduleEditor
-                draft={state.draft}
-                paused={state.paused}
-                onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
-                onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
-              />
+            <ScheduleEditor
+              draft={state.draft}
+              paused={state.paused}
+              onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
+              onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
+            />
 
-              <p className="px-1 text-[12px] leading-5 text-neutral-400" aria-live="polite">
-                {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
-                Next: {state.paused
-                  ? 'paused'
-                  : preview.length
-                    ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
-                    : 'no upcoming runs'}
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className={fieldLabelClass}>Agent</h3>
-              <div className="grid h-10 grid-cols-3 gap-1 rounded-[9px] border border-neutral-200 bg-white p-1 shadow-sm">
-                {AGENT_TIERS.map((tier) => (
-                  <button
-                    key={tier.id}
-                    type="button"
-                    aria-pressed={state.agentTier === tier.id}
-                    onClick={() => setState({ ...state, agentTier: tier.id })}
-                    className={cn(
-                      'rounded-[7px] px-2 text-[13px] font-medium transition-colors',
-                      state.agentTier === tier.id
-                        ? 'bg-neutral-100 text-neutral-950'
-                        : 'text-neutral-500 hover:bg-neutral-50 hover:text-neutral-950',
-                    )}
-                  >
-                    {tier.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="px-1 text-[13px] leading-5 text-[var(--text-muted)]" aria-live="polite">
+              {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
+              Next: {state.paused
+                ? 'paused'
+                : preview.length
+                  ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
+                  : 'no upcoming runs'}
+            </p>
 
             <section className={groupClass}>
               <div className={rowClass}>
-                <span>
-                  <span className="block text-[14px] font-medium text-neutral-950">Notifications</span>
-                  <span className="mt-0.5 block text-[13px] text-neutral-500">Push when a new report is ready.</span>
-                </span>
-                <Switch
-                  checked={state.notifyPush}
-                  onCheckedChange={(notifyPush) => setState({ ...state, notifyPush })}
-                  className={switchClass}
-                />
+                <span className={labelClass}>Priority</span>
+                <select
+                  value={state.priority}
+                  onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
+                  className={chipClass}
+                  aria-label="Priority"
+                >
+                  {PRIORITIES.map((priority) => (
+                    <option key={priority.id} value={priority.id}>{priority.label}</option>
+                  ))}
+                </select>
               </div>
               <div className={rowClass}>
-                <span>
-                  <span className="block text-[14px] font-medium text-neutral-950">Email</span>
-                  <span className="mt-0.5 block text-[13px] text-neutral-500">Email me when a report is ready.</span>
+                <span className={labelClass}>Agent</span>
+                <span className="flex items-center gap-1.5">
+                  {AGENT_TIERS.map((tier) => (
+                    <Button
+                      key={tier.id}
+                      type="button"
+                      variant={state.agentTier === tier.id ? 'default' : 'secondary'}
+                      size="sm"
+                      aria-pressed={state.agentTier === tier.id}
+                      onClick={() => setState({ ...state, agentTier: tier.id })}
+                      className="h-8 rounded-control px-3 text-[13px]"
+                    >
+                      {tier.label}
+                    </Button>
+                  ))}
                 </span>
-                <Switch
-                  checked={state.notifyEmail}
-                  onCheckedChange={(notifyEmail) => setState({ ...state, notifyEmail })}
-                  className={switchClass}
-                />
               </div>
             </section>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-5">
-            <div className="space-y-3">
-              <label htmlFor="routine-instructions" className={fieldLabelClass}>Instructions</label>
-              <p className={fieldHintClass}>
-                Describe what you&rsquo;d like Ritual to gather, analyze, or summarize.
+          <div className="flex min-h-0 flex-col gap-5 md:border-l md:border-[var(--border-subtle)] md:pl-6">
+            <div className="space-y-2">
+              <Label htmlFor="routine-instructions">Instructions</Label>
+              <p className="text-[13px] leading-5 text-[var(--text-secondary)]">
+                Describe what you&rsquo;d like the AI to gather, analyze, or do.
               </p>
               <textarea
                 id="routine-instructions"
                 value={state.instructions}
                 onChange={(event) => setState({ ...state, instructions: event.target.value })}
-                placeholder="e.g. Create a well rounded report on my ongoing projects, todos, and goals"
-                className={cn(textareaClass, 'h-[360px]')}
+                placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
+                className={cn(textareaClass, 'min-h-56')}
               />
             </div>
 
-            <details className="group rounded-[9px] border border-neutral-200 bg-white shadow-sm">
-              <summary className="flex h-9 cursor-default list-none items-center justify-between px-3 text-[13px] font-medium text-neutral-500 transition hover:text-neutral-950 [&::-webkit-details-marker]:hidden">
-                Advanced details
-                <span className="text-neutral-400 transition group-open:rotate-180">v</span>
-              </summary>
-              <div className="space-y-4 border-t border-neutral-100 p-3">
-                <div className="flex min-h-8 items-center justify-between gap-4">
-                  <span className={labelClass}>Priority</span>
-                  <select
-                    value={state.priority}
-                    onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
-                    className={chipClass}
-                    aria-label="Priority"
-                  >
-                    {PRIORITIES.map((priority) => (
-                      <option key={priority.id} value={priority.id}>{priority.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="routine-notes" className={fieldLabelClass}>Notes</label>
-                  <textarea
-                    id="routine-notes"
-                    value={state.notes}
-                    onChange={(event) => setState({ ...state, notes: event.target.value })}
-                    placeholder="Optional notes"
-                    className={cn(textareaClass, 'h-[88px]')}
-                  />
-                </div>
-                <TagsField
-                  value={state.tags}
-                  onChange={(tags) => setState((current) => ({ ...current, tags }))}
-                />
-              </div>
-            </details>
+            <div className="space-y-2">
+              <Label htmlFor="routine-notes">Notes</Label>
+              <textarea
+                id="routine-notes"
+                value={state.notes}
+                onChange={(event) => setState({ ...state, notes: event.target.value })}
+                placeholder="Optional notes"
+                className={cn(textareaClass, 'min-h-28')}
+              />
+            </div>
+
+            <TagsField
+              value={state.tags}
+              onChange={(tags) => setState((current) => ({ ...current, tags }))}
+            />
           </div>
         </div>
 
-        <div className="sticky bottom-0 flex h-[72px] items-center gap-3 border-t border-neutral-200 bg-white px-7">
-          <button
+        <Separator className="bg-[var(--border-subtle)]" />
+        <div className="sticky bottom-0 flex items-center justify-end gap-3 bg-background/95 px-6 py-4 backdrop-blur">
+          <Button
             type="button"
+            variant="outline"
             onClick={requestClose}
-            className="inline-flex h-10 items-center rounded-[9px] px-4 text-[14px] text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-950"
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={submit}
             disabled={!canSubmit}
-            className={cn(
-              'inline-flex h-10 min-w-[150px] items-center justify-center gap-2 rounded-[9px] px-8 text-[14px] font-medium transition',
-              canSubmit
-                ? 'bg-neutral-950 text-white hover:bg-neutral-800'
-                : 'bg-neutral-300 text-neutral-500',
-            )}
           >
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {submitting ? <Loader2 className="animate-spin" /> : null}
             {mode === 'create' ? 'Create routine' : 'Save routine'}
-          </button>
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

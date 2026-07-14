@@ -4,8 +4,11 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Button } from '@ritual/ui/button';
+import { Card, CardFooter } from '@ritual/ui/card';
+import { cn } from '@ritual/ui/cn';
+import { Separator } from '@ritual/ui/separator';
 import {
-  CalendarPlus,
   Copy,
   LayoutGrid,
   List,
@@ -13,6 +16,7 @@ import {
   MoreHorizontal,
   Pause,
   Play,
+  Plus,
   Repeat2,
   Trash2,
 } from 'lucide-react';
@@ -48,14 +52,13 @@ import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
 import { formatAgo, formatUpcoming, useNow } from '@/lib/routines/time';
-import { ReferencePage } from '@/lib/tasks/reference-task-shell';
+import { ROUTINE_STATUS_COLORS } from '@/lib/routines/ui';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinitionListResponse,
   WorkflowRun,
   WorkflowRunListResponse,
 } from '@/lib/workflows/types';
-import { cn } from '@/lib/utils';
 
 import {
   RoutineConfigureModal,
@@ -93,11 +96,20 @@ function routineTaskTemplate(name: string, state: RoutineConfigureState, existin
 }
 
 function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now: Date }) {
-  if (!lastRun) return <span className="h-2 w-2 rounded-full bg-[#3d7d58]" aria-label="No runs yet" />;
+  if (!lastRun) {
+    return (
+      <span
+        className="h-2 w-2 rounded-full"
+        style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral, opacity: 0.55 }}
+        aria-label="No runs yet"
+      />
+    );
+  }
   if (lastRun.status === 'queued' || lastRun.status === 'running') {
     return (
       <span
-        className="routine-running-dot h-2 w-2 rounded-full bg-[#8c8c8c]"
+        className="routine-running-dot h-2 w-2 rounded-full"
+        style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral }}
         title={lastRun.status === 'queued' ? 'Queued' : 'Running'}
       />
     );
@@ -105,7 +117,8 @@ function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now
   const failed = lastRun.status === 'failed';
   return (
     <span
-      className={cn('h-2 w-2 rounded-full', failed ? 'bg-[#b3261e]' : 'bg-[#3d7d58]')}
+      className="h-2 w-2 rounded-full"
+      style={{ backgroundColor: failed ? ROUTINE_STATUS_COLORS.failure : ROUTINE_STATUS_COLORS.success }}
       title={`${failed ? 'Failed' : 'Ran'} ${formatAgo(lastRun.finishedAt || lastRun.occurredAt, now)}`}
     />
   );
@@ -131,24 +144,30 @@ function RoutineActions({
   const paused = item.routine.status === 'paused';
   return (
     <span className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
-      <button
+      <Button
         type="button"
-        title={running ? 'Already running' : 'Run now'}
+        variant="ghost"
+        size="icon"
+        aria-label={running ? 'Routine is already running' : 'Run now'}
+        title={running ? 'Routine is already running' : 'Run now'}
         disabled={running || !item.routine.ai_workflow_definition_id}
         onClick={() => onRunNow(item)}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950 disabled:opacity-40"
+        className="h-8 w-8 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
       >
-        {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-      </button>
+        {running ? <Loader2 className="animate-spin" /> : <Play />}
+      </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
+            aria-label="More routine actions"
             title="More"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-[7px] text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-950"
+            className="h-8 w-8 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
           >
-            <MoreHorizontal className="h-4 w-4" />
-          </button>
+            <MoreHorizontal />
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onClick={() => onEdit(item)}>Edit</DropdownMenuItem>
@@ -161,7 +180,7 @@ function RoutineActions({
             Duplicate
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-[#b3261e] focus:text-[#b3261e]" onClick={() => onDelete(item)}>
+          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(item)}>
             <Trash2 className="mr-2 h-3.5 w-3.5" />
             Delete
           </DropdownMenuItem>
@@ -202,24 +221,29 @@ function RoutineListRow({
   const nextLabel = paused ? '' : formatUpcoming(routine.next_run_at, now);
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(item)}
+    <div
       className={cn(
-        'group grid min-h-[52px] w-full grid-cols-[22px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-[8px] px-3 text-left transition',
-        selected ? 'bg-neutral-100' : 'hover:bg-neutral-50',
+        'group grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-row transition-colors',
+        selected ? 'bg-surface-panel' : 'hover:bg-[var(--row-hover)]',
         paused && 'opacity-55',
       )}
     >
-      <Repeat2 className="h-4 w-4 text-neutral-500" />
-      <span className="min-w-0">
-        <span className="block truncate text-[14px] font-medium leading-5 text-neutral-950">{routine.title}</span>
-        <span className="mt-0.5 block truncate text-[13px] font-normal text-neutral-500">
-          {scheduleSummary}
-          {nextLabel ? ` · Next ${nextLabel}` : ''}
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => onSelect(item)}
+        className="grid h-auto min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-center justify-start gap-3 whitespace-normal rounded-row px-3 py-2 text-left hover:bg-transparent"
+      >
+        <Repeat2 className="h-4 w-4 text-[var(--icon-muted)]" />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-[var(--text-primary)]">{routine.title}</span>
+          <span className="mt-0.5 block truncate text-[13px] text-[var(--text-muted)]">
+            {scheduleSummary}
+            {nextLabel ? ` · Next ${nextLabel}` : ''}
+          </span>
         </span>
-      </span>
-      <LastRunDot lastRun={lastRun} now={now} />
+        <LastRunDot lastRun={lastRun} now={now} />
+      </Button>
       <RoutineActions
         item={item}
         running={running}
@@ -229,7 +253,7 @@ function RoutineListRow({
         onDuplicate={onDuplicate}
         onDelete={onDelete}
       />
-    </button>
+    </div>
   );
 }
 
@@ -261,36 +285,44 @@ function RoutineCard({
   const { routine, agent } = item;
   const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(item)}
+    <Card
       className={cn(
-        'flex min-h-[176px] flex-col rounded-[14px] border bg-white p-6 text-left transition-colors hover:border-neutral-300',
-        selected ? 'border-neutral-950' : 'border-neutral-200',
+        'flex min-h-40 flex-col border-[var(--border-subtle)] shadow-none transition-colors hover:bg-surface-panel',
+        selected && 'border-primary',
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-[16px] font-medium leading-6 tracking-[-0.01em] text-neutral-950">{routine.title}</div>
-          <p className="mt-3 line-clamp-2 text-[14px] leading-6 text-neutral-500">
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={() => onSelect(item)}
+        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-5 text-left hover:bg-transparent focus-visible:ring-inset"
+      >
+        <span className="min-w-0">
+          <span className="block truncate text-base font-medium text-[var(--text-primary)]">{routine.title}</span>
+          <span className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--text-secondary)]">
             {agent.instructions || routine.description || 'No instructions set.'}
-          </p>
+          </span>
+        </span>
+        <span className="pt-1">
+          <LastRunDot lastRun={lastRun} now={now} />
+        </span>
+      </Button>
+      <Separator className="bg-[var(--border-subtle)]" />
+      <CardFooter className="justify-between gap-3 p-4">
+        <span className="min-w-0 truncate text-[13px] text-[var(--text-muted)]">{scheduleSummary}</span>
+        <div>
+          <RoutineActions
+            item={item}
+            running={running}
+            onRunNow={onRunNow}
+            onTogglePause={onTogglePause}
+            onEdit={onEdit}
+            onDuplicate={onDuplicate}
+            onDelete={onDelete}
+          />
         </div>
-        <LastRunDot lastRun={lastRun} now={now} />
-      </div>
-      <div className="mt-auto flex items-center justify-between gap-3 border-t border-neutral-100 pt-4">
-        <span className="min-w-0 truncate text-[13px] text-neutral-500">{scheduleSummary}</span>
-        <RoutineActions
-          item={item}
-          running={running}
-          onRunNow={onRunNow}
-          onTogglePause={onTogglePause}
-          onEdit={onEdit}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-        />
-      </div>
-    </button>
+      </CardFooter>
+    </Card>
   );
 }
 
@@ -623,60 +655,65 @@ export function RoutinesClient() {
   const hasRoutines = routines.length > 0;
 
   return (
-    <ReferencePage className="bg-white text-neutral-950">
-      <div className="relative h-full min-h-0 overflow-auto bg-white">
-        <main className="mx-auto flex w-full max-w-[980px] flex-col px-8 pb-16 pt-16">
-          <header className="mb-7 flex items-center justify-between gap-4">
-            <h1 className="text-[24px] font-medium leading-none tracking-[-0.02em] text-neutral-950">Routines</h1>
-            <div className="flex items-center gap-3">
-              {hasRoutines ? (
-                <div className="flex h-9 items-center rounded-[8px] border border-neutral-200 bg-white p-[3px] shadow-sm">
-                  <button
-                    type="button"
-                    aria-label="List view"
-                    onClick={() => setViewMode('list')}
-                    className={cn(
-                      'inline-flex h-7 w-7 items-center justify-center rounded-[6px] transition',
-                      viewMode === 'list' ? 'bg-neutral-100 text-neutral-950' : 'text-neutral-500 hover:text-neutral-950',
-                    )}
-                  >
-                    <List className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label="Card view"
-                    onClick={() => setViewMode('card')}
-                    className={cn(
-                      'inline-flex h-7 w-7 items-center justify-center rounded-[6px] transition',
-                      viewMode === 'card' ? 'bg-neutral-100 text-neutral-950' : 'text-neutral-500 hover:text-neutral-950',
-                    )}
-                  >
-                    <LayoutGrid className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : null}
-              <button
-                type="button"
-                title="New routine (⌘N)"
-                disabled={submitModalMutation.isPending}
-                onClick={() => openCreateModal()}
-                className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-neutral-950 px-4 text-[14px] font-medium text-white shadow-sm transition hover:bg-neutral-800 disabled:opacity-40"
-              >
-                <CalendarPlus className="h-4 w-4" strokeWidth={1.9} />
-                New routine
-              </button>
-            </div>
-          </header>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-content text-[var(--text-primary)]">
+      <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
+          <h1 className="text-2xl font-medium leading-tight">Routines</h1>
+          <div className="flex items-center gap-3">
+            {hasRoutines ? (
+              <div className="flex items-center rounded-row bg-surface-panel p-1" role="group" aria-label="Routine view">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="List view"
+                  aria-pressed={viewMode === 'list'}
+                  onClick={() => setViewMode('list')}
+                  className={cn(
+                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
+                    viewMode === 'list' && 'bg-background text-[var(--text-primary)] shadow-sm',
+                  )}
+                >
+                  <List />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Card view"
+                  aria-pressed={viewMode === 'card'}
+                  onClick={() => setViewMode('card')}
+                  className={cn(
+                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
+                    viewMode === 'card' && 'bg-background text-[var(--text-primary)] shadow-sm',
+                  )}
+                >
+                  <LayoutGrid />
+                </Button>
+              </div>
+            ) : null}
+            <Button
+              type="button"
+              title="New routine (⌘N)"
+              disabled={submitModalMutation.isPending}
+              onClick={() => openCreateModal()}
+            >
+              <Plus />
+              New routine
+            </Button>
+          </div>
+        </header>
 
+        <main className="mx-auto max-w-6xl px-8 pb-12 pt-8">
           {routinesQuery.isLoading ? (
-            <div className="space-y-4">
+            <div className="mx-auto max-w-4xl space-y-3">
               {[0, 1, 2, 3].map((item) => (
-                <div key={item} className="h-[64px] animate-pulse rounded-[12px] border border-neutral-200 bg-white" />
+                <div key={item} className="h-16 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
               ))}
             </div>
           ) : !hasRoutines ? (
-            <div>
-              <RoutinesEmptyHero />
+            <div className="mx-auto max-w-4xl space-y-8">
+              <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
               <TemplateLibrary
                 installedTemplateKeys={installedTemplateKeys}
                 onSetUp={(template) => openCreateModal(template.id)}
@@ -702,7 +739,7 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : (
-            <div className="space-y-1 rounded-[14px] border border-neutral-200 bg-white p-2">
+            <div className="mx-auto max-w-3xl space-y-1">
               {sortedRoutines.map((item) => (
                 <RoutineListRow
                   key={item.routine.id}
@@ -733,6 +770,6 @@ export function RoutinesClient() {
         onClose={() => setModal(closedModal())}
         onSubmit={(state) => submitModalMutation.mutate({ state, editing: modal.editing })}
       />
-    </ReferencePage>
+    </div>
   );
 }
