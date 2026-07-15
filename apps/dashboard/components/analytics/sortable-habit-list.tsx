@@ -171,15 +171,15 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
   };
 
   const rowBackgroundClass = isContextSelected
-    ? 'bg-[#f6f6f5]'
-    : 'bg-[var(--content-bg)] hover:bg-[#f6f6f5]';
+    ? 'bg-[var(--row-active)]'
+    : 'bg-[var(--content-bg)] hover:bg-[var(--row-hover)]';
 
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] rounded-[6px] px-1 py-0 ${rowBackgroundClass} cursor-grab active:cursor-grabbing ${
+        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[var(--sidebar-row-height)] rounded-[var(--sidebar-row-radius)] px-1.5 py-0 ${rowBackgroundClass} cursor-grab active:cursor-grabbing ${
           isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
         }`}
         {...attributes}

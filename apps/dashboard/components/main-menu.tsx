@@ -164,7 +164,7 @@ const ChildItem = ({
         {/* Child item text */}
         <div
           className={cn(
-            "h-[32px] flex items-center",
+            "h-[var(--sidebar-row-height)] flex items-center",
             "border-l border-[var(--border-muted)] pl-3",
             "transition-all duration-200 ease-standard",
             showChild
