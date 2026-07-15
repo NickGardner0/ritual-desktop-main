@@ -118,6 +118,12 @@ export function Sidebar() {
       }}
       {...hoverProps}
     >
+      <div
+        data-tauri-drag-region
+        aria-hidden="true"
+        className="tauri-drag-region absolute inset-x-0 top-0 z-[1] h-12"
+      />
+
       {/* Main Navigation — top padding starts below the global titlebar row. */}
       <div className="flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
