@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   FlaskConical,
   Plug2,
@@ -16,6 +16,7 @@ import {
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
+import { SidebarExperiments } from "@/components/sidebar-experiments";
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -155,7 +156,7 @@ const ChildItem = ({
     >
       <div
         className={cn(
-          "ritual-snappy-row group/child relative ml-[35px] mr-[15px] rounded-sm",
+          "ritual-snappy-row group/child relative ml-[35px] mr-[15px] rounded-[var(--sidebar-row-radius)]",
           isActive && "bg-[var(--row-active)]",
         )}
       >
@@ -366,17 +367,19 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
             );
 
             return (
-              <Item
-                key={item.path}
-                item={item}
-                isActive={isActive}
-                isExpanded={isExpanded}
-                isItemExpanded={expandedItem === item.path}
-                onToggle={(path) => {
-                  setExpandedItem(expandedItem === path ? null : path);
-                }}
-                onSelect={onSelect}
-              />
+              <Fragment key={item.path}>
+                <Item
+                  item={item}
+                  isActive={isActive}
+                  isExpanded={isExpanded}
+                  isItemExpanded={expandedItem === item.path}
+                  onToggle={(path) => {
+                    setExpandedItem(expandedItem === path ? null : path);
+                  }}
+                  onSelect={onSelect}
+                />
+                {isExpanded && item.path === "/experiments" ? <SidebarExperiments /> : null}
+              </Fragment>
             );
           })}
         </NavList>

@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { startTransition, useState, useRef, useCallback, useEffect } from "react";
 import { MainMenu } from "./main-menu";
 import { SidebarAccountMenu } from "./sidebar-account-menu";
-import { SidebarExperiments } from "./sidebar-experiments";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PanelLeft } from "lucide-react";
@@ -178,7 +177,6 @@ export function Sidebar() {
         <MainMenu
           isExpanded={isExpanded}
         />
-        {isExpanded ? <SidebarExperiments /> : null}
       </div>
 
       <div className="no-drag flex w-full flex-col items-stretch px-[15px]">

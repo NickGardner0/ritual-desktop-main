@@ -16,19 +16,10 @@ export function SidebarExperiments() {
   });
 
   return (
-    <section className="mt-5 w-full px-[15px]" aria-labelledby="sidebar-experiments-heading">
-      <div className="mb-1 flex h-7 items-center pl-10 pr-2">
-        <h2
-          id="sidebar-experiments-heading"
-          className="truncate text-xs font-medium text-[var(--sidebar-nav-active)]"
-        >
-          Experiments
-        </h2>
-      </div>
-
+    <section className="flex w-full flex-col gap-1 px-[15px]" aria-label="Experiment shortcuts">
       <Link
         href="/experiments?new=1"
-        className="group/sidebar-experiment relative flex h-[30px] items-center rounded-[var(--radius-row)] hover:bg-[var(--row-hover)]"
+        className="group/sidebar-experiment relative flex h-[30px] items-center rounded-[var(--sidebar-row-radius)] hover:bg-[var(--row-hover)]"
       >
         <span className="flex w-10 shrink-0 items-center justify-center text-[var(--sidebar-nav-foreground)] group-hover/sidebar-experiment:text-[var(--sidebar-nav-active)]">
           <Plus className="h-[17px] w-[17px]" strokeWidth={2} />
@@ -45,7 +36,7 @@ export function SidebarExperiments() {
           <Link
             key={experiment.id}
             href={href}
-            className="group/sidebar-experiment relative flex h-[30px] items-center rounded-[var(--radius-row)] hover:bg-[var(--row-hover)]"
+            className="group/sidebar-experiment relative flex h-[30px] items-center rounded-[var(--sidebar-row-radius)] hover:bg-[var(--row-hover)]"
             aria-current={active ? "page" : undefined}
           >
             <span className="flex w-10 shrink-0 items-center justify-center text-[var(--sidebar-nav-foreground)] group-hover/sidebar-experiment:text-[var(--sidebar-nav-active)]">

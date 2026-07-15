@@ -368,6 +368,7 @@ body[data-voice-hud-window="1"] {
   --sidebar-nav-active: #111111;
   --radius-control: 0.125rem;
   --radius-row: 0.25rem;
+  --sidebar-row-radius: 0.5rem;
   --titlebar-height: 37px;
   --sidebar-row-height: 30px;
   --sidebar-row-gap: 9px;
@@ -570,7 +571,7 @@ body[data-voice-hud-window="1"] {
 
   .ritual-nav-row-surface {
     height: var(--sidebar-row-height);
-    border-radius: var(--radius-row);
+    border-radius: var(--sidebar-row-radius);
     transition: none;
   }
 
