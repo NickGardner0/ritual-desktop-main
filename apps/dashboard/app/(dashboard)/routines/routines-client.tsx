@@ -288,7 +288,7 @@ function RoutineCard({
     <Card
       density="compact"
       className={cn(
-        'flex min-h-32 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel',
+        'flex min-h-32 flex-col border-border/70 transition-colors hover:bg-surface-panel',
         selected && 'border-[var(--text-primary)]',
       )}
     >
@@ -718,13 +718,15 @@ export function RoutinesClient() {
           ) : !hasRoutines ? (
             <div className="mx-auto max-w-4xl space-y-5">
               <RoutinesEmptyHero />
-              <TemplateLibrary
-                installedTemplateKeys={installedTemplateKeys}
-                onSetUp={(template) => openCreateModal(template.id)}
-              />
+              <div className="mx-auto w-full max-w-3xl">
+                <TemplateLibrary
+                  installedTemplateKeys={installedTemplateKeys}
+                  onSetUp={(template) => openCreateModal(template.id)}
+                />
+              </div>
             </div>
           ) : viewMode === 'card' ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 lg:grid-cols-2">
               {sortedRoutines.map((item) => (
                 <RoutineCard
                   key={item.routine.id}

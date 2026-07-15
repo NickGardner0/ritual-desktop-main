@@ -52,7 +52,7 @@ export function TemplateCard({
   installed?: boolean;
 }) {
   return (
-    <Card density="compact" className="flex min-h-32 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel">
+    <Card density="compact" className="flex min-h-32 flex-col border-border/70 transition-colors hover:bg-surface-panel">
       <CardHeader className="pb-2.5">
         <CardTitle className="truncate text-sm font-normal leading-5 text-[var(--text-primary)]">
           {template.title}

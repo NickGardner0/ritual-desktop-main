@@ -17,9 +17,9 @@ function RoutinesLoading() {
       </div>
       <div className="mx-auto max-w-4xl space-y-6">
         <div className="h-52 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mx-auto grid max-w-3xl grid-cols-1 gap-4 lg:grid-cols-2">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-32 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
+            <div key={item} className="h-32 animate-pulse rounded-lg border border-border/70 bg-surface-panel" />
           ))}
         </div>
       </div>

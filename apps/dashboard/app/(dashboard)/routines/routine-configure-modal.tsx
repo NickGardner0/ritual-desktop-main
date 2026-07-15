@@ -70,7 +70,7 @@ export function configureStateFromTemplate(template: RoutineTemplate | null): Ro
     tags: [],
     priority: 'none',
     paused: false,
-    agentTier: 'regular',
+    agentTier: template.agentTier || 'regular',
     notifyPush: true,
     notifyEmail: false,
     icon: template.icon,
@@ -431,7 +431,7 @@ export function RoutineConfigureModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        className="max-h-[calc(100vh-48px)] max-w-[820px] gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
+        className="max-h-[min(640px,calc(100vh-48px))] max-w-[920px] gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -447,10 +447,10 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-5 pt-4">
+        <div className="flex items-start justify-between px-4 pt-3">
           <div>
-            <DialogTitle className="text-lg font-normal leading-6 tracking-normal">Configure routine</DialogTitle>
-            <DialogDescription className="mt-1.5 text-[13px] text-[var(--text-secondary)]">
+            <DialogTitle className="text-base font-normal leading-5 tracking-normal">Configure routine</DialogTitle>
+            <DialogDescription className="mt-1 text-xs text-[var(--text-secondary)]">
               {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
             </DialogDescription>
           </div>
@@ -466,8 +466,8 @@ export function RoutineConfigureModal({
           </Button>
         </div>
 
-        <Card density="compact" className="mx-5 mt-4 flex items-center gap-2.5 border-[var(--border-subtle)] bg-surface-panel px-3 py-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
+        <Card density="compact" className="mx-4 mt-3 flex items-center gap-2.5 border-border/70 bg-surface-panel px-3 py-1.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
             {template ? <RoutineIcon name={template.icon} className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
           </span>
           <span className="min-w-0">
@@ -476,7 +476,7 @@ export function RoutineConfigureModal({
           </span>
         </Card>
 
-        <div className="grid grid-cols-1 gap-4 px-5 pb-4 pt-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 px-4 pb-3 pt-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <div className="space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="routine-name" className={fieldLabelClass}>Name</Label>
@@ -548,7 +548,7 @@ export function RoutineConfigureModal({
             </section>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-3 md:border-l md:border-[var(--border-subtle)] md:pl-4">
+          <div className="flex min-h-0 flex-col gap-2.5 md:border-l md:border-[var(--border-subtle)] md:pl-3">
             <div className="space-y-1.5">
               <Label htmlFor="routine-instructions" className={fieldLabelClass}>Instructions</Label>
               <p className="text-[13px] leading-5 text-[var(--text-secondary)]">
@@ -559,7 +559,7 @@ export function RoutineConfigureModal({
                 value={state.instructions}
                 onChange={(event) => setState({ ...state, instructions: event.target.value })}
                 placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-                className={cn(textareaClass, 'min-h-48')}
+                className={cn(textareaClass, 'min-h-36')}
               />
             </div>
 
@@ -570,7 +570,7 @@ export function RoutineConfigureModal({
                 value={state.notes}
                 onChange={(event) => setState({ ...state, notes: event.target.value })}
                 placeholder="Optional notes"
-                className={cn(textareaClass, 'min-h-24')}
+                className={cn(textareaClass, 'min-h-16')}
               />
             </div>
 
@@ -582,7 +582,7 @@ export function RoutineConfigureModal({
         </div>
 
         <Separator className="bg-[var(--border-subtle)]" />
-        <div className="sticky bottom-0 flex items-center justify-end gap-2 bg-background/95 px-5 py-3 backdrop-blur">
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 bg-background/95 px-4 py-2.5 backdrop-blur">
           <Button
             type="button"
             variant="outline"
