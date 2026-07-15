@@ -1851,14 +1851,14 @@ body[data-voice-hud-window="1"] {
   --ritual-selected-font-family: var(--ritual-font-fk);
 
   /* Post-signup Perplexity-style onboarding (scoped via .px-onboarding) */
-  --px-onboarding-stage: #5c5c5c;
-  --px-onboarding-cream: #f9f8f3;
-  --px-onboarding-ink: #1a1a1a;
-  --px-onboarding-muted: #737373;
-  --px-onboarding-border: #e5e5e5;
-  --px-onboarding-chip: #ffffff;
-  --px-onboarding-chip-hover: #f0efea;
-  --px-onboarding-recessed: #f2f1eb;
+  --px-onboarding-stage: #858482;
+  --px-onboarding-cream: #fbfaf8;
+  --px-onboarding-ink: #292720;
+  --px-onboarding-muted: #777570;
+  --px-onboarding-border: #e5e1db;
+  --px-onboarding-chip: #fbfaf8;
+  --px-onboarding-chip-hover: #eeebe6;
+  --px-onboarding-recessed: #f3f2ee;
   --px-onboarding-serif: var(--font-onboarding-serif), 'Newsreader', Georgia, 'Times New Roman', serif;
 }
 
@@ -1874,8 +1874,8 @@ html body .font-gt-standard .px-onboarding .px-onboarding-title,
 html body .font-geist-sans .px-onboarding .px-onboarding-title,
 html body .font-system-ui .px-onboarding .px-onboarding-title {
   font-family: var(--px-onboarding-serif) !important;
-  font-weight: 500;
-  letter-spacing: -0.01em;
+  font-weight: 400;
+  letter-spacing: -0.015em;
   color: var(--px-onboarding-ink);
 }
 

@@ -70,7 +70,7 @@ export function TasksStep({
         subtitle="Choose a few to get started."
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-6">
         <div className="grid grid-cols-2 gap-2.5">
           {TASKS.map((item) => {
             const Icon = item.icon
@@ -80,7 +80,7 @@ export function TasksStep({
                 label={item.label}
                 selected={selected.has(item.id)}
                 onClick={() => toggle(item.id)}
-                icon={<Icon className="h-4 w-4" strokeWidth={1.75} />}
+                icon={<Icon className="h-[18px] w-[18px]" strokeWidth={1.65} />}
               />
             )
           })}

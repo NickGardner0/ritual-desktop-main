@@ -63,18 +63,18 @@ export function AppsStep({
         subtitle="Connecting your apps helps Computer do more for you."
       />
 
-      <div className="min-h-0 flex-1 px-6 pt-5">
-        <label className="flex h-11 items-center gap-2.5 rounded-[12px] border border-[var(--px-onboarding-border)] bg-white px-3.5">
-          <Search className="h-4 w-4 shrink-0 text-[#9a9a95]" strokeWidth={1.8} />
+      <div className="min-h-0 flex-1 px-8 pt-5">
+        <label className="flex h-10 items-center gap-2.5 rounded-[8px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5">
+          <Search className="h-[18px] w-[18px] shrink-0 text-[#85827d]" strokeWidth={1.7} />
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search 400+ apps"
-            className="w-full bg-transparent text-[13px] text-[var(--px-onboarding-ink)] outline-none placeholder:text-[#b0b0ab]"
+            className="w-full bg-transparent text-[15px] text-[var(--px-onboarding-ink)] outline-none placeholder:text-[#a4a19b]"
           />
         </label>
 
-        <div className="mt-3.5 max-h-[340px] overflow-y-auto pb-1">
+        <div className="mt-4 max-h-[410px] overflow-y-auto pb-1">
           <div className="grid grid-cols-2 gap-2.5">
             {filtered.map((app) => {
               const isSelected = selected.has(app.id)
@@ -84,10 +84,10 @@ export function AppsStep({
                   type="button"
                   onClick={() => toggle(app.id)}
                   className={cn(
-                    "flex h-11 items-center gap-2.5 rounded-[10px] border px-3 text-left text-[13px] font-medium transition-colors duration-100",
+                    "flex h-[42px] items-center gap-3 rounded-[8px] border px-3 text-left text-[15px] font-normal transition-colors duration-100",
                     isSelected
-                      ? "border-[#d8d7d1] bg-[var(--px-onboarding-chip-hover)]"
-                      : "border-[var(--px-onboarding-border)] bg-white hover:bg-[var(--px-onboarding-chip-hover)]",
+                      ? "border-[#d7d3cc] bg-[var(--px-onboarding-chip-hover)]"
+                      : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] hover:bg-[var(--px-onboarding-chip-hover)]",
                   )}
                 >
                   <span

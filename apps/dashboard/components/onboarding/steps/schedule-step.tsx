@@ -32,8 +32,8 @@ export function ScheduleStep({
         subtitle="Schedule recurring tasks on any cadence. Computer runs in the background and produces finished deliverables."
       />
 
-      <div className="flex min-h-0 flex-1 items-center px-6 py-4">
-        <div className="relative h-[280px] w-full overflow-hidden rounded-[18px] bg-[var(--px-onboarding-recessed)] px-4 py-5">
+      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-6">
+        <div className="relative h-full max-h-[444px] w-full overflow-hidden rounded-[16px] border border-[var(--px-onboarding-border)] bg-[linear-gradient(145deg,#f4f2ee_0%,#edf3f1_100%)] px-12 py-5">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10"
             style={{
@@ -54,19 +54,19 @@ export function ScheduleStep({
               return (
                 <div
                   key={task.title}
-                  className="flex items-center gap-3 rounded-[12px] border border-[var(--px-onboarding-border)] bg-white px-3.5 py-2.5 shadow-[0_8px_20px_rgba(0,0,0,0.04)]"
+                  className="flex min-h-[64px] items-center gap-3 rounded-[12px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5 py-2.5 shadow-[0_8px_20px_rgba(0,0,0,0.045)]"
                   style={{ opacity: faded ? 0.4 : 1 }}
                 >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-[var(--px-onboarding-border)] bg-[#fafaf8] text-[var(--px-onboarding-ink)]">
-                    <Clock3 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f1efeb] text-[var(--px-onboarding-muted)]">
+                    <Clock3 className="h-[18px] w-[18px]" strokeWidth={1.7} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-semibold text-[var(--px-onboarding-ink)]">
+                    <p className="truncate text-[15px] font-normal text-[var(--px-onboarding-ink)]">
                       {task.title}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5 text-[11.5px] text-[var(--px-onboarding-muted)]">
-                    <RefreshCw className="h-3 w-3" strokeWidth={1.8} />
+                  <div className="flex shrink-0 items-center gap-1.5 text-[13px] text-[var(--px-onboarding-muted)]">
+                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
                     <span>{task.cadence}</span>
                   </div>
                 </div>

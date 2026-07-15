@@ -16,8 +16,7 @@ export function IntroStep({
 }) {
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
-      <div className="relative h-[56%] min-h-[300px] shrink-0 overflow-hidden">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
+      <div className="relative h-[72.35%] min-h-[300px] max-h-[492px] shrink-0 overflow-hidden">
         <img
           src="/onboarding/intro-hero.png"
           alt=""
@@ -27,14 +26,14 @@ export function IntroStep({
           className="pointer-events-none absolute inset-x-0 bottom-0 h-32"
           style={{
             background:
-              "linear-gradient(to bottom, rgba(249,248,243,0) 0%, rgba(249,248,243,0.72) 55%, var(--px-onboarding-cream) 100%)",
+              "linear-gradient(to bottom, rgba(251,250,248,0) 0%, rgba(251,250,248,0.76) 55%, var(--px-onboarding-cream) 100%)",
           }}
         />
       </div>
 
       <div className="flex flex-1 flex-col px-8 pt-2 text-center">
-        <h1 className="px-onboarding-title text-[28px] leading-[1.2]">Welcome to Perplexity Pro</h1>
-        <p className="mx-auto mt-3 max-w-[340px] text-[14px] leading-[1.45] text-[var(--px-onboarding-muted)]">
+        <h1 className="px-onboarding-title text-[24px] leading-[1.2]">Welcome to Perplexity Pro</h1>
+        <p className="mx-auto mt-3 max-w-[390px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">
           You&apos;ve unlocked access to Computer, your always-on teammate that works for you.
         </p>
       </div>

@@ -24,23 +24,23 @@ export function ProductDemoStep({
         subtitle="Computer orchestrates AI agents that research, build and ship finished projects end to end."
       />
 
-      <div className="flex min-h-0 flex-1 items-center justify-center px-6 py-4">
-        <div className="relative flex h-full max-h-[340px] w-full flex-col items-center justify-center rounded-[18px] bg-[var(--px-onboarding-recessed)] px-5 pb-10 pt-8">
-          <div className="w-full max-w-[340px] rounded-[16px] border border-[var(--px-onboarding-border)] bg-white p-4 shadow-[0_16px_40px_rgba(0,0,0,0.08)]">
-            <p className="text-[14px] text-[#b0b0ab]">What can I take off your plate?</p>
-            <div className="mt-4 flex items-center gap-2 rounded-full border border-[var(--px-onboarding-border)] bg-[#fafaf8] px-2.5 py-1.5">
-              <Search className="h-3.5 w-3.5 shrink-0 text-[#9a9a95]" strokeWidth={1.8} />
-              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--px-onboarding-border)] bg-white px-2 py-0.5 text-[11px] font-medium text-[var(--px-onboarding-ink)]">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-6">
+        <div className="relative flex h-full max-h-[444px] w-full flex-col items-center justify-center rounded-[16px] border border-[var(--px-onboarding-border)] bg-[linear-gradient(145deg,#eef4f2_0%,#f4f2ee_62%,#f3f1ed_100%)] px-5 pb-10 pt-8">
+          <div className="w-full max-w-[320px] rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] p-4 shadow-[0_16px_34px_rgba(0,0,0,0.10)]">
+            <p className="text-[15px] text-[#99968f]">What can I take off your plate?</p>
+            <div className="mt-4 flex items-center gap-2 rounded-full border border-[var(--px-onboarding-border)] bg-[#f7f5f2] px-2.5 py-1.5">
+              <Search className="h-4 w-4 shrink-0 text-[#87857f]" strokeWidth={1.7} />
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-2.5 py-1 text-[13px] font-normal text-[var(--px-onboarding-ink)]">
                 <Monitor className="h-3 w-3" strokeWidth={1.8} />
                 Computer
               </span>
-              <span className="ml-auto grid h-7 w-7 place-items-center rounded-full bg-[#005F5F] text-white">
-                <ArrowUp className="h-3.5 w-3.5" strokeWidth={2.2} />
+              <span className="ml-auto grid h-8 w-8 place-items-center rounded-full bg-[#087d82] text-white">
+                <ArrowUp className="h-4 w-4" strokeWidth={2} />
               </span>
             </div>
           </div>
-          <p className="mt-5 flex items-center justify-center gap-1.5 text-[13px] font-medium text-[#005F5F]">
-            <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+          <p className="mt-5 flex items-center justify-center gap-2 text-[15px] font-normal text-[#168895]">
+            <Sparkles className="h-4 w-4" strokeWidth={1.7} />
             Draft replies to my support emails daily.
           </p>
         </div>
