@@ -85,7 +85,7 @@ export function SidebarAccountMenu({
             className="ritual-nav-icon absolute left-0 top-1/2 flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center"
             data-collapsed={!isExpanded ? "true" : undefined}
           >
-            <Settings className="h-[18px] w-[18px]" strokeWidth={2} />
+            <Settings className="relative h-[18px] w-[18px] -translate-y-px" strokeWidth={2.1} />
           </span>
           {isExpanded ? (
             <span className="ritual-nav-label absolute bottom-0 left-[40px] right-[4px] top-0 flex items-center text-sm leading-none">

@@ -371,7 +371,6 @@ body[data-voice-hud-window="1"] {
   --titlebar-height: 37px;
   --sidebar-row-height: 30px;
   --sidebar-row-gap: 9px;
-  --sidebar-nav-row-gap: 3px;
   --sidebar-row-x: 9px;
   --sidebar-icon-x: 15px;
   --sidebar-icon-size: 18px;
@@ -565,7 +564,7 @@ body[data-voice-hud-window="1"] {
   .ritual-sidebar-list {
     display: flex;
     flex-direction: column;
-    gap: var(--sidebar-nav-row-gap);
+    gap: var(--sidebar-row-gap);
     width: 100%;
   }
 

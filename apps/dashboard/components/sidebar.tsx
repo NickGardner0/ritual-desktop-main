@@ -117,6 +117,11 @@ export function Sidebar() {
         className="tauri-drag-region absolute left-2 right-2 top-0 z-0 h-12"
       />
       <div
+        aria-hidden
+        data-tauri-drag-region
+        className="tauri-drag-region absolute left-2 right-2 top-12 z-0 h-[30px]"
+      />
+      <div
         className={cn(
           "no-drag absolute z-20 flex items-center",
           isExpanded ? "left-[81px] top-[2px]" : "left-[18px] top-[70px]",
@@ -166,31 +171,6 @@ export function Sidebar() {
           >
             <CodiconArrowRight className="h-4 w-[18px]" />
           </ToolbarButton>
-        </div>
-      ) : null}
-
-      {isExpanded ? (
-        <div
-          data-tauri-drag-region
-          className="tauri-drag-region absolute left-[var(--sidebar-icon-x)] right-[var(--sidebar-row-x)] top-12 z-10 flex h-[30px] items-center"
-        >
-          <span
-            data-tauri-drag-region
-            className="tauri-drag-region flex w-[var(--sidebar-icon-box)] shrink-0 items-center justify-center"
-          >
-            <img
-              src="/images/eclipse.svg"
-              alt=""
-              aria-hidden="true"
-              className="h-[18px] w-[18px] dark:invert"
-            />
-          </span>
-          <span
-            data-tauri-drag-region
-            className="tauri-drag-region text-sm font-medium leading-none text-[var(--sidebar-nav-active)]"
-          >
-            Ritual
-          </span>
         </div>
       ) : null}
 
