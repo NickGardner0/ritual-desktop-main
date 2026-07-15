@@ -364,6 +364,8 @@ body[data-voice-hud-window="1"] {
   --text-muted: #7a7a7a;
   --icon-default: #5f6368;
   --icon-muted: #888888;
+  --sidebar-nav-foreground: #3f3f3f;
+  --sidebar-nav-active: #111111;
   --radius-control: 0.125rem;
   --radius-row: 0.25rem;
   --titlebar-height: 37px;
@@ -436,6 +438,8 @@ body[data-voice-hud-window="1"] {
   --text-muted: #9a9a94;
   --icon-default: #b7b7b0;
   --icon-muted: #969690;
+  --sidebar-nav-foreground: #d0d0ca;
+  --sidebar-nav-active: #f7f7f3;
 }
 
 @layer base {
@@ -595,39 +599,39 @@ body[data-voice-hud-window="1"] {
   }
 
   .ritual-nav-icon {
-    color: var(--icon-default);
+    color: var(--sidebar-nav-foreground);
     transition: none;
   }
 
   .ritual-nav-icon[data-collapsed="true"] {
-    color: #252525;
+    color: var(--sidebar-nav-foreground);
   }
 
   .group\/nav-item:hover .ritual-nav-icon,
   .group\/settings-row:hover .ritual-nav-icon {
-    color: var(--text-primary);
+    color: var(--sidebar-nav-active);
   }
 
   .group\/nav-item:hover .ritual-nav-icon[data-collapsed="true"],
   .group\/settings-row:hover .ritual-nav-icon[data-collapsed="true"],
   .ritual-nav-icon[data-active="true"][data-collapsed="true"] {
-    color: #050505;
+    color: var(--sidebar-nav-active);
   }
 
   .ritual-nav-label {
-    color: var(--text-secondary);
+    color: var(--sidebar-nav-foreground);
     font-weight: 400;
     transition: none;
   }
 
   .group\/nav-item:hover .ritual-nav-label,
   .group\/settings-row:hover .ritual-nav-label {
-    color: var(--text-primary);
+    color: var(--sidebar-nav-active);
   }
 
   .ritual-nav-label[data-active="true"],
   .ritual-nav-icon[data-active="true"] {
-    color: var(--text-primary);
+    color: var(--sidebar-nav-active);
   }
 
   .ritual-toolbar-button {

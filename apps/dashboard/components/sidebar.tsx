@@ -168,6 +168,31 @@ export function Sidebar() {
         </div>
       ) : null}
 
+      {isExpanded ? (
+        <div
+          data-tauri-drag-region
+          className="tauri-drag-region absolute left-[15px] right-[9px] top-12 z-10 flex h-[30px] items-center"
+        >
+          <span
+            data-tauri-drag-region
+            className="tauri-drag-region flex w-10 shrink-0 items-center justify-center"
+          >
+            <img
+              src="/images/eclipse.svg"
+              alt=""
+              aria-hidden="true"
+              className="h-5 w-5 dark:invert"
+            />
+          </span>
+          <span
+            data-tauri-drag-region
+            className="tauri-drag-region text-sm font-medium leading-none text-[var(--sidebar-nav-active)]"
+          >
+            Ritual
+          </span>
+        </div>
+      ) : null}
+
       <div className="no-drag flex flex-col w-full flex-1" style={{ paddingTop: navTopPadding }}>
         <MainMenu
           isExpanded={isExpanded}
