@@ -18,6 +18,30 @@ Import components through explicit package entry points:
 ```tsx
 import { Button } from "@ritual/ui/button";
 import { Card, CardContent } from "@ritual/ui/card";
+import { Input } from "@ritual/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@ritual/ui/tabs";
+```
+
+Density is opt-in for existing form and card consumers. Buttons use the compact
+desktop contract by default: 36px for `default`, 32px for `sm`, and 28px for
+`compact`.
+
+```tsx
+<Button size="compact">Set up</Button>
+<Input density="compact" aria-label="Routine name" />
+<Card density="compact"><CardContent>Dense content</CardContent></Card>
+
+<Select defaultValue="daily">
+  <SelectTrigger density="compact"><SelectValue /></SelectTrigger>
+  <SelectContent><SelectItem value="daily">Daily</SelectItem></SelectContent>
+</Select>
+
+<Tabs defaultValue="suggested">
+  <TabsList variant="underline">
+    <TabsTrigger value="suggested">Suggested</TabsTrigger>
+  </TabsList>
+</Tabs>
 ```
 
 Applications must import `@ritual/ui/globals.css`, include `packages/ui/src` in
@@ -30,9 +54,9 @@ their application until they are demonstrably shared. New visual decisions shoul
 be expressed as semantic tokens or component variants instead of feature-local
 hex colors and arbitrary values.
 
-The current values preserve Ritual's existing appearance. Paper/v0 is where the
-team can deliberately redesign tokens, typography, spacing, radii, and component
-variants without changing consumers.
+Existing Input and Card consumers preserve their current density until they opt
+in. Button's shared default follows the 36px desktop contract, and new Select and
+Tabs consumers inherit the documented Ritual menu and category patterns.
 
 ## Design reference
 

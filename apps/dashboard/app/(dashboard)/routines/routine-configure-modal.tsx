@@ -7,6 +7,7 @@ import { Card } from '@ritual/ui/card';
 import { cn } from '@ritual/ui/cn';
 import { Input } from '@ritual/ui/input';
 import { Label } from '@ritual/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ritual/ui/select';
 import { Separator } from '@ritual/ui/separator';
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
@@ -128,12 +129,14 @@ const MONTHS = [
 ];
 
 const groupClass = 'overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-surface-panel';
-const rowClass = 'flex min-h-12 items-center justify-between gap-4 border-b border-[var(--border-subtle)] px-4 last:border-b-0';
-const labelClass = 'text-sm font-medium text-[var(--text-secondary)]';
+const rowClass = 'flex min-h-11 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-3 last:border-b-0';
+const labelClass = 'text-[13px] font-medium text-[var(--text-secondary)]';
 const chipClass =
-  'h-8 rounded-control border border-transparent bg-background px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20';
+  'w-auto border-transparent bg-background px-2.5 text-[13px] font-medium text-[var(--text-primary)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:ring-offset-0';
+const selectTriggerClass =
+  'w-auto border-transparent bg-background font-medium text-[var(--text-primary)] focus:ring-2 focus:ring-ring/20 focus:ring-offset-0';
 const textInputClass =
-  'h-9 text-sm text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
+  'text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
 const textareaClass =
   'w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring';
 
@@ -170,6 +173,7 @@ function TagsField({
     <div className="space-y-2">
       <Label htmlFor="routine-tags">Tags</Label>
       <Input
+        density="compact"
         id="routine-tags"
         value={text}
         onChange={(event) => setText(event.target.value)}
@@ -198,20 +202,23 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <section className={groupClass}>
         <div className={rowClass}>
           <span className={labelClass}>Trigger</span>
-          <select
+          <Select
             value={draft.frequency}
-            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
-            className={cn(chipClass, 'min-w-[150px]')}
-            aria-label="Trigger frequency"
+            onValueChange={(value) => onChange({ frequency: value as ScheduleDraft['frequency'], interval: 1 })}
           >
-            {FREQUENCIES.map((frequency) => (
-              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
-            ))}
-          </select>
+            <SelectTrigger density="compact" className={cn(selectTriggerClass, 'min-w-[150px]')} aria-label="Trigger frequency">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {FREQUENCIES.map((frequency) => (
+                <SelectItem key={frequency.id} value={frequency.id}>{frequency.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className={rowClass}>
           <span className={labelClass}>Paused</span>
@@ -224,6 +231,7 @@ function ScheduleEditor({
           <span className={labelClass}>Every</span>
           <span className="flex items-center gap-3">
             <Input
+              density="compact"
               type="number"
               min={1}
               max={99}
@@ -247,14 +255,14 @@ function ScheduleEditor({
                     key={day.value}
                     type="button"
                     variant={active ? 'default' : 'secondary'}
-                    size="sm"
+                    size="compact"
                     aria-pressed={active}
                     onClick={() => onChange({
                       weekdays: active
                         ? draft.weekdays.filter((value) => value !== day.value)
                         : [...draft.weekdays, day.value].sort((a, b) => a - b),
                     })}
-                    className="h-8 rounded-control px-2.5 text-[13px]"
+                    className="px-2.5 text-[13px]"
                   >
                     {day.label}
                   </Button>
@@ -268,34 +276,39 @@ function ScheduleEditor({
           <div className={rowClass}>
             <span className={labelClass}>On the</span>
             <span className="flex items-center gap-2">
-              <select
+              <Select
                 value={String(draft.day)}
-                onChange={(event) => {
-                  const value = event.target.value;
+                onValueChange={(value) => {
                   onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
                 }}
-                className={chipClass}
-                aria-label="Day of month"
               >
-                {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                  <option key={day} value={day}>{ordinalSuffix(day)}</option>
-                ))}
-                <option value="first">first day</option>
-                <option value="last">last day</option>
-              </select>
+                <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Day of month">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                    <SelectItem key={day} value={String(day)}>{ordinalSuffix(day)}</SelectItem>
+                  ))}
+                  <SelectItem value="first">first day</SelectItem>
+                  <SelectItem value="last">last day</SelectItem>
+                </SelectContent>
+              </Select>
               {draft.frequency === 'yearly' ? (
                 <>
                   <span className="text-sm text-[var(--text-secondary)]">in</span>
-                  <select
-                    value={draft.month}
-                    onChange={(event) => onChange({ month: Number(event.target.value) })}
-                    className={chipClass}
-                    aria-label="Month"
+                  <Select
+                    value={String(draft.month)}
+                    onValueChange={(value) => onChange({ month: Number(value) })}
                   >
-                    {MONTHS.map((month, index) => (
-                      <option key={month} value={index + 1}>{month}</option>
-                    ))}
-                  </select>
+                    <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Month">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MONTHS.map((month, index) => (
+                        <SelectItem key={month} value={String(index + 1)}>{month}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </>
               ) : null}
             </span>
@@ -306,6 +319,7 @@ function ScheduleEditor({
           <div className={rowClass}>
             <span className={labelClass}>At</span>
             <Input
+              density="compact"
               type="time"
               value={timeValue}
               onChange={(event) => {
@@ -319,22 +333,26 @@ function ScheduleEditor({
         ) : (
           <div className={rowClass}>
             <span className={labelClass}>After</span>
-            <select
+            <Select
               value={draft.onCompletionUnit}
-              onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
-              className={chipClass}
-              aria-label="Completion interval unit"
+              onValueChange={(value) => onChange({ onCompletionUnit: value as ScheduleDraft['onCompletionUnit'] })}
             >
-              <option value="days">days</option>
-              <option value="weeks">weeks</option>
-              <option value="months">months</option>
-            </select>
+              <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Completion interval unit">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="days">days</SelectItem>
+                <SelectItem value="weeks">weeks</SelectItem>
+                <SelectItem value="months">months</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         )}
 
         <div className={rowClass}>
           <span className={labelClass}>First run</span>
           <Input
+            density="compact"
             type="date"
             value={draft.firstRun || ''}
             onChange={(event) => onChange({ firstRun: event.target.value || null })}
@@ -345,6 +363,7 @@ function ScheduleEditor({
         <div className={rowClass}>
           <span className={labelClass}>Ends</span>
           <Input
+            density="compact"
             type="date"
             value={draft.ends || ''}
             onChange={(event) => onChange({ ends: event.target.value || null })}
@@ -427,7 +446,7 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-6 pt-6">
+        <div className="flex items-start justify-between px-6 pt-5">
           <div>
             <DialogTitle className="text-xl font-medium leading-tight tracking-normal">Configure routine</DialogTitle>
             <DialogDescription className="mt-2 text-sm text-[var(--text-secondary)]">
@@ -437,16 +456,16 @@ export function RoutineConfigureModal({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-compact"
             onClick={requestClose}
             aria-label="Close"
-            className="h-9 w-9 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
           >
             <X />
           </Button>
         </div>
 
-        <Card className="mx-6 mt-6 flex items-center gap-3 border-[var(--border-subtle)] bg-surface-panel px-4 py-3 shadow-none">
+        <Card density="compact" className="mx-6 mt-5 flex items-center gap-3 border-[var(--border-subtle)] bg-surface-panel px-3 py-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
             {template ? <RoutineIcon name={template.icon} className="h-4 w-4" /> : <Repeat className="h-4 w-4" />}
           </span>
@@ -456,11 +475,12 @@ export function RoutineConfigureModal({
           </span>
         </Card>
 
-        <div className="grid grid-cols-1 gap-6 px-6 pb-6 pt-6 md:grid-cols-2">
-          <div className="space-y-5">
+        <div className="grid grid-cols-1 gap-5 px-6 pb-5 pt-5 md:grid-cols-2">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="routine-name">Name</Label>
               <Input
+                density="compact"
                 id="routine-name"
                 autoFocus
                 value={state.name}
@@ -489,16 +509,19 @@ export function RoutineConfigureModal({
             <section className={groupClass}>
               <div className={rowClass}>
                 <span className={labelClass}>Priority</span>
-                <select
+                <Select
                   value={state.priority}
-                  onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
-                  className={chipClass}
-                  aria-label="Priority"
+                  onValueChange={(value) => setState({ ...state, priority: value as TaskPriority })}
                 >
-                  {PRIORITIES.map((priority) => (
-                    <option key={priority.id} value={priority.id}>{priority.label}</option>
-                  ))}
-                </select>
+                  <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PRIORITIES.map((priority) => (
+                      <SelectItem key={priority.id} value={priority.id}>{priority.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className={rowClass}>
                 <span className={labelClass}>Agent</span>
@@ -508,10 +531,10 @@ export function RoutineConfigureModal({
                       key={tier.id}
                       type="button"
                       variant={state.agentTier === tier.id ? 'default' : 'secondary'}
-                      size="sm"
+                      size="compact"
                       aria-pressed={state.agentTier === tier.id}
                       onClick={() => setState({ ...state, agentTier: tier.id })}
-                      className="h-8 rounded-control px-3 text-[13px]"
+                      className="px-3 text-[13px]"
                     >
                       {tier.label}
                     </Button>
@@ -521,7 +544,7 @@ export function RoutineConfigureModal({
             </section>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-5 md:border-l md:border-[var(--border-subtle)] md:pl-6">
+          <div className="flex min-h-0 flex-col gap-4 md:border-l md:border-[var(--border-subtle)] md:pl-5">
             <div className="space-y-2">
               <Label htmlFor="routine-instructions">Instructions</Label>
               <p className="text-[13px] leading-5 text-[var(--text-secondary)]">
@@ -532,7 +555,7 @@ export function RoutineConfigureModal({
                 value={state.instructions}
                 onChange={(event) => setState({ ...state, instructions: event.target.value })}
                 placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-                className={cn(textareaClass, 'min-h-56')}
+                className={cn(textareaClass, 'min-h-52')}
               />
             </div>
 
@@ -559,12 +582,14 @@ export function RoutineConfigureModal({
           <Button
             type="button"
             variant="outline"
+            size="sm"
             onClick={requestClose}
           >
             Cancel
           </Button>
           <Button
             type="button"
+            size="sm"
             onClick={submit}
             disabled={!canSubmit}
           >

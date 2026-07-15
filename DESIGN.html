@@ -144,6 +144,14 @@
       .input:focus { outline: 2px solid color-mix(in srgb, var(--ritual-focus-ring) 28%, transparent); outline-offset: 1px; border-color: var(--ritual-focus-ring); }
       textarea.input { height: 78px; padding-top: 8px; resize: vertical; }
 
+      .select-demo { width: 180px; height: 36px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--ritual-border-default); border-radius: var(--ritual-radius-row); padding: 0 10px; background: var(--ritual-surface-raised); color: var(--ritual-text-primary); font-size: 13px; }
+      .select-menu { width: 180px; margin-top: 5px; padding: 4px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-card); background: var(--ritual-surface-raised); box-shadow: var(--ritual-shadow-popover); }
+      .select-item { min-height: 28px; display: flex; align-items: center; gap: 7px; border-radius: var(--ritual-radius-row); padding: 4px 8px; color: var(--ritual-text-secondary); font-size: 13px; }
+      .select-item.active { background: var(--ritual-interactive-selected); color: var(--ritual-text-primary); }
+      .tabs-demo { display: flex; align-items: flex-end; gap: 2px; border-bottom: 1px solid var(--ritual-border-subtle); }
+      .tab { height: 32px; display: inline-flex; align-items: center; border-bottom: 2px solid transparent; padding: 0 12px; color: var(--ritual-text-muted); font-size: 13px; font-weight: 500; }
+      .tab.active { border-bottom-color: var(--ritual-text-primary); color: var(--ritual-text-primary); }
+
       .badge { display: inline-flex; align-items: center; height: 22px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-full); padding: 0 8px; background: var(--ritual-surface-panel); color: var(--ritual-text-secondary); font-size: 11px; font-weight: 500; }
       .badge.success { border-color: color-mix(in srgb, var(--ritual-status-success) 24%, transparent); color: var(--ritual-status-success); background: color-mix(in srgb, var(--ritual-status-success) 8%, transparent); }
       .badge.warning { border-color: color-mix(in srgb, var(--ritual-status-warning) 24%, transparent); color: var(--ritual-status-warning); background: color-mix(in srgb, var(--ritual-status-warning) 8%, transparent); }
@@ -245,7 +253,7 @@
             <p class="eyebrow">Ritual design system</p>
             <h1>Quiet structure for a personal operating system.</h1>
             <p class="hero-copy">A compact desktop language built from warm paper surfaces, graphite type, native restraint, and semantic color. Hierarchy comes from spacing and tone before decoration.</p>
-            <div class="hero-meta"><span class="provisional">Provisional baseline</span><span>Updated 2026-07-13</span><span>Light + dark</span><span>4px base unit</span></div>
+            <div class="hero-meta"><span class="provisional">Provisional baseline</span><span>Updated 2026-07-14</span><span>Light + dark</span><span>4px base unit</span></div>
           </header>
 
           <section>
@@ -297,12 +305,14 @@
           </section>
 
           <section id="components">
-            <div class="section-head"><h2>Verified components</h2><p class="section-description">These specimens represent the current safe `@ritual/ui` boundary. Exact production styles remain unchanged until explicit adoption.</p></div>
+            <div class="section-head"><h2>Verified components</h2><p class="section-description">These specimens represent the current safe `@ritual/ui` boundary, including additive compact density and Radix-backed selection patterns.</p></div>
             <div class="grid two">
               <div class="specimen"><p class="specimen-label">Button variants</p><div class="component-stack"><button class="button primary">Save changes</button><button class="button secondary">Cancel</button><button class="button ghost">Learn more</button><button class="button danger">Delete</button><button class="button secondary" disabled>Disabled</button></div><div class="component-stack" style="margin-top:12px"><button class="button primary compact">Continue</button><button class="button ghost icon" aria-label="More options">•••</button></div></div>
               <div class="specimen"><p class="specimen-label">Badge variants</p><div class="component-stack"><span class="badge">Draft</span><span class="badge success">Connected</span><span class="badge warning">Needs attention</span><span class="badge danger">Failed</span></div></div>
               <div class="specimen"><p class="specimen-label">Inputs &amp; labels</p><div class="field-grid"><label class="field"><span class="field-label">Routine name</span><input class="input" value="Morning reset" /><span class="field-hint">Shown in your daily plan.</span></label><label class="field"><span class="field-label">Start time</span><input class="input" type="time" value="07:30" /><span class="field-hint">Uses your local timezone.</span></label></div></div>
               <div class="specimen recessed"><p class="specimen-label">Card composition</p><article class="card-demo"><div class="card-head"><div class="card-title">Private sync</div><div class="card-description">Keep your Ritual data available across devices.</div></div><div class="card-body">Data is encrypted before leaving this device. You can disable sync at any time.</div><div class="card-foot"><button class="button ghost compact">Not now</button><button class="button primary compact">Enable sync</button></div></article></div>
+              <div class="specimen"><p class="specimen-label">Radix Select</p><div class="select-demo"><span>Daily</span><span aria-hidden>⌄</span></div><div class="select-menu"><div class="select-item active">✓ Daily</div><div class="select-item">Weekly</div><div class="select-item">Monthly</div></div></div>
+              <div class="specimen"><p class="specimen-label">Underline Tabs</p><div class="tabs-demo"><span class="tab active">Suggested</span><span class="tab">Calendar</span><span class="tab">Inbox</span><span class="tab">Docs</span></div><p class="section-description" style="margin-top:16px">Underline is the default library and category treatment. Segmented tabs remain available for compact modes.</p></div>
             </div>
           </section>
 
@@ -323,6 +333,8 @@
               <div><h3>Reference map</h3><div class="file-map"><div class="file-row"><code>DESIGN.md</code><span>Human and agent contract</span></div><div class="file-row"><code>tokens.json</code><span>Machine-readable source</span></div><div class="file-row"><code>variables.css</code><span>Framework-neutral values</span></div><div class="file-row"><code>theme.css</code><span>Tailwind v4 / v0 adapter</span></div><div class="file-row"><code>packages/ui</code><span>Verified component implementation</span></div></div></div>
               <div><h3>Correct shared import</h3><pre class="code"><strong>import</strong> { Button } from "@ritual/ui/button";
 <strong>import</strong> { Card, CardContent } from "@ritual/ui/card";
+<strong>import</strong> { Select, SelectTrigger } from "@ritual/ui/select";
+<strong>import</strong> { Tabs, TabsList } from "@ritual/ui/tabs";
 <strong>import</strong> { cn } from "@ritual/ui/cn";
 
 &lt;Card&gt;
@@ -333,7 +345,7 @@
             </div>
           </section>
 
-          <footer class="footer">Ritual design system · Reference baseline · Production adoption requires explicit approval.</footer>
+          <footer class="footer">Ritual design system · 0.1.1 reference · Root CSS remains a standalone review artifact.</footer>
         </div>
       </main>
     </div>

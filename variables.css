@@ -109,9 +109,11 @@
   --ritual-sidebar-width: 240px;
   --ritual-titlebar-height: 36px;
   --ritual-sidebar-row-height: 30px;
-  --ritual-control-height-sm: 28px;
+  --ritual-control-height-compact: 28px;
+  --ritual-control-height-sm: var(--ritual-control-height-compact);
   --ritual-control-height: 36px;
   --ritual-control-height-lg: 40px;
+  --ritual-compact-row-height: 44px;
   --ritual-content-max-width: 1200px;
 
   /* Motion */

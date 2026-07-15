@@ -47,6 +47,10 @@
   --spacing-ritual-10: var(--ritual-space-10);
   --spacing-ritual-12: var(--ritual-space-12);
   --spacing-ritual-16: var(--ritual-space-16);
+  --spacing-ritual-control-compact: var(--ritual-control-height-compact);
+  --spacing-ritual-control: var(--ritual-control-height);
+  --spacing-ritual-control-lg: var(--ritual-control-height-lg);
+  --spacing-ritual-row-compact: var(--ritual-compact-row-height);
 
   --radius-ritual-control: var(--ritual-radius-control);
   --radius-ritual-row: var(--ritual-radius-row);

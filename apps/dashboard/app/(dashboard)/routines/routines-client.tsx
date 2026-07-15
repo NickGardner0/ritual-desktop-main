@@ -147,12 +147,12 @@ function RoutineActions({
       <Button
         type="button"
         variant="ghost"
-        size="icon"
+        size="icon-compact"
         aria-label={running ? 'Routine is already running' : 'Run now'}
         title={running ? 'Routine is already running' : 'Run now'}
         disabled={running || !item.routine.ai_workflow_definition_id}
         onClick={() => onRunNow(item)}
-        className="h-8 w-8 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+        className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
       >
         {running ? <Loader2 className="animate-spin" /> : <Play />}
       </Button>
@@ -161,10 +161,10 @@ function RoutineActions({
           <Button
             type="button"
             variant="ghost"
-            size="icon"
+            size="icon-compact"
             aria-label="More routine actions"
             title="More"
-            className="h-8 w-8 rounded-row text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
           >
             <MoreHorizontal />
           </Button>
@@ -286,8 +286,9 @@ function RoutineCard({
   const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
   return (
     <Card
+      density="compact"
       className={cn(
-        'flex min-h-40 flex-col border-[var(--border-subtle)] shadow-none transition-colors hover:bg-surface-panel',
+        'flex min-h-36 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel',
         selected && 'border-primary',
       )}
     >
@@ -295,11 +296,11 @@ function RoutineCard({
         type="button"
         variant="ghost"
         onClick={() => onSelect(item)}
-        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-5 text-left hover:bg-transparent focus-visible:ring-inset"
+        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-4 text-left hover:bg-transparent focus-visible:ring-inset"
       >
         <span className="min-w-0">
           <span className="block truncate text-base font-medium text-[var(--text-primary)]">{routine.title}</span>
-          <span className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--text-secondary)]">
+          <span className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-[var(--text-secondary)]">
             {agent.instructions || routine.description || 'No instructions set.'}
           </span>
         </span>
@@ -308,7 +309,7 @@ function RoutineCard({
         </span>
       </Button>
       <Separator className="bg-[var(--border-subtle)]" />
-      <CardFooter className="justify-between gap-3 p-4">
+      <CardFooter className="justify-between gap-3 pt-3">
         <span className="min-w-0 truncate text-[13px] text-[var(--text-muted)]">{scheduleSummary}</span>
         <div>
           <RoutineActions
@@ -657,20 +658,20 @@ export function RoutinesClient() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-content text-[var(--text-primary)]">
       <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
-        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
-          <h1 className="text-2xl font-medium leading-tight">Routines</h1>
+        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
+          <h1 className="text-xl font-medium leading-6">Routines</h1>
           <div className="flex items-center gap-3">
             {hasRoutines ? (
               <div className="flex items-center rounded-row bg-surface-panel p-1" role="group" aria-label="Routine view">
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-compact"
                   aria-label="List view"
                   aria-pressed={viewMode === 'list'}
                   onClick={() => setViewMode('list')}
                   className={cn(
-                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
+                    'text-[var(--text-muted)]',
                     viewMode === 'list' && 'bg-background text-[var(--text-primary)] shadow-sm',
                   )}
                 >
@@ -679,12 +680,12 @@ export function RoutinesClient() {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon"
+                  size="icon-compact"
                   aria-label="Card view"
                   aria-pressed={viewMode === 'card'}
                   onClick={() => setViewMode('card')}
                   className={cn(
-                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
+                    'text-[var(--text-muted)]',
                     viewMode === 'card' && 'bg-background text-[var(--text-primary)] shadow-sm',
                   )}
                 >
@@ -694,6 +695,7 @@ export function RoutinesClient() {
             ) : null}
             <Button
               type="button"
+              size="sm"
               title="New routine (⌘N)"
               disabled={submitModalMutation.isPending}
               onClick={() => openCreateModal()}
@@ -704,7 +706,7 @@ export function RoutinesClient() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-8 pb-12 pt-8">
+        <main className="mx-auto max-w-6xl px-8 pb-12 pt-6">
           {routinesQuery.isLoading ? (
             <div className="mx-auto max-w-4xl space-y-3">
               {[0, 1, 2, 3].map((item) => (
@@ -712,8 +714,8 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : !hasRoutines ? (
-            <div className="mx-auto max-w-4xl space-y-8">
-              <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
+            <div className="mx-auto max-w-4xl space-y-6">
+              <RoutinesEmptyHero />
               <TemplateLibrary
                 installedTemplateKeys={installedTemplateKeys}
                 onSetUp={(template) => openCreateModal(template.id)}

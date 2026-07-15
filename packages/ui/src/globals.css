@@ -44,6 +44,10 @@
     --icon-muted: #888888;
     --radius-control: 0.125rem;
     --radius-row: 0.25rem;
+    --control-height-compact: 1.75rem;
+    --control-height-default: 2.25rem;
+    --control-height-lg: 2.5rem;
+    --row-height-compact: 2.75rem;
 }
 
 .dark {

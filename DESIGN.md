@@ -3,7 +3,7 @@
 > A calm, compact personal operating system: warm paper surfaces, graphite text, native desktop restraint, and color used only when it carries meaning.
 
 - **Status:** provisional reference baseline
-- **Version:** `0.1.0-reference`
+- **Version:** `0.1.1-reference`
 - **Themes:** light and dark
 - **Primary platform:** macOS desktop, with responsive web surfaces
 **Visual reference:** open [`DESIGN.html`](./DESIGN.html) in a browser
@@ -12,11 +12,11 @@
 
 This document is the design contract for agents and designers working on Ritual. It describes the intended system boundary, verified component APIs, semantic tokens, and composition rules.
 
-It does **not** currently restyle the production application. The root-level `variables.css`, `theme.css`, and `tokens.json` are standalone references for Paper/v0 and agent workflows. Do not import them into the dashboard until a deliberate design review approves adoption.
+The root-level `variables.css`, `theme.css`, and `tokens.json` remain standalone references for Paper/v0 and agent workflows. Production features consume the synchronized contract through `@ritual/ui`; do not import the root reference CSS into the dashboard.
 
 When implementation and this document conflict:
 
-1. Existing production behavior wins until a migration is approved.
+1. Existing production behavior wins for consumers that have not deliberately migrated to a verified shared API.
 2. Verified `@ritual/ui` component APIs win over invented APIs.
 3. Update this document and the visual reference in the same change whenever the design contract changes.
 
@@ -58,7 +58,7 @@ The visual hierarchy should come from spacing, text tone, and surface level befo
 3. **Semantic before literal.** Use `surface-panel`, not “gray 100”; use `status-danger`, not an arbitrary red.
 4. **Native where it helps.** Desktop chrome may use system typography, vibrancy, and platform conventions.
 5. **Stable interaction.** Avoid layout shifts, ornamental motion, and hover effects that move content.
-6. **One shared primitive.** Do not create a second general-purpose Button, Input, Card, Label, Badge, or Separator outside `@ritual/ui`.
+6. **One shared primitive.** Do not create a second general-purpose Button, Input, Card, Select, Tabs, Label, Badge, or Separator outside `@ritual/ui`.
 
 ## Color
 
@@ -125,7 +125,9 @@ The base unit is **4px**. Prefer the named 4px scale: `4, 8, 12, 16, 20, 24, 32,
 - Panel padding: 16–24px.
 - Major page regions: 24–32px.
 - Default sidebar row height: 30px.
-- Default control height: 36px; compact controls: 28px.
+- Default button and select height: 36px; compact controls: 28px.
+- Compact grouped form rows: 40–44px; use 44px when rows contain mixed controls.
+- Compact card padding: 16px. Supporting copy is normally 13–14px.
 
 Do not invent 13px, 17px, or 23px layout gaps when a scale value communicates the same hierarchy.
 
@@ -160,13 +162,14 @@ Only the APIs below are currently guaranteed by `@ritual/ui`. Agents must not in
 import { Button } from "@ritual/ui/button";
 
 <Button variant="default" size="default">Save changes</Button>
+<Button variant="outline" size="compact">Set up</Button>
 <Button variant="outline" size="sm">Cancel</Button>
-<Button variant="ghost" size="icon" aria-label="More options">…</Button>
+<Button variant="ghost" size="icon-compact" aria-label="More options">…</Button>
 ```
 
 Variants: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`.
 
-Sizes: `default`, `sm`, `lg`, `icon`.
+Sizes: `default` (36px), `sm` (32px), `compact` (28px), `lg` (40px), `icon` (36px), `icon-compact` (28px).
 Use one primary action per local action group. Destructive styling is for an action that causes harm, not for every warning message.
 
 ### Input
@@ -175,9 +178,11 @@ Use one primary action per local action group. Destructive styling is for an act
 import { Input } from "@ritual/ui/input";
 
 <Input type="text" placeholder="Routine name" aria-label="Routine name" />
+<Input density="compact" placeholder="Routine name" aria-label="Routine name" />
 ```
 
 Always provide a visible `Label` or an accessible name. Error text belongs adjacent to the field and must not be conveyed only by border color.
+The default density remains 40px for backward compatibility. Use `density="compact"` for the 36px desktop form pattern; do not shrink every existing form globally.
 
 ### Label
 
@@ -198,9 +203,49 @@ import {
   CardHeader,
   CardTitle,
 } from "@ritual/ui/card";
+
+<Card density="compact">
+  <CardHeader><CardTitle>Weekly review</CardTitle></CardHeader>
+  <CardContent>Compact cards use 16px padding.</CardContent>
+</Card>
 ```
 
 Cards group related information. Do not wrap every page section in a card; the content canvas can provide structure on its own.
+The default density preserves existing 24px spacing. `density="compact"` opts a composition into 16px spacing, smaller supporting type, and a flat surface.
+
+### Select
+
+```tsx
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select";
+
+<Select defaultValue="daily">
+  <SelectTrigger density="compact" aria-label="Trigger frequency">
+    <SelectValue />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="daily">Daily</SelectItem>
+    <SelectItem value="weekly">Weekly</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+Select is Radix-based and owns keyboard navigation, focus management, and popover positioning. Use its items instead of native `<select>` when the menu must match Ritual styling. Trigger densities are `default` (36px) and `compact` (28px).
+
+### Tabs
+
+```tsx
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ritual/ui/tabs";
+
+<Tabs defaultValue="suggested">
+  <TabsList variant="underline">
+    <TabsTrigger value="suggested">Suggested</TabsTrigger>
+    <TabsTrigger value="calendar">Calendar</TabsTrigger>
+  </TabsList>
+  <TabsContent value="suggested">…</TabsContent>
+</Tabs>
+```
+
+Variants: `underline` (default) and `segmented`. Use underline tabs for content categories and libraries; segmented tabs are for compact, mutually exclusive modes.
 
 ### Badge
 
@@ -365,4 +410,4 @@ var(--ritual-status-warning)
 var(--ritual-status-danger)
 ```
 
-This baseline deliberately codifies Ritual’s current direction without declaring the visual design finished. Paper/v0 can now explore and revise the system in one coherent place before any production migration begins.
+This baseline deliberately codifies Ritual’s current direction without declaring the visual design finished. Future Paper/v0 exploration should revise this contract and the production-ready `@ritual/ui` APIs together.
