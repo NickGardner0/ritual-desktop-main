@@ -282,23 +282,6 @@ body[data-voice-hud-window="1"] {
     font-display: swap;
   }
 
-  /* Local evaluation only. Klim test fonts must not be shipped or redistributed. */
-  @font-face {
-    font-family: 'Test Söhne';
-    src: url('/fonts/test-soehne/test-soehne-buch.woff2') format('woff2');
-    font-weight: 400;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'Test Söhne';
-    src: url('/fonts/test-soehne/test-soehne-kraftig.woff2') format('woff2');
-    font-weight: 500;
-    font-style: normal;
-    font-display: swap;
-  }
-
 }
 
 
@@ -1849,7 +1832,6 @@ body[data-voice-hud-window="1"] {
 :root {
   --ritual-font-fk: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-geist: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ritual-font-soehne: 'Test Söhne', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-selected-font-family: var(--ritual-font-fk);
 
   /* Post-signup Perplexity-style onboarding (scoped via .px-onboarding) */
@@ -1872,8 +1854,7 @@ body[data-voice-hud-window="1"] {
 
 html body .px-onboarding .px-onboarding-title,
 html body .ritual-font-fk .px-onboarding .px-onboarding-title,
-html body .ritual-font-geist .px-onboarding .px-onboarding-title,
-html body .ritual-font-soehne .px-onboarding .px-onboarding-title {
+html body .ritual-font-geist .px-onboarding .px-onboarding-title {
   font-family: var(--px-onboarding-serif) !important;
   font-weight: 400;
   letter-spacing: -0.015em;
@@ -1918,17 +1899,9 @@ html body .ritual-font-soehne .px-onboarding .px-onboarding-title {
   font-family: var(--ritual-selected-font-family) !important;
 }
 
-/* Söhne test font (local evaluation only) */
-.ritual-font-soehne,
-.ritual-font-soehne *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  --ritual-selected-font-family: var(--ritual-font-soehne);
-  font-family: var(--ritual-selected-font-family) !important;
-}
-
 /* Keep Material Symbols from being clobbered by global font overrides. */
 .ritual-font-fk .material-symbols-rounded,
-.ritual-font-geist .material-symbols-rounded,
-.ritual-font-soehne .material-symbols-rounded {
+.ritual-font-geist .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;
 }
 
