@@ -3,7 +3,8 @@
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   FlaskConical,
   Plug2,
@@ -16,7 +17,7 @@ import {
 import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
-import { SidebarExperiments } from "@/components/sidebar-experiments";
+import { listExperiments } from "@/lib/experiments";
 
 // Custom "I" letter icon component for Index
 const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
@@ -178,7 +179,7 @@ const ChildItem = ({
         >
           <span
             className={cn(
-              "text-xs font-[450] transition-none",
+              "ritual-nav-child-label text-xs transition-none",
               "text-[var(--text-muted)] group-hover/child:text-[var(--text-primary)]",
               "whitespace-nowrap overflow-hidden",
               isActive && "text-[var(--text-primary)]",
@@ -202,6 +203,7 @@ const Item = ({
 }: ItemProps) => {
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const hasChildren = item.children && item.children.length > 0;
   const isCollapsedActive = isActive && !isExpanded;
 
@@ -301,7 +303,12 @@ const Item = ({
           )}
         >
           {item.children!.map((child, index) => {
-            const isChildActive = pathname === child.path;
+            const [childPathname, childQuery] = child.path.split("?");
+            const childQueryParams = new URLSearchParams(childQuery || "");
+            const isChildActive = pathname === childPathname &&
+              Array.from(childQueryParams.entries()).every(
+                ([key, value]) => searchParams.get(key) === value,
+              );
             return (
               <ChildItem
                 key={child.path}
@@ -329,6 +336,20 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const experimentsQuery = useQuery({
+    queryKey: ["experiments", "sidebar"],
+    queryFn: () => listExperiments(5),
+    staleTime: 30_000,
+    enabled: isExpanded,
+  });
+
+  const experimentChildren = [
+    { path: "/experiments?new=1", name: "New experiment" },
+    ...(experimentsQuery.data || []).map((experiment) => ({
+      path: `/experiments/${experiment.id}`,
+      name: experiment.title,
+    })),
+  ];
 
   // Reset expanded item when sidebar expands/collapses
   useEffect(() => {
@@ -365,21 +386,22 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
                 (pathname === "/dashboard/" && item.path === "/dashboard") ||
                 (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
             );
+            const menuItem = item.path === "/experiments"
+              ? { ...item, children: experimentChildren }
+              : item;
 
             return (
-              <Fragment key={item.path}>
-                <Item
-                  item={item}
-                  isActive={isActive}
-                  isExpanded={isExpanded}
-                  isItemExpanded={expandedItem === item.path}
-                  onToggle={(path) => {
-                    setExpandedItem(expandedItem === path ? null : path);
-                  }}
-                  onSelect={onSelect}
-                />
-                {isExpanded && item.path === "/experiments" ? <SidebarExperiments /> : null}
-              </Fragment>
+              <Item
+                key={item.path}
+                item={menuItem}
+                isActive={isActive}
+                isExpanded={isExpanded}
+                isItemExpanded={expandedItem === item.path}
+                onToggle={(path) => {
+                  setExpandedItem(expandedItem === path ? null : path);
+                }}
+                onSelect={onSelect}
+              />
             );
           })}
         </NavList>

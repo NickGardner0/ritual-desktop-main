@@ -622,7 +622,13 @@ body[data-voice-hud-window="1"] {
   .ritual-nav-label {
     color: var(--sidebar-nav-foreground);
     font-weight: 400;
+    -webkit-text-stroke: 0.1px currentColor;
     transition: none;
+  }
+
+  .ritual-nav-child-label {
+    font-weight: 400;
+    -webkit-text-stroke: 0.1px currentColor;
   }
 
   .group\/nav-item:hover .ritual-nav-label,
