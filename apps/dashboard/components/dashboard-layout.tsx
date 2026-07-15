@@ -154,16 +154,19 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                 data-tauri-drag-region
                 className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] pt-2.5 ${contentTouchesWindowChrome ? 'pl-[84px] pr-6' : 'px-6'}`}
               >
-                <div className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2">
-                  <div className="no-drag flex min-w-0 items-center gap-1">
+                <div
+                  data-tauri-drag-region
+                  className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
+                >
+                  <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
                       <CommandPalette
-                        className="app-toolbar-control flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
+                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 py-1 text-[12.5px] font-medium text-gray-600 shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
                         initialOpen={shouldOpenWhoopModal}
                         density="tight"
                       />
                     )}
-                    <div id="header-left-slot" className="flex items-center gap-1" />
+                    <div id="header-left-slot" className="no-drag flex items-center gap-1" />
                   </div>
 
                   <div
@@ -171,11 +174,13 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     className="no-drag flex min-w-0 items-center justify-center"
                   />
 
-                  <div className="no-drag flex min-w-0 items-center justify-end gap-1">
-                    <PinnedSummaryPopover />
+                  <div data-tauri-drag-region className="flex min-w-0 items-center justify-end gap-1">
+                    <div className="no-drag flex items-center">
+                      <PinnedSummaryPopover />
+                    </div>
                     <div
                       id="header-right-slot"
-                      className="flex min-w-0 items-center gap-1"
+                      className="no-drag flex min-w-0 items-center gap-1"
                     />
                   </div>
                 </div>
