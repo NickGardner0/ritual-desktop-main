@@ -27,6 +27,12 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
 
 const VALID_MODES = new Set<PrivacyMode>(["local_only", "private_sync", "cloud_intelligence"]);
 
+// useSyncExternalStore requires getSnapshot to return a stable reference when
+// data has not changed. Cache by raw localStorage payload so Privacy settings
+// does not infinite-loop after the first write.
+let cachedRaw: string | null = null;
+let cachedSettings: PrivacySettings = DEFAULT_PRIVACY_SETTINGS;
+
 export function normalizePrivacySettings(value: unknown): PrivacySettings {
   const candidate = value && typeof value === "object" ? value as Partial<PrivacySettings> : {};
   const mode = candidate.mode && VALID_MODES.has(candidate.mode)
@@ -46,9 +52,21 @@ export function readPrivacySettings(): PrivacySettings {
   if (typeof window === "undefined") return DEFAULT_PRIVACY_SETTINGS;
   try {
     const raw = window.localStorage.getItem(PRIVACY_SETTINGS_STORAGE_KEY);
-    return raw ? normalizePrivacySettings(JSON.parse(raw)) : DEFAULT_PRIVACY_SETTINGS;
+    if (!raw) {
+      cachedRaw = null;
+      cachedSettings = DEFAULT_PRIVACY_SETTINGS;
+      return cachedSettings;
+    }
+    if (raw === cachedRaw) {
+      return cachedSettings;
+    }
+    cachedRaw = raw;
+    cachedSettings = normalizePrivacySettings(JSON.parse(raw));
+    return cachedSettings;
   } catch {
-    return DEFAULT_PRIVACY_SETTINGS;
+    cachedRaw = null;
+    cachedSettings = DEFAULT_PRIVACY_SETTINGS;
+    return cachedSettings;
   }
 }
 
@@ -58,7 +76,10 @@ export function writePrivacySettings(settings: PrivacySettings): PrivacySettings
     updatedAt: new Date().toISOString(),
   });
   if (typeof window !== "undefined") {
-    window.localStorage.setItem(PRIVACY_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
+    const raw = JSON.stringify(normalized);
+    window.localStorage.setItem(PRIVACY_SETTINGS_STORAGE_KEY, raw);
+    cachedRaw = raw;
+    cachedSettings = normalized;
     window.dispatchEvent(new CustomEvent("ritual:privacy-settings-changed", { detail: normalized }));
   }
   return normalized;
