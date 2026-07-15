@@ -412,7 +412,11 @@ function UnifiedAnalyticsContent({
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={6} className="w-44">
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="w-44 rounded-md border-[rgba(31,35,40,0.1)]"
+              >
                 <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
                   View
                 </DropdownMenuLabel>

@@ -89,7 +89,7 @@ export function StatsTooltip({
   const tooltip = (
     <div
       ref={contentRef}
-      className="tooltip-container fixed z-[999] min-w-[240px] rounded-lg border border-gray-300 bg-white p-4 shadow-lg"
+      className="tooltip-container fixed z-[999] min-w-[240px] rounded-md border border-[rgba(31,35,40,0.1)] bg-white p-4 shadow-[0_10px_28px_rgba(28,25,18,0.10),0_2px_8px_rgba(28,25,18,0.06)]"
       style={{
         top: position.top,
         left: position.left,

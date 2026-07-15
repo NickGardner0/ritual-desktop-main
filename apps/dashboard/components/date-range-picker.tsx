@@ -435,7 +435,7 @@ export function DateRangePicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[580px] p-0 border-gray-300 shadow-lg rounded-sm"
+          className="w-[580px] rounded-md border-[rgba(31,35,40,0.1)] p-0 shadow-[0_10px_28px_rgba(28,25,18,0.10),0_2px_8px_rgba(28,25,18,0.06)]"
           align="end"
           side="bottom"
           sideOffset={8}
