@@ -20,21 +20,21 @@ export function templateScheduleSummary(template: RoutineTemplate): string {
 
 export function RoutinesEmptyHero() {
   return (
-    <Card density="compact" className="flex min-h-56 items-center justify-center border-dashed border-[var(--border-subtle)] bg-transparent">
-      <CardContent className="p-8 text-center">
+    <Card density="compact" className="flex min-h-52 items-center justify-center border-dashed border-[var(--border-subtle)] bg-transparent">
+      <CardContent className="p-6 text-center">
         <div className="mx-auto flex items-center justify-center text-[var(--icon-muted)]" aria-hidden>
-          <span className="flex h-8 w-8 rotate-[-4deg] items-center justify-center rounded-md border border-[var(--border-subtle)] bg-surface-panel">
-            <Clock className="h-4 w-4" />
+          <span className="flex h-7 w-7 rotate-[-4deg] items-center justify-center rounded-md border border-[var(--border-subtle)] bg-surface-panel">
+            <Clock className="h-3.5 w-3.5" />
           </span>
-          <span className="relative z-10 -mx-1 flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-background shadow-sm">
-            <Sparkles className="h-4 w-4" />
+          <span className="relative z-10 -mx-1 flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-subtle)] bg-background shadow-sm">
+            <Sparkles className="h-3.5 w-3.5" />
           </span>
-          <span className="flex h-8 w-8 rotate-[4deg] items-center justify-center rounded-md border border-[var(--border-subtle)] bg-surface-panel">
-            <CalendarDays className="h-4 w-4" />
+          <span className="flex h-7 w-7 rotate-[4deg] items-center justify-center rounded-md border border-[var(--border-subtle)] bg-surface-panel">
+            <CalendarDays className="h-3.5 w-3.5" />
           </span>
         </div>
-        <h2 className="mt-5 text-xl font-medium leading-6 text-[var(--text-primary)]">Set your AI on a schedule</h2>
-        <p className="mx-auto mt-2 max-w-md text-sm leading-5 text-[var(--text-secondary)]">
+        <h2 className="mt-4 text-lg font-normal leading-6 text-[var(--text-primary)]">Set your AI on a schedule</h2>
+        <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-5 text-[var(--text-secondary)]">
           Describe what you want Ritual to gather, analyze, or summarize, pick a schedule, and Ritual delivers a report when it&rsquo;s ready.
         </p>
       </CardContent>
@@ -52,17 +52,17 @@ export function TemplateCard({
   installed?: boolean;
 }) {
   return (
-    <Card density="compact" className="flex min-h-36 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel">
-      <CardHeader>
-        <CardTitle className="truncate text-[var(--text-primary)]">
+    <Card density="compact" className="flex min-h-32 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel">
+      <CardHeader className="pb-2.5">
+        <CardTitle className="truncate text-sm font-normal leading-5 text-[var(--text-primary)]">
           {template.title}
         </CardTitle>
-        <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-[var(--text-secondary)]">{template.description}</p>
+        <p className="mt-0.5 line-clamp-2 text-[13px] leading-[1.45] text-[var(--text-secondary)]">{template.description}</p>
       </CardHeader>
       <Separator className="mt-auto bg-[var(--border-subtle)]" />
       <CardFooter className="justify-between gap-3 pt-3">
-        <span className="flex min-w-0 items-center gap-2 text-[13px] text-[var(--text-muted)]">
-          <Clock className="h-4 w-4 shrink-0" />
+        <span className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--text-muted)]">
+          <Clock className="h-3.5 w-3.5 shrink-0" />
           <span className="truncate">{templateScheduleSummary(template)}</span>
         </span>
         <Button
@@ -70,7 +70,7 @@ export function TemplateCard({
           variant="outline"
           size="compact"
           onClick={() => onSetUp(template)}
-          className="shrink-0"
+          className="shrink-0 rounded-md px-2.5 font-normal"
         >
           <Plus />
           {installed ? 'Set up again' : 'Set up'}
@@ -95,7 +95,7 @@ export function TemplateLibrary({
   return (
     <section>
       {heading ? (
-        <div className="text-sm text-[var(--text-secondary)]">{heading}</div>
+        <div className="text-[13px] text-[var(--text-secondary)]">{heading}</div>
       ) : null}
       <Tabs value={category} onValueChange={(value) => setCategory(value as RoutineTemplateCategory)}>
         <TabsList className="mt-2 w-full justify-start overflow-x-auto" aria-label="Routine template categories">

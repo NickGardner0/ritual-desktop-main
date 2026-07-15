@@ -29,6 +29,7 @@ desktop contract by default: 36px for `default`, 32px for `sm`, and 28px for
 
 ```tsx
 <Button size="compact">Set up</Button>
+<Button variant="brand" size="compact">New routine</Button>
 <Input density="compact" aria-label="Routine name" />
 <Card density="compact"><CardContent>Dense content</CardContent></Card>
 
@@ -43,6 +44,9 @@ desktop contract by default: 36px for `default`, 32px for `sm`, and 28px for
   </TabsList>
 </Tabs>
 ```
+
+The `brand` button variant matches the landing-page CTA: black at rest,
+`#3d3c38` on hover, and the corresponding warm inverse treatment in dark mode.
 
 Applications must import `@ritual/ui/globals.css`, include `packages/ui/src` in
 their Tailwind content paths, and extend `@ritual/ui/tailwind-config`.

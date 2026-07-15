@@ -76,6 +76,7 @@ The visual hierarchy should come from spacing, text tone, and surface level befo
 | Default border | `--ritual-border-default` | `#dad9d7` | Inputs and explicit separators |
 | Subtle border | `--ritual-border-subtle` | `rgba(15,23,42,.052)` | Hairlines and chrome edges |
 | Primary action | `--ritual-interactive-primary` | `#27251e` | Highest-priority filled action |
+| Brand action | `--ritual-brand-action` | `#000000` | Landing-aligned black CTA; hover is `#3d3c38` |
 | Focus / info | `--ritual-focus-ring` | `#306774` | Keyboard focus and informational emphasis |
 
 ### Status colors
@@ -162,12 +163,15 @@ Only the APIs below are currently guaranteed by `@ritual/ui`. Agents must not in
 import { Button } from "@ritual/ui/button";
 
 <Button variant="default" size="default">Save changes</Button>
+<Button variant="brand" size="compact">New routine</Button>
 <Button variant="outline" size="compact">Set up</Button>
 <Button variant="outline" size="sm">Cancel</Button>
 <Button variant="ghost" size="icon-compact" aria-label="More options">…</Button>
 ```
 
-Variants: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`.
+Variants: `default`, `brand`, `destructive`, `outline`, `secondary`, `ghost`, `link`.
+
+`brand` reproduces Ritual’s landing-page CTA: black with white text in light mode and `#3d3c38` on hover, with a 200ms color transition. Use it for the small number of product actions that intentionally match that brand treatment.
 
 Sizes: `default` (36px), `sm` (32px), `compact` (28px), `lg` (40px), `icon` (36px), `icon-compact` (28px).
 Use one primary action per local action group. Destructive styling is for an action that causes harm, not for every warning message.
@@ -210,7 +214,7 @@ import {
 </Card>
 ```
 
-Cards group related information. Do not wrap every page section in a card; the content canvas can provide structure on its own.
+Cards group related information. Do not wrap every page section in a card; the content canvas can provide structure on its own. Dense library cards may use a 14px regular-weight title when color and spacing already provide hierarchy.
 The default density preserves existing 24px spacing. `density="compact"` opts a composition into 16px spacing, smaller supporting type, and a flat surface.
 
 ### Select
@@ -245,7 +249,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@ritual/ui/tabs";
 </Tabs>
 ```
 
-Variants: `underline` (default) and `segmented`. Use underline tabs for content categories and libraries; segmented tabs are for compact, mutually exclusive modes.
+Variants: `underline` (default) and `segmented`. Use underline tabs for content categories and libraries; segmented tabs are for compact, mutually exclusive modes. Underline labels use regular-weight primary neutral text in every state—selection is communicated by the underline, not a blue-grey inactive color.
 
 ### Badge
 

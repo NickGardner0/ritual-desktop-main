@@ -16,10 +16,10 @@ function RoutinesLoading() {
         <div className="h-9 w-32 animate-pulse rounded-md bg-surface-panel" />
       </div>
       <div className="mx-auto max-w-4xl space-y-6">
-        <div className="h-56 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
+        <div className="h-52 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {[0, 1, 2, 3].map((item) => (
-            <div key={item} className="h-36 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
+            <div key={item} className="h-32 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
           ))}
         </div>
       </div>

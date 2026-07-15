@@ -129,16 +129,17 @@ const MONTHS = [
 ];
 
 const groupClass = 'overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-surface-panel';
-const rowClass = 'flex min-h-11 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-3 last:border-b-0';
-const labelClass = 'text-[13px] font-medium text-[var(--text-secondary)]';
+const rowClass = 'flex min-h-10 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-3 last:border-b-0';
+const labelClass = 'text-[13px] font-normal text-[var(--text-secondary)]';
+const fieldLabelClass = 'text-[13px] font-normal text-[var(--text-primary)]';
 const chipClass =
-  'w-auto border-transparent bg-background px-2.5 text-[13px] font-medium text-[var(--text-primary)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:ring-offset-0';
+  'h-7 w-auto border-transparent bg-background px-2.5 text-[13px] font-normal text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:ring-offset-0';
 const selectTriggerClass =
-  'w-auto border-transparent bg-background font-medium text-[var(--text-primary)] focus:ring-2 focus:ring-ring/20 focus:ring-offset-0';
+  'w-auto border-transparent bg-background font-normal text-[var(--text-primary)] focus:ring-2 focus:ring-ring/20 focus:ring-offset-0';
 const textInputClass =
-  'text-[var(--text-primary)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
+  'h-8 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
 const textareaClass =
-  'w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-6 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring';
+  'w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-5 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -170,8 +171,8 @@ function TagsField({
     onChange(text.split(',').map((tag) => tag.trim()).filter(Boolean));
   };
   return (
-    <div className="space-y-2">
-      <Label htmlFor="routine-tags">Tags</Label>
+    <div className="space-y-1.5">
+      <Label htmlFor="routine-tags" className={fieldLabelClass}>Tags</Label>
       <Input
         density="compact"
         id="routine-tags"
@@ -202,7 +203,7 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <section className={groupClass}>
         <div className={rowClass}>
           <span className={labelClass}>Trigger</span>
@@ -210,7 +211,7 @@ function ScheduleEditor({
             value={draft.frequency}
             onValueChange={(value) => onChange({ frequency: value as ScheduleDraft['frequency'], interval: 1 })}
           >
-            <SelectTrigger density="compact" className={cn(selectTriggerClass, 'min-w-[150px]')} aria-label="Trigger frequency">
+            <SelectTrigger density="compact" className={cn(selectTriggerClass, 'min-w-[128px]')} aria-label="Trigger frequency">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -240,7 +241,7 @@ function ScheduleEditor({
               className={cn(chipClass, 'w-[76px] text-center')}
               aria-label="Interval"
             />
-            <span className="text-sm font-medium text-[var(--text-secondary)]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
+            <span className="text-[13px] font-normal text-[var(--text-secondary)]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
           </span>
         </div>
 
@@ -254,7 +255,7 @@ function ScheduleEditor({
                   <Button
                     key={day.value}
                     type="button"
-                    variant={active ? 'default' : 'secondary'}
+                    variant={active ? 'brand' : 'ghost'}
                     size="compact"
                     aria-pressed={active}
                     onClick={() => onChange({
@@ -262,7 +263,7 @@ function ScheduleEditor({
                         ? draft.weekdays.filter((value) => value !== day.value)
                         : [...draft.weekdays, day.value].sort((a, b) => a - b),
                     })}
-                    className="px-2.5 text-[13px]"
+                    className={cn('px-2 text-xs font-normal', !active && 'bg-background text-[var(--text-secondary)] hover:bg-[var(--row-hover)]')}
                   >
                     {day.label}
                   </Button>
@@ -430,7 +431,7 @@ export function RoutineConfigureModal({
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent
-        className="max-h-[calc(100vh-48px)] max-w-4xl gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
+        className="max-h-[calc(100vh-48px)] max-w-[820px] gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -446,10 +447,10 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-6 pt-5">
+        <div className="flex items-start justify-between px-5 pt-4">
           <div>
-            <DialogTitle className="text-xl font-medium leading-tight tracking-normal">Configure routine</DialogTitle>
-            <DialogDescription className="mt-2 text-sm text-[var(--text-secondary)]">
+            <DialogTitle className="text-lg font-normal leading-6 tracking-normal">Configure routine</DialogTitle>
+            <DialogDescription className="mt-1.5 text-[13px] text-[var(--text-secondary)]">
               {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
             </DialogDescription>
           </div>
@@ -465,20 +466,20 @@ export function RoutineConfigureModal({
           </Button>
         </div>
 
-        <Card density="compact" className="mx-6 mt-5 flex items-center gap-3 border-[var(--border-subtle)] bg-surface-panel px-3 py-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
-            {template ? <RoutineIcon name={template.icon} className="h-4 w-4" /> : <Repeat className="h-4 w-4" />}
+        <Card density="compact" className="mx-5 mt-4 flex items-center gap-2.5 border-[var(--border-subtle)] bg-surface-panel px-3 py-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
+            {template ? <RoutineIcon name={template.icon} className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">{template ? template.title : 'Custom routine'}</span>
-            <span className="block truncate text-[13px] text-[var(--text-muted)]">{bannerSummary}</span>
+            <span className="block truncate text-[13px] font-normal">{template ? template.title : 'Custom routine'}</span>
+            <span className="block truncate text-xs text-[var(--text-muted)]">{bannerSummary}</span>
           </span>
         </Card>
 
-        <div className="grid grid-cols-1 gap-5 px-6 pb-5 pt-5 md:grid-cols-2">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="routine-name">Name</Label>
+        <div className="grid grid-cols-1 gap-4 px-5 pb-4 pt-4 md:grid-cols-2">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="routine-name" className={fieldLabelClass}>Name</Label>
               <Input
                 density="compact"
                 id="routine-name"
@@ -497,7 +498,7 @@ export function RoutineConfigureModal({
               onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
             />
 
-            <p className="px-1 text-[13px] leading-5 text-[var(--text-muted)]" aria-live="polite">
+            <p className="px-1 text-xs leading-5 text-[var(--text-muted)]" aria-live="polite">
               {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
               Next: {state.paused
                 ? 'paused'
@@ -530,11 +531,14 @@ export function RoutineConfigureModal({
                     <Button
                       key={tier.id}
                       type="button"
-                      variant={state.agentTier === tier.id ? 'default' : 'secondary'}
+                      variant={state.agentTier === tier.id ? 'brand' : 'ghost'}
                       size="compact"
                       aria-pressed={state.agentTier === tier.id}
                       onClick={() => setState({ ...state, agentTier: tier.id })}
-                      className="px-3 text-[13px]"
+                      className={cn(
+                        'px-2.5 text-xs font-normal',
+                        state.agentTier !== tier.id && 'bg-background text-[var(--text-secondary)] hover:bg-[var(--row-hover)]',
+                      )}
                     >
                       {tier.label}
                     </Button>
@@ -544,9 +548,9 @@ export function RoutineConfigureModal({
             </section>
           </div>
 
-          <div className="flex min-h-0 flex-col gap-4 md:border-l md:border-[var(--border-subtle)] md:pl-5">
-            <div className="space-y-2">
-              <Label htmlFor="routine-instructions">Instructions</Label>
+          <div className="flex min-h-0 flex-col gap-3 md:border-l md:border-[var(--border-subtle)] md:pl-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="routine-instructions" className={fieldLabelClass}>Instructions</Label>
               <p className="text-[13px] leading-5 text-[var(--text-secondary)]">
                 Describe what you&rsquo;d like the AI to gather, analyze, or do.
               </p>
@@ -555,18 +559,18 @@ export function RoutineConfigureModal({
                 value={state.instructions}
                 onChange={(event) => setState({ ...state, instructions: event.target.value })}
                 placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-                className={cn(textareaClass, 'min-h-52')}
+                className={cn(textareaClass, 'min-h-48')}
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="routine-notes">Notes</Label>
+            <div className="space-y-1.5">
+              <Label htmlFor="routine-notes" className={fieldLabelClass}>Notes</Label>
               <textarea
                 id="routine-notes"
                 value={state.notes}
                 onChange={(event) => setState({ ...state, notes: event.target.value })}
                 placeholder="Optional notes"
-                className={cn(textareaClass, 'min-h-28')}
+                className={cn(textareaClass, 'min-h-24')}
               />
             </div>
 
@@ -578,20 +582,23 @@ export function RoutineConfigureModal({
         </div>
 
         <Separator className="bg-[var(--border-subtle)]" />
-        <div className="sticky bottom-0 flex items-center justify-end gap-3 bg-background/95 px-6 py-4 backdrop-blur">
+        <div className="sticky bottom-0 flex items-center justify-end gap-2 bg-background/95 px-5 py-3 backdrop-blur">
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="compact"
             onClick={requestClose}
+            className="rounded-md px-3 font-normal"
           >
             Cancel
           </Button>
           <Button
             type="button"
-            size="sm"
+            variant="brand"
+            size="compact"
             onClick={submit}
             disabled={!canSubmit}
+            className="rounded-md px-3"
           >
             {submitting ? <Loader2 className="animate-spin" /> : null}
             {mode === 'create' ? 'Create routine' : 'Save routine'}

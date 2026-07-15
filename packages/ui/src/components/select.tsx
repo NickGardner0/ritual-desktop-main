@@ -22,7 +22,7 @@ const SelectTrigger = React.forwardRef<
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "flex w-full items-center justify-between gap-2 border border-input bg-background text-left ring-offset-background transition-colors placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
+      "flex w-full items-center justify-between gap-2 border border-input bg-background text-left ring-offset-background transition-colors placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:truncate",
       density === "compact" ? "h-7 rounded-control px-2 text-[13px]" : "h-9 rounded-md px-3 text-sm",
       className,
     )}
@@ -30,7 +30,7 @@ const SelectTrigger = React.forwardRef<
   >
     {children}
     <SelectPrimitive.Icon asChild>
-      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      <ChevronDown className="size-3.5 shrink-0 text-[var(--icon-muted)]" />
     </SelectPrimitive.Icon>
   </SelectPrimitive.Trigger>
 ));
@@ -102,7 +102,7 @@ const SelectLabel = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SelectPrimitive.Label
     ref={ref}
-    className={cn("px-2 py-1.5 text-xs font-medium text-muted-foreground", className)}
+    className={cn("px-2 py-1.5 text-xs font-medium text-[var(--text-muted)]", className)}
     {...props}
   />
 ));
@@ -115,7 +115,7 @@ const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "relative flex min-h-7 w-full cursor-default select-none items-center rounded-row py-1.5 pl-7 pr-2 text-[13px] outline-none focus:bg-secondary focus:text-secondary-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "relative flex min-h-7 w-full cursor-default select-none items-center rounded-row py-1.5 pl-7 pr-2 text-[13px] text-[var(--text-primary)] outline-none focus:bg-[var(--row-hover)] data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}

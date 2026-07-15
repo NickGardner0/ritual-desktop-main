@@ -42,6 +42,9 @@
     --text-muted: #7a7a7a;
     --icon-default: #5f6368;
     --icon-muted: #888888;
+    --brand-action: #000000;
+    --brand-action-hover: #3d3c38;
+    --brand-action-foreground: #ffffff;
     --radius-control: 0.125rem;
     --radius-row: 0.25rem;
     --control-height-compact: 1.75rem;
@@ -87,6 +90,9 @@
     --text-muted: #9a9a94;
     --icon-default: #b7b7b0;
     --icon-muted: #969690;
+    --brand-action: #f5f1ec;
+    --brand-action-hover: #e6ded5;
+    --brand-action-foreground: #11100f;
 }
 
 * {

@@ -57,6 +57,9 @@
 
   --ritual-interactive-primary: var(--ritual-neutral-800);
   --ritual-interactive-primary-foreground: var(--ritual-neutral-0);
+  --ritual-brand-action: #000000;
+  --ritual-brand-action-hover: #3d3c38;
+  --ritual-brand-action-foreground: var(--ritual-neutral-0);
   --ritual-interactive-hover: rgba(17, 24, 39, 0.032);
   --ritual-interactive-selected: var(--ritual-neutral-150);
   --ritual-focus-ring: var(--ritual-teal);
@@ -152,6 +155,9 @@
   --ritual-border-strong: rgba(255, 255, 255, 0.13);
   --ritual-interactive-primary: #f7f7f3;
   --ritual-interactive-primary-foreground: var(--ritual-neutral-900);
+  --ritual-brand-action: #f5f1ec;
+  --ritual-brand-action-hover: #e6ded5;
+  --ritual-brand-action-foreground: #11100f;
   --ritual-interactive-hover: rgba(255, 255, 255, 0.055);
   --ritual-interactive-selected: rgba(255, 255, 255, 0.08);
   --ritual-focus-ring: #72a8b4;

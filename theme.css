@@ -12,6 +12,9 @@
   --color-ritual-control-hover: var(--ritual-surface-control-hover);
   --color-ritual-primary: var(--ritual-interactive-primary);
   --color-ritual-primary-foreground: var(--ritual-interactive-primary-foreground);
+  --color-ritual-brand-action: var(--ritual-brand-action);
+  --color-ritual-brand-action-hover: var(--ritual-brand-action-hover);
+  --color-ritual-brand-action-foreground: var(--ritual-brand-action-foreground);
   --color-ritual-foreground: var(--ritual-text-primary);
   --color-ritual-secondary: var(--ritual-text-secondary);
   --color-ritual-muted: var(--ritual-text-muted);

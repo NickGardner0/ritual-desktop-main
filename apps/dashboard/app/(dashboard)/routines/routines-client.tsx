@@ -236,8 +236,8 @@ function RoutineListRow({
       >
         <Repeat2 className="h-4 w-4 text-[var(--icon-muted)]" />
         <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-[var(--text-primary)]">{routine.title}</span>
-          <span className="mt-0.5 block truncate text-[13px] text-[var(--text-muted)]">
+          <span className="block truncate text-[13px] font-normal text-[var(--text-primary)]">{routine.title}</span>
+          <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
             {scheduleSummary}
             {nextLabel ? ` · Next ${nextLabel}` : ''}
           </span>
@@ -288,8 +288,8 @@ function RoutineCard({
     <Card
       density="compact"
       className={cn(
-        'flex min-h-36 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel',
-        selected && 'border-primary',
+        'flex min-h-32 flex-col border-[var(--border-subtle)] transition-colors hover:bg-surface-panel',
+        selected && 'border-[var(--text-primary)]',
       )}
     >
       <Button
@@ -299,7 +299,7 @@ function RoutineCard({
         className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-4 text-left hover:bg-transparent focus-visible:ring-inset"
       >
         <span className="min-w-0">
-          <span className="block truncate text-base font-medium text-[var(--text-primary)]">{routine.title}</span>
+          <span className="block truncate text-sm font-normal text-[var(--text-primary)]">{routine.title}</span>
           <span className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-[var(--text-secondary)]">
             {agent.instructions || routine.description || 'No instructions set.'}
           </span>
@@ -310,7 +310,7 @@ function RoutineCard({
       </Button>
       <Separator className="bg-[var(--border-subtle)]" />
       <CardFooter className="justify-between gap-3 pt-3">
-        <span className="min-w-0 truncate text-[13px] text-[var(--text-muted)]">{scheduleSummary}</span>
+        <span className="min-w-0 truncate text-xs text-[var(--text-muted)]">{scheduleSummary}</span>
         <div>
           <RoutineActions
             item={item}
@@ -659,7 +659,7 @@ export function RoutinesClient() {
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-content text-[var(--text-primary)]">
       <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
         <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
-          <h1 className="text-xl font-medium leading-6">Routines</h1>
+          <h1 className="text-lg font-normal leading-6">Routines</h1>
           <div className="flex items-center gap-3">
             {hasRoutines ? (
               <div className="flex items-center rounded-row bg-surface-panel p-1" role="group" aria-label="Routine view">
@@ -695,10 +695,12 @@ export function RoutinesClient() {
             ) : null}
             <Button
               type="button"
-              size="sm"
+              variant="brand"
+              size="compact"
               title="New routine (⌘N)"
               disabled={submitModalMutation.isPending}
               onClick={() => openCreateModal()}
+              className="rounded-md px-3"
             >
               <Plus />
               New routine
@@ -706,7 +708,7 @@ export function RoutinesClient() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-8 pb-12 pt-6">
+        <main className="mx-auto max-w-6xl px-8 pb-12 pt-5">
           {routinesQuery.isLoading ? (
             <div className="mx-auto max-w-4xl space-y-3">
               {[0, 1, 2, 3].map((item) => (
@@ -714,7 +716,7 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : !hasRoutines ? (
-            <div className="mx-auto max-w-4xl space-y-6">
+            <div className="mx-auto max-w-4xl space-y-5">
               <RoutinesEmptyHero />
               <TemplateLibrary
                 installedTemplateKeys={installedTemplateKeys}
