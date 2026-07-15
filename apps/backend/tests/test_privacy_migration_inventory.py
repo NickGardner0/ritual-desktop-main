@@ -18,6 +18,8 @@ from database.models import (
     AiFactDB,
     ArtifactDB,
     Base,
+    ExperimentDB,
+    ExperimentEntryDB,
     FinancialAccountDB,
     FinancialTransactionDB,
     HabitDB,
@@ -171,9 +173,30 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
             session.add(
+                ExperimentDB(
+                    id="experiment-private",
+                    user_id="user-privacy-inventory",
+                    title="Private experiment",
+                    description="Sensitive experiment context",
+                    status="active",
+                )
+            )
+            session.add(
+                ExperimentEntryDB(
+                    id="experiment-entry-private",
+                    experiment_id="experiment-private",
+                    user_id="user-privacy-inventory",
+                    kind="observation",
+                    title="Private observation",
+                    content="Sensitive result",
+                    metadata_json='{"private":true}',
+                )
+            )
+            session.add(
                 AIConversationDB(
                     id="conversation-private",
                     user_id="user-privacy-inventory",
+                    experiment_id="experiment-private",
                     title="Private conversation",
                     channel="app",
                 )

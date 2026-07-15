@@ -10,6 +10,7 @@ from database.models.conversations import (
     AIMessageDB,
     ConversationQueueItemDB,
 )
+from database.models.experiments import ExperimentDB, ExperimentEntryDB
 from database.models.facts import (
     AiFactDB,
     AiFactEventDB,
@@ -127,6 +128,8 @@ __all__ = [
     "ArtifactRevisionDB",
     "BehaviorBaselineSnapshotDB",
     "ConversationQueueItemDB",
+    "ExperimentDB",
+    "ExperimentEntryDB",
     "DailyActivityRollupDB",
     "DomainDailyRollupDB",
     "FinancialAccountDB",

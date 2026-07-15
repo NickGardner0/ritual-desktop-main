@@ -202,7 +202,10 @@ export function useChatConversationActions({
       
       if (response.ok) {
         const conversation: PersistedConversation = await response.json();
-        
+        setConversationId(conversation.id);
+        setVoiceStyleEnabled(conversation.response_mode === 'voice');
+        setQueueAutoRun(Boolean(conversation.auto_run_queued));
+
         if (conversation && conversation.messages && conversation.messages.length > 0) {
           const loadedMessages: Message[] = conversation.messages.map((m) => {
             let messageCanvasData: HabitCanvasData | undefined;
@@ -223,12 +226,6 @@ export function useChatConversationActions({
           });
           
           setMessages(loadedMessages);
-          setConversationId(conversation.id);
-          
-          // Initialize voice style from conversation's response_mode
-          setVoiceStyleEnabled(conversation.response_mode === 'voice');
-          setQueueAutoRun(Boolean(conversation.auto_run_queued));
-          
           const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
           if (lastMessageWithCanvas?.canvasData) {
             setCanvasData(lastMessageWithCanvas.canvasData);

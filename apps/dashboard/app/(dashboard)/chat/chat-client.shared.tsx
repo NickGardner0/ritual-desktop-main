@@ -726,6 +726,7 @@ export interface PersistedMessage {
 export interface PersistedConversation {
   id: string;
   user_id: string;
+  experiment_id?: string | null;
   title: string | null;
   response_mode?: 'text' | 'voice';
   auto_run_queued?: boolean;
@@ -737,6 +738,7 @@ export interface PersistedConversation {
 // Sidebar conversation item (without full messages)
 export interface ConversationListItem {
   id: string;
+  experiment_id?: string | null;
   title: string | null;
   created_at: string;
   updated_at: string;

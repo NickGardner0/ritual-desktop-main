@@ -3389,6 +3389,447 @@
         "title": "DeviceResponse",
         "type": "object"
       },
+        "ExperimentCreate": {
+          "properties": {
+            "description": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "title": {
+              "maxLength": 120,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "title"
+          ],
+          "title": "ExperimentCreate",
+          "type": "object"
+        },
+        "ExperimentDetailRead": {
+          "properties": {
+            "created_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created At"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "entries": {
+              "items": {
+                "$ref": "#/components/schemas/ExperimentEntryRead"
+              },
+              "title": "Entries",
+              "type": "array"
+            },
+            "entry_count": {
+              "default": 0,
+              "title": "Entry Count",
+              "type": "integer"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "completed",
+                "archived"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "thread_count": {
+              "default": 0,
+              "title": "Thread Count",
+              "type": "integer"
+            },
+            "threads": {
+              "items": {
+                "$ref": "#/components/schemas/ExperimentThreadRead"
+              },
+              "title": "Threads",
+              "type": "array"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "status"
+          ],
+          "title": "ExperimentDetailRead",
+          "type": "object"
+        },
+        "ExperimentEntryCreate": {
+          "properties": {
+            "content": {
+              "anyOf": [
+                {
+                  "maxLength": 20000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content"
+            },
+            "kind": {
+              "enum": [
+                "observation",
+                "file",
+                "metric",
+                "conclusion"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": true,
+              "title": "Metadata",
+              "type": "object"
+            },
+            "title": {
+              "maxLength": 160,
+              "minLength": 1,
+              "title": "Title",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "title"
+          ],
+          "title": "ExperimentEntryCreate",
+          "type": "object"
+        },
+        "ExperimentEntryRead": {
+          "properties": {
+            "content": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content"
+            },
+            "created_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created At"
+            },
+            "experiment_id": {
+              "title": "Experiment Id",
+              "type": "string"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "observation",
+                "file",
+                "metric",
+                "conclusion"
+              ],
+              "title": "Kind",
+              "type": "string"
+            },
+            "metadata": {
+              "additionalProperties": true,
+              "title": "Metadata",
+              "type": "object"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            }
+          },
+          "required": [
+            "id",
+            "experiment_id",
+            "kind",
+            "title"
+          ],
+          "title": "ExperimentEntryRead",
+          "type": "object"
+        },
+        "ExperimentListResponse": {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/ExperimentRead"
+              },
+              "title": "Items",
+              "type": "array"
+            }
+          },
+          "title": "ExperimentListResponse",
+          "type": "object"
+        },
+        "ExperimentRead": {
+          "properties": {
+            "created_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created At"
+            },
+            "description": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "entry_count": {
+              "default": 0,
+              "title": "Entry Count",
+              "type": "integer"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "active",
+                "completed",
+                "archived"
+              ],
+              "title": "Status",
+              "type": "string"
+            },
+            "thread_count": {
+              "default": 0,
+              "title": "Thread Count",
+              "type": "integer"
+            },
+            "title": {
+              "title": "Title",
+              "type": "string"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "status"
+          ],
+          "title": "ExperimentRead",
+          "type": "object"
+        },
+        "ExperimentThreadCreate": {
+          "properties": {
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          "title": "ExperimentThreadCreate",
+          "type": "object"
+        },
+        "ExperimentThreadRead": {
+          "properties": {
+            "created_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created At"
+            },
+            "first_message": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Message"
+            },
+            "id": {
+              "title": "Id",
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            },
+            "updated_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Updated At"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "title": "ExperimentThreadRead",
+          "type": "object"
+        },
+        "ExperimentUpdate": {
+          "properties": {
+            "description": {
+              "anyOf": [
+                {
+                  "maxLength": 2000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            },
+            "status": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "active",
+                    "completed",
+                    "archived"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Title"
+            }
+          },
+          "title": "ExperimentUpdate",
+          "type": "object"
+        },
       "ExternalErasureExecuteRequest": {
         "properties": {
           "confirm_external_erasure": {
@@ -15623,6 +16064,403 @@
         ]
       }
     },
+      "/api/experiments": {
+        "get": {
+          "operationId": "list_experiments_api_experiments_get",
+          "parameters": [
+            {
+              "in": "query",
+              "name": "limit",
+              "required": false,
+              "schema": {
+                "default": 20,
+                "maximum": 100,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentListResponse"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "List Experiments",
+          "tags": [
+            "experiments"
+          ]
+        },
+        "post": {
+          "operationId": "create_experiment_api_experiments_post",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentCreate"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentRead"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Create Experiment",
+          "tags": [
+            "experiments"
+          ]
+        }
+      },
+      "/api/experiments/{experiment_id}": {
+        "delete": {
+          "operationId": "delete_experiment_api_experiments__experiment_id__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Delete Experiment",
+          "tags": [
+            "experiments"
+          ]
+        },
+        "get": {
+          "operationId": "get_experiment_api_experiments__experiment_id__get",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentDetailRead"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Get Experiment",
+          "tags": [
+            "experiments"
+          ]
+        },
+        "patch": {
+          "operationId": "update_experiment_api_experiments__experiment_id__patch",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentUpdate"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentDetailRead"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Update Experiment",
+          "tags": [
+            "experiments"
+          ]
+        }
+      },
+      "/api/experiments/{experiment_id}/entries": {
+        "post": {
+          "operationId": "create_experiment_entry_api_experiments__experiment_id__entries_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentEntryCreate"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentEntryRead"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Create Experiment Entry",
+          "tags": [
+            "experiments"
+          ]
+        }
+      },
+      "/api/experiments/{experiment_id}/entries/{entry_id}": {
+        "delete": {
+          "operationId": "delete_experiment_entry_api_experiments__experiment_id__entries__entry_id__delete",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            },
+            {
+              "in": "path",
+              "name": "entry_id",
+              "required": true,
+              "schema": {
+                "title": "Entry Id",
+                "type": "string"
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Delete Experiment Entry",
+          "tags": [
+            "experiments"
+          ]
+        }
+      },
+      "/api/experiments/{experiment_id}/threads": {
+        "post": {
+          "operationId": "create_experiment_thread_api_experiments__experiment_id__threads_post",
+          "parameters": [
+            {
+              "in": "path",
+              "name": "experiment_id",
+              "required": true,
+              "schema": {
+                "title": "Experiment Id",
+                "type": "string"
+              }
+            }
+          ],
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExperimentThreadCreate"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/ExperimentThreadRead"
+                  }
+                }
+              },
+              "description": "Successful Response"
+            },
+            "422": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/HTTPValidationError"
+                  }
+                }
+              },
+              "description": "Validation Error"
+            }
+          },
+          "security": [
+            {
+              "HTTPBearer": []
+            }
+          ],
+          "summary": "Create Experiment Thread",
+          "tags": [
+            "experiments"
+          ]
+        }
+      },
     "/api/financial/connections": {
       "get": {
         "operationId": "list_financial_connections_api_financial_connections_get",

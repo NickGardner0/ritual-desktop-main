@@ -46,6 +46,8 @@ export const SENSITIVE_RITUAL_VAULT_CATEGORIES = [
   "ai_facts",
   "ai_messages",
   "artifacts",
+  "experiments",
+  "experiment_entries",
   "financial_accounts",
   "financial_transactions",
   "import_items",

@@ -227,21 +227,15 @@ const Item = ({
     onToggle(item.path);
   };
 
-  const handleItemClick = (e: React.MouseEvent) => {
-    if (item.path === "/experiments") {
-      e.preventDefault();
-      onSelect?.();
-    } else {
-      // Let the Link handle navigation naturally
-      // Just call onSelect for any sidebar collapse behavior
-      onSelect?.();
-    }
+  const handleItemClick = () => {
+    // Let the Link handle navigation naturally and only collapse hover menus.
+    onSelect?.();
   };
 
   return (
     <div className="group">
       <Link
-        href={item.path === "/experiments" ? "#" : item.path}
+        href={item.path}
         onClick={handleItemClick}
         className="group/nav-item block"
         prefetch={true}

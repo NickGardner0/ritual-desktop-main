@@ -48,6 +48,7 @@ class ConversationService:
             return {
                 "id": conversation.id,
                 "user_id": conversation.user_id,
+                "experiment_id": conversation.experiment_id,
                 "title": conversation.title,
                 "response_mode": conversation.response_mode,
                 "created_at": conversation.created_at.isoformat(),
@@ -326,6 +327,7 @@ class ConversationService:
                 
                 conversation_list.append({
                     "id": c.id,
+                    "experiment_id": c.experiment_id,
                     "title": c.title,
                     "first_message": first_msg.content if first_msg else None,
                     "created_at": c.created_at.isoformat(),
@@ -464,6 +466,7 @@ class ConversationService:
         return {
             "id": conversation.id,
             "user_id": conversation.user_id,
+            "experiment_id": conversation.experiment_id,
             "title": conversation.title,
             "response_mode": conversation.response_mode or "text",
             "auto_run_queued": bool(conversation.auto_run_queued),

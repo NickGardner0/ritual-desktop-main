@@ -13,6 +13,7 @@ class AIConversationDB(Base):
 
     id = Column(String, primary_key=True)
     user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    experiment_id = Column(String, ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True)
     title = Column(String, nullable=True)  # Optional title for the conversation
     response_mode = Column(String, default="text")  # 'text' or 'voice' - controls response style
     channel = Column(String, nullable=False, default="app")  # 'app', 'sms', or 'voice'
@@ -22,6 +23,7 @@ class AIConversationDB(Base):
 
     # Relationships
     user = orm_relationship("UserDB", backref="ai_conversations")
+    experiment = orm_relationship("ExperimentDB", back_populates="threads")
     messages = orm_relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
 
 
@@ -67,6 +69,5 @@ class ConversationQueueItemDB(Base):
 
     conversation = orm_relationship("AIConversationDB")
     user = orm_relationship("UserDB")
-
 
 
