@@ -689,19 +689,36 @@ body[data-voice-hud-window="1"] {
   }
 
   .app-toolbar-icon-button {
-    border: 1px solid transparent;
-    background: transparent;
-    color: #8a8883;
-    box-shadow: none;
-    transition: none;
+    display: inline-flex;
+    height: 28px;
+    width: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent !important;
+    border-radius: 7px !important;
+    background: transparent !important;
+    color: rgba(72, 77, 82, 0.78) !important;
+    box-shadow: none !important;
+    transition: background-color 120ms ease, color 120ms ease;
+  }
+
+  .app-toolbar-icon-button svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.75;
   }
 
   .app-toolbar-icon-button:hover,
   .app-toolbar-icon-button:focus-visible,
   .app-toolbar-icon-button[data-state="open"],
   .app-toolbar-icon-button[aria-expanded="true"] {
-    background: #F3F3F3;
-    color: #2f302d;
+    background: rgba(0, 0, 0, 0.045) !important;
+    color: rgba(42, 47, 52, 0.96) !important;
+  }
+
+  .app-toolbar-icon-button:active {
+    background: rgba(0, 0, 0, 0.07) !important;
   }
 
   .titlebar-segmented-control {
@@ -750,22 +767,7 @@ body[data-voice-hud-window="1"] {
   }
 
   .app-toolbar-icon-button {
-    border-radius: var(--radius-control) !important;
-    border: 1px solid transparent !important;
-    background: transparent !important;
-    color: rgba(72, 77, 82, 0.72) !important;
-    box-shadow: none !important;
-  }
-
-  .app-toolbar-icon-button:hover {
-    background: transparent !important;
-    color: rgba(55, 60, 65, 0.94) !important;
-  }
-
-  .app-toolbar-icon-button:active,
-  .app-toolbar-icon-button[data-state="open"] {
-    background: transparent !important;
-    color: rgba(42, 47, 52, 0.98) !important;
+    border-radius: 7px !important;
   }
 
   .app-toolbar-nav-button {

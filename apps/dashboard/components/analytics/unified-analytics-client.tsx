@@ -405,11 +405,11 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="app-toolbar-icon-button flex h-7 w-7 items-center justify-center rounded-md border border-transparent bg-transparent text-[#8a8883] shadow-none hover:bg-[#F3F3F3] hover:text-[#2f302d] focus:outline-none focus-visible:bg-[#F3F3F3] focus-visible:ring-0"
+                  className="app-toolbar-icon-button"
                   aria-label="Add habit"
                   title="Add habit"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus strokeWidth={1.75} />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent
@@ -443,7 +443,7 @@ function UnifiedAnalyticsContent({
             </DropdownMenu>
           )}
           <DateRangePicker
-            className="w-[128px]"
+            className="w-auto"
             variant="titlebar"
             onDateRangeChange={setDateRange}
             initialDateRange={dateRange}

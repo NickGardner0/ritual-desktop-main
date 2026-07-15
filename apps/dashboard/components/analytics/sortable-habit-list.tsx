@@ -170,23 +170,29 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
     }
   };
 
-  const rowBackgroundClass = isContextSelected
-    ? 'bg-[var(--row-active)]'
-    : 'bg-[var(--content-bg)] hover:bg-[var(--row-hover)]';
-
   return (
     <>
       <div
         ref={setNodeRef}
         style={style}
-        className={`group grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[var(--sidebar-row-height)] rounded-[var(--sidebar-row-radius)] px-1.5 py-0 ${rowBackgroundClass} cursor-grab active:cursor-grabbing ${
-          isDragging ? 'shadow-lg bg-[#f5f5f5] opacity-90' : ''
+        className={`group relative grid w-full grid-cols-[minmax(0,1fr)_max-content] items-center gap-x-4 min-h-[27px] px-1.5 py-0 bg-[var(--content-bg)] cursor-grab active:cursor-grabbing ${
+          isDragging ? 'opacity-90' : ''
         }`}
         {...attributes}
         {...listeners}
       >
         <div
-          className="min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
+          aria-hidden="true"
+          className={`pointer-events-none absolute inset-x-0 top-1/2 h-[var(--sidebar-row-height)] -translate-y-1/2 rounded-[var(--sidebar-row-radius)] transition-none ${
+            isDragging
+              ? 'bg-[#f5f5f5] shadow-lg'
+              : isContextSelected
+                ? 'bg-[var(--row-active)]'
+                : 'bg-transparent group-hover:bg-[var(--row-hover)]'
+          }`}
+        />
+        <div
+          className="relative z-[1] min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
           role="button"
           tabIndex={0}
           aria-label={`Open Context for ${displayName}`}
@@ -199,7 +205,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
         </div>
         <div
           ref={metricTriggerRef}
-          className="flex items-center justify-self-end gap-1 cursor-default relative tooltip-container flex-shrink-0"
+          className="relative z-[1] flex items-center justify-self-end gap-1 cursor-default flex-shrink-0 tooltip-container"
           onClick={handleMetricClick}
           onDoubleClick={handleMetricDoubleClick}
         >

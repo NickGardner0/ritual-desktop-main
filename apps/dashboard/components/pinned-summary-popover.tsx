@@ -28,12 +28,12 @@ const panelStyle: CSSProperties = {
 function CodexPinnedSummaryIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="0 0 20 20" fill="none" aria-hidden="true" {...props}>
-      <circle cx="5" cy="5" r="1.35" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 5h6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="5" cy="10" r="1.35" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 10h6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="5" cy="15" r="1.35" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 15h6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="5" cy="5" r="1.35" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M9 5h6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <circle cx="5" cy="10" r="1.35" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M9 10h6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      <circle cx="5" cy="15" r="1.35" stroke="currentColor" strokeWidth="1.75" />
+      <path d="M9 15h6.5" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
     </svg>
   );
 }
@@ -144,7 +144,7 @@ export function PinnedSummaryPopover() {
         aria-expanded={open}
         title="Toggle pinned summary"
       >
-        <CodexPinnedSummaryIcon className="h-[18px] w-[18px]" />
+        <CodexPinnedSummaryIcon className="h-4 w-4" />
       </ToolbarButton>
 
       {open && typeof document !== "undefined"

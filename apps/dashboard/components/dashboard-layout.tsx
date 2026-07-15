@@ -152,21 +152,21 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             {!isFullScreenChat && (
               <div
                 data-tauri-drag-region
-                className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-start bg-[var(--content-bg)] pt-2.5 ${contentTouchesWindowChrome ? 'pl-[84px] pr-6' : 'px-6'}`}
+                className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-center bg-[var(--content-bg)] ${contentTouchesWindowChrome ? 'pl-[84px] pr-3' : 'px-4'}`}
               >
                 <div
                   data-tauri-drag-region
-                  className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(160px,1fr)_auto_minmax(160px,1fr)] items-center gap-2"
+                  className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)] items-center gap-2"
                 >
-                  <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
+                  <div data-tauri-drag-region className="flex min-w-0 items-center">
                     {!isChatRoute && (
                       <CommandPalette
-                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent px-2.5 py-0 text-[13px] font-normal text-[#6b6a66] shadow-none hover:bg-[#F3F3F3] hover:text-[#2f302d] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
+                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[108px] items-center gap-1.5 rounded-[7px] border border-black/[0.08] bg-transparent px-2.5 py-0 text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.04] hover:text-[#2f302d] focus:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-0"
                         initialOpen={shouldOpenWhoopModal}
                         density="tight"
                       />
                     )}
-                    <div id="header-left-slot" className="no-drag flex items-center gap-1" />
+                    <div id="header-left-slot" className="no-drag ml-1 flex items-center gap-0.5" />
                   </div>
 
                   <div
@@ -174,14 +174,14 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                     className="no-drag flex min-w-0 items-center justify-center"
                   />
 
-                  <div data-tauri-drag-region className="flex min-w-0 items-center justify-end gap-1">
-                    <div className="no-drag flex items-center">
+                  <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
+                    <div className="no-drag flex h-7 items-center gap-0.5">
                       <PinnedSummaryPopover />
+                      <div
+                        id="header-right-slot"
+                        className="no-drag flex h-7 min-w-0 items-center gap-0.5"
+                      />
                     </div>
-                    <div
-                      id="header-right-slot"
-                      className="no-drag flex min-w-0 items-center gap-1"
-                    />
                   </div>
                 </div>
               </div>

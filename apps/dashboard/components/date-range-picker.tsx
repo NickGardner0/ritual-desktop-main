@@ -414,7 +414,7 @@ export function DateRangePicker({
   const isTitlebar = variant === "titlebar"
 
   return (
-    <div className={cn("grid gap-2", className)}>
+    <div className={cn(isTitlebar ? "flex items-center" : "grid gap-2", className)}>
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -423,15 +423,17 @@ export function DateRangePicker({
             aria-label={`Date range: ${formatDateRange()}`}
             className={cn(
               isTitlebar
-                ? "h-7 w-[128px] justify-between rounded-md border border-transparent bg-transparent px-2 text-left text-[13px] font-normal text-[#6b6a66] shadow-none hover:bg-[#F3F3F3] hover:text-[#2f302d] data-[state=open]:bg-[#F3F3F3] data-[state=open]:text-[#2f302d] focus-visible:bg-[#F3F3F3] focus-visible:ring-0"
+                ? "app-toolbar-date-button h-7 min-w-[104px] justify-between gap-1 rounded-[7px] border border-transparent bg-transparent px-2 text-left text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.045] hover:text-[#2f302d] data-[state=open]:bg-black/[0.045] data-[state=open]:text-[#2f302d] focus-visible:bg-black/[0.045] focus-visible:ring-0"
                 : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
-              !date && (isTitlebar ? "text-[rgba(17,24,39,0.82)]" : "text-black"),
-              className
+              !date && (isTitlebar ? "text-[#6b6a66]" : "text-black"),
+              isTitlebar ? undefined : className
             )}
           >
-            <CalendarIcon className={cn("mr-1.5 h-3.5 w-3.5", isTitlebar ? "text-[#8a8883]" : undefined)} />
+            {isTitlebar ? null : (
+              <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+            )}
             <span className="min-w-0 truncate">{formatDateRange()}</span>
-            <ChevronDown className={cn("ml-auto h-3.5 w-3.5", isTitlebar ? "text-[#8a8883]" : undefined)} />
+            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0", isTitlebar ? "text-[#9b9a96]" : undefined)} />
           </Button>
         </PopoverTrigger>
         <PopoverContent
