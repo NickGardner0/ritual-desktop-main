@@ -404,7 +404,7 @@ export default function CommandPalette({
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between rounded-sm border border-gray-200/90 bg-white shadow-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]",
+          "justify-between rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent shadow-none hover:bg-[#f1f0ed] focus:bg-[#f1f0ed]",
           className
         )}
       >
@@ -412,11 +412,11 @@ export default function CommandPalette({
           <span>Search</span>
           <kbd
             className={cn(
-              "pointer-events-none inline-flex select-none items-center border border-gray-200/90 bg-[#F0F0F0]/90 font-mono font-medium text-muted-foreground opacity-100",
-              isTight ? "h-[18px] gap-0.5 px-1.5 text-[9px]" : "h-5 gap-1 px-1.5 text-[10px]"
+              "pointer-events-none inline-flex select-none items-center border-0 bg-transparent font-mono font-normal text-[#9b9a96] opacity-100",
+              isTight ? "h-[18px] gap-0.5 px-0.5 text-[10px]" : "h-5 gap-1 px-1 text-[11px]"
             )}
           >
-            <span className={cn(isTight ? "text-[10px]" : "text-xs")}>⌘</span>K
+            <span className={cn(isTight ? "text-[11px]" : "text-xs")}>⌘</span>K
           </kbd>
         </div>
       </Button>

@@ -405,7 +405,7 @@ function UnifiedAnalyticsContent({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="flex h-7 w-7 items-center justify-center rounded-sm border border-gray-300 bg-white text-gray-500 shadow-sm transition-colors hover:bg-[#F5F5F5] hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1"
+                  className="app-toolbar-icon-button flex h-7 w-7 items-center justify-center rounded-md border border-transparent bg-transparent text-[#8a8883] shadow-none transition-colors hover:bg-[#f1f0ed] hover:text-[#2f302d] focus:outline-none focus-visible:bg-[#f1f0ed] focus-visible:ring-0"
                   aria-label="Add habit"
                   title="Add habit"
                 >
