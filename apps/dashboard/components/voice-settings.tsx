@@ -62,7 +62,7 @@ function VoiceToggle({
       aria-pressed={checked}
       className={cn(
         'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)] transition-colors duration-200 disabled:opacity-45',
-        checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
+        checked ? 'bg-black' : 'bg-[#d9d9d7]',
       )}
     >
       <span

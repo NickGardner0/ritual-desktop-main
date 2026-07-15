@@ -178,8 +178,7 @@ export function SettingsFrame({
             {TAB_ORDER.map((id) => {
               const { label, icon: Icon } = TABS[id];
               const selected = activeTab === id;
-              const lightPill = selected && id === 'account';
-              const selectedColor = lightPill ? 'rgba(0,0,0,0.06)' : '#1a636b';
+              const selectedColor = 'rgba(0,0,0,0.06)';
               return (
                 <button
                   key={id}
@@ -188,9 +187,7 @@ export function SettingsFrame({
                   className={cn(
                     'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none transition-colors',
                     selected
-                      ? lightPill
-                        ? 'bg-black/[0.06] text-[#1d1d1f]'
-                        : 'bg-[#1a636b] text-white shadow-[0_1px_2px_rgba(0,0,0,0.12)]'
+                      ? 'bg-black/[0.06] text-[#1d1d1f]'
                       : 'text-[#1d1d1f]',
                   )}
                   style={{
@@ -200,10 +197,7 @@ export function SettingsFrame({
                   data-active={selected ? 'true' : undefined}
                 >
                   <Icon
-                    className={cn(
-                      'h-[15px] w-[15px] shrink-0',
-                      selected && !lightPill ? 'text-white' : 'text-[#1d1d1f]',
-                    )}
+                    className="h-[15px] w-[15px] shrink-0 text-[#1d1d1f]"
                     strokeWidth={1.75}
                   />
                   <span className="truncate">{label}</span>
@@ -557,7 +551,7 @@ function SettingsToggle({ checked, onClick }: { checked: boolean; onClick: () =>
       aria-pressed={checked}
       className={cn(
         'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-[#1a636b]' : 'bg-[#d1d1d1]',
+        checked ? 'bg-black' : 'bg-[#d1d1d1]',
       )}
     >
       <span

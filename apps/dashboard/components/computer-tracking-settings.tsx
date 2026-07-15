@@ -765,7 +765,7 @@ function NativeToggle({
       aria-pressed={checked}
       className={cn(
         'relative inline-flex h-4 w-[28px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)] disabled:opacity-50',
-        checked ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
+        checked ? 'bg-black' : 'bg-[#d9d9d7]',
       )}
     >
       <span
