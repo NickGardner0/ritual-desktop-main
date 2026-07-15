@@ -2,7 +2,7 @@
 module.exports = {
   darkMode: ["class"],
   content: ["./src/**/*.{ts,tsx}"],
-  safelist: ["dark", "light", "font-sans", "font-system-ui"],
+  safelist: ["dark", "light", "font-sans"],
   theme: {
     extend: {
       colors: {
@@ -63,7 +63,6 @@ module.exports = {
       },
       fontFamily: {
         sans: ["'FK Grotesk Neue'", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
-        "system-ui": ["-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],
       },
       keyframes: {
         "accordion-down": {

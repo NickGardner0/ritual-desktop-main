@@ -55,9 +55,7 @@ const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'voice', 'comput
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
-  { value: 'gt-standard', label: 'GT Standard' },
   { value: 'geist-sans', label: 'Geist Sans' },
-  { value: 'system-ui', label: 'System UI' },
 ];
 
 const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
@@ -256,9 +254,7 @@ export function SettingsFrame({
                       }}
                       className="settings-value-button"
                     >
-                      <span className={font === 'system-ui' ? 'font-system-ui' : ''}>
-                        {fontOptions.find((f) => f.value === font)?.label}
-                      </span>
+                      <span>{fontOptions.find((f) => f.value === font)?.label}</span>
                       <ChevronsUpDown className="h-[13px] w-[13px] text-[#8a8a8a]" />
                     </button>
                     {showFontDropdown ? (

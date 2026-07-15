@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'gt-standard' | 'system-ui' | 'geist-sans';
+export type FontOption = 'fk-grotesk' | 'geist-sans';
 
 interface FontContextType {
   font: FontOption;
@@ -15,11 +15,15 @@ const FontContext = createContext<FontContextType | undefined>(undefined);
 const FONT_STORAGE_KEY = 'ritual-font-preference';
 
 const fontClasses: Record<FontOption, string> = {
-  'fk-grotesk': 'font-sans',
-  'gt-standard': 'font-gt-standard',
-  'system-ui': 'font-system-ui',
-  'geist-sans': 'font-geist-sans',
+  'fk-grotesk': 'ritual-font-fk',
+  'geist-sans': 'ritual-font-geist',
 };
+
+const legacyFontClasses = ['font-sans', 'font-gt-standard', 'font-system-ui', 'font-geist-sans'];
+
+function normalizeFontOption(value: string | null): FontOption {
+  return value === 'geist-sans' ? 'geist-sans' : 'fk-grotesk';
+}
 
 export function FontProvider({ children }: { children: ReactNode }) {
   const [font, setFontState] = useState<FontOption>(() => {
@@ -28,20 +32,10 @@ export function FontProvider({ children }: { children: ReactNode }) {
     }
 
     const stored = localStorage.getItem(FONT_STORAGE_KEY);
-    if (stored === 'neue-haas') {
-      localStorage.setItem(FONT_STORAGE_KEY, 'system-ui');
-      return 'system-ui';
-    }
+    if (stored === 'fk-grotesk' || stored === 'geist-sans') return stored;
 
-    if (
-      stored === 'fk-grotesk'
-      || stored === 'gt-standard'
-      || stored === 'system-ui'
-      || stored === 'geist-sans'
-    ) {
-      return stored;
-    }
-
+    // Removed font choices migrate to the product default.
+    if (stored) localStorage.setItem(FONT_STORAGE_KEY, 'fk-grotesk');
     return 'fk-grotesk';
   });
 
@@ -54,9 +48,21 @@ export function FontProvider({ children }: { children: ReactNode }) {
   const fontClass = fontClasses[font];
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== FONT_STORAGE_KEY) return;
+      setFontState(normalizeFontOption(event.newValue));
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  useEffect(() => {
     if (typeof document === 'undefined') return;
 
-    const allFontClasses = Object.values(fontClasses);
+    const allFontClasses = [...Object.values(fontClasses), ...legacyFontClasses];
     const targets = [document.documentElement, document.body];
 
     targets.forEach((target) => {

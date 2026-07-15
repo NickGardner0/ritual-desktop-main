@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Maximize2 } from 'lucide-react';
 import { BrailleSpinner } from '@/components/ai-habit-chat/braille-spinner';
 import { VoiceWaveform } from '@/components/voice-waveform';
+import { FontProvider } from '@/contexts/FontContext';
 import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
 import { hideDesktopVoiceHud } from '@/lib/tauri-utils';
 import { cn } from '@/lib/utils';
@@ -303,12 +304,13 @@ export default function VoiceHudPage() {
         : 'Ready';
 
   return (
-    <main
-      ref={shellRef}
-      tabIndex={-1}
-      onKeyDown={handleKeyDown}
-      className="voice-hud-shell flex h-screen w-screen items-center justify-center bg-transparent font-sans outline-none"
-    >
+    <FontProvider>
+      <main
+        ref={shellRef}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        className="voice-hud-shell flex h-screen w-screen items-center justify-center bg-transparent font-sans outline-none"
+      >
       <section
         data-tauri-drag-region
         className="voice-hud-panel relative h-[244px] w-[860px] overflow-hidden rounded-[52px] border border-[#b8b8b8]/80 bg-[#e7e7e7]/95 shadow-[0_24px_58px_rgba(0,0,0,0.24),0_5px_16px_rgba(0,0,0,0.14),inset_0_1px_0_rgba(255,255,255,0.62)]"
@@ -400,7 +402,8 @@ export default function VoiceHudPage() {
             Open Microphone Settings
           </button>
         ) : null}
-      </section>
-    </main>
+        </section>
+      </main>
+    </FontProvider>
   );
 }

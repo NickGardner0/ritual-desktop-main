@@ -274,23 +274,6 @@ body[data-voice-hud-window="1"] {
     font-display: swap;
   }
 
-  /* GT Standard (M optical size, regular width) */
-  @font-face {
-    font-family: 'GT Standard';
-    src: url('/fonts/gt-standard/GT-Standard-Regular.woff2') format('woff2');
-    font-weight: 400;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'GT Standard';
-    src: url('/fonts/gt-standard/GT-Standard-Medium.woff2') format('woff2');
-    font-weight: 500;
-    font-style: normal;
-    font-display: swap;
-  }
-
   @font-face {
     font-family: 'FK Grotesk Neue';
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
@@ -1579,12 +1562,6 @@ body[data-voice-hud-window="1"] {
     box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.2);
   }
 
-  .settings-frame,
-  .ritual-settings-window,
-  .settings-native-window {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
-  }
-
   .settings-frame *,
   .ritual-settings-window *,
   .settings-native-window * {
@@ -1852,8 +1829,6 @@ body[data-voice-hud-window="1"] {
 /* App font selection - global overrides with high specificity */
 :root {
   --ritual-font-fk: 'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ritual-font-gt-standard: 'GT Standard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --ritual-font-system: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-font-geist: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --ritual-selected-font-family: var(--ritual-font-fk);
 
@@ -1876,10 +1851,8 @@ body[data-voice-hud-window="1"] {
 }
 
 html body .px-onboarding .px-onboarding-title,
-html body .font-sans .px-onboarding .px-onboarding-title,
-html body .font-gt-standard .px-onboarding .px-onboarding-title,
-html body .font-geist-sans .px-onboarding .px-onboarding-title,
-html body .font-system-ui .px-onboarding .px-onboarding-title {
+html body .ritual-font-fk .px-onboarding .px-onboarding-title,
+html body .ritual-font-geist .px-onboarding .px-onboarding-title {
   font-family: var(--px-onboarding-serif) !important;
   font-weight: 400;
   letter-spacing: -0.015em;
@@ -1909,39 +1882,24 @@ html body .font-system-ui .px-onboarding .px-onboarding-title {
   animation: px-onboarding-fade-up 180ms ease-out;
 }
 
-/* FK Grotesk Neue (default) */
-.font-sans,
-.font-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+/* App font selection deliberately overrides component-level font-family
+   utilities while preserving code, icon fonts, and the onboarding identity. */
+.ritual-font-fk,
+.ritual-font-fk *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
   --ritual-selected-font-family: var(--ritual-font-fk);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
-/* GT Standard */
-.font-gt-standard,
-.font-gt-standard *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  --ritual-selected-font-family: var(--ritual-font-gt-standard);
-  font-family: var(--ritual-selected-font-family) !important;
-}
-
 /* Geist Sans */
-.font-geist-sans,
-.font-geist-sans *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-geist,
+.ritual-font-geist *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
   --ritual-selected-font-family: var(--ritual-font-geist);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
-/* System UI (SF Pro on macOS) */
-.font-system-ui,
-.font-system-ui *:not([class*="font-"]):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  --ritual-selected-font-family: var(--ritual-font-system);
-  font-family: var(--ritual-selected-font-family) !important;
-}
-
 /* Keep Material Symbols from being clobbered by global font overrides. */
-.font-sans .material-symbols-rounded,
-.font-gt-standard .material-symbols-rounded,
-.font-geist-sans .material-symbols-rounded,
-.font-system-ui .material-symbols-rounded {
+.ritual-font-fk .material-symbols-rounded,
+.ritual-font-geist .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;
 }
 
@@ -1957,11 +1915,4 @@ html.desktop body:has(.ritual-settings-window) {
 
 .ritual-settings-window.settings-frame-window {
   background: #ffffff;
-}
-
-
-
-html body .settings-frame.settings-frame,
-html body .settings-frame.settings-frame *:not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif !important;
 }
