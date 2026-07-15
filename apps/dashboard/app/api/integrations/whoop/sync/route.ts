@@ -181,6 +181,9 @@ async function handleWhoopSync(
     backendParams.size ? `?${backendParams.toString()}` : ''
   }`;
 
+  const privacyMode = req.headers.get('x-ritual-privacy-mode');
+  const privacyConsents = req.headers.get('x-ritual-cloud-consents');
+
   // Call Python backend sync endpoint
   const response = await fetch(
     backendUrl,
@@ -189,6 +192,8 @@ async function handleWhoopSync(
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
+        ...(privacyMode ? { 'X-Ritual-Privacy-Mode': privacyMode } : {}),
+        ...(privacyConsents ? { 'X-Ritual-Cloud-Consents': privacyConsents } : {}),
       },
       signal: AbortSignal.timeout(90000),
     }

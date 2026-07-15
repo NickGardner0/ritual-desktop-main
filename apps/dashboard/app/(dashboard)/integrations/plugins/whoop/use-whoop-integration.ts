@@ -7,6 +7,7 @@ import { openInBrowser } from '@/lib/tauri-utils';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
+import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
 import {
   MAX_CUSTOM_WHOOP_DAYS,
   WhoopSyncFeedback,
@@ -306,6 +307,7 @@ export function useWhoopIntegration({
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
+          ...privacySettingsHeaders(),
         },
         body: JSON.stringify(syncRequest),
         signal: controller.signal,

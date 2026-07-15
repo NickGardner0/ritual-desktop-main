@@ -391,14 +391,14 @@ export function PrivacySettingsPanel() {
                 aria-checked={settings.consents[option.key] === true}
                 onClick={() => setConsent(option.key, settings.consents[option.key] !== true)}
                 className={cn(
-                  'relative h-4 w-[28px] rounded-full transition-colors',
-                  settings.consents[option.key] === true ? 'bg-[#3c7783]' : 'bg-[#d9d9d7]',
+                  'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors',
+                  settings.consents[option.key] === true ? 'bg-[#1a636b]' : 'bg-[#d1d1d1]',
                 )}
               >
                 <span
                   className={cn(
-                    'absolute top-[2px] h-3 w-3 rounded-full bg-white shadow-sm transition-transform',
-                    settings.consents[option.key] === true ? 'translate-x-[13px]' : 'translate-x-[2px]',
+                    'inline-block h-[17px] w-[17px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.28),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-transform',
+                    settings.consents[option.key] === true ? 'translate-x-[19px]' : 'translate-x-[2px]',
                   )}
                 />
               </button>
