@@ -5,7 +5,8 @@
 - Do not create new branches in this repository unless Nick explicitly asks for a new branch by name.
 - All agent commits and pushes must target the existing `codex/release-0.1.1-prep` branch.
 - Vercel and Railway deploy from `codex/release-0.1.1-prep`; treat it as the canonical working branch for ship-ready changes.
-- Before committing, confirm the target branch is `codex/release-0.1.1-prep`. If the active checkout is on another branch, move or apply the intended changes onto `codex/release-0.1.1-prep` before committing.
+- Immediately before every `git commit` and `git push`, run `git branch --show-current` and confirm it prints `codex/release-0.1.1-prep`. If it does not, stop and move or apply the intended changes to the worktree that has the release branch checked out.
+- Use `git worktree list` to locate the `codex/release-0.1.1-prep` worktree. Never assume the currently open workspace is the publish target, especially when it is dirty or checked out on a feature/task branch.
 - Do not push feature, task, experiment, or personal branches unless Nick explicitly requests that exact branch.
 
 ## Ritual design system
