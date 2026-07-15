@@ -59,7 +59,7 @@ function SummarySection({
         </div>
         <button
           type="button"
-          className="flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:bg-[#f1f0ed] hover:text-[#6d6b66]"
+          className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
           aria-label={`Add ${title.toLowerCase()}`}
         >
           <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
@@ -84,8 +84,8 @@ function SummaryRow({
       type="button"
       title={detail}
       className={cn(
-        "grid h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 text-left",
-        "hover:bg-[#f1f0ed] focus-visible:bg-[#f1f0ed] focus-visible:outline-none",
+        "ritual-snappy-row ritual-snappy-row-menu grid h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 text-left",
+        "focus-visible:outline-none",
       )}
     >
       <span
@@ -167,7 +167,7 @@ export function PinnedSummaryPopover() {
                   </div>
                   <button
                     type="button"
-                    className="flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:bg-[#f1f0ed] hover:text-[#6d6b66]"
+                    className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
                     aria-label="Add pinned item"
                   >
                     <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />

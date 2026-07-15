@@ -404,7 +404,7 @@ export default function CommandPalette({
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent shadow-none hover:bg-[#f1f0ed] focus:bg-[#f1f0ed]",
+          "justify-between rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent shadow-none hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]",
           className
         )}
       >

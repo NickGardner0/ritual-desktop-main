@@ -161,7 +161,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <div data-tauri-drag-region className="flex min-w-0 items-center gap-1">
                     {!isChatRoute && (
                       <CommandPalette
-                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent px-2.5 py-0 text-[13px] font-normal text-[#6b6a66] shadow-none hover:bg-[#f1f0ed] hover:text-[#2f302d] focus:bg-[#f1f0ed] focus-visible:outline-none focus-visible:ring-0"
+                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[104px] items-center gap-1.5 rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent px-2.5 py-0 text-[13px] font-normal text-[#6b6a66] shadow-none hover:bg-[#F3F3F3] hover:text-[#2f302d] focus:bg-[#F3F3F3] focus-visible:outline-none focus-visible:ring-0"
                         initialOpen={shouldOpenWhoopModal}
                         density="tight"
                       />
