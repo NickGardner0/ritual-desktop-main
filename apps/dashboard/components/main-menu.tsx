@@ -12,8 +12,9 @@ import {
   TableProperties,
   CalendarDays,
   ChartNoAxesCombined,
+  FileText,
+  List,
 } from "lucide-react";
-import TocIcon from "@mui/icons-material/Toc";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
 
@@ -39,34 +40,13 @@ const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGEleme
   </svg>
 );
 
-const MiddayInvoiceIcon = ({
-  strokeWidth: _strokeWidth,
-  ...props
-}: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    stroke="currentColor"
-    strokeWidth={0.25}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-    {...props}
-  >
-    <g transform="translate(10 10) scale(1.16) translate(-10 -10)">
-      <path d="M6.875 14.7916H13.125V13.5416H6.875V14.7916ZM6.875 11.4583H13.125V10.2083H6.875V11.4583ZM3.75 17.9166V2.08331H11.875L16.25 6.45831V17.9166H3.75ZM11.25 7.08331V3.33331H5V16.6666H15V7.08331H11.25Z" />
-    </g>
-  </svg>
-);
-
 const icons = {
   "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
   "/dashboard?view=metrics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
-  "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
+  "/tasks": (props: React.SVGProps<SVGSVGElement>) => <List {...props} />,
   "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
   "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
-  "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
+  "/reports": (props: React.SVGProps<SVGSVGElement>) => <FileText {...props} />,
   "/routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
   "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
   "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
@@ -202,8 +182,7 @@ const Item = ({
   const Icon = icons[item.path as keyof typeof icons];
   const pathname = usePathname();
   const hasChildren = item.children && item.children.length > 0;
-  const isCollapsedActive = isActive && !isExpanded;
-  
+
   // Prefetch data on hover (Midday-style optimization)
   const prefetchDashboard = usePrefetchDashboard();
   const prefetchAnalytics = usePrefetchAnalytics();
@@ -252,12 +231,11 @@ const Item = ({
 
           <div className={cn(
             "ritual-nav-icon absolute top-1/2 left-[var(--sidebar-icon-x)] flex h-[var(--sidebar-icon-box)] w-[var(--sidebar-icon-box)] -translate-y-1/2 items-center justify-center pointer-events-none",
-            isCollapsedActive && "scale-[1.04]"
           )}
             data-active={isActive ? "true" : undefined}
             data-collapsed={!isExpanded ? "true" : undefined}
           >
-            <Icon className="relative -translate-y-px h-[18px] w-[18px]" strokeWidth={isActive ? 2.35 : 2.1} />
+            <Icon className="h-[18px] w-[18px]" strokeWidth={2} />
           </div>
 
           {isExpanded && (
@@ -335,7 +313,7 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
   }, [isExpanded]);
 
   return (
-    <div className="mt-3 w-full">
+    <div className={cn("w-full", isExpanded ? "mt-1" : "mt-3")}>
       <nav className="w-full">
         <NavList>
           {items.map((item) => {
@@ -355,14 +333,17 @@ export function MainMenu({ onSelect, isExpanded = false }: Props) {
                   ([key, value]) => searchParams.get(key) === value,
                 )
               : false;
-            const isActive = isQueryActive || (
-              !itemQuery &&
-              !matchingQueryItem &&
-              (pathname === item.path ||
+            const isPathActive = item.path === "/experiments"
+              ? pathname === "/experiments" || pathname === "/experiments/"
+              : pathname === item.path ||
                 pathname === item.path + "/" ||
                 (pathname === "/" && item.path === "/dashboard") ||
                 (pathname === "/dashboard/" && item.path === "/dashboard") ||
-                (pathname?.startsWith(item.path) && item.path !== "/dashboard"))
+                (pathname?.startsWith(item.path) && item.path !== "/dashboard");
+            const isActive = isQueryActive || (
+              !itemQuery &&
+              !matchingQueryItem &&
+              isPathActive
             );
 
             return (

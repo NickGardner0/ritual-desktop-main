@@ -364,13 +364,14 @@ body[data-voice-hud-window="1"] {
   --text-muted: #7a7a7a;
   --icon-default: #5f6368;
   --icon-muted: #888888;
-  --sidebar-nav-foreground: #3f3f3f;
+  --sidebar-nav-foreground: #303030;
   --sidebar-nav-active: #111111;
   --radius-control: 0.125rem;
   --radius-row: 0.25rem;
   --titlebar-height: 37px;
   --sidebar-row-height: 30px;
   --sidebar-row-gap: 9px;
+  --sidebar-nav-row-gap: 3px;
   --sidebar-row-x: 9px;
   --sidebar-icon-x: 15px;
   --sidebar-icon-size: 18px;
@@ -564,7 +565,7 @@ body[data-voice-hud-window="1"] {
   .ritual-sidebar-list {
     display: flex;
     flex-direction: column;
-    gap: var(--sidebar-row-gap);
+    gap: var(--sidebar-nav-row-gap);
     width: 100%;
   }
 
