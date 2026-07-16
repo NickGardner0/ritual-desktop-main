@@ -18,7 +18,7 @@ export function templateScheduleSummary(template: RoutineTemplate): string {
   return template.scheduleLabel;
 }
 
-export function RoutinesEmptyHero() {
+export function RoutinesEmptyHero({ onNewRoutine }: { onNewRoutine: () => void }) {
   return (
     <Card density="compact" className="flex min-h-52 items-center justify-center border-dashed border-[var(--border-subtle)] bg-transparent">
       <CardContent className="p-6 text-center">
@@ -37,6 +37,10 @@ export function RoutinesEmptyHero() {
         <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-5 text-[var(--text-secondary)]">
           Describe what you want Ritual to gather, analyze, or summarize, pick a schedule, and Ritual delivers a report when it&rsquo;s ready.
         </p>
+        <Button type="button" onClick={onNewRoutine} className="mt-4">
+          <Plus />
+          Start from scratch
+        </Button>
       </CardContent>
     </Card>
   );
