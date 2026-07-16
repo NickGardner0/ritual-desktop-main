@@ -7,6 +7,7 @@ import pathlib
 import sys
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 os.environ.setdefault("DATABASE_URL", "sqlite:///activation-test.db")
 os.environ.setdefault("RITUAL_DB_LOCAL_ONLY", "1")
@@ -15,6 +16,17 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from models.user_models import FirstBehaviorRequest  # noqa: E402
 from services.activation_service import ActivationService  # noqa: E402
+
+
+class _SessionContext:
+    def __init__(self, session):
+        self._session = session
+
+    async def __aenter__(self):
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 class ActivationServiceTests(unittest.TestCase):
@@ -46,7 +58,18 @@ class ActivationServiceTests(unittest.TestCase):
         self.assertFalse(bootstrap.profileComplete)
         self.assertEqual(bootstrap.nextRoute, "/onboarding?s=signup")
 
-    def test_bootstrap_routes_missing_permissions_seen_to_meet_step(self):
+    def test_bootstrap_routes_completed_setup_with_missing_profile_to_dashboard(self):
+        bootstrap = self._bootstrap(
+            full_name="Nick",
+            timezone=None,
+            permissions_seen=True,
+        )
+
+        self.assertFalse(bootstrap.profileComplete)
+        self.assertTrue(bootstrap.permissionsSeen)
+        self.assertEqual(bootstrap.nextRoute, "/dashboard")
+
+    def test_bootstrap_routes_missing_permissions_seen_to_setup_step(self):
         bootstrap = self._bootstrap()
 
         self.assertTrue(bootstrap.profileComplete)
@@ -117,6 +140,86 @@ class ActivationServiceTests(unittest.TestCase):
         )
         self.assertEqual(template["name"], "Reading")
         self.assertTrue(template["is_custom"])
+
+
+class ActivationCompletionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_existing_permissions_seen_state_is_backfilled_as_completed(self):
+        service = ActivationService()
+        user = SimpleNamespace(
+            id="user-1",
+            full_name="Nick",
+            timezone=None,
+            onboarding_completed=False,
+            updated_at=None,
+        )
+        state = SimpleNamespace(
+            profile_completed_at=None,
+            first_habit_id=None,
+            first_log_id=None,
+            first_behavior_logged_at=None,
+            activation_completed_at=None,
+            permissions_seen_at="2026-07-16T18:38:46Z",
+            updated_at=None,
+        )
+        session = AsyncMock()
+        session.get = AsyncMock(return_value=state)
+
+        with patch.object(
+            service,
+            "_get_first_existing_log",
+            AsyncMock(return_value=None),
+        ):
+            result = await service._ensure_activation_state(session, user)
+
+        self.assertIs(result, state)
+        self.assertTrue(user.onboarding_completed)
+        self.assertIsNotNone(state.activation_completed_at)
+
+    async def test_mark_permissions_seen_completes_onboarding_and_routes_to_dashboard(self):
+        service = ActivationService()
+        user = SimpleNamespace(
+            id="user-1",
+            email="user@example.com",
+            full_name="Nick",
+            timezone=None,
+            onboarding_completed=False,
+            updated_at=None,
+        )
+        state = SimpleNamespace(
+            first_habit_id=None,
+            first_log_id=None,
+            first_behavior_logged_at=None,
+            activation_completed_at=None,
+            permissions_seen_at=None,
+            updated_at=None,
+        )
+        session = AsyncMock()
+        session.get = AsyncMock(return_value=user)
+        session.commit = AsyncMock()
+
+        with patch(
+            "services.activation_service.get_db_session",
+            return_value=_SessionContext(session),
+        ), patch.object(
+            service,
+            "_ensure_activation_state",
+            AsyncMock(return_value=state),
+        ), patch.object(
+            service,
+            "_get_checklist_rows",
+            AsyncMock(return_value=[]),
+        ), patch.object(
+            service,
+            "_get_connected_providers",
+            AsyncMock(return_value=set()),
+        ):
+            bootstrap = await service.mark_permissions_seen(user_id="user-1")
+
+        self.assertTrue(user.onboarding_completed)
+        self.assertIsNotNone(state.permissions_seen_at)
+        self.assertIsNotNone(state.activation_completed_at)
+        self.assertEqual(bootstrap.nextRoute, "/dashboard")
+        session.commit.assert_awaited_once()
 
 
 if __name__ == "__main__":

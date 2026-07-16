@@ -43,7 +43,7 @@ from api.sms_preferences import create_sms_preferences_router
 from api.tasks import create_tasks_router
 from api.ui_preferences import create_ui_preferences_router
 from api.vcard import router as vcard_router
-from api.watcher import router as watcher_router
+from api.watcher import include_watcher_router
 from api.wearables import create_wearables_router
 from api.workflows import create_workflows_router
 from database.connection import get_database_runtime_health, get_db_session
@@ -233,7 +233,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(create_financial_router(get_current_user=get_current_user))
     app.include_router(create_location_router(get_current_user=get_current_user))
-    app.include_router(watcher_router)
+    include_watcher_router(app, get_current_user=get_current_user)
     app.include_router(sendblue_router)
     app.include_router(proactive_sms_router)
     app.include_router(create_sms_preferences_router(get_current_user=get_current_user))

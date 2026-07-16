@@ -326,7 +326,10 @@ class ActivationService:
             now = _utcnow()
             state = await self._ensure_activation_state(session, user)
             state.permissions_seen_at = state.permissions_seen_at or now
+            state.activation_completed_at = state.activation_completed_at or now
             state.updated_at = now
+            user.onboarding_completed = True
+            user.updated_at = now
 
             checklist_rows = await self._get_checklist_rows(session, user_id)
             connected_providers = await self._get_connected_providers(session, user_id)
@@ -354,6 +357,14 @@ class ActivationService:
         if user.full_name and user.timezone and not state.profile_completed_at:
             state.profile_completed_at = now
             state.updated_at = now
+
+        if state.permissions_seen_at and (
+            not state.activation_completed_at or not user.onboarding_completed
+        ):
+            state.activation_completed_at = state.activation_completed_at or now
+            state.updated_at = now
+            user.onboarding_completed = True
+            user.updated_at = now
 
         if not state.first_behavior_logged_at:
             first_log = await self._get_first_existing_log(session, user.id)
@@ -501,12 +512,12 @@ class ActivationService:
             )
             integrations[INTEGRATION_RESPONSE_KEYS[key]] = IntegrationActivationStatus(status=status)
 
-        if not profile_complete:
-            next_route = "/onboarding?s=signup"
-        elif not state.permissions_seen_at and not activation_completed:
-            next_route = "/onboarding?s=setup"
-        else:
+        if state.permissions_seen_at or activation_completed:
             next_route = "/dashboard"
+        elif not profile_complete:
+            next_route = "/onboarding?s=signup"
+        else:
+            next_route = "/onboarding?s=setup"
 
         return UserBootstrapResponse(
             userExists=True,

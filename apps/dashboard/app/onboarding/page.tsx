@@ -340,6 +340,24 @@ export default function OnboardingPage() {
     return response.json()
   }
 
+  async function persistProfileTimezone(): Promise<void> {
+    if (!user) return
+
+    const fullName = user.fullName?.trim()
+      || [user.firstName, user.lastName].filter(Boolean).join(" ").trim()
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim()
+    if (!fullName || fullName.length < 2 || !timezone) return
+
+    const response = await fetch("/api/user/bootstrap/profile", {
+      method: "PATCH",
+      headers: await authHeaders(),
+      body: JSON.stringify({ fullName, timezone }),
+    })
+    if (!response.ok) {
+      throw new Error("Failed to persist onboarding profile")
+    }
+  }
+
   async function openPrivacyPane(invoke: NonNullable<Awaited<ReturnType<typeof getInvoke>>>, command: string) {
     await invoke(command).catch((settingsError) => {
       console.warn(`Unable to open ${command}:`, settingsError)
@@ -427,11 +445,21 @@ export default function OnboardingPage() {
     setBusy(true)
     setError(null)
     try {
-      await markSetupSeen()
+      await persistProfileTimezone().catch((profileError) => {
+        console.warn("Unable to persist onboarding profile details:", profileError)
+      })
+      const bootstrap = await markSetupSeen()
+      if (bootstrap?.nextRoute !== "/dashboard") {
+        throw new Error("Setup completion did not return the dashboard route")
+      }
+      const redirectRoute = resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined)
+      if (redirectRoute !== "/dashboard") {
+        throw new Error("Setup completion did not resolve to the dashboard")
+      }
       clearPersistedStep()
       clearSetupSubstep()
       await restoreDashboardWindowSize()
-      router.replace("/dashboard")
+      router.replace(redirectRoute)
       void requestDesktopPermissions().catch((permissionError) => {
         console.warn("Setup permissions finished with partial errors:", permissionError)
       })
@@ -440,7 +468,7 @@ export default function OnboardingPage() {
       setError("Unable to finish setup. Please try again.")
       setBusy(false)
     }
-  }, [busy, requestDesktopPermissions, markSetupSeen, router])
+  }, [busy, requestDesktopPermissions, markSetupSeen, persistProfileTimezone, router])
 
   if (!isLoaded && step !== "welcome") {
     return (
