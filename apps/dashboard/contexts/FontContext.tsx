@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'geist-sans';
+export type FontOption = 'fk-grotesk' | 'gt-standard' | 'geist-sans';
 
 interface FontContextType {
   font: FontOption;
@@ -16,13 +16,16 @@ const FONT_STORAGE_KEY = 'ritual-font-preference';
 
 const fontClasses: Record<FontOption, string> = {
   'fk-grotesk': 'ritual-font-fk',
+  'gt-standard': 'ritual-font-gt',
   'geist-sans': 'ritual-font-geist',
 };
 
 const legacyFontClasses = ['font-sans', 'font-gt-standard', 'font-system-ui', 'font-geist-sans'];
 
 function normalizeFontOption(value: string | null): FontOption {
-  return value === 'geist-sans' ? 'geist-sans' : 'fk-grotesk';
+  if (value === 'geist-sans') return 'geist-sans';
+  if (value === 'gt-standard' || value === 'font-gt-standard') return 'gt-standard';
+  return 'fk-grotesk';
 }
 
 export function FontProvider({ children }: { children: ReactNode }) {
@@ -32,7 +35,9 @@ export function FontProvider({ children }: { children: ReactNode }) {
     }
 
     const stored = localStorage.getItem(FONT_STORAGE_KEY);
-    if (stored === 'fk-grotesk' || stored === 'geist-sans') return stored;
+    if (stored === 'fk-grotesk' || stored === 'gt-standard' || stored === 'geist-sans') {
+      return stored;
+    }
 
     // Removed font choices migrate to the product default.
     if (stored) localStorage.setItem(FONT_STORAGE_KEY, 'fk-grotesk');
