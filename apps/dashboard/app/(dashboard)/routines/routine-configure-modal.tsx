@@ -1,16 +1,26 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import { Loader2, Repeat, X } from 'lucide-react';
+import { ChevronsRight, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
-import { Card } from '@ritual/ui/card';
 import { cn } from '@ritual/ui/cn';
 import { Input } from '@ritual/ui/input';
-import { Label } from '@ritual/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ritual/ui/select';
 import { Separator } from '@ritual/ui/separator';
 
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetTitle,
+} from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import {
   AGENT_TIERS,
@@ -22,10 +32,9 @@ import {
   type AgentTier,
   type ScheduleDraft,
 } from '@/lib/routines/model';
-import { describeSchedule, nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
-import { ROUTINE_TEMPLATES, templateScheduleDraft, type RoutineTemplate } from '@/lib/routines/templates';
+import { nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
+import { templateScheduleDraft, type RoutineTemplate } from '@/lib/routines/templates';
 import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
-import { RoutineIcon } from '@/lib/routines/ui';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
 import type { TaskPriority } from '@/lib/tasks/types';
 
@@ -70,7 +79,7 @@ export function configureStateFromTemplate(template: RoutineTemplate | null): Ro
     tags: [],
     priority: 'none',
     paused: false,
-    agentTier: template.agentTier || 'regular',
+    agentTier: 'regular',
     notifyPush: true,
     notifyEmail: false,
     icon: template.icon,
@@ -128,18 +137,14 @@ const MONTHS = [
   'December',
 ];
 
-const groupClass = 'overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-surface-panel';
-const rowClass = 'flex min-h-10 items-center justify-between gap-3 border-b border-[var(--border-subtle)] px-3 last:border-b-0';
-const labelClass = 'text-[13px] font-normal text-[var(--text-secondary)]';
-const fieldLabelClass = 'text-[13px] font-normal text-[var(--text-primary)]';
+const groupClass = 'overflow-hidden rounded-2xl bg-surface-panel';
+const rowClass = 'flex min-h-11 items-center justify-between gap-3 px-3.5 py-2';
+const labelClass = 'text-sm text-[var(--text-secondary)]';
 const chipClass =
-  'h-7 w-auto border-transparent bg-background px-2.5 text-[13px] font-normal text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 focus-visible:ring-offset-0';
-const selectTriggerClass =
-  'w-auto border-transparent bg-background font-normal text-[var(--text-primary)] focus:ring-2 focus:ring-ring/20 focus:ring-offset-0';
-const textInputClass =
-  'h-8 text-[13px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0';
-const textareaClass =
-  'w-full resize-none rounded-md border border-input bg-background px-3 py-2 text-[13px] leading-5 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring';
+  'h-8 rounded-full border-0 bg-background px-3 text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20';
+const dateChipClass =
+  'h-8 max-w-[160px] rounded-full border-0 bg-transparent px-2 text-right text-sm font-medium text-[var(--text-primary)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/20 [&::-webkit-calendar-picker-indicator]:opacity-40';
+const wellClass = 'rounded-2xl bg-surface-panel px-3.5 py-2.5';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -159,6 +164,23 @@ function intervalUnit(draft: ScheduleDraft): string {
   return draft.onCompletionUnit;
 }
 
+function PanelRow({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn(rowClass, className)}>
+      <span className={labelClass}>{label}</span>
+      <div className="flex min-w-0 items-center justify-end gap-2">{children}</div>
+    </div>
+  );
+}
+
 function TagsField({
   value,
   onChange,
@@ -166,26 +188,149 @@ function TagsField({
   value: string[];
   onChange: (tags: string[]) => void;
 }) {
-  const [text, setText] = useState(value.join(', '));
+  const [adding, setAdding] = useState(false);
+  const [text, setText] = useState('');
+
   const commit = () => {
-    onChange(text.split(',').map((tag) => tag.trim()).filter(Boolean));
+    const tag = text.trim();
+    if (tag && !value.includes(tag)) onChange([...value, tag]);
+    setText('');
+    setAdding(false);
   };
+
   return (
-    <div className="space-y-1.5">
-      <Label htmlFor="routine-tags" className={fieldLabelClass}>Tags</Label>
-      <Input
-        density="compact"
-        id="routine-tags"
-        value={text}
-        onChange={(event) => setText(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') (event.target as HTMLInputElement).blur();
-        }}
-        placeholder="Optional tags"
-        className={textInputClass}
-      />
+    <div className="flex flex-col gap-2">
+      <span className="text-sm text-[var(--text-secondary)]">Tags</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {value.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => onChange(value.filter((item) => item !== tag))}
+            className="inline-flex h-6 items-center gap-1 rounded-full bg-background px-2.5 text-[12px] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            aria-label={`Remove tag ${tag}`}
+          >
+            {tag}
+            <X className="h-3 w-3 opacity-60" />
+          </button>
+        ))}
+        {adding ? (
+          <Input
+            autoFocus
+            value={text}
+            placeholder="tag"
+            className="h-6 w-24 rounded-full border-0 bg-background px-2.5 text-[12px] shadow-none focus-visible:ring-1"
+            onChange={(event) => setText(event.target.value)}
+            onBlur={commit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commit();
+              if (event.key === 'Escape') {
+                setText('');
+                setAdding(false);
+              }
+            }}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="inline-flex h-6 items-center gap-1 rounded-full border border-dashed border-[var(--border-default)] px-2.5 text-[12px] text-[var(--text-muted)] transition-colors hover:border-[var(--text-secondary)] hover:text-[var(--text-secondary)]"
+          >
+            <Plus className="h-3 w-3" />
+            tag
+          </button>
+        )}
+      </div>
     </div>
+  );
+}
+
+function InstructionsField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(value);
+          setOpen(true);
+        }}
+        className={cn(groupClass, 'w-full px-3.5 py-3 text-left transition-colors hover:bg-[var(--row-hover)]')}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-[var(--text-primary)]">Instructions</div>
+            <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-muted)]">
+              Tap to describe what you&rsquo;d like the AI to do when this routine runs.
+            </p>
+          </div>
+          <span
+            className={cn(
+              'max-w-[140px] shrink-0 truncate pt-0.5 text-right text-sm',
+              value ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]',
+            )}
+          >
+            {value || 'Not set'}
+          </span>
+        </div>
+      </button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-lg gap-0 border-border bg-background p-0 sm:rounded-xl [&>button]:hidden">
+          <DialogHeader className="px-6 pt-6">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <DialogTitle className="text-lg font-medium">Instructions</DialogTitle>
+                <DialogDescription className="mt-1.5 text-sm text-[var(--text-secondary)]">
+                  Describe what you&rsquo;d like the AI to gather, analyze, or do for this routine.
+                </DialogDescription>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setOpen(false)}
+                aria-label="Close"
+                className="h-8 w-8 shrink-0 text-[var(--text-secondary)]"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="px-6 py-4">
+            <textarea
+              autoFocus
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
+              className="min-h-40 w-full resize-none rounded-2xl border-0 bg-surface-panel px-3.5 py-3 text-sm leading-6 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring/20"
+            />
+          </div>
+          <DialogFooter className="gap-2 border-t border-[var(--border-subtle)] px-6 py-4 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                onChange(draft.trim());
+                setOpen(false);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -203,181 +348,170 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-4">
       <section className={groupClass}>
-        <div className={rowClass}>
-          <span className={labelClass}>Trigger</span>
-          <Select
+        <PanelRow label="Trigger">
+          <select
             value={draft.frequency}
-            onValueChange={(value) => onChange({ frequency: value as ScheduleDraft['frequency'], interval: 1 })}
+            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
+            className={cn(chipClass, 'min-w-[120px]')}
+            aria-label="Trigger frequency"
           >
-            <SelectTrigger density="compact" className={cn(selectTriggerClass, 'min-w-[128px]')} aria-label="Trigger frequency">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {FREQUENCIES.map((frequency) => (
-                <SelectItem key={frequency.id} value={frequency.id}>{frequency.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className={rowClass}>
-          <span className={labelClass}>Paused</span>
+            {FREQUENCIES.map((frequency) => (
+              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
+            ))}
+          </select>
+        </PanelRow>
+        <Separator className="bg-[var(--border-subtle)]" />
+        <PanelRow label="Paused">
           <Switch checked={paused} onCheckedChange={onPausedChange} />
-        </div>
+        </PanelRow>
       </section>
 
       <section className={groupClass}>
-        <div className={rowClass}>
-          <span className={labelClass}>Every</span>
-          <span className="flex items-center gap-3">
-            <Input
-              density="compact"
-              type="number"
-              min={1}
-              max={99}
-              value={draft.interval}
-              onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-              className={cn(chipClass, 'w-[76px] text-center')}
-              aria-label="Interval"
-            />
-            <span className="text-[13px] font-normal text-[var(--text-secondary)]">{intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}</span>
+        <PanelRow label="Every">
+          <Input
+            type="number"
+            min={1}
+            max={99}
+            value={draft.interval}
+            onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
+            className={cn(chipClass, 'w-[72px] text-center')}
+            aria-label="Interval"
+          />
+          <span className="text-sm text-[var(--text-muted)]">
+            {intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}
           </span>
-        </div>
+        </PanelRow>
 
         {draft.frequency === 'weekly' ? (
-          <div className={rowClass}>
-            <span className={labelClass}>On</span>
-            <span className="flex flex-wrap justify-end gap-1.5">
-              {WEEKDAYS.map((day) => {
-                const active = draft.weekdays.includes(day.value);
-                return (
-                  <Button
-                    key={day.value}
-                    type="button"
-                    variant={active ? 'brand' : 'ghost'}
-                    size="compact"
-                    aria-pressed={active}
-                    onClick={() => onChange({
-                      weekdays: active
-                        ? draft.weekdays.filter((value) => value !== day.value)
-                        : [...draft.weekdays, day.value].sort((a, b) => a - b),
-                    })}
-                    className={cn('px-2 text-xs font-normal', !active && 'bg-background text-[var(--text-secondary)] hover:bg-[var(--row-hover)]')}
-                  >
-                    {day.label}
-                  </Button>
-                );
-              })}
-            </span>
-          </div>
+          <>
+            <Separator className="bg-[var(--border-subtle)]" />
+            <PanelRow label="On" className="items-start py-2.5">
+              <span className="flex max-w-[220px] flex-wrap justify-end gap-1">
+                {WEEKDAYS.map((day) => {
+                  const active = draft.weekdays.includes(day.value);
+                  return (
+                    <Button
+                      key={day.value}
+                      type="button"
+                      variant={active ? 'default' : 'secondary'}
+                      size="sm"
+                      aria-pressed={active}
+                      onClick={() => onChange({
+                        weekdays: active
+                          ? draft.weekdays.filter((value) => value !== day.value)
+                          : [...draft.weekdays, day.value].sort((a, b) => a - b),
+                      })}
+                      className="h-7 rounded-full px-2.5 text-[12px]"
+                    >
+                      {day.label}
+                    </Button>
+                  );
+                })}
+              </span>
+            </PanelRow>
+          </>
         ) : null}
 
         {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
-          <div className={rowClass}>
-            <span className={labelClass}>On the</span>
-            <span className="flex items-center gap-2">
-              <Select
+          <>
+            <Separator className="bg-[var(--border-subtle)]" />
+            <PanelRow label="On the">
+              <select
                 value={String(draft.day)}
-                onValueChange={(value) => {
+                onChange={(event) => {
+                  const value = event.target.value;
                   onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
                 }}
+                className={chipClass}
+                aria-label="Day of month"
               >
-                <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Day of month">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                    <SelectItem key={day} value={String(day)}>{ordinalSuffix(day)}</SelectItem>
-                  ))}
-                  <SelectItem value="first">first day</SelectItem>
-                  <SelectItem value="last">last day</SelectItem>
-                </SelectContent>
-              </Select>
+                {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                  <option key={day} value={day}>{ordinalSuffix(day)}</option>
+                ))}
+                <option value="first">first day</option>
+                <option value="last">last day</option>
+              </select>
               {draft.frequency === 'yearly' ? (
                 <>
-                  <span className="text-sm text-[var(--text-secondary)]">in</span>
-                  <Select
-                    value={String(draft.month)}
-                    onValueChange={(value) => onChange({ month: Number(value) })}
+                  <span className="text-sm text-[var(--text-muted)]">in</span>
+                  <select
+                    value={draft.month}
+                    onChange={(event) => onChange({ month: Number(event.target.value) })}
+                    className={chipClass}
+                    aria-label="Month"
                   >
-                    <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Month">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {MONTHS.map((month, index) => (
-                        <SelectItem key={month} value={String(index + 1)}>{month}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    {MONTHS.map((month, index) => (
+                      <option key={month} value={index + 1}>{month}</option>
+                    ))}
+                  </select>
                 </>
               ) : null}
-            </span>
-          </div>
+            </PanelRow>
+          </>
         ) : null}
 
         {draft.frequency !== 'on_completion' ? (
-          <div className={rowClass}>
-            <span className={labelClass}>At</span>
-            <Input
-              density="compact"
-              type="time"
-              value={timeValue}
-              onChange={(event) => {
-                const [hour, minute] = event.target.value.split(':').map(Number);
-                if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
-              }}
-              className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
-              aria-label="Time of day"
-            />
-          </div>
+          <>
+            <Separator className="bg-[var(--border-subtle)]" />
+            <PanelRow label="At">
+              <Input
+                type="time"
+                value={timeValue}
+                onChange={(event) => {
+                  const [hour, minute] = event.target.value.split(':').map(Number);
+                  if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
+                }}
+                className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
+                aria-label="Time of day"
+              />
+            </PanelRow>
+          </>
         ) : (
-          <div className={rowClass}>
-            <span className={labelClass}>After</span>
-            <Select
-              value={draft.onCompletionUnit}
-              onValueChange={(value) => onChange({ onCompletionUnit: value as ScheduleDraft['onCompletionUnit'] })}
-            >
-              <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Completion interval unit">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="days">days</SelectItem>
-                <SelectItem value="weeks">weeks</SelectItem>
-                <SelectItem value="months">months</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          <>
+            <Separator className="bg-[var(--border-subtle)]" />
+            <PanelRow label="After">
+              <select
+                value={draft.onCompletionUnit}
+                onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
+                className={chipClass}
+                aria-label="Completion interval unit"
+              >
+                <option value="days">days</option>
+                <option value="weeks">weeks</option>
+                <option value="months">months</option>
+              </select>
+            </PanelRow>
+          </>
         )}
 
-        <div className={rowClass}>
-          <span className={labelClass}>First run</span>
+        <Separator className="bg-[var(--border-subtle)]" />
+        <PanelRow label="First run">
           <Input
-            density="compact"
             type="date"
             value={draft.firstRun || ''}
             onChange={(event) => onChange({ firstRun: event.target.value || null })}
-            className={cn(chipClass, 'text-right', !draft.firstRun && 'text-[var(--text-muted)]')}
+            className={cn(dateChipClass, !draft.firstRun && 'text-[var(--text-muted)]')}
             aria-label="First run date"
           />
-        </div>
-        <div className={rowClass}>
-          <span className={labelClass}>Ends</span>
+        </PanelRow>
+        <Separator className="bg-[var(--border-subtle)]" />
+        <PanelRow label="Ends">
           <Input
-            density="compact"
             type="date"
             value={draft.ends || ''}
             onChange={(event) => onChange({ ends: event.target.value || null })}
-            className={cn(chipClass, 'text-right', !draft.ends && 'text-[var(--text-muted)]')}
+            className={cn(dateChipClass, !draft.ends && 'text-[var(--text-muted)]')}
             aria-label="End date"
           />
-        </div>
+        </PanelRow>
       </section>
     </div>
   );
 }
 
-export function RoutineConfigureModal({
+export function RoutineConfigurePanel({
   open,
   mode,
   initial,
@@ -396,14 +530,18 @@ export function RoutineConfigureModal({
 }) {
   const [state, setState] = useState<RoutineConfigureState>(initial);
   const [lastInitial, setLastInitial] = useState(initial);
+  const [editingTitle, setEditingTitle] = useState(false);
+
   if (lastInitial !== initial) {
     setLastInitial(initial);
     setState(initial);
+    setEditingTitle(false);
   }
-  const now = useNow(30_000);
 
+  const now = useNow(30_000);
   const dirty = JSON.stringify(state) !== JSON.stringify(initial);
   const canSubmit = (state.name.trim().length > 0 || state.instructions.trim().length > 0) && !submitting;
+  const title = state.name.trim() || (mode === 'create' ? 'New routine' : 'Untitled routine');
 
   const preview = useMemo(() => nextOccurrences({
     triggerType: state.draft.frequency,
@@ -414,9 +552,6 @@ export function RoutineConfigureModal({
     lastCompletedAt: toDate(lastRunAt),
     count: 4,
   }), [state.draft, now, lastRunAt]);
-
-  const template = ROUTINE_TEMPLATES.find((item) => item.id === state.templateKey) || null;
-  const bannerSummary = template?.scheduleLabel || describeSchedule(state.draft.frequency, triggerConfigFromDraft(state.draft));
 
   const requestClose = () => {
     if (dirty && !window.confirm('Discard your changes to this routine?')) return;
@@ -429,9 +564,19 @@ export function RoutineConfigureModal({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
-      <DialogContent
-        className="max-h-[min(640px,calc(100vh-48px))] max-w-[920px] gap-0 overflow-auto border-border bg-background p-0 text-[var(--text-primary)] shadow-lg duration-150 motion-reduce:duration-0 sm:rounded-xl [&>button]:hidden"
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) requestClose();
+      }}
+    >
+      <SheetContent
+        side="right"
+        className={cn(
+          'inset-y-3 right-3 flex h-auto w-[min(100%-24px,420px)] flex-col gap-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-background p-0 shadow-[0_12px_40px_rgba(15,23,42,0.12)] sm:max-w-[420px]',
+          'data-[state=closed]:slide-out-to-right-4 data-[state=open]:slide-in-from-right-4',
+          '[&>button]:hidden',
+        )}
         onKeyDown={(event) => {
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault();
@@ -447,49 +592,57 @@ export function RoutineConfigureModal({
           requestClose();
         }}
       >
-        <div className="flex items-start justify-between px-4 pt-3">
-          <div>
-            <DialogTitle className="text-base font-normal leading-5 tracking-normal">Configure routine</DialogTitle>
-            <DialogDescription className="mt-1 text-xs text-[var(--text-secondary)]">
-              {mode === 'create' ? 'Adjust the details, then create the routine.' : 'Adjust the details, then save the routine.'}
-            </DialogDescription>
-          </div>
+        <div className="flex h-12 shrink-0 items-center px-3">
           <Button
             type="button"
             variant="ghost"
-            size="icon-compact"
+            size="icon"
             onClick={requestClose}
-            aria-label="Close"
-            className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            aria-label="Close panel"
+            className="h-8 w-8 rounded-full text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
           >
-            <X />
+            <ChevronsRight className="h-4 w-4" />
           </Button>
         </div>
 
-        <Card density="compact" className="mx-4 mt-3 flex items-center gap-2.5 border-border/70 bg-surface-panel px-3 py-1.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-row bg-background text-[var(--icon-muted)]">
-            {template ? <RoutineIcon name={template.icon} className="h-3.5 w-3.5" /> : <Repeat className="h-3.5 w-3.5" />}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-[13px] font-normal">{template ? template.title : 'Custom routine'}</span>
-            <span className="block truncate text-xs text-[var(--text-muted)]">{bannerSummary}</span>
-          </span>
-        </Card>
-
-        <div className="grid grid-cols-1 gap-3 px-4 pb-3 pt-3 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="routine-name" className={fieldLabelClass}>Name</Label>
-              <Input
-                density="compact"
-                id="routine-name"
-                autoFocus
-                value={state.name}
-                onChange={(event) => setState({ ...state, name: event.target.value })}
-                placeholder="e.g. Weekly work review"
-                className={textInputClass}
-              />
+        <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-6">
+          <div className="mx-auto flex w-full max-w-[380px] flex-col gap-5">
+            <div className="min-w-0">
+              <SheetDescription className="text-[12px] text-[var(--text-muted)]">
+                Routine
+              </SheetDescription>
+              <SheetTitle className="sr-only">
+                {mode === 'create' ? 'Configure routine' : 'Edit routine'}
+              </SheetTitle>
+              {editingTitle ? (
+                <Input
+                  autoFocus
+                  value={state.name}
+                  onChange={(event) => setState({ ...state, name: event.target.value })}
+                  onBlur={() => setEditingTitle(false)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === 'Escape') {
+                      setEditingTitle(false);
+                    }
+                  }}
+                  placeholder="e.g. Weekly work review"
+                  className="mt-1 h-auto border-0 bg-transparent px-0 text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] shadow-none focus-visible:ring-0"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setEditingTitle(true)}
+                  className="mt-1 block w-full truncate text-left text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)]"
+                >
+                  {title}
+                </button>
+              )}
             </div>
+
+            <InstructionsField
+              value={state.instructions}
+              onChange={(instructions) => setState((current) => ({ ...current, instructions }))}
+            />
 
             <ScheduleEditor
               draft={state.draft}
@@ -498,7 +651,7 @@ export function RoutineConfigureModal({
               onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
             />
 
-            <p className="px-1 text-xs leading-5 text-[var(--text-muted)]" aria-live="polite">
+            <p className="px-1 text-[12px] leading-5 text-[var(--text-muted)]" aria-live="polite">
               {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
               Next: {state.paused
                 ? 'paused'
@@ -508,69 +661,48 @@ export function RoutineConfigureModal({
             </p>
 
             <section className={groupClass}>
-              <div className={rowClass}>
-                <span className={labelClass}>Priority</span>
-                <Select
+              <PanelRow label="Priority">
+                <select
                   value={state.priority}
-                  onValueChange={(value) => setState({ ...state, priority: value as TaskPriority })}
+                  onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
+                  className={chipClass}
+                  aria-label="Priority"
                 >
-                  <SelectTrigger density="compact" className={selectTriggerClass} aria-label="Priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PRIORITIES.map((priority) => (
-                      <SelectItem key={priority.id} value={priority.id}>{priority.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className={rowClass}>
-                <span className={labelClass}>Agent</span>
-                <span className="flex items-center gap-1.5">
+                  {PRIORITIES.map((priority) => (
+                    <option key={priority.id} value={priority.id}>{priority.label}</option>
+                  ))}
+                </select>
+              </PanelRow>
+              <Separator className="bg-[var(--border-subtle)]" />
+              <PanelRow label="Agent">
+                <span className="flex items-center gap-1">
                   {AGENT_TIERS.map((tier) => (
                     <Button
                       key={tier.id}
                       type="button"
-                      variant={state.agentTier === tier.id ? 'brand' : 'ghost'}
-                      size="compact"
+                      variant={state.agentTier === tier.id ? 'default' : 'secondary'}
+                      size="sm"
                       aria-pressed={state.agentTier === tier.id}
                       onClick={() => setState({ ...state, agentTier: tier.id })}
-                      className={cn(
-                        'px-2.5 text-xs font-normal',
-                        state.agentTier !== tier.id && 'bg-background text-[var(--text-secondary)] hover:bg-[var(--row-hover)]',
-                      )}
+                      className="h-7 rounded-full px-2.5 text-[12px]"
                     >
                       {tier.label}
                     </Button>
                   ))}
                 </span>
-              </div>
+              </PanelRow>
             </section>
-          </div>
 
-          <div className="flex min-h-0 flex-col gap-2.5 md:border-l md:border-[var(--border-subtle)] md:pl-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="routine-instructions" className={fieldLabelClass}>Instructions</Label>
-              <p className="text-[13px] leading-5 text-[var(--text-secondary)]">
-                Describe what you&rsquo;d like the AI to gather, analyze, or do.
-              </p>
+            <div className="flex flex-col gap-2">
+              <span className="text-sm text-[var(--text-secondary)]">Notes</span>
               <textarea
-                id="routine-instructions"
-                value={state.instructions}
-                onChange={(event) => setState({ ...state, instructions: event.target.value })}
-                placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-                className={cn(textareaClass, 'min-h-36')}
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="routine-notes" className={fieldLabelClass}>Notes</Label>
-              <textarea
-                id="routine-notes"
                 value={state.notes}
                 onChange={(event) => setState({ ...state, notes: event.target.value })}
-                placeholder="Optional notes"
-                className={cn(textareaClass, 'min-h-16')}
+                placeholder="No notes yet."
+                className={cn(
+                  wellClass,
+                  'min-h-[88px] w-full resize-none border-0 text-sm leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring/20',
+                )}
               />
             </div>
 
@@ -581,30 +713,21 @@ export function RoutineConfigureModal({
           </div>
         </div>
 
-        <Separator className="bg-[var(--border-subtle)]" />
-        <div className="sticky bottom-0 flex items-center justify-end gap-2 bg-background/95 px-4 py-2.5 backdrop-blur">
-          <Button
-            type="button"
-            variant="outline"
-            size="compact"
-            onClick={requestClose}
-            className="rounded-md px-3 font-normal"
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant="brand"
-            size="compact"
-            onClick={submit}
-            disabled={!canSubmit}
-            className="rounded-md px-3"
-          >
-            {submitting ? <Loader2 className="animate-spin" /> : null}
-            {mode === 'create' ? 'Create routine' : 'Save routine'}
-          </Button>
+        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-background/95 px-7 py-4 backdrop-blur">
+          <div className="mx-auto flex w-full max-w-[380px] items-center justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={requestClose}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={submit} disabled={!canSubmit}>
+              {submitting ? <Loader2 className="animate-spin" /> : null}
+              {mode === 'create' ? 'Create routine' : 'Save routine'}
+            </Button>
+          </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
+
+/** @deprecated Prefer RoutineConfigurePanel */
+export const RoutineConfigureModal = RoutineConfigurePanel;

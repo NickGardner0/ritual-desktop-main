@@ -51,7 +51,7 @@ import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
-import { formatAgo, formatUpcoming, useNow } from '@/lib/routines/time';
+import { formatAgo, useNow } from '@/lib/routines/time';
 import { ROUTINE_STATUS_COLORS } from '@/lib/routines/ui';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
@@ -61,7 +61,7 @@ import type {
 } from '@/lib/workflows/types';
 
 import {
-  RoutineConfigureModal,
+  RoutineConfigurePanel,
   configureStateFromRoutine,
   configureStateFromTemplate,
   type RoutineConfigureState,
@@ -132,6 +132,7 @@ function RoutineActions({
   onEdit,
   onDuplicate,
   onDelete,
+  compact = false,
 }: {
   item: AgentRoutine;
   running: boolean;
@@ -140,37 +141,65 @@ function RoutineActions({
   onEdit: (item: AgentRoutine) => void;
   onDuplicate: (item: AgentRoutine) => void;
   onDelete: (item: AgentRoutine) => void;
+  compact?: boolean;
 }) {
   const paused = item.routine.status === 'paused';
+  const iconButtonClass = cn(
+    'h-7 w-7 rounded-md text-[var(--text-muted)] hover:bg-background/80 hover:text-[var(--text-primary)]',
+    compact && 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100',
+  );
+
   return (
-    <span className="flex items-center gap-1" onClick={(event) => event.stopPropagation()}>
+    <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
+      {!compact ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={running ? 'Routine is already running' : 'Run now'}
+          title={running ? 'Routine is already running' : 'Run now'}
+          disabled={running || !item.routine.ai_workflow_definition_id}
+          onClick={() => onRunNow(item)}
+          className={iconButtonClass}
+        >
+          {running ? <Loader2 className="animate-spin" /> : <Play />}
+        </Button>
+      ) : null}
       <Button
         type="button"
         variant="ghost"
-        size="icon-compact"
-        aria-label={running ? 'Routine is already running' : 'Run now'}
-        title={running ? 'Routine is already running' : 'Run now'}
-        disabled={running || !item.routine.ai_workflow_definition_id}
-        onClick={() => onRunNow(item)}
-        className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+        size="icon"
+        aria-label="Delete routine"
+        title="Delete"
+        onClick={() => onDelete(item)}
+        className={cn(iconButtonClass, 'hover:text-destructive')}
       >
-        {running ? <Loader2 className="animate-spin" /> : <Play />}
+        <Trash2 className="h-3.5 w-3.5" />
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
             variant="ghost"
-            size="icon-compact"
+            size="icon"
             aria-label="More routine actions"
             title="More"
-            className="text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            className={iconButtonClass}
           >
-            <MoreHorizontal />
+            <MoreHorizontal className="h-3.5 w-3.5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onClick={() => onEdit(item)}>Edit</DropdownMenuItem>
+          {compact ? (
+            <DropdownMenuItem
+              disabled={running || !item.routine.ai_workflow_definition_id}
+              onClick={() => onRunNow(item)}
+            >
+              {running ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-2 h-3.5 w-3.5" />}
+              Run now
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem onClick={() => onTogglePause(item)}>
             {paused ? <Play className="mr-2 h-3.5 w-3.5" /> : <Pause className="mr-2 h-3.5 w-3.5" />}
             {paused ? 'Resume' : 'Pause'}
@@ -218,41 +247,44 @@ function RoutineListRow({
   const { routine } = item;
   const paused = routine.status === 'paused';
   const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
-  const nextLabel = paused ? '' : formatUpcoming(routine.next_run_at, now);
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(item)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelect(item);
+        }
+      }}
       className={cn(
-        'group grid min-h-14 w-full grid-cols-[minmax(0,1fr)_auto] items-center rounded-row transition-colors',
+        'group flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors select-none',
         selected ? 'bg-surface-panel' : 'hover:bg-[var(--row-hover)]',
         paused && 'opacity-55',
       )}
     >
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => onSelect(item)}
-        className="grid h-auto min-w-0 grid-cols-[20px_minmax(0,1fr)_auto] items-center justify-start gap-3 whitespace-normal rounded-row px-3 py-2 text-left hover:bg-transparent"
-      >
-        <Repeat2 className="h-4 w-4 text-[var(--icon-muted)]" />
-        <span className="min-w-0">
-          <span className="block truncate text-[13px] font-normal text-[var(--text-primary)]">{routine.title}</span>
-          <span className="mt-0.5 block truncate text-xs text-[var(--text-muted)]">
-            {scheduleSummary}
-            {nextLabel ? ` · Next ${nextLabel}` : ''}
-          </span>
-        </span>
+      <Repeat2 className="h-4 w-4 shrink-0 text-[var(--icon-muted)]" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
+        {routine.title}
+      </span>
+      <span className="hidden max-w-[220px] shrink-0 truncate text-[13px] text-[var(--text-muted)] sm:block">
+        {paused ? 'Paused' : scheduleSummary}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
         <LastRunDot lastRun={lastRun} now={now} />
-      </Button>
-      <RoutineActions
-        item={item}
-        running={running}
-        onRunNow={onRunNow}
-        onTogglePause={onTogglePause}
-        onEdit={onEdit}
-        onDuplicate={onDuplicate}
-        onDelete={onDelete}
-      />
+        <RoutineActions
+          item={item}
+          running={running}
+          onRunNow={onRunNow}
+          onTogglePause={onTogglePause}
+          onEdit={onEdit}
+          onDuplicate={onDuplicate}
+          onDelete={onDelete}
+          compact
+        />
+      </span>
     </div>
   );
 }
@@ -286,21 +318,20 @@ function RoutineCard({
   const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
   return (
     <Card
-      density="compact"
       className={cn(
-        'flex min-h-32 flex-col border-border/70 transition-colors hover:bg-surface-panel',
-        selected && 'border-[var(--text-primary)]',
+        'flex min-h-40 flex-col border-[var(--border-subtle)] shadow-none transition-colors hover:bg-surface-panel',
+        selected && 'border-primary',
       )}
     >
       <Button
         type="button"
         variant="ghost"
         onClick={() => onSelect(item)}
-        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-4 text-left hover:bg-transparent focus-visible:ring-inset"
+        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-5 text-left hover:bg-transparent focus-visible:ring-inset"
       >
         <span className="min-w-0">
-          <span className="block truncate text-sm font-normal text-[var(--text-primary)]">{routine.title}</span>
-          <span className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-[var(--text-secondary)]">
+          <span className="block truncate text-base font-medium text-[var(--text-primary)]">{routine.title}</span>
+          <span className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--text-secondary)]">
             {agent.instructions || routine.description || 'No instructions set.'}
           </span>
         </span>
@@ -309,8 +340,8 @@ function RoutineCard({
         </span>
       </Button>
       <Separator className="bg-[var(--border-subtle)]" />
-      <CardFooter className="justify-between gap-3 pt-3">
-        <span className="min-w-0 truncate text-xs text-[var(--text-muted)]">{scheduleSummary}</span>
+      <CardFooter className="justify-between gap-3 p-4">
+        <span className="min-w-0 truncate text-[13px] text-[var(--text-muted)]">{scheduleSummary}</span>
         <div>
           <RoutineActions
             item={item}
@@ -658,20 +689,20 @@ export function RoutinesClient() {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-content text-[var(--text-primary)]">
       <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
-        <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
-          <h1 className="text-lg font-normal leading-6">Routines</h1>
+        <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
+          <h1 className="text-2xl font-medium leading-tight">Routines</h1>
           <div className="flex items-center gap-3">
             {hasRoutines ? (
               <div className="flex items-center rounded-row bg-surface-panel p-1" role="group" aria-label="Routine view">
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-compact"
+                  size="icon"
                   aria-label="List view"
                   aria-pressed={viewMode === 'list'}
                   onClick={() => setViewMode('list')}
                   className={cn(
-                    'text-[var(--text-muted)]',
+                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
                     viewMode === 'list' && 'bg-background text-[var(--text-primary)] shadow-sm',
                   )}
                 >
@@ -680,12 +711,12 @@ export function RoutinesClient() {
                 <Button
                   type="button"
                   variant="ghost"
-                  size="icon-compact"
+                  size="icon"
                   aria-label="Card view"
                   aria-pressed={viewMode === 'card'}
                   onClick={() => setViewMode('card')}
                   className={cn(
-                    'text-[var(--text-muted)]',
+                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
                     viewMode === 'card' && 'bg-background text-[var(--text-primary)] shadow-sm',
                   )}
                 >
@@ -695,12 +726,9 @@ export function RoutinesClient() {
             ) : null}
             <Button
               type="button"
-              variant="brand"
-              size="compact"
               title="New routine (⌘N)"
               disabled={submitModalMutation.isPending}
               onClick={() => openCreateModal()}
-              className="rounded-md px-3"
             >
               <Plus />
               New routine
@@ -708,7 +736,7 @@ export function RoutinesClient() {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-8 pb-12 pt-5">
+        <main className="mx-auto max-w-6xl px-8 pb-12 pt-8">
           {routinesQuery.isLoading ? (
             <div className="mx-auto max-w-4xl space-y-3">
               {[0, 1, 2, 3].map((item) => (
@@ -716,17 +744,15 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : !hasRoutines ? (
-            <div className="mx-auto max-w-4xl space-y-5">
-              <RoutinesEmptyHero />
-              <div className="mx-auto w-full max-w-3xl">
-                <TemplateLibrary
-                  installedTemplateKeys={installedTemplateKeys}
-                  onSetUp={(template) => openCreateModal(template.id)}
-                />
-              </div>
+            <div className="mx-auto max-w-4xl space-y-8">
+              <RoutinesEmptyHero onNewRoutine={() => openCreateModal()} />
+              <TemplateLibrary
+                installedTemplateKeys={installedTemplateKeys}
+                onSetUp={(template) => openCreateModal(template.id)}
+              />
             </div>
           ) : viewMode === 'card' ? (
-            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {sortedRoutines.map((item) => (
                 <RoutineCard
                   key={item.routine.id}
@@ -745,7 +771,7 @@ export function RoutinesClient() {
               ))}
             </div>
           ) : (
-            <div className="mx-auto max-w-3xl space-y-1">
+            <div className="mx-auto flex max-w-[640px] flex-col gap-px">
               {sortedRoutines.map((item) => (
                 <RoutineListRow
                   key={item.routine.id}
@@ -767,7 +793,7 @@ export function RoutinesClient() {
         </main>
       </div>
 
-      <RoutineConfigureModal
+      <RoutineConfigurePanel
         open={modal.open}
         mode={modal.mode}
         initial={modal.initial}
