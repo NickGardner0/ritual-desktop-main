@@ -6,6 +6,7 @@ import {
   OnboardingStepper,
   SETUP_STEPPER_COUNT,
 } from "@/components/onboarding/perplexity-onboarding-shell"
+import { RitualGlassMark } from "@/components/onboarding/ritual-glass-mark"
 
 export function IntroStep({
   onSkip,
@@ -16,25 +17,11 @@ export function IntroStep({
 }) {
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
-      <div className="relative h-[72.35%] min-h-[300px] max-h-[492px] shrink-0 overflow-hidden">
-        <img
-          src="/onboarding/intro-hero.png"
-          alt=""
-          className="absolute inset-0 h-full w-full object-cover object-center"
-        />
-        <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-32"
-          style={{
-            background:
-              "linear-gradient(to bottom, rgba(251,250,248,0) 0%, rgba(251,250,248,0.76) 55%, var(--px-onboarding-cream) 100%)",
-          }}
-        />
-      </div>
-
-      <div className="flex flex-1 flex-col px-8 pt-2 text-center">
-        <h1 className="px-onboarding-title text-[24px] leading-[1.2]">Welcome to Perplexity Pro</h1>
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-8 pb-4 pt-12 text-center">
+        <RitualGlassMark className="mb-8" />
+        <h1 className="px-onboarding-title text-[24px] leading-[1.2]">Welcome to Ritual</h1>
         <p className="mx-auto mt-3 max-w-[390px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">
-          You&apos;ve unlocked access to Computer, your always-on teammate that works for you.
+          Your private intelligence layer for remembering what matters and helping you move through every day.
         </p>
       </div>
 

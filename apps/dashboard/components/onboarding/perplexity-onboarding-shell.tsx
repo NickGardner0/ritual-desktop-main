@@ -34,14 +34,14 @@ export function PerplexityOnboardingShell({
   return (
     <div
       className={cn(
-        "px-onboarding flex h-screen w-screen items-center justify-center overflow-hidden bg-[var(--px-onboarding-stage)]",
+        "px-onboarding h-screen w-screen overflow-hidden bg-[var(--px-onboarding-stage)]",
         className,
       )}
     >
       <div data-tauri-drag-region className="fixed left-0 right-0 top-0 z-50 h-8" />
       <div
         className={cn(
-          "relative flex h-[min(680px,calc(100vh-48px))] w-[min(516px,calc(100vw-48px))] flex-col overflow-hidden rounded-[12px] border border-black/[0.06] bg-[var(--px-onboarding-cream)] shadow-[0_12px_28px_rgba(17,17,17,0.10)]",
+          "relative flex h-full w-full flex-col overflow-hidden bg-[var(--px-onboarding-cream)]",
           contentClassName,
         )}
       >
