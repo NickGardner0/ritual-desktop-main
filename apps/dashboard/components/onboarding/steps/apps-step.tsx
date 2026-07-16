@@ -64,7 +64,7 @@ export function AppsStep({
       />
 
       <div className="min-h-0 flex-1 px-8 pt-5">
-        <label className="flex h-10 items-center gap-2.5 rounded-[8px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5">
+        <label className="flex h-10 items-center gap-2.5 rounded-md border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5 focus-within:ring-2 focus-within:ring-[hsl(var(--ring))] focus-within:ring-offset-1">
           <Search className="h-[18px] w-[18px] shrink-0 text-[#85827d]" strokeWidth={1.7} />
           <input
             value={query}
@@ -83,15 +83,16 @@ export function AppsStep({
                   key={app.id}
                   type="button"
                   onClick={() => toggle(app.id)}
+                  aria-pressed={isSelected}
                   className={cn(
-                    "flex h-[42px] items-center gap-3 rounded-[8px] border px-3 text-left text-[15px] font-normal transition-colors duration-100",
+                    "flex h-[42px] items-center gap-3 rounded-md border px-3 text-left text-[15px] font-normal transition-colors duration-100 hover:bg-[var(--px-onboarding-chip-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-1",
                     isSelected
-                      ? "border-[#d7d3cc] bg-[var(--px-onboarding-chip-hover)]"
-                      : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] hover:bg-[var(--px-onboarding-chip-hover)]",
+                      ? "border-[hsl(var(--border))] bg-[var(--px-onboarding-chip-hover)]"
+                      : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)]",
                   )}
                 >
                   <span
-                    className="grid h-6 w-6 shrink-0 place-items-center rounded-[6px] text-[11px] font-semibold text-white"
+                    className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white"
                     style={{ backgroundColor: app.color }}
                   >
                     {app.initial}

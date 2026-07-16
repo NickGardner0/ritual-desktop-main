@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react"
 import type { LucideIcon } from "lucide-react"
 import { Check, FolderOpen, HardDrive, MapPin, Mic, Monitor, ScreenShare } from "lucide-react"
+import { Button } from "@ritual/ui/button"
 
 import {
   OnboardingFooter,
@@ -101,19 +102,21 @@ function GrantButton({
   disabled?: boolean
 }) {
   return (
-    <button
+    <Button
       type="button"
+      variant="outline"
+      size="sm"
       disabled={disabled || loading}
       onClick={onClick}
       className={cn(
-        "inline-flex h-8 min-w-[78px] shrink-0 items-center justify-center rounded-[8px] border px-3 text-[12px] font-medium transition-colors duration-100 disabled:opacity-50",
+        "h-8 min-w-[80px] shrink-0 rounded-md px-3 text-[13px] font-medium shadow-none transition-colors duration-100",
         granted
-          ? "border-[#dededb] bg-[#f6f6f3] text-[#5f5f58]"
-          : "border-[var(--px-onboarding-border)] bg-white text-[var(--px-onboarding-ink)] hover:bg-[#f4f3ee]",
+          ? "border-[hsl(var(--border))] bg-[var(--px-onboarding-recessed)] text-[var(--text-secondary)] hover:bg-[var(--px-onboarding-recessed)]"
+          : "border-[var(--px-onboarding-border)] bg-white text-[var(--px-onboarding-ink)] hover:bg-[var(--surface-panel)]",
       )}
     >
       {loading ? <BrailleSpinner className="text-sm" intervalMs={45} /> : granted ? "Granted" : "Grant"}
-    </button>
+    </Button>
   )
 }
 
@@ -264,26 +267,26 @@ export function PermissionsStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Connect local access"
-        subtitle="Grant what you want now. You can change each setting later."
-        className="pt-8"
+        subtitle="Choose which local capabilities Ritual can use. You can update these anytime in Settings."
+        className="pt-10"
       />
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-4">
-        <div className="overflow-hidden rounded-[14px] border border-[var(--px-onboarding-border)] bg-white">
+      <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-5">
+        <div className="overflow-hidden rounded-lg border border-[var(--px-onboarding-border)] bg-white">
           {PERMISSION_ROWS.map((row) => {
             const Icon = row.icon
             const granted = permissions[row.key]
             return (
               <div
                 key={row.key}
-                className="grid min-h-[56px] grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#ececea] px-3.5 last:border-b-0"
+                className="grid min-h-[60px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-2.5 last:border-b-0"
               >
                 <span
                   className={cn(
-                    "grid h-7 w-7 place-items-center rounded-[7px] border",
+                    "grid h-8 w-8 place-items-center rounded-md border",
                     granted
-                      ? "border-[#d9e1d7] bg-[#f1f7f0] text-[#446a40]"
-                      : "border-[#e2e2df] bg-[#f8f8f6] text-[#686863]",
+                      ? "border-[#d9e1d7] bg-[#f1f7f0] text-[#167046]"
+                      : "border-[hsl(var(--border))] bg-[var(--px-onboarding-recessed)] text-[var(--icon-muted)]",
                   )}
                   aria-hidden="true"
                 >
@@ -294,10 +297,10 @@ export function PermissionsStep({
                   )}
                 </span>
                 <div className="min-w-0">
-                  <p className="truncate text-[13px] font-semibold leading-tight text-[var(--px-onboarding-ink)]">
+                  <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
                     {row.label}
                   </p>
-                  <p className="mt-0.5 truncate text-[11.5px] leading-tight text-[var(--px-onboarding-muted)]">
+                  <p className="mt-0.5 text-[12px] font-normal leading-[1.35] text-[var(--px-onboarding-muted)]">
                     {row.description}
                   </p>
                 </div>
@@ -310,35 +313,40 @@ export function PermissionsStep({
               </div>
             )
           })}
+        </div>
 
-          <div className="flex min-h-14 items-center justify-between gap-3 border-t border-[#ececea] px-3.5 py-3">
-            <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-[var(--px-onboarding-ink)]">
-                Ritual Vault folder
+        <div className="mt-3 flex min-h-[72px] items-center gap-3 rounded-lg border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] px-4 py-3">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[hsl(var(--border))] bg-white text-[var(--icon-default)]" aria-hidden="true">
+            <FolderOpen className="h-4 w-4" strokeWidth={1.8} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
+              Ritual Vault folder
+            </p>
+            <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
+              {vaultFolderPath || "Choose where Ritual stores your private local files."}
+            </p>
+            {vaultFolderMessage ? (
+              <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
+                {vaultFolderMessage}
               </p>
-              <p className="mt-0.5 truncate text-[11.5px] text-[var(--px-onboarding-muted)]">
-                {vaultFolderPath || "No folder selected"}
-              </p>
-              {vaultFolderMessage ? (
-                <p className="mt-0.5 truncate text-[11.5px] text-[var(--px-onboarding-muted)]">
-                  {vaultFolderMessage}
-                </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              disabled={busy || vaultFolderWorking}
-              onClick={() => void handleChooseVaultFolder()}
-              className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-[8px] border border-[var(--px-onboarding-border)] bg-white px-3 text-[12px] font-medium text-[var(--px-onboarding-ink)] transition-colors duration-100 hover:bg-[#f4f3ee] disabled:opacity-50"
-            >
-              {vaultFolderWorking ? (
-                <BrailleSpinner className="text-sm" intervalMs={45} />
-              ) : (
-                <FolderOpen className="h-3.5 w-3.5" />
-              )}
-              <span>Choose</span>
-            </button>
+            ) : null}
           </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || vaultFolderWorking}
+            onClick={() => void handleChooseVaultFolder()}
+            className="h-8 shrink-0 rounded-md border-[var(--px-onboarding-border)] bg-white px-3 text-[13px] font-medium text-[var(--px-onboarding-ink)] shadow-none hover:bg-[var(--surface-panel)]"
+          >
+            {vaultFolderWorking ? (
+              <BrailleSpinner className="text-sm" intervalMs={45} />
+            ) : (
+              <FolderOpen className="h-4 w-4" />
+            )}
+            <span>Choose</span>
+          </Button>
         </div>
       </div>
 

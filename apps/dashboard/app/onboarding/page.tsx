@@ -90,7 +90,7 @@ function OnboardingButton({
     <Button
       {...props}
       className={cn(
-        "inline-flex rounded-sm py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
+        "inline-flex rounded-md py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-2",
         variant === "primary"
           ? "bg-black px-10 text-white shadow transition-colors duration-200 hover:bg-[#27251E]"
           : "border border-gray-300 bg-white px-4 text-gray-900 shadow-none transition-colors duration-200 hover:bg-[#F3F3F3]",

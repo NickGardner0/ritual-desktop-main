@@ -10,13 +10,12 @@
 import { DashboardLayoutClient } from './dashboard-layout-client';
 import { auth } from '@clerk/nextjs/server';
 import * as Sentry from '@sentry/nextjs';
-import { cookies, headers } from 'next/headers';
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { resolveDashboardActivationRedirect } from '@/lib/activation-flow.mjs';
 import { serverBackendFetch } from '@/lib/api/server-client';
 const FORCE_FRESH_COOKIE = 'ritual_force_fresh_until';
-const DESKTOP_USER_AGENT_FRAGMENT = 'RitualDesktop/';
-const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 2500;
+const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 8000;
 
 function recordBootstrapFailure(reason: string, details?: Record<string, unknown>) {
   console.warn('[Ritual][dashboard-layout] bootstrap skipped', {
@@ -38,17 +37,6 @@ async function assertDashboardActivation() {
   const clerkAuth = await auth();
   if (!clerkAuth.userId) {
     redirect('/sign-in');
-  }
-
-  const headerStore = await headers();
-  const userAgent = headerStore.get('user-agent') ?? '';
-  const isDesktopRequest = userAgent.includes(DESKTOP_USER_AGENT_FRAGMENT);
-
-  // Desktop launch should not depend on the Railway activation bootstrap before
-  // first paint. If the backend is slow, the dashboard can still hydrate from
-  // client-side caches and refetch after the app is visible.
-  if (isDesktopRequest) {
-    return;
   }
 
   const token = await clerkAuth.getToken();

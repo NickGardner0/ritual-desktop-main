@@ -74,7 +74,7 @@ export function WorkTypeStep({
               />
             )
           })}
-          <label className="flex h-[42px] w-full items-center gap-3 rounded-[8px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] px-3">
+          <label className="flex h-[42px] w-full items-center gap-3 rounded-md border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] px-3 transition-colors hover:bg-[var(--px-onboarding-chip-hover)] focus-within:ring-2 focus-within:ring-[hsl(var(--ring))] focus-within:ring-offset-1">
             <input
               value={other}
               onChange={(event) => {

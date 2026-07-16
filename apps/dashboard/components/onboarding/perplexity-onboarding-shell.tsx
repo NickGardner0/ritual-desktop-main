@@ -1,6 +1,7 @@
 "use client"
 
-import type { ButtonHTMLAttributes, ReactNode } from "react"
+import type { ReactNode } from "react"
+import { Button, type ButtonProps } from "@ritual/ui/button"
 
 import { cn } from "@/lib/utils"
 
@@ -40,7 +41,7 @@ export function PerplexityOnboardingShell({
       <div data-tauri-drag-region className="fixed left-0 right-0 top-0 z-50 h-8" />
       <div
         className={cn(
-          "relative flex h-[min(680px,calc(100vh-48px))] w-[min(516px,calc(100vw-48px))] flex-col overflow-hidden rounded-[12px] border border-black/[0.035] bg-[var(--px-onboarding-cream)] shadow-[0_14px_32px_rgba(0,0,0,0.24)]",
+          "relative flex h-[min(680px,calc(100vh-48px))] w-[min(516px,calc(100vw-48px))] flex-col overflow-hidden rounded-[12px] border border-black/[0.06] bg-[var(--px-onboarding-cream)] shadow-[0_12px_28px_rgba(17,17,17,0.10)]",
           contentClassName,
         )}
       >
@@ -100,7 +101,7 @@ export function OnboardingStepper({
   )
 }
 
-type NavButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+type NavButtonProps = Omit<ButtonProps, "size" | "variant"> & {
   variant?: "primary" | "secondary"
 }
 
@@ -111,19 +112,21 @@ export function OnboardingNavButton({
   ...props
 }: NavButtonProps) {
   return (
-    <button
+    <Button
       type="button"
+      size="sm"
+      variant={variant === "primary" ? "brand" : "outline"}
       className={cn(
-        "inline-flex h-8 min-w-[58px] items-center justify-center rounded-[8px] px-3 text-[15px] font-normal transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bdbdb8] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--px-onboarding-cream)] disabled:opacity-50",
+        "h-8 min-w-[58px] rounded-md px-3 text-[15px] font-normal shadow-none transition-colors duration-150 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-[var(--px-onboarding-cream)]",
         variant === "primary"
-          ? "bg-[var(--px-onboarding-ink)] text-white hover:bg-[#2a2823]"
-          : "border border-[var(--px-onboarding-border)] bg-transparent text-[var(--px-onboarding-ink)] hover:bg-[#f4f2ee]",
+          ? "border-[var(--px-onboarding-ink)] bg-[var(--px-onboarding-ink)] text-white hover:bg-[var(--brand-action-hover)]"
+          : "border-[var(--px-onboarding-border)] bg-white text-[var(--px-onboarding-ink)] hover:bg-[var(--surface-panel)]",
         className,
       )}
       {...props}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
@@ -169,11 +172,12 @@ export function OnboardingChip({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={selected}
       className={cn(
-        "flex h-[42px] w-full items-center gap-3 rounded-[8px] border px-3 text-left text-[15px] font-normal text-[var(--px-onboarding-ink)] transition-colors duration-100",
+        "flex h-[42px] w-full items-center gap-3 rounded-md border px-3 text-left text-[15px] font-normal text-[var(--px-onboarding-ink)] transition-colors duration-100 hover:bg-[var(--px-onboarding-chip-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-1",
         selected
-          ? "border-[#d7d3cc] bg-[var(--px-onboarding-chip-hover)]"
-          : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] hover:bg-[var(--px-onboarding-chip-hover)]",
+          ? "border-[hsl(var(--border))] bg-[var(--px-onboarding-chip-hover)]"
+          : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)]",
         className,
       )}
     >
