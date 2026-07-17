@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
-export type ChromeAppearance = "frosted" | "white" | "zed";
+export type ChromeAppearance = "frosted" | "white" | "soft" | "zed";
 
 type ChromeAppearanceOption = {
   value: ChromeAppearance;
@@ -34,6 +34,11 @@ export const CHROME_APPEARANCE_OPTIONS: ChromeAppearanceOption[] = [
     value: "white",
     label: "White",
     description: "Soft white titlebar and sidebar material",
+  },
+  {
+    value: "soft",
+    label: "Soft Grey",
+    description: "Cool light grey sidebar and chrome (#efefef)",
   },
   {
     value: "zed",
@@ -81,6 +86,23 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
     "--titlebar-glass-highlight": "rgba(255, 255, 255, 0)",
     "--titlebar-glass-filter": "none",
   },
+  soft: {
+    "--sidebar-vibrancy-bg": "#efefef",
+    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.06)",
+    "--sidebar-vibrancy-selected": "rgba(15, 23, 42, 0.055)",
+    "--titlebar-glass-bg": "#efefef",
+    "--titlebar-glass-bg-strong": "#efefef",
+    "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.42)",
+    "--titlebar-glass-control-hover-bg": "rgba(15, 23, 42, 0.05)",
+    "--titlebar-glass-control-active-bg": "rgba(15, 23, 42, 0.075)",
+    "--titlebar-glass-control-border": "rgba(15, 23, 42, 0.06)",
+    "--titlebar-glass-control-text": "rgba(17, 24, 39, 0.66)",
+    "--titlebar-glass-control-text-muted": "rgba(17, 24, 39, 0.46)",
+    "--titlebar-glass-control-text-active": "rgba(17, 24, 39, 0.92)",
+    "--titlebar-glass-border": "rgba(15, 23, 42, 0.06)",
+    "--titlebar-glass-highlight": "rgba(255, 255, 255, 0)",
+    "--titlebar-glass-filter": "none",
+  },
   zed: {
     "--sidebar-vibrancy-bg": "#eeeeec",
     "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.075)",
@@ -103,7 +125,7 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
 const ChromeAppearanceContext = createContext<ChromeAppearanceContextValue | undefined>(undefined);
 
 function isChromeAppearance(value: string | null): value is ChromeAppearance {
-  return value === "frosted" || value === "white" || value === "zed";
+  return value === "frosted" || value === "white" || value === "soft" || value === "zed";
 }
 
 export function ChromeAppearanceProvider({ children }: { children: ReactNode }) {
