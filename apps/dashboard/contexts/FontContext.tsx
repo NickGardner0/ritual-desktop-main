@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect } from 'react';
 
-export type FontOption = 'fk-grotesk' | 'gt-standard' | 'gt-america' | 'geist-sans';
+export type FontOption = 'fk-grotesk' | 'gt-standard' | 'gt-america' | 'inter' | 'dm-sans' | 'geist-sans';
 
 interface FontContextType {
   font: FontOption;
@@ -18,6 +18,8 @@ const fontClasses: Record<FontOption, string> = {
   'fk-grotesk': 'ritual-font-fk',
   'gt-standard': 'ritual-font-gt',
   'gt-america': 'ritual-font-gt-america',
+  inter: 'ritual-font-inter',
+  'dm-sans': 'ritual-font-dm-sans',
   'geist-sans': 'ritual-font-geist',
 };
 
@@ -27,6 +29,8 @@ function normalizeFontOption(value: string | null): FontOption {
   if (value === 'geist-sans') return 'geist-sans';
   if (value === 'gt-standard' || value === 'font-gt-standard') return 'gt-standard';
   if (value === 'gt-america') return 'gt-america';
+  if (value === 'inter') return 'inter';
+  if (value === 'dm-sans') return 'dm-sans';
   return 'fk-grotesk';
 }
 
@@ -41,6 +45,8 @@ export function FontProvider({ children }: { children: ReactNode }) {
       stored === 'fk-grotesk'
       || stored === 'gt-standard'
       || stored === 'gt-america'
+      || stored === 'inter'
+      || stored === 'dm-sans'
       || stored === 'geist-sans'
     ) {
       return stored;

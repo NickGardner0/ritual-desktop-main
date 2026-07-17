@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { GeistSans } from 'geist/font/sans'
-import { Newsreader } from 'next/font/google'
+import { DM_Sans, Inter, Newsreader } from 'next/font/google'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
@@ -13,6 +13,20 @@ export const metadata: Metadata = {
 }
 
 const geistSans = GeistSans
+
+const inter = Inter({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-inter',
+  display: 'swap',
+})
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-dm-sans',
+  display: 'swap',
+})
 
 const newsreader = Newsreader({
   subsets: ['latin'],
@@ -26,7 +40,11 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={`desktop ${geistSans.variable} ${newsreader.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`desktop ${geistSans.variable} ${inter.variable} ${dmSans.variable} ${newsreader.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <meta name="view-transition" content="same-origin" />
         {/* Preload critical fonts to prevent FOUT (Flash of Unstyled Text) */}
@@ -57,4 +75,4 @@ export default function RootLayout({
       </body>
     </html>
   )
-} 
+}

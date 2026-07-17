@@ -57,6 +57,8 @@ const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
   { value: 'gt-standard', label: 'GT Standard' },
   { value: 'gt-america', label: 'GT America' },
+  { value: 'inter', label: 'Inter' },
+  { value: 'dm-sans', label: 'DM Sans' },
   { value: 'geist-sans', label: 'Geist Sans' },
 ];
 
