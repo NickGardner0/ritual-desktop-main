@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronsRight, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
@@ -15,12 +16,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import {
   AGENT_TIERS,
@@ -511,6 +506,10 @@ function ScheduleEditor({
   );
 }
 
+const DEFAULT_PANEL_WIDTH = 420;
+const MIN_PANEL_WIDTH = 360;
+const MAX_PANEL_WIDTH = 560;
+
 export function RoutineConfigurePanel({
   open,
   mode,
@@ -531,6 +530,10 @@ export function RoutineConfigurePanel({
   const [state, setState] = useState<RoutineConfigureState>(initial);
   const [lastInitial, setLastInitial] = useState(initial);
   const [editingTitle, setEditingTitle] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [isResizing, setIsResizing] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const reduceMotion = useReducedMotion();
 
   if (lastInitial !== initial) {
     setLastInitial(initial);
@@ -542,6 +545,7 @@ export function RoutineConfigurePanel({
   const dirty = JSON.stringify(state) !== JSON.stringify(initial);
   const canSubmit = (state.name.trim().length > 0 || state.instructions.trim().length > 0) && !submitting;
   const title = state.name.trim() || (mode === 'create' ? 'New routine' : 'Untitled routine');
+  const headingId = 'routine-configure-panel-title';
 
   const preview = useMemo(() => nextOccurrences({
     triggerType: state.draft.frequency,
@@ -563,169 +567,248 @@ export function RoutineConfigurePanel({
     onSubmit(state);
   };
 
+  const requestCloseRef = useRef(requestClose);
+  const submitRef = useRef(submit);
+  requestCloseRef.current = requestClose;
+  submitRef.current = submit;
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (event.defaultPrevented) return;
+        if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+        event.preventDefault();
+        requestCloseRef.current();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+        event.preventDefault();
+        submitRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const clampWidth = () => {
+      const maxForViewport = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth * 0.48)));
+      setPanelWidth((current) => Math.min(current, maxForViewport));
+    };
+    clampWidth();
+    window.addEventListener('resize', clampWidth);
+    return () => window.removeEventListener('resize', clampWidth);
+  }, [open]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const onMove = (event: MouseEvent) => {
+      const maxForViewport = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth * 0.48)));
+      const next = window.innerWidth - event.clientX;
+      setPanelWidth(Math.min(maxForViewport, Math.max(MIN_PANEL_WIDTH, next)));
+    };
+    const onUp = () => setIsResizing(false);
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) requestClose();
-      }}
-    >
-      <SheetContent
-        side="right"
-        className={cn(
-          'inset-y-3 right-3 flex h-auto w-[min(100%-24px,420px)] flex-col gap-0 overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-background p-0 shadow-[0_12px_40px_rgba(15,23,42,0.12)] sm:max-w-[420px]',
-          'data-[state=closed]:slide-out-to-right-4 data-[state=open]:slide-in-from-right-4',
-          '[&>button]:hidden',
-        )}
-        onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault();
-            submit();
+    <AnimatePresence initial={false}>
+      {open ? (
+        <motion.aside
+          key="routine-configure-panel"
+          ref={panelRef}
+          tabIndex={-1}
+          role="complementary"
+          aria-labelledby={headingId}
+          initial={reduceMotion ? false : { width: 0, opacity: 0 }}
+          animate={{ width: panelWidth, opacity: 1 }}
+          exit={reduceMotion ? { width: 0, opacity: 0 } : { width: 0, opacity: 0 }}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : { type: 'spring', stiffness: 420, damping: 38 }
           }
-        }}
-        onEscapeKeyDown={(event) => {
-          event.preventDefault();
-          requestClose();
-        }}
-        onPointerDownOutside={(event) => {
-          event.preventDefault();
-          requestClose();
-        }}
-      >
-        <div className="flex h-12 shrink-0 items-center px-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={requestClose}
-            aria-label="Close panel"
-            className="h-8 w-8 rounded-full text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+          className="relative flex h-full shrink-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-content)] outline-none will-change-transform"
+        >
+          <div
+            onMouseDown={(event) => {
+              event.preventDefault();
+              setIsResizing(true);
+            }}
+            className="absolute left-0 top-0 z-20 h-full w-2 -translate-x-1 cursor-col-resize"
+            aria-label="Resize side panel"
+            role="separator"
+            aria-orientation="vertical"
           >
-            <ChevronsRight className="h-4 w-4" />
-          </Button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-6">
-          <div className="mx-auto flex w-full max-w-[380px] flex-col gap-5">
-            <div className="min-w-0">
-              <SheetDescription className="text-[12px] text-[var(--text-muted)]">
-                Routine
-              </SheetDescription>
-              <SheetTitle className="sr-only">
-                {mode === 'create' ? 'Configure routine' : 'Edit routine'}
-              </SheetTitle>
-              {editingTitle ? (
-                <Input
-                  autoFocus
-                  value={state.name}
-                  onChange={(event) => setState({ ...state, name: event.target.value })}
-                  onBlur={() => setEditingTitle(false)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === 'Escape') {
-                      setEditingTitle(false);
-                    }
-                  }}
-                  placeholder="e.g. Weekly work review"
-                  className="mt-1 h-auto border-0 bg-transparent px-0 text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] shadow-none focus-visible:ring-0"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setEditingTitle(true)}
-                  className="mt-1 block w-full truncate text-left text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)]"
-                >
-                  {title}
-                </button>
+            <div
+              className={cn(
+                'mx-auto h-full w-px transition-colors',
+                isResizing ? 'bg-[var(--border-default)]' : 'bg-transparent hover:bg-[var(--border-default)]',
               )}
+            />
+          </div>
+
+          <div
+            className="flex h-full flex-col"
+            style={{ width: panelWidth }}
+          >
+            <div className="flex h-12 shrink-0 items-center px-3">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={requestClose}
+                aria-label="Close panel"
+                className="h-8 w-8 rounded-control text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+              >
+                <ChevronsRight className="h-4 w-4" />
+              </Button>
             </div>
 
-            <InstructionsField
-              value={state.instructions}
-              onChange={(instructions) => setState((current) => ({ ...current, instructions }))}
-            />
-
-            <ScheduleEditor
-              draft={state.draft}
-              paused={state.paused}
-              onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
-              onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
-            />
-
-            <p className="px-1 text-[12px] leading-5 text-[var(--text-muted)]" aria-live="polite">
-              {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
-              Next: {state.paused
-                ? 'paused'
-                : preview.length
-                  ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
-                  : 'no upcoming runs'}
-            </p>
-
-            <section className={groupClass}>
-              <PanelRow label="Priority">
-                <select
-                  value={state.priority}
-                  onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
-                  className={chipClass}
-                  aria-label="Priority"
-                >
-                  {PRIORITIES.map((priority) => (
-                    <option key={priority.id} value={priority.id}>{priority.label}</option>
-                  ))}
-                </select>
-              </PanelRow>
-              <Separator className="bg-[var(--border-subtle)]" />
-              <PanelRow label="Agent">
-                <span className="flex items-center gap-1">
-                  {AGENT_TIERS.map((tier) => (
-                    <Button
-                      key={tier.id}
+            <div className="min-h-0 flex-1 overflow-y-auto px-7 pb-6">
+              <div className="mx-auto flex w-full max-w-[380px] flex-col gap-5">
+                <div className="min-w-0">
+                  <p className="text-[12px] text-[var(--text-muted)]">Routine</p>
+                  <h2 id={headingId} className="sr-only">
+                    {mode === 'create' ? 'Configure routine' : 'Edit routine'}
+                  </h2>
+                  {editingTitle ? (
+                    <Input
+                      autoFocus
+                      value={state.name}
+                      onChange={(event) => setState({ ...state, name: event.target.value })}
+                      onBlur={() => setEditingTitle(false)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === 'Escape') {
+                          event.stopPropagation();
+                          setEditingTitle(false);
+                        }
+                      }}
+                      placeholder="e.g. Weekly work review"
+                      className="mt-1 h-auto border-0 bg-transparent px-0 text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)] shadow-none focus-visible:ring-0"
+                    />
+                  ) : (
+                    <button
                       type="button"
-                      variant={state.agentTier === tier.id ? 'default' : 'secondary'}
-                      size="sm"
-                      aria-pressed={state.agentTier === tier.id}
-                      onClick={() => setState({ ...state, agentTier: tier.id })}
-                      className="h-7 rounded-full px-2.5 text-[12px]"
+                      onClick={() => setEditingTitle(true)}
+                      className="mt-1 block w-full truncate text-left text-[28px] font-semibold leading-tight tracking-tight text-[var(--text-primary)]"
                     >
-                      {tier.label}
-                    </Button>
-                  ))}
-                </span>
-              </PanelRow>
-            </section>
+                      {title}
+                    </button>
+                  )}
+                </div>
 
-            <div className="flex flex-col gap-2">
-              <span className="text-sm text-[var(--text-secondary)]">Notes</span>
-              <textarea
-                value={state.notes}
-                onChange={(event) => setState({ ...state, notes: event.target.value })}
-                placeholder="No notes yet."
-                className={cn(
-                  wellClass,
-                  'min-h-[88px] w-full resize-none border-0 text-sm leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring/20',
-                )}
-              />
+                <InstructionsField
+                  value={state.instructions}
+                  onChange={(instructions) => setState((current) => ({ ...current, instructions }))}
+                />
+
+                <ScheduleEditor
+                  draft={state.draft}
+                  paused={state.paused}
+                  onPausedChange={(paused) => setState((current) => ({ ...current, paused }))}
+                  onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
+                />
+
+                <p className="px-1 text-[12px] leading-5 text-[var(--text-muted)]" aria-live="polite">
+                  {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
+                  Next: {state.paused
+                    ? 'paused'
+                    : preview.length
+                      ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
+                      : 'no upcoming runs'}
+                </p>
+
+                <section className={groupClass}>
+                  <PanelRow label="Priority">
+                    <select
+                      value={state.priority}
+                      onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
+                      className={chipClass}
+                      aria-label="Priority"
+                    >
+                      {PRIORITIES.map((priority) => (
+                        <option key={priority.id} value={priority.id}>{priority.label}</option>
+                      ))}
+                    </select>
+                  </PanelRow>
+                  <Separator className="bg-[var(--border-subtle)]" />
+                  <PanelRow label="Agent">
+                    <span className="flex items-center gap-1">
+                      {AGENT_TIERS.map((tier) => (
+                        <Button
+                          key={tier.id}
+                          type="button"
+                          variant={state.agentTier === tier.id ? 'default' : 'secondary'}
+                          size="sm"
+                          aria-pressed={state.agentTier === tier.id}
+                          onClick={() => setState({ ...state, agentTier: tier.id })}
+                          className="h-7 rounded-full px-2.5 text-[12px]"
+                        >
+                          {tier.label}
+                        </Button>
+                      ))}
+                    </span>
+                  </PanelRow>
+                </section>
+
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm text-[var(--text-secondary)]">Notes</span>
+                  <textarea
+                    value={state.notes}
+                    onChange={(event) => setState({ ...state, notes: event.target.value })}
+                    placeholder="No notes yet."
+                    className={cn(
+                      wellClass,
+                      'min-h-[88px] w-full resize-none border-0 text-sm leading-6 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-2 focus-visible:ring-ring/20',
+                    )}
+                  />
+                </div>
+
+                <TagsField
+                  value={state.tags}
+                  onChange={(tags) => setState((current) => ({ ...current, tags }))}
+                />
+              </div>
             </div>
 
-            <TagsField
-              value={state.tags}
-              onChange={(tags) => setState((current) => ({ ...current, tags }))}
-            />
+            <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--surface-content)] px-7 py-4">
+              <div className="mx-auto flex w-full max-w-[380px] items-center justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={requestClose}>
+                  Cancel
+                </Button>
+                <Button type="button" onClick={submit} disabled={!canSubmit}>
+                  {submitting ? <Loader2 className="animate-spin" /> : null}
+                  {mode === 'create' ? 'Create routine' : 'Save routine'}
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div className="shrink-0 border-t border-[var(--border-subtle)] bg-background/95 px-7 py-4 backdrop-blur">
-          <div className="mx-auto flex w-full max-w-[380px] items-center justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={requestClose}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={submit} disabled={!canSubmit}>
-              {submitting ? <Loader2 className="animate-spin" /> : null}
-              {mode === 'create' ? 'Create routine' : 'Save routine'}
-            </Button>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
+        </motion.aside>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
