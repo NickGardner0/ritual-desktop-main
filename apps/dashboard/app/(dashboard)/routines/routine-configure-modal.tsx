@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { ChevronsRight, Loader2, Plus, X } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
@@ -16,6 +17,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
+import { useRightDockTarget } from '@/contexts/RightDockContext';
 import {
   AGENT_TIERS,
   ALL_DATA_SOURCE_KEYS,
@@ -522,6 +524,7 @@ export function RoutineConfigurePanel({
   const [isResizing, setIsResizing] = useState(false);
   const panelRef = useRef<HTMLElement | null>(null);
   const reduceMotion = useReducedMotion();
+  const dockTarget = useRightDockTarget();
 
   if (lastInitial !== initial) {
     setLastInitial(initial);
@@ -621,7 +624,9 @@ export function RoutineConfigurePanel({
     };
   }, [isResizing]);
 
-  return (
+  if (!dockTarget) return null;
+
+  return createPortal(
     <AnimatePresence initial={false}>
       {open ? (
         <motion.aside
@@ -797,7 +802,8 @@ export function RoutineConfigurePanel({
           </div>
         </motion.aside>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    dockTarget,
   );
 }
 

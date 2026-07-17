@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
+import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
@@ -55,6 +56,10 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
+  const [rightDockEl, setRightDockEl] = useState<HTMLElement | null>(null);
+  const rightDockRef = useCallback((node: HTMLDivElement | null) => {
+    setRightDockEl(node);
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -147,50 +152,60 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
           {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
 
-          {/* Main Content Area */}
-          <div className="content-shell flex min-w-0 flex-1 flex-col overflow-hidden border-0">
-            {!isFullScreenChat && (
-              <div
-                data-tauri-drag-region
-                className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-center bg-[var(--content-bg)] ${contentTouchesWindowChrome ? 'pl-[84px] pr-3' : 'px-4'}`}
-              >
-                <div
-                  data-tauri-drag-region
-                  className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)] items-center gap-2"
-                >
-                  <div data-tauri-drag-region className="flex min-w-0 items-center">
-                    {!isChatRoute && (
-                      <CommandPalette
-                        className="app-toolbar-control no-drag flex h-7 w-auto min-w-[108px] items-center gap-1.5 rounded-[7px] border border-black/[0.08] bg-transparent px-2.5 py-0 text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.04] hover:text-[#2f302d] focus:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-0"
-                        initialOpen={shouldOpenWhoopModal}
-                        density="tight"
-                      />
-                    )}
-                    <div id="header-left-slot" className="no-drag ml-1 flex items-center gap-0.5" />
-                  </div>
-
+          {/* Main content column + full-height right dock (Cursor-style) */}
+          <RightDockTargetProvider target={rightDockEl}>
+            <div className="content-shell flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden border-0">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                {!isFullScreenChat && (
                   <div
-                    id="header-center-slot"
-                    className="no-drag flex min-w-0 items-center justify-center"
-                  />
+                    data-tauri-drag-region
+                    className={`dashboard-app-toolbar app-toolbar-region tauri-drag-region relative flex h-12 shrink-0 items-center bg-[var(--content-bg)] ${contentTouchesWindowChrome ? 'pl-[84px] pr-3' : 'px-4'}`}
+                  >
+                    <div
+                      data-tauri-drag-region
+                      className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)] items-center gap-2"
+                    >
+                      <div data-tauri-drag-region className="flex min-w-0 items-center">
+                        {!isChatRoute && (
+                          <CommandPalette
+                            className="app-toolbar-control no-drag flex h-7 w-auto min-w-[108px] items-center gap-1.5 rounded-[7px] border border-black/[0.08] bg-transparent px-2.5 py-0 text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.04] hover:text-[#2f302d] focus:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-0"
+                            initialOpen={shouldOpenWhoopModal}
+                            density="tight"
+                          />
+                        )}
+                        <div id="header-left-slot" className="no-drag ml-1 flex items-center gap-0.5" />
+                      </div>
 
-                  <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
-                    <div className="no-drag flex h-7 items-center gap-0.5">
-                      <PinnedSummaryPopover />
                       <div
-                        id="header-right-slot"
-                        className="no-drag flex h-7 min-w-0 items-center gap-0.5"
+                        id="header-center-slot"
+                        className="no-drag flex min-w-0 items-center justify-center"
                       />
+
+                      <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
+                        <div className="no-drag flex h-7 items-center gap-0.5">
+                          <PinnedSummaryPopover />
+                          <div
+                            id="header-right-slot"
+                            className="no-drag flex h-7 min-w-0 items-center gap-0.5"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+                {/* Main Content */}
+                <ContentSurface className="content-opaque flex flex-col flex-1 overflow-auto border-0">
+                  {children}
+                </ContentSurface>
               </div>
-            )}
-            {/* Main Content */}
-            <ContentSurface className="content-opaque flex flex-col flex-1 overflow-auto border-0">
-              {children}
-            </ContentSurface>
-          </div>
+
+              <div
+                ref={rightDockRef}
+                id="ritual-right-dock"
+                className="flex h-full shrink-0 items-stretch"
+              />
+            </div>
+          </RightDockTargetProvider>
         </div>
       </div>
     </div>

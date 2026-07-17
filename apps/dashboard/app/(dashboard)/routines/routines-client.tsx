@@ -687,8 +687,8 @@ export function RoutinesClient() {
   const hasRoutines = routines.length > 0;
 
   return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-surface-content text-[var(--text-primary)]">
-      <div className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-surface-content">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface-content text-[var(--text-primary)]">
+      <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
           <h1 className="text-2xl font-medium leading-tight">Routines</h1>
           <div className="flex items-center gap-3">
