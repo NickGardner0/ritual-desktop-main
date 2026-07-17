@@ -565,7 +565,7 @@ body[data-voice-hud-window="1"] {
     z-index: 45;
     width: 1px;
     pointer-events: none;
-    /* Neutral hairline: solid chrome presets supply quiet black alphas via tokens. */
+    /* Crisp 1px hairline for White / Soft Grey / Zed (Cursor / Granola weight). */
     background: var(--sidebar-vibrancy-border);
     box-shadow: none;
   }
