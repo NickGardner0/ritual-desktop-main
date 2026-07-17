@@ -98,7 +98,7 @@ Never use status colors as decoration. Do not rely on color alone; pair state wi
 - **System UI** — native titlebar and platform-level chrome where matching macOS matters more than brand voice.
 - **SF Mono fallback stack** — code, identifiers, file paths, timestamps where fixed-width alignment materially helps.
 
-Do not introduce another font family without updating `tokens.json`, `variables.css`, this document, and the visual reference.
+Settings may also offer selectable UI fonts (GT Standard, GT America, Waldenburg, Inter, DM Sans, Geist Sans). Do not introduce another default product font family without updating `tokens.json`, `variables.css`, this document, and the visual reference.
 
 ### Type scale
 
