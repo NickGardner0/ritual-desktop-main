@@ -10,6 +10,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PanelLeft } from "lucide-react";
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
 import { SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
+import { DesktopUpdateControl } from '@/components/desktop-update-control';
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 240;
@@ -185,6 +186,7 @@ export function Sidebar() {
           onOpenChange={setIsAccountMenuOpen}
           onOpenSettings={handleSettingsClick}
         />
+        <DesktopUpdateControl isExpanded={isExpanded} />
       </div>
     </SidebarShell>
   );

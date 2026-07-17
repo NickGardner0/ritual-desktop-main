@@ -136,6 +136,9 @@ pub struct BiomeIphoneDiagnostics {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateStatusPayload {
+    pub(crate) content_length: Option<u64>,
+    pub(crate) downloaded: Option<u64>,
     pub(crate) error: Option<String>,
+    pub(crate) percentage: Option<u8>,
     pub(crate) status: Option<String>,
 }

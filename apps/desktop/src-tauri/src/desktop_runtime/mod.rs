@@ -22,7 +22,7 @@ use crate::desktop_runtime_types::{
 pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-runtime-info-v1",
     "native-updater-v1",
-    "native-update-prompt-v1",
+    "sidebar-updater-v1",
     "native-startup-update-fallback-v1",
     "desktop-runtime-state-v1",
     "desktop-auth-handoff-v1",

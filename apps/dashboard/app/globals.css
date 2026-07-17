@@ -383,6 +383,9 @@ body[data-voice-hud-window="1"] {
   --text-primary: #111111;
   --text-secondary: #666666;
   --text-muted: #7a7a7a;
+  --ritual-focus-ring: #306774;
+  --ritual-status-info: #306774;
+  --ritual-status-danger: #9f2d20;
   --icon-default: #5f6368;
   --icon-muted: #888888;
   --sidebar-nav-foreground: #303030;
@@ -458,6 +461,9 @@ body[data-voice-hud-window="1"] {
   --text-primary: #f7f7f3;
   --text-secondary: #b8b8b2;
   --text-muted: #9a9a94;
+  --ritual-focus-ring: #72a8b4;
+  --ritual-status-info: #72a8b4;
+  --ritual-status-danger: #d97368;
   --icon-default: #b7b7b0;
   --icon-muted: #969690;
   --sidebar-nav-foreground: #d0d0ca;

@@ -1,27 +1,28 @@
 use super::*;
-#[cfg(target_os = "macos")]
-use std::ffi::CString;
-#[cfg(target_os = "macos")]
-use std::os::raw::c_char;
 use std::time::{Duration, Instant};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 use tracing::instrument;
 
-#[cfg(target_os = "macos")]
-extern "C" {
-    fn show_ritual_update_install_prompt(version: *const c_char) -> bool;
-}
-
 pub(crate) fn emit_update_status<R: Runtime>(
     app: &AppHandle<R>,
     status: &str,
     error: Option<String>,
+    progress: Option<(u64, u64, u8)>,
 ) {
+    let (content_length, downloaded, percentage) = progress
+        .map(|(content_length, downloaded, percentage)| {
+            (Some(content_length), Some(downloaded), Some(percentage))
+        })
+        .unwrap_or((None, None, None));
+
     let _ = app.emit(
         UPDATE_STATUS_EVENT,
         UpdateStatusPayload {
+            content_length,
+            downloaded,
             error,
+            percentage,
             status: Some(status.to_string()),
         },
     );
@@ -43,46 +44,6 @@ pub(crate) async fn show_native_message<R: Runtime>(
     .await;
 }
 
-pub(crate) async fn prompt_for_native_install<R: Runtime>(
-    _app: AppHandle<R>,
-    latest_version: String,
-    _body: Option<String>,
-) -> Result<bool, String> {
-    #[cfg(target_os = "macos")]
-    {
-        return tauri::async_runtime::spawn_blocking(move || {
-            let version = CString::new(latest_version)
-                .map_err(|_| "Update version contained an interior null byte.".to_string())?;
-            let should_install = unsafe { show_ritual_update_install_prompt(version.as_ptr()) };
-            Ok::<bool, String>(should_install)
-        })
-        .await
-        .map_err(|error| format!("Failed to show native update prompt: {error}"))?;
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    let prompt = format!(
-        "Ritual {latest_version} is ready to install.\n\nRitual will relaunch after the update is installed."
-    );
-
-    #[cfg(not(target_os = "macos"))]
-    tauri::async_runtime::spawn_blocking(move || {
-        Ok::<bool, String>(
-            _app.dialog()
-                .message(prompt)
-                .title(format!("Install Ritual {latest_version}?"))
-                .buttons(MessageDialogButtons::OkCancelCustom(
-                    "Install".to_string(),
-                    "Later".to_string(),
-                ))
-                .kind(MessageDialogKind::Info)
-                .blocking_show(),
-        )
-    })
-    .await
-    .map_err(|error| format!("Failed to show native update prompt: {error}"))?
-}
-
 pub(crate) async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let update = app
         .updater()
@@ -102,18 +63,46 @@ pub(crate) async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Resu
         body: update.body.clone(),
     };
     set_pending_update(&app, Some(manifest));
-    emit_update_status(&app, "PENDING", None);
+    emit_update_status(&app, "DOWNLOADING", None, Some((0, 0, 0)));
+
+    let progress_app = app.clone();
+    let installing_app = app.clone();
+    let mut content_length: u64 = 0;
+    let mut downloaded: u64 = 0;
 
     update
-        .download_and_install(|_, _| {}, || {})
+        .download_and_install(
+            move |chunk_length, total| {
+                content_length = total.unwrap_or(content_length);
+                downloaded = downloaded.saturating_add(chunk_length as u64);
+                let percentage = if content_length > 0 {
+                    ((downloaded
+                        .saturating_mul(100)
+                        .saturating_add(content_length / 2)
+                        / content_length)
+                        .min(100)) as u8
+                } else {
+                    0
+                };
+                emit_update_status(
+                    &progress_app,
+                    "DOWNLOADING",
+                    None,
+                    Some((content_length, downloaded, percentage)),
+                );
+            },
+            move || {
+                emit_update_status(&installing_app, "INSTALLING", None, Some((0, 0, 100)));
+            },
+        )
         .await
         .map_err(|error| {
             let message = format!("Failed to download or install the update: {error}");
-            emit_update_status(&app, "ERROR", Some(message.clone()));
+            emit_update_status(&app, "ERROR", Some(message.clone()), None);
             message
         })?;
 
-    emit_update_status(&app, "DONE", None);
+    emit_update_status(&app, "DONE", None, Some((0, 0, 100)));
     app.restart();
     #[allow(unreachable_code)]
     Ok(())
@@ -143,7 +132,7 @@ pub(crate) async fn run_update_check<R: Runtime + 'static>(
 
         let Some(update) = update else {
             set_pending_update(&app, None);
-            emit_update_status(&app, "UPTODATE", None);
+            emit_update_status(&app, "UPTODATE", None, None);
 
             if matches!(origin, UpdateCheckOrigin::Tray) {
                 show_native_message::<R>(
@@ -157,26 +146,20 @@ pub(crate) async fn run_update_check<R: Runtime + 'static>(
             return Ok(());
         };
 
-        let latest_version = update.version.clone();
-        let release_notes = update.body.clone();
+        let manifest = PendingUpdateManifest {
+            version: update.version.clone(),
+            date: update.date.map(|value| value.to_string()),
+            body: update.body.clone(),
+        };
+        let latest_version = manifest.version.clone();
+        set_pending_update(&app, Some(manifest));
+        emit_update_status(&app, "AVAILABLE", None, None);
 
         log::info!(
-            "[DESKTOP_RUNTIME] update {} pending from {:?}; showing native install prompt",
+            "[DESKTOP_RUNTIME] update {} pending from {:?}; showing sidebar update control",
             latest_version,
             origin
         );
-
-        if prompt_for_native_install(app.clone(), latest_version, release_notes).await? {
-            if let Err(error) = install_latest_update(app.clone()).await {
-                show_native_message::<R>(
-                    app.clone(),
-                    "Ritual Update Failed".to_string(),
-                    error.clone(),
-                )
-                .await;
-                return Err(error);
-            }
-        }
 
         Ok(())
     }
@@ -196,9 +179,13 @@ pub fn register_startup_update_check<R: Runtime + 'static>(app: AppHandle<R>) {
     }
 
     tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(Duration::from_secs(6)).await;
-        if let Err(error) = run_update_check(app.clone(), UpdateCheckOrigin::Startup).await {
-            warn!(error = %error, "Desktop startup update check failed");
+        tokio::time::sleep(Duration::from_secs(5)).await;
+
+        loop {
+            if let Err(error) = run_update_check(app.clone(), UpdateCheckOrigin::Startup).await {
+                warn!(error = %error, "Desktop automatic update check failed");
+            }
+            tokio::time::sleep(Duration::from_secs(4 * 60 * 60)).await;
         }
     });
 }
