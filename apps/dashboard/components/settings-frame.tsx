@@ -56,6 +56,7 @@ const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'voice', 'comput
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
   { value: 'gt-standard', label: 'GT Standard' },
+  { value: 'gt-america', label: 'GT America' },
   { value: 'geist-sans', label: 'Geist Sans' },
 ];
 
