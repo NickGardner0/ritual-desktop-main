@@ -133,19 +133,20 @@ const MONTHS = [
   'December',
 ];
 
-const groupClass = 'divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)]';
-const rowClass = 'flex min-h-[30px] items-center justify-between gap-3 px-0 py-1.5';
-const labelClass = 'text-[13px] text-[var(--text-secondary)]';
+// Light translation of the reference routine inspector: grouped rounded cards,
+// soft value chips, quiet row dividers — not flat chrome hairlines.
+const groupClass = 'overflow-hidden rounded-[10px] bg-[var(--surface-panel)]';
+const rowClass = 'flex min-h-[42px] items-center justify-between gap-3 border-b border-[rgba(15,23,42,0.045)] px-3.5 last:border-b-0';
+const labelClass = 'text-[13.5px] font-[500] text-[var(--text-secondary)]';
 const chipClass =
-  'h-7 rounded-control border border-[var(--border-subtle)] bg-transparent px-2 text-[13px] font-medium text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--row-hover)] focus-visible:ring-1 focus-visible:ring-ring/20';
+  'h-[26px] cursor-pointer rounded-[7px] border-0 bg-[rgba(15,23,42,0.055)] px-2.5 text-[13px] font-[580] text-[var(--text-primary)] outline-none transition hover:bg-[rgba(15,23,42,0.09)] focus:bg-[rgba(15,23,42,0.09)] focus-visible:ring-1 focus-visible:ring-ring/20';
 const dateChipClass =
-  'h-7 max-w-[148px] rounded-control border-0 bg-transparent px-1.5 text-right text-[13px] font-medium text-[var(--text-primary)] outline-none transition-colors hover:bg-[var(--row-hover)] focus-visible:ring-1 focus-visible:ring-ring/20 [&::-webkit-calendar-picker-indicator]:opacity-40';
-const wellClass =
-  'rounded-row border border-[var(--border-subtle)] bg-transparent px-3 py-2';
+  'h-[26px] max-w-[148px] cursor-pointer rounded-[7px] border-0 bg-transparent px-1.5 text-right text-[13px] font-[580] text-[var(--text-primary)] outline-none transition hover:bg-[rgba(15,23,42,0.09)] focus:bg-[rgba(15,23,42,0.09)] focus-visible:ring-1 focus-visible:ring-ring/20 [&::-webkit-calendar-picker-indicator]:opacity-40';
 const segmentClass =
-  'h-7 rounded-control px-2.5 text-[12px] font-medium';
+  'h-[26px] rounded-[7px] px-2.5 text-[12px] font-[600]';
 const tagClass =
-  'inline-flex h-6 items-center gap-1 rounded-row bg-[var(--row-hover)] px-2 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--row-active)] hover:text-[var(--text-primary)]';
+  'inline-flex h-[26px] items-center gap-1 rounded-[7px] bg-[rgba(15,23,42,0.055)] px-2.5 text-[12px] font-[580] text-[var(--text-secondary)] transition hover:bg-[rgba(15,23,42,0.09)] hover:text-[var(--text-primary)]';
+const mutedClass = 'text-[13px] font-[500] text-[var(--text-muted)]';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -201,7 +202,7 @@ function TagsField({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-[12px] font-medium text-[var(--text-muted)]">Tags</span>
+      <span className={mutedClass}>Tags</span>
       <div className="flex flex-wrap items-center gap-1.5">
         {value.map((tag) => (
           <button
@@ -220,7 +221,7 @@ function TagsField({
             autoFocus
             value={text}
             placeholder="tag"
-            className="h-6 w-24 rounded-control border border-[var(--border-subtle)] bg-transparent px-2 text-[12px] shadow-none focus-visible:ring-1"
+            className="h-[26px] w-24 rounded-[7px] border-0 bg-[rgba(15,23,42,0.055)] px-2.5 text-[12px] shadow-none focus-visible:ring-1"
             onChange={(event) => setText(event.target.value)}
             onBlur={commit}
             onKeyDown={(event) => {
@@ -235,7 +236,7 @@ function TagsField({
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="inline-flex h-6 items-center gap-1 rounded-control border border-dashed border-[var(--border-default)] px-2 text-[12px] text-[var(--text-muted)] transition-colors hover:border-[var(--text-secondary)] hover:text-[var(--text-secondary)]"
+            className="inline-flex h-[26px] items-center gap-1 rounded-[7px] border border-dashed border-[rgba(15,23,42,0.14)] px-2.5 text-[12px] font-[580] text-[var(--text-muted)] transition hover:border-[var(--text-secondary)] hover:text-[var(--text-secondary)]"
           >
             <Plus className="h-3 w-3" />
             tag
@@ -264,22 +265,24 @@ function InstructionsField({
           setDraft(value);
           setOpen(true);
         }}
-        className="flex w-full items-center justify-between gap-3 rounded-row px-1 py-2 text-left transition-colors hover:bg-[var(--row-hover)]"
+        className={cn(groupClass, 'w-full px-3.5 py-3 text-left transition hover:bg-[rgba(15,23,42,0.04)]')}
       >
-        <div className="min-w-0">
-          <div className="text-[13px] font-medium text-[var(--text-primary)]">Instructions</div>
-          <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-muted)]">
-            Describe what the AI should do when this routine runs.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[13.5px] font-[500] text-[var(--text-primary)]">Instructions</div>
+            <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-muted)]">
+              Describe what the AI should do when this routine runs.
+            </p>
+          </div>
+          <span
+            className={cn(
+              'max-w-[140px] shrink-0 truncate pt-0.5 text-right text-[13px] font-[580]',
+              value ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]',
+            )}
+          >
+            {value || 'Not set'}
+          </span>
         </div>
-        <span
-          className={cn(
-            'max-w-[140px] shrink-0 truncate text-right text-[13px]',
-            value ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]',
-          )}
-        >
-          {value || 'Not set'}
-        </span>
       </button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -298,7 +301,7 @@ function InstructionsField({
                 size="icon"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="h-7 w-7 shrink-0 rounded-control text-[var(--text-secondary)]"
+                className="h-7 w-7 shrink-0 rounded-[7px] text-[var(--text-secondary)]"
               >
                 <X className="h-4 w-4" />
               </Button>
@@ -310,7 +313,7 @@ function InstructionsField({
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-              className="min-h-40 w-full resize-none rounded-row border border-[var(--border-subtle)] bg-transparent px-3 py-2.5 text-[13px] leading-5 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-1 focus-visible:ring-ring/20"
+              className="min-h-40 w-full resize-none rounded-[10px] border-0 bg-[var(--surface-panel)] px-3.5 py-3 text-[13px] leading-5 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-1 focus-visible:ring-ring/20"
             />
           </div>
           <DialogFooter className="gap-2 border-t border-[var(--border-subtle)] px-5 py-3 sm:justify-end">
@@ -348,7 +351,7 @@ function ScheduleEditor({
   const timeValue = `${String(draft.hour).padStart(2, '0')}:${String(draft.minute).padStart(2, '0')}`;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2.5">
       <section className={groupClass}>
         <PanelRow label="Trigger">
           <select
@@ -375,35 +378,38 @@ function ScheduleEditor({
             max={99}
             value={draft.interval}
             onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-            className={cn(chipClass, 'w-[64px] text-center')}
+            className={cn(chipClass, 'w-[52px] text-center')}
             aria-label="Interval"
           />
-          <span className="text-[13px] text-[var(--text-muted)]">
+          <span className={mutedClass}>
             {intervalUnit(draft).replace(/s$/, draft.interval === 1 ? '' : 's')}
           </span>
         </PanelRow>
 
         {draft.frequency === 'weekly' ? (
-          <PanelRow label="On" className="items-start py-2">
+          <PanelRow label="On" className="items-start py-2.5">
             <span className="flex max-w-[220px] flex-wrap justify-end gap-1">
               {WEEKDAYS.map((day) => {
                 const active = draft.weekdays.includes(day.value);
                 return (
-                  <Button
+                  <button
                     key={day.value}
                     type="button"
-                    variant={active ? 'default' : 'ghost'}
-                    size="sm"
                     aria-pressed={active}
                     onClick={() => onChange({
                       weekdays: active
                         ? draft.weekdays.filter((value) => value !== day.value)
                         : [...draft.weekdays, day.value].sort((a, b) => a - b),
                     })}
-                    className={segmentClass}
+                    className={cn(
+                      segmentClass,
+                      active
+                        ? 'bg-[#111827] text-white'
+                        : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                    )}
                   >
                     {day.label}
-                  </Button>
+                  </button>
                 );
               })}
             </span>
@@ -429,7 +435,7 @@ function ScheduleEditor({
             </select>
             {draft.frequency === 'yearly' ? (
               <>
-                <span className="text-[13px] text-[var(--text-muted)]">in</span>
+                <span className={mutedClass}>in</span>
                 <select
                   value={draft.month}
                   onChange={(event) => onChange({ month: Number(event.target.value) })}
@@ -643,7 +649,7 @@ export function RoutineConfigurePanel({
               ? { duration: 0 }
               : { type: 'spring', stiffness: 420, damping: 38 }
           }
-          className="relative flex h-full shrink-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-panel)] outline-none will-change-transform"
+          className="relative flex h-full shrink-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-content)] outline-none will-change-transform"
         >
           <div
             onMouseDown={(event) => {
@@ -667,23 +673,23 @@ export function RoutineConfigurePanel({
             className="flex h-full flex-col"
             style={{ width: panelWidth }}
           >
-            <div className="flex h-10 shrink-0 items-center gap-1 px-2">
+            <div className="flex h-11 shrink-0 items-center gap-1 px-2.5">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={requestClose}
                 aria-label="Close panel"
-                className="h-7 w-7 rounded-control text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                className="h-7 w-7 rounded-[7px] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.055)] hover:text-[var(--text-primary)]"
               >
                 <ChevronsRight className="h-4 w-4" />
               </Button>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-              <div className="mx-auto flex w-full max-w-[360px] flex-col gap-4">
-                <div className="min-w-0 px-0.5">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.04em] text-[var(--text-muted)]">
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5">
+              <div className="mx-auto flex w-full max-w-[360px] flex-col gap-2.5">
+                <div className="mb-1.5 min-w-0 px-0.5">
+                  <p className="text-[12px] font-[500] text-[var(--text-muted)]">
                     Routine
                   </p>
                   <h2 id={headingId} className="sr-only">
@@ -702,13 +708,13 @@ export function RoutineConfigurePanel({
                         }
                       }}
                       placeholder="e.g. Weekly work review"
-                      className="mt-1 h-auto border-0 bg-transparent px-0 text-base font-medium leading-tight tracking-tight text-[var(--text-primary)] shadow-none focus-visible:ring-0"
+                      className="mt-1 h-auto border-0 bg-transparent px-0 text-[22px] font-[650] leading-tight tracking-[-0.02em] text-[var(--text-primary)] shadow-none focus-visible:ring-0"
                     />
                   ) : (
                     <button
                       type="button"
                       onClick={() => setEditingTitle(true)}
-                      className="mt-1 block w-full truncate text-left text-base font-medium leading-tight tracking-tight text-[var(--text-primary)]"
+                      className="mt-1 block w-full truncate text-left text-[22px] font-[650] leading-tight tracking-[-0.02em] text-[var(--text-primary)]"
                     >
                       {title}
                     </button>
@@ -727,12 +733,12 @@ export function RoutineConfigurePanel({
                   onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
                 />
 
-                <p className="px-0.5 text-[12px] leading-4 text-[var(--text-muted)]" aria-live="polite">
-                  {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)} · </> : null}
+                <p className="px-1 text-[12px] leading-4 text-[var(--text-muted)]" aria-live="polite">
+                  {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
                   Next: {state.paused
                     ? 'paused'
                     : preview.length
-                      ? preview.map((date) => formatOccurrence(date, now)).join(', ')
+                      ? `${preview.map((date) => formatOccurrence(date, now)).join(', ')}...`
                       : 'no upcoming runs'}
                 </p>
 
@@ -749,37 +755,39 @@ export function RoutineConfigurePanel({
                       ))}
                     </select>
                   </PanelRow>
+                </section>
+
+                <section className={groupClass}>
                   <PanelRow label="Agent">
                     <span className="flex items-center gap-1">
                       {AGENT_TIERS.map((tier) => (
-                        <Button
+                        <button
                           key={tier.id}
                           type="button"
-                          variant={state.agentTier === tier.id ? 'default' : 'ghost'}
-                          size="sm"
                           aria-pressed={state.agentTier === tier.id}
                           onClick={() => setState({ ...state, agentTier: tier.id })}
-                          className={segmentClass}
+                          className={cn(
+                            segmentClass,
+                            state.agentTier === tier.id
+                              ? 'bg-[#111827] text-white'
+                              : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                          )}
                         >
                           {tier.label}
-                        </Button>
+                        </button>
                       ))}
                     </span>
                   </PanelRow>
                 </section>
 
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[12px] font-medium text-[var(--text-muted)]">Notes</span>
+                <section className={groupClass}>
                   <textarea
                     value={state.notes}
                     onChange={(event) => setState({ ...state, notes: event.target.value })}
                     placeholder="No notes yet."
-                    className={cn(
-                      wellClass,
-                      'min-h-[72px] w-full resize-none text-[13px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-1 focus-visible:ring-ring/20',
-                    )}
+                    className="min-h-[88px] w-full resize-none border-0 bg-transparent px-3.5 py-3 text-[13.5px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-0"
                   />
-                </div>
+                </section>
 
                 <TagsField
                   value={state.tags}
@@ -788,12 +796,12 @@ export function RoutineConfigurePanel({
               </div>
             </div>
 
-            <div className="shrink-0 border-t border-[var(--border-subtle)] bg-[var(--surface-panel)] px-4 py-3">
+            <div className="shrink-0 border-t border-[rgba(15,23,42,0.045)] bg-[var(--surface-content)] px-5 py-3">
               <div className="mx-auto flex w-full max-w-[360px] items-center justify-end gap-1.5">
-                <Button type="button" variant="ghost" size="sm" onClick={requestClose} className="h-7 rounded-control px-2.5">
+                <Button type="button" variant="ghost" size="sm" onClick={requestClose} className="h-7 rounded-[7px] px-2.5">
                   Cancel
                 </Button>
-                <Button type="button" size="sm" onClick={submit} disabled={!canSubmit} className="h-7 rounded-control px-2.5">
+                <Button type="button" size="sm" onClick={submit} disabled={!canSubmit} className="h-7 rounded-[7px] px-2.5">
                   {submitting ? <Loader2 className="animate-spin" /> : null}
                   {mode === 'create' ? 'Create' : 'Save'}
                 </Button>

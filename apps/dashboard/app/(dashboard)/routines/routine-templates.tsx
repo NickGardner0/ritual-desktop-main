@@ -37,8 +37,12 @@ export function RoutinesEmptyHero({ onNewRoutine }: { onNewRoutine: () => void }
         <p className="mx-auto mt-1.5 max-w-sm text-[13px] leading-5 text-[var(--text-secondary)]">
           Describe what you want Ritual to gather, analyze, or summarize, pick a schedule, and Ritual delivers a report when it&rsquo;s ready.
         </p>
-        <Button type="button" onClick={onNewRoutine} className="mt-4">
-          <Plus />
+        <Button
+          type="button"
+          onClick={onNewRoutine}
+          className="mt-4 h-9 rounded-md border border-black bg-black px-3 text-[13px] font-medium text-white shadow-none transition-all duration-200 hover:bg-[#3D3C38] hover:text-white"
+        >
+          <Plus className="h-4 w-4" />
           Start from scratch
         </Button>
       </CardContent>

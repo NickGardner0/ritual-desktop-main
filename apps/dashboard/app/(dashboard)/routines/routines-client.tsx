@@ -5,30 +5,10 @@ import { useRouter } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@ritual/ui/button';
-import { Card, CardFooter } from '@ritual/ui/card';
 import { cn } from '@ritual/ui/cn';
-import { Separator } from '@ritual/ui/separator';
-import {
-  Copy,
-  LayoutGrid,
-  List,
-  Loader2,
-  MoreHorizontal,
-  Pause,
-  Play,
-  Plus,
-  Repeat2,
-  Trash2,
-} from 'lucide-react';
+import { Plus, Repeat2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { apiJsonWithAuth } from '@/lib/api/client';
 import {
@@ -48,11 +28,9 @@ import {
   type RoutineAgentConfig,
 } from '@/lib/routines/model';
 import { sendRoutineNotification } from '@/lib/routines/notifications';
-import { buildRunViews, type RoutineRunView } from '@/lib/routines/runs';
+import { buildRunViews } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
-import { formatAgo, useNow } from '@/lib/routines/time';
-import { ROUTINE_STATUS_COLORS } from '@/lib/routines/ui';
 import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
   WorkflowDefinitionListResponse,
@@ -75,8 +53,6 @@ type ModalState = {
   editing: AgentRoutine | null;
 };
 
-type ViewMode = 'list' | 'card';
-
 const closedModal = (): ModalState => ({
   open: false,
   mode: 'create',
@@ -95,154 +71,14 @@ function routineTaskTemplate(name: string, state: RoutineConfigureState, existin
   };
 }
 
-function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now: Date }) {
-  if (!lastRun) {
-    return (
-      <span
-        className="h-2 w-2 rounded-full"
-        style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral, opacity: 0.55 }}
-        aria-label="No runs yet"
-      />
-    );
-  }
-  if (lastRun.status === 'queued' || lastRun.status === 'running') {
-    return (
-      <span
-        className="routine-running-dot h-2 w-2 rounded-full"
-        style={{ backgroundColor: ROUTINE_STATUS_COLORS.neutral }}
-        title={lastRun.status === 'queued' ? 'Queued' : 'Running'}
-      />
-    );
-  }
-  const failed = lastRun.status === 'failed';
-  return (
-    <span
-      className="h-2 w-2 rounded-full"
-      style={{ backgroundColor: failed ? ROUTINE_STATUS_COLORS.failure : ROUTINE_STATUS_COLORS.success }}
-      title={`${failed ? 'Failed' : 'Ran'} ${formatAgo(lastRun.finishedAt || lastRun.occurredAt, now)}`}
-    />
-  );
-}
-
-function RoutineActions({
-  item,
-  running,
-  onRunNow,
-  onTogglePause,
-  onEdit,
-  onDuplicate,
-  onDelete,
-  compact = false,
-}: {
-  item: AgentRoutine;
-  running: boolean;
-  onRunNow: (item: AgentRoutine) => void;
-  onTogglePause: (item: AgentRoutine) => void;
-  onEdit: (item: AgentRoutine) => void;
-  onDuplicate: (item: AgentRoutine) => void;
-  onDelete: (item: AgentRoutine) => void;
-  compact?: boolean;
-}) {
-  const paused = item.routine.status === 'paused';
-  const iconButtonClass = cn(
-    'h-7 w-7 rounded-md text-[var(--text-muted)] hover:bg-background/80 hover:text-[var(--text-primary)]',
-    compact && 'opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100',
-  );
-
-  return (
-    <span className="flex items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-      {!compact ? (
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={running ? 'Routine is already running' : 'Run now'}
-          title={running ? 'Routine is already running' : 'Run now'}
-          disabled={running || !item.routine.ai_workflow_definition_id}
-          onClick={() => onRunNow(item)}
-          className={iconButtonClass}
-        >
-          {running ? <Loader2 className="animate-spin" /> : <Play />}
-        </Button>
-      ) : null}
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label="Delete routine"
-        title="Delete"
-        onClick={() => onDelete(item)}
-        className={cn(iconButtonClass, 'hover:text-destructive')}
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </Button>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label="More routine actions"
-            title="More"
-            className={iconButtonClass}
-          >
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem onClick={() => onEdit(item)}>Edit</DropdownMenuItem>
-          {compact ? (
-            <DropdownMenuItem
-              disabled={running || !item.routine.ai_workflow_definition_id}
-              onClick={() => onRunNow(item)}
-            >
-              {running ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Play className="mr-2 h-3.5 w-3.5" />}
-              Run now
-            </DropdownMenuItem>
-          ) : null}
-          <DropdownMenuItem onClick={() => onTogglePause(item)}>
-            {paused ? <Play className="mr-2 h-3.5 w-3.5" /> : <Pause className="mr-2 h-3.5 w-3.5" />}
-            {paused ? 'Resume' : 'Pause'}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onDuplicate(item)}>
-            <Copy className="mr-2 h-3.5 w-3.5" />
-            Duplicate
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => onDelete(item)}>
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </span>
-  );
-}
-
 function RoutineListRow({
   item,
   selected,
-  now,
-  running,
-  lastRun,
   onSelect,
-  onRunNow,
-  onTogglePause,
-  onEdit,
-  onDuplicate,
-  onDelete,
 }: {
   item: AgentRoutine;
   selected: boolean;
-  now: Date;
-  running: boolean;
-  lastRun: RoutineRunView | undefined;
   onSelect: (item: AgentRoutine) => void;
-  onRunNow: (item: AgentRoutine) => void;
-  onTogglePause: (item: AgentRoutine) => void;
-  onEdit: (item: AgentRoutine) => void;
-  onDuplicate: (item: AgentRoutine) => void;
-  onDelete: (item: AgentRoutine) => void;
 }) {
   const { routine } = item;
   const paused = routine.status === 'paused';
@@ -260,101 +96,20 @@ function RoutineListRow({
         }
       }}
       className={cn(
-        'group flex h-10 w-full cursor-pointer items-center gap-2.5 rounded-lg px-2.5 text-left transition-colors select-none',
-        selected ? 'bg-surface-panel' : 'hover:bg-[var(--row-hover)]',
+        'group flex w-full cursor-pointer items-center gap-2.5 rounded-[7px] px-2.5 py-[10px] text-left outline-none transition-colors select-none',
+        'focus-visible:ring-2 focus-visible:ring-[#111827]/20',
+        selected ? 'bg-[rgba(15,23,42,0.04)]' : 'hover:bg-[rgba(15,23,42,0.03)]',
         paused && 'opacity-55',
       )}
     >
-      <Repeat2 className="h-4 w-4 shrink-0 text-[var(--icon-muted)]" aria-hidden />
-      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">
+      <Repeat2 className="h-4 w-4 shrink-0 text-[var(--icon-muted,#8a929c)]" aria-hidden />
+      <span className="min-w-0 flex-1 truncate text-[13.5px] font-[600] leading-5 text-[var(--text-primary)]">
         {routine.title}
       </span>
-      <span className="hidden max-w-[220px] shrink-0 truncate text-[13px] text-[var(--text-muted)] sm:block">
+      <span className="max-w-[240px] shrink-0 truncate text-right text-[13px] font-[500] text-[var(--text-muted)]">
         {paused ? 'Paused' : scheduleSummary}
       </span>
-      <span className="flex shrink-0 items-center gap-1.5" onClick={(event) => event.stopPropagation()}>
-        <LastRunDot lastRun={lastRun} now={now} />
-        <RoutineActions
-          item={item}
-          running={running}
-          onRunNow={onRunNow}
-          onTogglePause={onTogglePause}
-          onEdit={onEdit}
-          onDuplicate={onDuplicate}
-          onDelete={onDelete}
-          compact
-        />
-      </span>
     </div>
-  );
-}
-
-function RoutineCard({
-  item,
-  selected,
-  now,
-  running,
-  lastRun,
-  onSelect,
-  onRunNow,
-  onTogglePause,
-  onEdit,
-  onDuplicate,
-  onDelete,
-}: {
-  item: AgentRoutine;
-  selected: boolean;
-  now: Date;
-  running: boolean;
-  lastRun: RoutineRunView | undefined;
-  onSelect: (item: AgentRoutine) => void;
-  onRunNow: (item: AgentRoutine) => void;
-  onTogglePause: (item: AgentRoutine) => void;
-  onEdit: (item: AgentRoutine) => void;
-  onDuplicate: (item: AgentRoutine) => void;
-  onDelete: (item: AgentRoutine) => void;
-}) {
-  const { routine, agent } = item;
-  const scheduleSummary = describeSchedule(routine.trigger_type, routine.trigger_config || {});
-  return (
-    <Card
-      className={cn(
-        'flex min-h-40 flex-col border-[var(--border-subtle)] shadow-none transition-colors hover:bg-surface-panel',
-        selected && 'border-primary',
-      )}
-    >
-      <Button
-        type="button"
-        variant="ghost"
-        onClick={() => onSelect(item)}
-        className="flex h-auto min-h-0 flex-1 items-start justify-between whitespace-normal rounded-t-lg p-5 text-left hover:bg-transparent focus-visible:ring-inset"
-      >
-        <span className="min-w-0">
-          <span className="block truncate text-base font-medium text-[var(--text-primary)]">{routine.title}</span>
-          <span className="mt-2 line-clamp-2 text-sm leading-5 text-[var(--text-secondary)]">
-            {agent.instructions || routine.description || 'No instructions set.'}
-          </span>
-        </span>
-        <span className="pt-1">
-          <LastRunDot lastRun={lastRun} now={now} />
-        </span>
-      </Button>
-      <Separator className="bg-[var(--border-subtle)]" />
-      <CardFooter className="justify-between gap-3 p-4">
-        <span className="min-w-0 truncate text-[13px] text-[var(--text-muted)]">{scheduleSummary}</span>
-        <div>
-          <RoutineActions
-            item={item}
-            running={running}
-            onRunNow={onRunNow}
-            onTogglePause={onTogglePause}
-            onEdit={onEdit}
-            onDuplicate={onDuplicate}
-            onDelete={onDelete}
-          />
-        </div>
-      </CardFooter>
-    </Card>
   );
 }
 
@@ -364,10 +119,8 @@ export function RoutinesClient() {
   const queryClient = useQueryClient();
   const router = useRouter();
   useTaskRoutineOutboxSync();
-  const now = useNow(30_000);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [modal, setModal] = useState<ModalState>(closedModal);
 
   const routinesKey = useMemo(() => ['routines', user?.id] as const, [user?.id]);
@@ -429,23 +182,7 @@ export function RoutinesClient() {
     [workflowRunsQuery.data, routineRunsQuery.data, agentRoutines],
   );
 
-  const lastRunByRoutine = useMemo(() => {
-    const map = new Map<string, RoutineRunView>();
-    for (const run of runViews) {
-      if (run.routineId && !map.has(run.routineId)) map.set(run.routineId, run);
-    }
-    return map;
-  }, [runViews]);
-
-  const runningRoutineIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const run of runViews) {
-      if (run.routineId && (run.status === 'queued' || run.status === 'running')) ids.add(run.routineId);
-    }
-    return ids;
-  }, [runViews]);
-
-  const seenRunStatuses = useRef<Map<string, RoutineRunView['status']> | null>(null);
+  const seenRunStatuses = useRef<Map<string, string> | null>(null);
   useEffect(() => {
     const current = new Map(runViews.map((run) => [run.id, run.status]));
     const previous = seenRunStatuses.current;
@@ -491,35 +228,6 @@ export function RoutinesClient() {
     void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
     void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
   }, [queryClient, routinesKey, user?.id]);
-
-  const patchRoutineCache = useCallback((id: string, patch: Partial<Routine>) => {
-    queryClient.setQueryData<Routine[]>(routinesKey, (current) =>
-      (current || []).map((routine) => (routine.id === id ? { ...routine, ...patch } : routine)));
-  }, [queryClient, routinesKey]);
-
-  const patchRoutineMutation = useMutation({
-    mutationFn: async ({ id, patch }: { id: string; patch: RoutineUpdateInput; optimistic?: Partial<Routine> }) =>
-      apiJsonWithAuth<RoutineListResponse>(`/api/routines/${id}`, getToken, {
-        method: 'PATCH',
-        body: JSON.stringify(patch),
-        userId: user?.id,
-      }),
-    onMutate: async ({ id, optimistic }) => {
-      await queryClient.cancelQueries({ queryKey: routinesKey });
-      const previous = queryClient.getQueryData<Routine[]>(routinesKey);
-      if (optimistic) patchRoutineCache(id, optimistic);
-      return { previous };
-    },
-    onError: (error, _variables, context) => {
-      if (context?.previous) queryClient.setQueryData(routinesKey, context.previous);
-      toast.error(error instanceof Error ? error.message : 'Could not update the routine.');
-    },
-    onSuccess: (response) => {
-      const routine = response.items[0];
-      if (routine && user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
-      void queryClient.invalidateQueries({ queryKey: routinesKey });
-    },
-  });
 
   const resolveDefinitionId = useCallback(async (templateKey?: string | null) => {
     const template = templateById(templateKey || null);
@@ -595,25 +303,6 @@ export function RoutinesClient() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not save the routine.'),
   });
 
-  const runNowMutation = useMutation({
-    mutationFn: async (item: AgentRoutine) => {
-      if (!item.routine.ai_workflow_definition_id) {
-        throw new Error('This routine has no agent attached yet. Edit and save it to attach one.');
-      }
-      return apiJsonWithAuth<RoutineRun>(`/api/routines/${item.routine.id}/run-now`, getToken, {
-        method: 'POST',
-        userId: user?.id,
-      });
-    },
-    onSuccess: (run) => {
-      queryClient.setQueryData<RoutineRun[]>(['routine-runs', 'routines-page', user?.id], (current) =>
-        [run, ...(current || []).filter((item) => item.id !== run.id)]);
-      void queryClient.invalidateQueries({ queryKey: ['routine-runs', 'routines-page', user?.id] });
-      void queryClient.invalidateQueries({ queryKey: ['workflow-runs', 'routines-page', user?.id] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Could not start the run.'),
-  });
-
   const openCreateModal = useCallback((templateKey?: string | null) => {
     setModal({
       open: true,
@@ -627,51 +316,6 @@ export function RoutinesClient() {
     setSelectedId(item.routine.id);
     setModal({ open: true, mode: 'edit', initial: configureStateFromRoutine(item), editing: item });
   }, []);
-
-  const duplicateRoutine = (item: AgentRoutine) => {
-    const initial = configureStateFromRoutine(item);
-    setModal({
-      open: true,
-      mode: 'create',
-      initial: { ...initial, name: `${initial.name} copy`, paused: false },
-      editing: null,
-    });
-  };
-
-  const togglePause = (item: AgentRoutine) => {
-    const paused = item.routine.status === 'paused';
-    patchRoutineMutation.mutate({
-      id: item.routine.id,
-      patch: { status: paused ? 'scheduled' : 'paused' },
-      optimistic: { status: paused ? 'scheduled' : 'paused' },
-    });
-  };
-
-  const deleteRoutine = (item: AgentRoutine) => {
-    const previousStatus = item.routine.status;
-    queryClient.setQueryData<Routine[]>(routinesKey, (current) =>
-      (current || []).filter((routine) => routine.id !== item.routine.id));
-    void apiJsonWithAuth(`/api/routines/${item.routine.id}`, getToken, {
-      method: 'PATCH',
-      body: JSON.stringify({ status: 'archived' } satisfies RoutineUpdateInput),
-      userId: user?.id,
-    }).catch(() => {
-      toast.error('Could not delete the routine.');
-      void queryClient.invalidateQueries({ queryKey: routinesKey });
-    });
-    toast('Routine deleted', {
-      action: {
-        label: 'Undo',
-        onClick: () => {
-          void apiJsonWithAuth(`/api/routines/${item.routine.id}`, getToken, {
-            method: 'PATCH',
-            body: JSON.stringify({ status: previousStatus } satisfies RoutineUpdateInput),
-            userId: user?.id,
-          }).then(() => invalidateAll()).catch(() => toast.error('Could not restore the routine.'));
-        },
-      },
-    });
-  };
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -691,56 +335,23 @@ export function RoutinesClient() {
       <div className="relative h-full min-h-0 overflow-auto bg-surface-content">
         <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-[var(--border-muted)] bg-[var(--surface-content)]/95 px-8 backdrop-blur">
           <h1 className="text-2xl font-medium leading-tight">Routines</h1>
-          <div className="flex items-center gap-3">
-            {hasRoutines ? (
-              <div className="flex items-center rounded-row bg-surface-panel p-1" role="group" aria-label="Routine view">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="List view"
-                  aria-pressed={viewMode === 'list'}
-                  onClick={() => setViewMode('list')}
-                  className={cn(
-                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
-                    viewMode === 'list' && 'bg-background text-[var(--text-primary)] shadow-sm',
-                  )}
-                >
-                  <List />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Card view"
-                  aria-pressed={viewMode === 'card'}
-                  onClick={() => setViewMode('card')}
-                  className={cn(
-                    'h-7 w-7 rounded-control text-[var(--text-muted)]',
-                    viewMode === 'card' && 'bg-background text-[var(--text-primary)] shadow-sm',
-                  )}
-                >
-                  <LayoutGrid />
-                </Button>
-              </div>
-            ) : null}
-            <Button
-              type="button"
-              title="New routine (⌘N)"
-              disabled={submitModalMutation.isPending}
-              onClick={() => openCreateModal()}
-            >
-              <Plus />
-              New routine
-            </Button>
-          </div>
+          <Button
+            type="button"
+            title="New routine (⌘N)"
+            disabled={submitModalMutation.isPending}
+            onClick={() => openCreateModal()}
+            className="h-9 rounded-md border border-black bg-black px-3 text-[13px] font-medium text-white shadow-none transition-all duration-200 hover:bg-[#3D3C38] hover:text-white"
+          >
+            <Plus className="h-4 w-4" />
+            New routine
+          </Button>
         </header>
 
         <main className="mx-auto max-w-6xl px-8 pb-12 pt-8">
           {routinesQuery.isLoading ? (
-            <div className="mx-auto max-w-4xl space-y-3">
+            <div className="mx-auto max-w-[640px] space-y-1">
               {[0, 1, 2, 3].map((item) => (
-                <div key={item} className="h-16 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-surface-panel" />
+                <div key={item} className="h-11 animate-pulse rounded-[7px] bg-surface-panel" />
               ))}
             </div>
           ) : !hasRoutines ? (
@@ -751,41 +362,14 @@ export function RoutinesClient() {
                 onSetUp={(template) => openCreateModal(template.id)}
               />
             </div>
-          ) : viewMode === 'card' ? (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {sortedRoutines.map((item) => (
-                <RoutineCard
-                  key={item.routine.id}
-                  item={item}
-                  selected={selectedId === item.routine.id}
-                  now={now}
-                  running={runningRoutineIds.has(item.routine.id)}
-                  lastRun={lastRunByRoutine.get(item.routine.id)}
-                  onSelect={openEditModal}
-                  onRunNow={(candidate) => runNowMutation.mutate(candidate)}
-                  onTogglePause={togglePause}
-                  onEdit={openEditModal}
-                  onDuplicate={duplicateRoutine}
-                  onDelete={deleteRoutine}
-                />
-              ))}
-            </div>
           ) : (
-            <div className="mx-auto flex max-w-[640px] flex-col gap-px">
+            <div className="mx-auto flex max-w-[640px] flex-col">
               {sortedRoutines.map((item) => (
                 <RoutineListRow
                   key={item.routine.id}
                   item={item}
                   selected={selectedId === item.routine.id}
-                  now={now}
-                  running={runningRoutineIds.has(item.routine.id)}
-                  lastRun={lastRunByRoutine.get(item.routine.id)}
                   onSelect={openEditModal}
-                  onRunNow={(candidate) => runNowMutation.mutate(candidate)}
-                  onTogglePause={togglePause}
-                  onEdit={openEditModal}
-                  onDuplicate={duplicateRoutine}
-                  onDelete={deleteRoutine}
                 />
               ))}
             </div>
