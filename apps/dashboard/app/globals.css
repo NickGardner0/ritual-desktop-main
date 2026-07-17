@@ -1257,23 +1257,14 @@ body[data-voice-hud-window="1"] {
   }
 
   html.desktop[data-chrome-appearance="soft"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(239, 239, 239, 0.94) 0%,
-      rgba(236, 236, 236, 0.88) 48%,
-      rgba(233, 233, 233, 0.8) 100%
-    ) !important;
-    background-color: rgba(239, 239, 239, 0.9) !important;
+    background: #efefef !important;
+    background-color: #efefef !important;
     border-right: 0 !important;
   }
 
-  html.desktop[data-chrome-appearance="soft"] .titlebar-glass-layer {
-    display: none !important;
-  }
-
+  html.desktop[data-chrome-appearance="soft"] .titlebar-glass-layer,
   html.desktop[data-chrome-appearance="soft"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.4 !important;
+    display: none !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .titlebar-region,
@@ -1341,20 +1332,14 @@ body[data-voice-hud-window="1"] {
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(239, 239, 239, 0.94) 0%,
-      rgba(236, 236, 236, 0.88) 48%,
-      rgba(233, 233, 233, 0.8) 100%
-    ) !important;
-    background-color: rgba(239, 239, 239, 0.9) !important;
+    background: #efefef !important;
+    background-color: #efefef !important;
     border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="soft"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.4 !important;
+    display: none !important;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="soft"] .sidebar-vibrancy .sidebar-header,
