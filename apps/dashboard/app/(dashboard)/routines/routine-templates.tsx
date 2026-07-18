@@ -39,10 +39,11 @@ export function RoutinesEmptyHero({ onNewRoutine }: { onNewRoutine: () => void }
         </p>
         <Button
           type="button"
+          size="compact"
           onClick={onNewRoutine}
-          className="mt-4 h-9 rounded-md border border-black bg-black px-3 text-[13px] font-medium text-white shadow-none transition-all duration-200 hover:bg-[#3D3C38] hover:text-white"
+          className="mt-4 h-7 gap-1.5 rounded-md border border-black bg-black px-2.5 text-[12.5px] font-normal leading-none tracking-[-0.01em] text-white shadow-none transition-colors duration-150 hover:bg-[#3D3C38] hover:text-white focus-visible:ring-gray-400 [&_svg]:size-3.5"
         >
-          <Plus className="h-4 w-4" />
+          <Plus strokeWidth={2.25} />
           Start from scratch
         </Button>
       </CardContent>

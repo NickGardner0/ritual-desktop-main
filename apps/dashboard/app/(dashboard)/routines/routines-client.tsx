@@ -337,12 +337,13 @@ export function RoutinesClient() {
           <h1 className="text-2xl font-medium leading-tight">Routines</h1>
           <Button
             type="button"
+            size="compact"
             title="New routine (⌘N)"
             disabled={submitModalMutation.isPending}
             onClick={() => openCreateModal()}
-            className="h-9 rounded-md border border-black bg-black px-3 text-[13px] font-medium text-white shadow-none transition-all duration-200 hover:bg-[#3D3C38] hover:text-white"
+            className="h-7 gap-1.5 rounded-md border border-black bg-black px-2.5 text-[12.5px] font-normal leading-none tracking-[-0.01em] text-white shadow-none transition-colors duration-150 hover:bg-[#3D3C38] hover:text-white focus-visible:ring-gray-400 [&_svg]:size-3.5"
           >
-            <Plus className="h-4 w-4" />
+            <Plus strokeWidth={2.25} />
             New routine
           </Button>
         </header>

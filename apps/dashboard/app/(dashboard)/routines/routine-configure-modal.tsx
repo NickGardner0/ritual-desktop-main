@@ -32,6 +32,7 @@ import { nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
 import { templateScheduleDraft, type RoutineTemplate } from '@/lib/routines/templates';
 import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
+import { InlineFieldInput, PillSelect } from '@/lib/tasks/task-ui-shell';
 import type { TaskPriority } from '@/lib/tasks/types';
 
 export type RoutineConfigureState = {
@@ -133,20 +134,17 @@ const MONTHS = [
   'December',
 ];
 
-// Light translation of the reference routine inspector: grouped rounded cards,
-// soft value chips, quiet row dividers — not flat chrome hairlines.
-const groupClass = 'overflow-hidden rounded-[10px] bg-[var(--surface-panel)]';
-const rowClass = 'flex min-h-[42px] items-center justify-between gap-3 border-b border-[rgba(15,23,42,0.045)] px-3.5 last:border-b-0';
-const labelClass = 'text-[13.5px] font-[500] text-[var(--text-secondary)]';
-const chipClass =
-  'h-[26px] cursor-pointer rounded-[7px] border-0 bg-[rgba(15,23,42,0.055)] px-2.5 text-[13px] font-[580] text-[var(--text-primary)] outline-none transition hover:bg-[rgba(15,23,42,0.09)] focus:bg-[rgba(15,23,42,0.09)] focus-visible:ring-1 focus-visible:ring-ring/20';
-const dateChipClass =
-  'h-[26px] max-w-[148px] cursor-pointer rounded-[7px] border-0 bg-transparent px-1.5 text-right text-[13px] font-[580] text-[var(--text-primary)] outline-none transition hover:bg-[rgba(15,23,42,0.09)] focus:bg-[rgba(15,23,42,0.09)] focus-visible:ring-1 focus-visible:ring-ring/20 [&::-webkit-calendar-picker-indicator]:opacity-40';
+// Match the todo composer / PillSelect language: compact bordered pills,
+// gray hover only — never native <select> (macOS paints those with blue).
+const groupClass = 'overflow-hidden rounded-[8px] bg-[#f8f8f7]';
+const rowClass = 'flex min-h-[36px] items-center justify-between gap-3 border-b border-[rgba(39,37,30,0.06)] px-3 last:border-b-0';
+const labelClass = 'text-[13px] font-normal text-[rgba(39,37,30,0.55)]';
 const segmentClass =
-  'h-[26px] rounded-[7px] px-2.5 text-[12px] font-[600]';
+  'h-7 rounded-sm px-2.5 text-[12.5px] font-normal';
 const tagClass =
-  'inline-flex h-[26px] items-center gap-1 rounded-[7px] bg-[rgba(15,23,42,0.055)] px-2.5 text-[12px] font-[580] text-[var(--text-secondary)] transition hover:bg-[rgba(15,23,42,0.09)] hover:text-[var(--text-primary)]';
-const mutedClass = 'text-[13px] font-[500] text-[var(--text-muted)]';
+  'inline-flex h-7 items-center gap-1 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.75)] shadow-sm transition hover:bg-[#F5F5F5] hover:text-[#27251E]';
+const mutedClass = 'text-[12.5px] font-normal text-[rgba(39,37,30,0.45)]';
+const pillSelectClass = 'min-w-[96px]';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -217,11 +215,11 @@ function TagsField({
           </button>
         ))}
         {adding ? (
-          <Input
+          <InlineFieldInput
             autoFocus
             value={text}
             placeholder="tag"
-            className="h-[26px] w-24 rounded-[7px] border-0 bg-[rgba(15,23,42,0.055)] px-2.5 text-[12px] shadow-none focus-visible:ring-1"
+            className="w-24"
             onChange={(event) => setText(event.target.value)}
             onBlur={commit}
             onKeyDown={(event) => {
@@ -236,7 +234,7 @@ function TagsField({
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="inline-flex h-[26px] items-center gap-1 rounded-[7px] border border-dashed border-[rgba(15,23,42,0.14)] px-2.5 text-[12px] font-[580] text-[var(--text-muted)] transition hover:border-[var(--text-secondary)] hover:text-[var(--text-secondary)]"
+            className="inline-flex h-7 items-center gap-1 rounded-sm border border-dashed border-gray-300 px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.45)] transition hover:border-gray-400 hover:bg-[#F5F5F5] hover:text-[rgba(39,37,30,0.75)]"
           >
             <Plus className="h-3 w-3" />
             tag
@@ -265,19 +263,19 @@ function InstructionsField({
           setDraft(value);
           setOpen(true);
         }}
-        className={cn(groupClass, 'w-full px-3.5 py-3 text-left transition hover:bg-[rgba(15,23,42,0.04)]')}
+        className={cn(groupClass, 'w-full px-3 py-2.5 text-left transition hover:bg-[#F3F3F3]/70')}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-[13.5px] font-[500] text-[var(--text-primary)]">Instructions</div>
-            <p className="mt-0.5 text-[12px] leading-4 text-[var(--text-muted)]">
+            <div className="text-[13px] font-medium text-[#27251E]">Instructions</div>
+            <p className="mt-0.5 text-[12px] leading-4 text-[rgba(39,37,30,0.45)]">
               Describe what the AI should do when this routine runs.
             </p>
           </div>
           <span
             className={cn(
-              'max-w-[140px] shrink-0 truncate pt-0.5 text-right text-[13px] font-[580]',
-              value ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]',
+              'max-w-[140px] shrink-0 truncate pt-0.5 text-right text-[12.5px] font-normal',
+              value ? 'text-[#27251E]' : 'text-[rgba(39,37,30,0.4)]',
             )}
           >
             {value || 'Not set'}
@@ -354,16 +352,12 @@ function ScheduleEditor({
     <div className="flex flex-col gap-2.5">
       <section className={groupClass}>
         <PanelRow label="Trigger">
-          <select
+          <PillSelect
             value={draft.frequency}
-            onChange={(event) => onChange({ frequency: event.target.value as ScheduleDraft['frequency'], interval: 1 })}
-            className={cn(chipClass, 'min-w-[112px]')}
-            aria-label="Trigger frequency"
-          >
-            {FREQUENCIES.map((frequency) => (
-              <option key={frequency.id} value={frequency.id}>{frequency.label}</option>
-            ))}
-          </select>
+            onChange={(frequency) => onChange({ frequency, interval: 1 })}
+            options={FREQUENCIES.map((frequency) => ({ value: frequency.id, label: frequency.label }))}
+            className={cn(pillSelectClass, 'min-w-[112px]')}
+          />
         </PanelRow>
         <PanelRow label="Paused">
           <Switch checked={paused} onCheckedChange={onPausedChange} />
@@ -372,13 +366,13 @@ function ScheduleEditor({
 
       <section className={groupClass}>
         <PanelRow label="Every">
-          <Input
+          <InlineFieldInput
             type="number"
             min={1}
             max={99}
             value={draft.interval}
             onChange={(event) => onChange({ interval: Math.max(1, Math.min(99, Number(event.target.value) || 1)) })}
-            className={cn(chipClass, 'w-[52px] text-center')}
+            className="w-[52px] px-1.5 text-center"
             aria-label="Interval"
           />
           <span className={mutedClass}>
@@ -404,8 +398,8 @@ function ScheduleEditor({
                     className={cn(
                       segmentClass,
                       active
-                        ? 'bg-[#111827] text-white'
-                        : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                        ? 'bg-[#27251E] text-white'
+                        : 'border border-gray-200/90 bg-white text-[rgba(39,37,30,0.75)] shadow-sm hover:bg-[#F5F5F5]',
                     )}
                   >
                     {day.label}
@@ -418,34 +412,33 @@ function ScheduleEditor({
 
         {draft.frequency === 'monthly' || draft.frequency === 'yearly' ? (
           <PanelRow label="On the">
-            <select
+            <PillSelect
               value={String(draft.day)}
-              onChange={(event) => {
-                const value = event.target.value;
+              onChange={(value) => {
                 onChange({ day: value === 'first' || value === 'last' ? value : Number(value) });
               }}
-              className={chipClass}
-              aria-label="Day of month"
-            >
-              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                <option key={day} value={day}>{ordinalSuffix(day)}</option>
-              ))}
-              <option value="first">first day</option>
-              <option value="last">last day</option>
-            </select>
+              options={[
+                ...Array.from({ length: 31 }, (_, index) => {
+                  const day = index + 1;
+                  return { value: String(day), label: ordinalSuffix(day) };
+                }),
+                { value: 'first', label: 'first day' },
+                { value: 'last', label: 'last day' },
+              ]}
+              className={pillSelectClass}
+            />
             {draft.frequency === 'yearly' ? (
               <>
                 <span className={mutedClass}>in</span>
-                <select
-                  value={draft.month}
-                  onChange={(event) => onChange({ month: Number(event.target.value) })}
-                  className={chipClass}
-                  aria-label="Month"
-                >
-                  {MONTHS.map((month, index) => (
-                    <option key={month} value={index + 1}>{month}</option>
-                  ))}
-                </select>
+                <PillSelect
+                  value={String(draft.month)}
+                  onChange={(month) => onChange({ month: Number(month) })}
+                  options={MONTHS.map((month, index) => ({
+                    value: String(index + 1),
+                    label: month,
+                  }))}
+                  className={cn(pillSelectClass, 'min-w-[120px]')}
+                />
               </>
             ) : null}
           </PanelRow>
@@ -453,47 +446,47 @@ function ScheduleEditor({
 
         {draft.frequency !== 'on_completion' ? (
           <PanelRow label="At">
-            <Input
+            <InlineFieldInput
               type="time"
               value={timeValue}
               onChange={(event) => {
                 const [hour, minute] = event.target.value.split(':').map(Number);
                 if (Number.isFinite(hour) && Number.isFinite(minute)) onChange({ hour, minute });
               }}
-              className={cn(chipClass, '[&::-webkit-calendar-picker-indicator]:hidden')}
+              className="w-auto [&::-webkit-calendar-picker-indicator]:opacity-40"
               aria-label="Time of day"
             />
           </PanelRow>
         ) : (
           <PanelRow label="After">
-            <select
+            <PillSelect
               value={draft.onCompletionUnit}
-              onChange={(event) => onChange({ onCompletionUnit: event.target.value as ScheduleDraft['onCompletionUnit'] })}
-              className={chipClass}
-              aria-label="Completion interval unit"
-            >
-              <option value="days">days</option>
-              <option value="weeks">weeks</option>
-              <option value="months">months</option>
-            </select>
+              onChange={(onCompletionUnit) => onChange({ onCompletionUnit })}
+              options={[
+                { value: 'days', label: 'days' },
+                { value: 'weeks', label: 'weeks' },
+                { value: 'months', label: 'months' },
+              ]}
+              className={pillSelectClass}
+            />
           </PanelRow>
         )}
 
         <PanelRow label="First run">
-          <Input
+          <InlineFieldInput
             type="date"
             value={draft.firstRun || ''}
             onChange={(event) => onChange({ firstRun: event.target.value || null })}
-            className={cn(dateChipClass, !draft.firstRun && 'text-[var(--text-muted)]')}
+            className={cn('w-auto max-w-[148px]', !draft.firstRun && 'text-[rgba(39,37,30,0.4)]')}
             aria-label="First run date"
           />
         </PanelRow>
         <PanelRow label="Ends">
-          <Input
+          <InlineFieldInput
             type="date"
             value={draft.ends || ''}
             onChange={(event) => onChange({ ends: event.target.value || null })}
-            className={cn(dateChipClass, !draft.ends && 'text-[var(--text-muted)]')}
+            className={cn('w-auto max-w-[148px]', !draft.ends && 'text-[rgba(39,37,30,0.4)]')}
             aria-label="End date"
           />
         </PanelRow>
@@ -708,13 +701,13 @@ export function RoutineConfigurePanel({
                         }
                       }}
                       placeholder="e.g. Weekly work review"
-                      className="mt-1 h-auto border-0 bg-transparent px-0 text-[22px] font-[650] leading-tight tracking-[-0.02em] text-[var(--text-primary)] shadow-none focus-visible:ring-0"
+                      className="mt-1 h-auto border-0 bg-transparent px-0 text-[18px] font-medium leading-tight tracking-[-0.015em] text-[#27251E] shadow-none focus-visible:ring-0"
                     />
                   ) : (
                     <button
                       type="button"
                       onClick={() => setEditingTitle(true)}
-                      className="mt-1 block w-full truncate text-left text-[22px] font-[650] leading-tight tracking-[-0.02em] text-[var(--text-primary)]"
+                      className="mt-1 block w-full truncate text-left text-[18px] font-medium leading-tight tracking-[-0.015em] text-[#27251E]"
                     >
                       {title}
                     </button>
@@ -744,16 +737,12 @@ export function RoutineConfigurePanel({
 
                 <section className={groupClass}>
                   <PanelRow label="Priority">
-                    <select
+                    <PillSelect
                       value={state.priority}
-                      onChange={(event) => setState({ ...state, priority: event.target.value as TaskPriority })}
-                      className={chipClass}
-                      aria-label="Priority"
-                    >
-                      {PRIORITIES.map((priority) => (
-                        <option key={priority.id} value={priority.id}>{priority.label}</option>
-                      ))}
-                    </select>
+                      onChange={(priority) => setState({ ...state, priority })}
+                      options={PRIORITIES.map((priority) => ({ value: priority.id, label: priority.label }))}
+                      className={pillSelectClass}
+                    />
                   </PanelRow>
                 </section>
 
@@ -769,8 +758,8 @@ export function RoutineConfigurePanel({
                           className={cn(
                             segmentClass,
                             state.agentTier === tier.id
-                              ? 'bg-[#111827] text-white'
-                              : 'bg-[rgba(15,23,42,0.055)] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.09)]',
+                              ? 'bg-[#27251E] text-white'
+                              : 'border border-gray-200/90 bg-white text-[rgba(39,37,30,0.75)] shadow-sm hover:bg-[#F5F5F5]',
                           )}
                         >
                           {tier.label}
@@ -798,10 +787,22 @@ export function RoutineConfigurePanel({
 
             <div className="shrink-0 border-t border-[rgba(15,23,42,0.045)] bg-[var(--surface-content)] px-5 py-3">
               <div className="mx-auto flex w-full max-w-[360px] items-center justify-end gap-1.5">
-                <Button type="button" variant="ghost" size="sm" onClick={requestClose} className="h-7 rounded-[7px] px-2.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="compact"
+                  onClick={requestClose}
+                  className="h-7 rounded-md px-2.5 text-[12.5px] font-normal"
+                >
                   Cancel
                 </Button>
-                <Button type="button" size="sm" onClick={submit} disabled={!canSubmit} className="h-7 rounded-[7px] px-2.5">
+                <Button
+                  type="button"
+                  size="compact"
+                  onClick={submit}
+                  disabled={!canSubmit}
+                  className="h-7 gap-1.5 rounded-md border border-black bg-black px-2.5 text-[12.5px] font-normal text-white shadow-none transition-colors duration-150 hover:bg-[#3D3C38] hover:text-white disabled:opacity-40 [&_svg]:size-3.5"
+                >
                   {submitting ? <Loader2 className="animate-spin" /> : null}
                   {mode === 'create' ? 'Create' : 'Save'}
                 </Button>
