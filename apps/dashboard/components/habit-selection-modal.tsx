@@ -561,7 +561,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   const modalContent = (
     <div 
-      className="fixed inset-0 z-[9999] grid h-[100dvh] w-screen place-items-center overflow-hidden p-4"
+      className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden"
       data-tauri-drag-region="false"
     >
       <div 
@@ -570,13 +570,17 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         data-tauri-drag-region="false"
         style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
       />
-      <div 
-        ref={cardRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Habit selection"
-        className={`relative z-10 flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[520px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[440px]' : ''}`}
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
+        style={{ left: 'var(--ritual-sidebar-current-width, 0px)' }}
       >
+        <div
+          ref={cardRef}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Habit selection"
+          className={`pointer-events-auto relative flex max-h-[calc(100dvh-32px)] w-full max-w-[520px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[440px]' : ''}`}
+        >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
         <div className="flex flex-shrink-0 items-center justify-between px-4 pb-1.5 pt-4">
           {showComputerTracking ? (
@@ -711,6 +715,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               handleHabitClick={handleHabitClick}
             />
           )}
+        </div>
         </div>
       </div>
     </div>

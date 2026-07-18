@@ -27,7 +27,7 @@ export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabi
                         disabled={isCreating}
                         className={`${categoryRowClass} w-full cursor-pointer text-left disabled:cursor-wait disabled:opacity-50`}
                       >
-                        <span className="truncate text-[13px] font-medium text-[#2c2b28]">{habit.label}</span>
+                        <span className="truncate text-[13px] font-normal text-[#2c2b28]">{habit.label}</span>
                         <span className="shrink-0 px-1 text-[12.5px] font-medium text-[#8b8a86] group-hover:text-[#343330]">
                           {isCreating ? 'Creating…' : 'Track'}
                         </span>

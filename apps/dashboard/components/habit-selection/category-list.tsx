@@ -42,7 +42,7 @@ function CategoryRow({ icon, label, action, onSelect, connected = false, disable
         <span className="flex h-5 w-5 shrink-0 items-center justify-center" aria-hidden="true">
           {icon}
         </span>
-        <span className="truncate text-[13px] font-medium leading-none tracking-normal text-[#2c2b28]">
+        <span className="truncate text-[13px] font-normal leading-none tracking-normal text-[#2c2b28]">
           {label}
         </span>
       </span>
