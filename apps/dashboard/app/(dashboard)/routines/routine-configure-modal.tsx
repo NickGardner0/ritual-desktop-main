@@ -9,7 +9,7 @@ import { cn } from '@ritual/ui/cn';
 import { Input } from '@ritual/ui/input';
 
 import { Switch } from '@/components/ui/switch';
-import { useRightDockTarget } from '@/contexts/RightDockContext';
+import { useRegisterRightDockClose, useRightDockTarget } from '@/contexts/RightDockContext';
 import {
   ALL_DATA_SOURCE_KEYS,
   defaultScheduleDraft,
@@ -462,6 +462,8 @@ export function RoutineConfigurePanel({
   const submitRef = useRef(submit);
   requestCloseRef.current = requestClose;
   submitRef.current = submit;
+
+  useRegisterRightDockClose(open, requestClose);
 
   useEffect(() => {
     if (!open) return;

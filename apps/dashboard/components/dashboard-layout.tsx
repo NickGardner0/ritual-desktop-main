@@ -6,6 +6,7 @@ import { useFont } from '@/contexts/FontContext';
 import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
+import { RightDockHideButton } from '@/components/right-dock-hide-button';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -188,6 +189,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             id="header-right-slot"
                             className="no-drag flex h-7 min-w-0 items-center gap-0.5"
                           />
+                          <RightDockHideButton />
                         </div>
                       </div>
                     </div>
