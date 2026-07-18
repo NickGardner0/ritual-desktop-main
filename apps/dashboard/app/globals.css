@@ -412,7 +412,7 @@ body[data-voice-hud-window="1"] {
   --sidebar-nav-foreground: #303030;
   --sidebar-nav-active: #111111;
   --radius-control: 0.125rem;
-  --radius-row: 0.25rem;
+  --radius-row: 0.5rem;
   --sidebar-row-radius: 0.5rem;
   --titlebar-height: 37px;
   --sidebar-row-height: 34px;

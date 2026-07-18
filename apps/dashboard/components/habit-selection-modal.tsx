@@ -561,8 +561,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   const modalContent = (
     <div 
-      className="fixed inset-0 z-[9999] flex items-center justify-center p-4" 
-      style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'fixed' }}
+      className="fixed inset-0 z-[9999] grid h-[100dvh] w-screen place-items-center overflow-hidden p-4"
       data-tauri-drag-region="false"
     >
       <div 
@@ -576,10 +575,10 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         role="dialog"
         aria-modal="true"
         aria-label="Habit selection"
-        className={`relative z-10 flex w-[calc(100vw-32px)] max-w-[560px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[480px]' : ''}`}
+        className={`relative z-10 flex max-h-[calc(100dvh-32px)] w-[calc(100vw-32px)] max-w-[520px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[440px]' : ''}`}
       >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
-        <div className="flex flex-shrink-0 items-center justify-between px-5 pb-2 pt-5">
+        <div className="flex flex-shrink-0 items-center justify-between px-4 pb-1.5 pt-4">
           {showComputerTracking ? (
             <div className="flex items-center gap-3">
               <button
@@ -591,7 +590,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
               </button>
-              <h2 className="text-[18px] font-medium leading-none tracking-[-0.01em] text-[#111111]">Computer Use</h2>
+              <h2 className="text-[17px] font-medium leading-none tracking-[-0.01em] text-[#111111]">Computer Use</h2>
             </div>
           ) : showCustomization ? (
             <button
@@ -616,7 +615,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
                   </svg>
                 </button>
               )}
-              <h2 className="text-[18px] font-medium leading-none tracking-[-0.01em] text-[#111111]">
+              <h2 className="text-[17px] font-medium leading-none tracking-[-0.01em] text-[#111111]">
                 {selectedCategory
                   ? selectedCategory === 'whoop' ? 'Whoop'
                   : selectedCategory === 'fitness' ? 'Health'
@@ -640,8 +639,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Description */}
         {!selectedCategory && !showComputerTracking && (
-          <div className="flex-shrink-0 px-5 pb-3.5">
-            <p className="max-w-[500px] text-[14px] leading-[1.55] text-[var(--text-secondary)]">
+          <div className="flex-shrink-0 px-4 pb-2.5">
+            <p className="max-w-[470px] text-[13.5px] leading-[1.5] text-[var(--text-secondary)]">
               Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
         </div>
@@ -649,7 +648,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
         {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="flex-shrink-0 px-4 pb-2">
+          <div className="flex-shrink-0 px-3 pb-2">
             <input
               type="text"
               aria-label="Search habits"
@@ -663,7 +662,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Content Area - Scrollable */}
 
-        <div className={`min-h-0 overflow-y-auto px-4 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[440px]' : 'max-h-[430px]'}`}>
+        <div className={`min-h-0 overflow-y-auto px-3 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[400px]' : 'max-h-[390px]'}`}>
           {showComputerTracking ? (
             <div className="py-2">
               {resolvedUserId ? (

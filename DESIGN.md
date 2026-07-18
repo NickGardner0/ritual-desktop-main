@@ -151,9 +151,9 @@ Surfaces are mostly flat. Use a border or a one-step surface change before addin
 The shared Cursor-inspired contract is implemented by `@ritual/ui/menu` and the semantic variables in `@ritual/ui/globals.css`.
 
 - Surface: `--surface-floating` / `--ritual-surface-floating`.
-- Border: `--border-floating` / `--ritual-border-floating`.
+- Border: `--border-floating` / `--ritual-border-floating`; a visible 14% neutral hairline with a subtle inner highlight matches Cursor’s card edge without looking heavy.
 - Radius: `--radius-floating` (14px); dialogs use `--radius-dialog` (18px).
-- Elevation: `--shadow-popover`; dialogs use `--shadow-dialog`.
+- Elevation: `--shadow-popover`; dialogs use `--shadow-dialog`. Both combine a restrained inner highlight with a compact neutral shadow.
 - Menu inset: 6px, with 32px rows and 10px horizontal row padding.
 - Row hover and keyboard highlight: `--row-hover`, applied instantly with no transition.
 - Dividers extend through the menu inset and use `--divider-subtle`.

@@ -1,11 +1,11 @@
 export const connectRowActionClass =
-  'inline-flex shrink-0 items-center justify-center rounded-sm px-1 text-[13px] font-medium text-[#8b8a86] transition-none group-hover:text-[#343330] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(39,37,30,0.16)] focus-visible:ring-offset-1';
+  'inline-flex shrink-0 items-center justify-center px-1 text-[12.5px] font-medium text-[#8b8a86] transition-none group-hover:text-[#343330]';
 
 export const connectRowActionConnectedClass =
-  'inline-flex shrink-0 items-center justify-center rounded-sm px-1 text-[13px] font-medium text-[#4b8d15] transition-none group-hover:text-[#3d7411] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(39,37,30,0.16)] focus-visible:ring-offset-1';
+  'inline-flex shrink-0 items-center justify-center px-1 text-[12.5px] font-medium text-[#4b8d15] transition-none group-hover:text-[#3d7411]';
 
 export const categoryRowClass =
-  'ritual-snappy-row group -mx-2 flex h-9 items-center justify-between gap-3 rounded-[var(--radius-row)] px-2.5 text-[#2c2b28] focus-within:bg-[var(--row-hover)] [&_p]:text-[13.5px] [&_p]:font-medium [&_p]:tracking-normal [&_p]:text-[#2c2b28] [&_svg]:text-[#222326]';
+  'ritual-snappy-row group -mx-1 flex h-8 items-center justify-between gap-2.5 rounded-[var(--sidebar-row-radius)] px-2 text-[#2c2b28] outline-none focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-inset [&_svg]:text-[#222326]';
 
 export const categoryMap: Record<string, string> = {
   productivity: 'Productivity',

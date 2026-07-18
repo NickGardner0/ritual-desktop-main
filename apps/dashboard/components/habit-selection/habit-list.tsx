@@ -20,16 +20,18 @@ export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabi
                         <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{habit.label}</p>
                       </div>
                     ) : (
-                      <div key={habit.value} className={categoryRowClass}>
-                        <p className="text-sm font-normal text-gray-900">{habit.label}</p>
-                        <button
-                          onClick={() => handleHabitClick(habit)}
-                          disabled={isCreating}
-                          className="rounded-md border border-[#ddd9d2] bg-white/70 px-2 py-1 text-[12.5px] font-medium text-[#74726d] transition-none hover:bg-[#efeee9] hover:text-[#2c2b28] disabled:opacity-50"
-                        >
-                          {isCreating ? 'Creating...' : 'Track'}
-                        </button>
-                      </div>
+                      <button
+                        key={habit.value}
+                        type="button"
+                        onClick={() => handleHabitClick(habit)}
+                        disabled={isCreating}
+                        className={`${categoryRowClass} w-full cursor-pointer text-left disabled:cursor-wait disabled:opacity-50`}
+                      >
+                        <span className="truncate text-[13px] font-medium text-[#2c2b28]">{habit.label}</span>
+                        <span className="shrink-0 px-1 text-[12.5px] font-medium text-[#8b8a86] group-hover:text-[#343330]">
+                          {isCreating ? 'Creating…' : 'Track'}
+                        </span>
+                      </button>
                     )
                   ))
                 ) : searchQuery.trim() ? (
