@@ -8,18 +8,9 @@ import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
 import { Input } from '@ritual/ui/input';
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { useRightDockTarget } from '@/contexts/RightDockContext';
 import {
-  AGENT_TIERS,
   ALL_DATA_SOURCE_KEYS,
   defaultScheduleDraft,
   scheduleDraftFromRoutine,
@@ -136,15 +127,15 @@ const MONTHS = [
 
 // Match the todo composer / PillSelect language: compact bordered pills,
 // gray hover only — never native <select> (macOS paints those with blue).
-const groupClass = 'overflow-hidden rounded-[8px] bg-[#f8f8f7]';
+const groupClass = 'overflow-hidden rounded-md bg-[#f8f8f7]';
 const rowClass = 'flex min-h-[36px] items-center justify-between gap-3 border-b border-[rgba(39,37,30,0.06)] px-3 last:border-b-0';
 const labelClass = 'text-[13px] font-normal text-[rgba(39,37,30,0.55)]';
 const segmentClass =
-  'h-7 rounded-sm px-2.5 text-[12.5px] font-normal';
+  'h-7 rounded-md px-2.5 text-[12.5px] font-normal';
 const tagClass =
-  'inline-flex h-7 items-center gap-1 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.75)] shadow-sm transition hover:bg-[#F5F5F5] hover:text-[#27251E]';
+  'inline-flex h-7 items-center gap-1 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.75)] shadow-sm transition hover:bg-[#F5F5F5] hover:text-[#27251E]';
 const mutedClass = 'text-[12.5px] font-normal text-[rgba(39,37,30,0.45)]';
-const pillSelectClass = 'min-w-[96px]';
+const pillSelectClass = 'min-w-[96px] rounded-md';
 
 function ordinalSuffix(day: number): string {
   const mod100 = day % 100;
@@ -234,7 +225,7 @@ function TagsField({
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="inline-flex h-7 items-center gap-1 rounded-sm border border-dashed border-gray-300 px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.45)] transition hover:border-gray-400 hover:bg-[#F5F5F5] hover:text-[rgba(39,37,30,0.75)]"
+            className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed border-gray-300 px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.45)] transition hover:border-gray-400 hover:bg-[#F5F5F5] hover:text-[rgba(39,37,30,0.75)]"
           >
             <Plus className="h-3 w-3" />
             tag
@@ -242,96 +233,6 @@ function TagsField({
         )}
       </div>
     </div>
-  );
-}
-
-function InstructionsField({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  return (
-    <>
-      <button
-        type="button"
-        onClick={() => {
-          setDraft(value);
-          setOpen(true);
-        }}
-        className={cn(groupClass, 'w-full px-3 py-2.5 text-left transition hover:bg-[#F3F3F3]/70')}
-      >
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[13px] font-medium text-[#27251E]">Instructions</div>
-            <p className="mt-0.5 text-[12px] leading-4 text-[rgba(39,37,30,0.45)]">
-              Describe what the AI should do when this routine runs.
-            </p>
-          </div>
-          <span
-            className={cn(
-              'max-w-[140px] shrink-0 truncate pt-0.5 text-right text-[12.5px] font-normal',
-              value ? 'text-[#27251E]' : 'text-[rgba(39,37,30,0.4)]',
-            )}
-          >
-            {value || 'Not set'}
-          </span>
-        </div>
-      </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg gap-0 border-border bg-background p-0 sm:rounded-xl [&>button]:hidden">
-          <DialogHeader className="px-5 pt-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <DialogTitle className="text-base font-medium">Instructions</DialogTitle>
-                <DialogDescription className="mt-1 text-[13px] text-[var(--text-secondary)]">
-                  Describe what you&rsquo;d like the AI to gather, analyze, or do for this routine.
-                </DialogDescription>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setOpen(false)}
-                aria-label="Close"
-                className="h-7 w-7 shrink-0 rounded-[7px] text-[var(--text-secondary)]"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </DialogHeader>
-          <div className="px-5 py-3">
-            <textarea
-              autoFocus
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="e.g. Review my overdue tasks each morning and draft a prioritized plan for the day"
-              className="min-h-40 w-full resize-none rounded-[10px] border-0 bg-[var(--surface-panel)] px-3.5 py-3 text-[13px] leading-5 text-[var(--text-primary)] outline-none ring-offset-background placeholder:text-[var(--text-muted)] focus-visible:ring-1 focus-visible:ring-ring/20"
-            />
-          </div>
-          <DialogFooter className="gap-2 border-t border-[var(--border-subtle)] px-5 py-3 sm:justify-end">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                onChange(draft.trim());
-                setOpen(false);
-              }}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
   );
 }
 
@@ -533,7 +434,7 @@ export function RoutineConfigurePanel({
 
   const now = useNow(30_000);
   const dirty = JSON.stringify(state) !== JSON.stringify(initial);
-  const canSubmit = (state.name.trim().length > 0 || state.instructions.trim().length > 0) && !submitting;
+  const canSubmit = state.name.trim().length > 0 && !submitting;
   const title = state.name.trim() || (mode === 'create' ? 'New routine' : 'Untitled routine');
   const headingId = 'routine-configure-panel-title';
 
@@ -714,11 +615,6 @@ export function RoutineConfigurePanel({
                   )}
                 </div>
 
-                <InstructionsField
-                  value={state.instructions}
-                  onChange={(instructions) => setState((current) => ({ ...current, instructions }))}
-                />
-
                 <ScheduleEditor
                   draft={state.draft}
                   paused={state.paused}
@@ -726,8 +622,8 @@ export function RoutineConfigurePanel({
                   onChange={(patch) => setState((current) => ({ ...current, draft: { ...current.draft, ...patch } }))}
                 />
 
-                <p className="px-1 text-[12px] leading-4 text-[var(--text-muted)]" aria-live="polite">
-                  {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)}<br /></> : null}
+                <p className="px-1 text-[12px] leading-4 text-[rgba(39,37,30,0.45)]" aria-live="polite">
+                  {lastRunAt ? <>Last: {formatOccurrence(new Date(lastRunAt), now)} · </> : null}
                   Next: {state.paused
                     ? 'paused'
                     : preview.length
@@ -747,34 +643,11 @@ export function RoutineConfigurePanel({
                 </section>
 
                 <section className={groupClass}>
-                  <PanelRow label="Agent">
-                    <span className="flex items-center gap-1">
-                      {AGENT_TIERS.map((tier) => (
-                        <button
-                          key={tier.id}
-                          type="button"
-                          aria-pressed={state.agentTier === tier.id}
-                          onClick={() => setState({ ...state, agentTier: tier.id })}
-                          className={cn(
-                            segmentClass,
-                            state.agentTier === tier.id
-                              ? 'bg-[#27251E] text-white'
-                              : 'border border-gray-200/90 bg-white text-[rgba(39,37,30,0.75)] shadow-sm hover:bg-[#F5F5F5]',
-                          )}
-                        >
-                          {tier.label}
-                        </button>
-                      ))}
-                    </span>
-                  </PanelRow>
-                </section>
-
-                <section className={groupClass}>
                   <textarea
                     value={state.notes}
                     onChange={(event) => setState({ ...state, notes: event.target.value })}
-                    placeholder="No notes yet."
-                    className="min-h-[88px] w-full resize-none border-0 bg-transparent px-3.5 py-3 text-[13.5px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] focus-visible:ring-0"
+                    placeholder="Add a short description…"
+                    className="min-h-[88px] w-full resize-none border-0 bg-transparent px-3 py-3 text-[13px] leading-5 text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.4)] focus-visible:ring-0"
                   />
                 </section>
 

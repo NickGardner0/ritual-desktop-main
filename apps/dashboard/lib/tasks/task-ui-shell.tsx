@@ -228,7 +228,7 @@ export function PillButton({
     <button
       type="button"
       className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50',
+        'inline-flex h-7 items-center gap-1.5 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50',
         className,
       )}
       {...props}
@@ -274,15 +274,15 @@ export function PillSelect<T extends string>({
     <Select value={value} onValueChange={(next) => onChange(next as T)}>
       <SelectTrigger
         className={cn(
-          'h-7 w-auto min-w-[88px] gap-1 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:ring-1 focus:ring-gray-300 focus:ring-offset-0',
+          'h-7 w-auto min-w-[88px] gap-1 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:ring-1 focus:ring-gray-300 focus:ring-offset-0',
           className,
         )}
       >
         <SelectValue placeholder={placeholder} />
       </SelectTrigger>
-      <SelectContent align="end">
+      <SelectContent align="end" className="rounded-md">
         {options.map((option) => (
-          <SelectItem key={option.value} value={option.value} className="text-[13px]">
+          <SelectItem key={option.value} value={option.value} className="rounded-md text-[13px]">
             {option.label}
           </SelectItem>
         ))}
@@ -298,7 +298,7 @@ export function InlineFieldInput({
   return (
     <input
       className={cn(
-        'h-7 min-w-0 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] text-[#27251E] shadow-sm outline-none placeholder:text-[rgba(39,37,30,0.4)] focus:border-gray-300 focus:ring-1 focus:ring-gray-300',
+        'h-7 min-w-0 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] text-[#27251E] shadow-sm outline-none placeholder:text-[rgba(39,37,30,0.4)] focus:border-gray-300 focus:ring-1 focus:ring-gray-300',
         className,
       )}
       {...props}
