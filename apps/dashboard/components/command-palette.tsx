@@ -56,7 +56,6 @@ const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; cla
 };
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useAnalytics } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -391,35 +390,33 @@ export default function CommandPalette({
   // RENDER
   // ================================
   
-  // Button when closed
+  // Button when closed — Midday-style quiet search affordance (icon + label, no chrome box)
   if (!open) {
     const isTight = density === "tight";
     return (
-      <Button
-        variant="outline"
+      <button
+        type="button"
         role="combobox"
         aria-expanded={open}
+        aria-label="Search"
         onClick={() => {
           setOpen(true);
           trackQuickActionsOpened();
         }}
         className={cn(
-          "justify-between rounded-md border border-[rgba(31,35,40,0.1)] bg-transparent shadow-none hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]",
-          className
+          "inline-flex items-center border-0 bg-transparent shadow-none transition-colors",
+          "text-[rgba(39,37,30,0.55)] hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-0",
+          isTight ? "h-7 gap-1.5 px-1 text-[13px]" : "h-8 gap-2 px-1.5 text-sm",
+          className,
         )}
       >
-        <div className={cn("flex items-center", isTight ? "gap-1.5" : "gap-2")}>
-          <span>Search</span>
-          <kbd
-            className={cn(
-              "pointer-events-none inline-flex select-none items-center border-0 bg-transparent font-mono font-normal text-[#9b9a96] opacity-100",
-              isTight ? "h-[18px] gap-0.5 px-0.5 text-[10px]" : "h-5 gap-1 px-1 text-[11px]"
-            )}
-          >
-            <span className={cn(isTight ? "text-[11px]" : "text-xs")}>⌘</span>K
-          </kbd>
-        </div>
-      </Button>
+        <Search
+          className={cn("shrink-0 opacity-80", isTight ? "h-3.5 w-3.5" : "h-4 w-4")}
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <span className="font-normal leading-none">Search...</span>
+      </button>
     );
   }
 

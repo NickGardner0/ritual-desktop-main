@@ -55,6 +55,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { mode } = useSidebarMode();
   const isChatRoute = pathname === '/chat';
+  const isRoutinesRoute = pathname === '/routines' || pathname?.startsWith('/routines/');
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
   const [rightDockEl, setRightDockEl] = useState<HTMLElement | null>(null);
@@ -169,7 +170,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       <div data-tauri-drag-region className="flex min-w-0 items-center">
                         {!isChatRoute && (
                           <CommandPalette
-                            className="app-toolbar-control no-drag flex h-7 w-auto min-w-[108px] items-center gap-1.5 rounded-[7px] border border-black/[0.08] bg-transparent px-2.5 py-0 text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.04] hover:text-[#2f302d] focus:bg-black/[0.04] focus-visible:outline-none focus-visible:ring-0"
+                            className="app-toolbar-control no-drag"
                             initialOpen={shouldOpenWhoopModal}
                             density="tight"
                           />
@@ -184,7 +185,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                       <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
                         <div className="no-drag flex h-7 items-center gap-0.5">
-                          <PinnedSummaryPopover />
+                          {!isRoutinesRoute ? <PinnedSummaryPopover /> : null}
                           <div
                             id="header-right-slot"
                             className="no-drag flex h-7 min-w-0 items-center gap-0.5"
