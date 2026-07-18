@@ -16,8 +16,8 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(({ className, density =
       ref={ref}
       data-density={density}
       className={cn(
-        "rounded-lg border bg-card text-card-foreground",
-        density === "default" ? "shadow-sm" : "shadow-none",
+        "rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] text-[var(--text-primary)]",
+        "shadow-none",
         className,
       )}
       {...props}

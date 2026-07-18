@@ -36,7 +36,7 @@ export function CategoryList({
 }: CategoryListProps) {
   const { isDesktop } = useDesktopCapabilities();
   return (
-            <div className="space-y-[var(--sidebar-row-gap)] pb-2">
+            <div className="space-y-0.5 pb-1">
                 {/* Custom - Manual */}
                 <div className={categoryRowClass}>
                   <div className="flex min-w-0 flex-1 items-center gap-3">

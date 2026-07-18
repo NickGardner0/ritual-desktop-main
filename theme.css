@@ -6,6 +6,8 @@
   --color-ritual-canvas: var(--ritual-surface-canvas);
   --color-ritual-content: var(--ritual-surface-content);
   --color-ritual-raised: var(--ritual-surface-raised);
+  --color-ritual-floating: var(--ritual-surface-floating);
+  --color-ritual-overlay: var(--ritual-surface-overlay);
   --color-ritual-panel: var(--ritual-surface-panel);
   --color-ritual-recessed: var(--ritual-surface-recessed);
   --color-ritual-control: var(--ritual-surface-control);
@@ -21,6 +23,9 @@
   --color-ritual-link: var(--ritual-text-link);
   --color-ritual-border: var(--ritual-border-default);
   --color-ritual-border-subtle: var(--ritual-border-subtle);
+  --color-ritual-border-floating: var(--ritual-border-floating);
+  --color-ritual-divider: var(--ritual-divider-subtle);
+  --color-ritual-hover: var(--ritual-interactive-hover);
   --color-ritual-focus: var(--ritual-focus-ring);
   --color-ritual-info: var(--ritual-status-info);
   --color-ritual-success: var(--ritual-status-success);
@@ -58,6 +63,7 @@
   --radius-ritual-control: var(--ritual-radius-control);
   --radius-ritual-row: var(--ritual-radius-row);
   --radius-ritual-card: var(--ritual-radius-card);
+  --radius-ritual-floating: var(--ritual-radius-floating);
   --radius-ritual-dialog: var(--ritual-radius-dialog);
 
   --shadow-ritual-hairline: var(--ritual-shadow-hairline);

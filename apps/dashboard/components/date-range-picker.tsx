@@ -437,7 +437,7 @@ export function DateRangePicker({
           </Button>
         </PopoverTrigger>
         <PopoverContent
-          className="w-[580px] rounded-md border-[rgba(31,35,40,0.1)] p-0 shadow-[0_10px_28px_rgba(28,25,18,0.10),0_2px_8px_rgba(28,25,18,0.06)]"
+          className="w-[580px] p-0"
           align="end"
           side="bottom"
           sideOffset={8}
@@ -454,9 +454,9 @@ export function DateRangePicker({
                 <SelectTrigger className="w-[200px] h-9 text-sm border-gray-300 hover:border-gray-300 hover:bg-[#F3F3F3] rounded-sm focus:ring-0 focus:ring-offset-0 focus:border-gray-300">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="border-gray-300 rounded-sm">
+                <SelectContent>
                   {presetRanges.map((preset) => (
-                    <SelectItem key={preset.value} value={preset.value} className="text-sm hover:bg-[#F3F3F3] focus:bg-[#F3F3F3]">
+                    <SelectItem key={preset.value} value={preset.value}>
                       {preset.label}
                     </SelectItem>
                   ))}

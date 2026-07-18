@@ -12,7 +12,7 @@ export type HabitListProps = {
 
 export function HabitList({ displayedHabits, searchQuery, isCreating, handleHabitClick }: HabitListProps) {
   return (
-            <div className="space-y-[var(--sidebar-row-gap)]">
+            <div className="space-y-0.5">
                 {displayedHabits.length > 0 ? (
                   displayedHabits.map((habit: any, index: number) => (
                     habit.section ? (

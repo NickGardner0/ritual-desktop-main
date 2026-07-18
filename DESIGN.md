@@ -2,8 +2,8 @@
 
 > A calm, compact personal operating system: warm paper surfaces, graphite text, native desktop restraint, and color used only when it carries meaning.
 
-- **Status:** provisional reference baseline
-- **Version:** `0.1.1-reference`
+- **Status:** active production contract
+- **Version:** `0.2.0`
 - **Themes:** light and dark
 - **Primary platform:** macOS desktop, with responsive web surfaces
 **Visual reference:** open [`DESIGN.html`](./DESIGN.html) in a browser
@@ -12,7 +12,7 @@
 
 This document is the design contract for agents and designers working on Ritual. It describes the intended system boundary, verified component APIs, semantic tokens, and composition rules.
 
-The root-level `variables.css`, `theme.css`, and `tokens.json` remain standalone references for Paper/v0 and agent workflows. Production features consume the synchronized contract through `@ritual/ui`; do not import the root reference CSS into the dashboard.
+The production-compatible contract lives in `packages/ui/src/globals.css` and is consumed by the dashboard. The root-level `variables.css`, `theme.css`, and `tokens.json` mirror that contract for Paper/v0 and agent workflows; they remain standalone and must not be imported into the dashboard.
 
 When implementation and this document conflict:
 
@@ -49,7 +49,7 @@ Canonical source locations:
 
 Ritual should feel like a quiet desktop instrument, not a generic SaaS dashboard. The interface is compact, stable, and content-forward. Warm whites prevent the application from feeling clinical; graphite text avoids harsh pure black; translucent chrome supports the macOS shell without turning every surface into glass.
 
-The visual hierarchy should come from spacing, text tone, and surface level before shadow, weight, or color. Chromatic colors are functional punctuation: teal for focus and information, green for success, amber for warning, and red for destructive states.
+The visual hierarchy should come from spacing, text tone, and surface level before shadow, weight, or color. Floating controls borrow Cursor’s precise menu-card language: clean white surfaces, visible hairline borders, generous outer rounding, compact rounded rows, full-width dividers, and restrained elevation. Chromatic colors are functional punctuation: teal for focus and information, green for success, amber for warning, and red for destructive states.
 
 ### Principles
 
@@ -121,7 +121,8 @@ The base unit is **4px**. Prefer the named 4px scale: `4, 8, 12, 16, 20, 24, 32,
 
 - Related icon and label: 6–8px gap.
 - Controls within one field: 8px gap.
-- Rows within one group: 4–8px gap or a hairline divider.
+- Rows inside menus: 0–2px gap; groups use a full-width hairline divider.
+- Rows within non-menu groups: 4–8px gap or a hairline divider.
 - Field groups: 16px gap.
 - Panel padding: 16–24px.
 - Major page regions: 24–32px.
@@ -136,13 +137,29 @@ Do not invent 13px, 17px, or 23px layout gaps when a scale value communicates th
 
 | Role | Radius | Guidance |
 |---|---:|---|
-| Compact control | 2px | Desktop toolbar and dense controls |
-| Row / small tile | 4px | Navigation rows and compact interactive surfaces |
-| Card | 8px | General grouped content |
-| Dialog | 12px | Modal and prominent floating surfaces |
+| Compact control | 8px | Desktop toolbar, fields, and dense controls |
+| Row / small tile | 8px | Navigation and menu hover rows |
+| Card | 12px | General grouped content |
+| Floating menu | 14px | Dropdowns, selects, popovers, and command menus |
+| Dialog | 18px | Modal and prominent floating surfaces |
 | Full | 9999px | Status dots, avatars, tags only—not ordinary buttons |
 
-Surfaces are mostly flat. Use a border or a one-step surface change before adding shadow. Popover and dialog shadows are reserved for content that actually floats above the application.
+Surfaces are mostly flat. Use a border or a one-step surface change before adding shadow. Popover and dialog shadows are reserved for content that actually floats above the application. A floating surface always uses `surface-floating`, `border-floating`, the matching floating radius, and the shared elevation token as a set—do not recreate only part of the recipe locally.
+
+### Floating cards and menus
+
+The shared Cursor-inspired contract is implemented by `@ritual/ui/menu` and the semantic variables in `@ritual/ui/globals.css`.
+
+- Surface: `--surface-floating` / `--ritual-surface-floating`.
+- Border: `--border-floating` / `--ritual-border-floating`.
+- Radius: `--radius-floating` (14px); dialogs use `--radius-dialog` (18px).
+- Elevation: `--shadow-popover`; dialogs use `--shadow-dialog`.
+- Menu inset: 6px, with 32px rows and 10px horizontal row padding.
+- Row hover and keyboard highlight: `--row-hover`, applied instantly with no transition.
+- Dividers extend through the menu inset and use `--divider-subtle`.
+- Supporting metadata is regular-weight muted text, not a smaller competing button style.
+
+Radix Dropdown, Popover, Select, Dialog, and command-menu wrappers must consume `menuSurfaceVariants()` and `menuRowVariants()` or the corresponding shared presentation components. Feature code must not redefine the floating border, radius, shadow, or row hover.
 
 ## Motion
 
@@ -216,6 +233,22 @@ import {
 
 Cards group related information. Do not wrap every page section in a card; the content canvas can provide structure on its own. Dense library cards may use a 14px regular-weight title when color and spacing already provide hierarchy.
 The default density preserves existing 24px spacing. `density="compact"` opts a composition into 16px spacing, smaller supporting type, and a flat surface.
+
+### Menu surface
+
+```tsx
+import { MenuList, MenuRow, MenuSeparator, MenuSurface } from "@ritual/ui/menu";
+
+<MenuSurface>
+  <MenuList>
+    <MenuRow>Refresh changes</MenuRow>
+    <MenuSeparator />
+    <MenuRow>Collapse all</MenuRow>
+  </MenuList>
+</MenuSurface>
+```
+
+`MenuSurface`, `MenuList`, and `MenuRow` provide the visual contract. Use Radix primitives for menu behavior and consume the exported `menuSurfaceVariants` / `menuRowVariants` helpers from those wrappers.
 
 ### Select
 
@@ -301,6 +334,14 @@ Use `cn()` for conditional classes. Do not concatenate dynamic Tailwind classes 
 - Use tabular numerals when comparisons matter.
 - Hover changes background only; do not translate or scale rows.
 - Preserve keyboard focus independent of hover.
+
+### Menu card
+
+- Keep the card content inset at 6px.
+- Use 32px rows with 8px row radii and no hover animation.
+- Align labels, muted metadata, checks, chevrons, and shortcuts on one baseline.
+- Use separators between conceptual groups, not between every item.
+- Search fields may sit flush at the top, separated from results by a hairline.
 
 ### Empty state
 
@@ -392,6 +433,7 @@ Record intentional breaking component changes in `packages/ui/README.md`. Prefer
 /* Surfaces */
 var(--ritual-surface-canvas)
 var(--ritual-surface-raised)
+var(--ritual-surface-floating)
 var(--ritual-surface-panel)
 var(--ritual-surface-recessed)
 
@@ -406,6 +448,10 @@ var(--ritual-interactive-primary)
 var(--ritual-interactive-hover)
 var(--ritual-interactive-selected)
 var(--ritual-focus-ring)
+var(--ritual-border-floating)
+var(--ritual-divider-subtle)
+var(--ritual-radius-floating)
+var(--ritual-shadow-popover)
 
 /* Status */
 var(--ritual-status-info)
@@ -414,4 +460,4 @@ var(--ritual-status-warning)
 var(--ritual-status-danger)
 ```
 
-This baseline deliberately codifies Ritual’s current direction without declaring the visual design finished. Future Paper/v0 exploration should revise this contract and the production-ready `@ritual/ui` APIs together.
+This production-aligned contract codifies Ritual’s current direction without declaring the visual design finished. Future Paper/v0 exploration should revise this contract and the production-ready `@ritual/ui` APIs together.

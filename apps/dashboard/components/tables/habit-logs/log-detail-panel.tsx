@@ -189,11 +189,10 @@ export function LogDetailPanel({
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[160px] rounded-sm border border-black/10 bg-white p-1">
+                <DropdownMenuContent align="end" className="w-[160px]">
                   {STATUS_OPTIONS.map((option) => (
                     <DropdownMenuItem
                       key={option.value}
-                      className="rounded-sm"
                       onClick={() => {
                         if (option.value !== log.status) {
                           onQuickEdit(log, { status: option.value });
@@ -239,11 +238,10 @@ export function LogDetailPanel({
                     )}
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[190px] rounded-sm border border-black/10 bg-white p-1">
+                <DropdownMenuContent align="end" className="w-[190px]">
                   {availableSources.map((option) => (
                     <DropdownMenuItem
                       key={option}
-                      className="rounded-sm"
                       onClick={() => {
                         if (option !== (log.integration_source || 'manual')) {
                           onQuickEdit(log, { integration_source: option });

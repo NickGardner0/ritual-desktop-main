@@ -566,33 +566,38 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       data-tauri-drag-region="false"
     >
       <div 
-        className="absolute inset-0 bg-[#f7f6f2]/55 dark:bg-[#121212]/80"
+        className="absolute inset-0 bg-[var(--surface-overlay)]"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         data-tauri-drag-region="false"
         style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
       />
       <div 
         ref={cardRef}
-        className={`relative z-10 flex w-[90vw] max-w-[560px] flex-col overflow-hidden rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_22px_60px_-42px_rgba(15,23,42,0.48),0_2px_10px_-6px_rgba(15,23,42,0.16)] transition-all duration-300 ${showCustomization ? 'min-h-[480px]' : ''}`}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Habit selection"
+        className={`relative z-10 flex w-[calc(100vw-32px)] max-w-[560px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[480px]' : ''}`}
       >
         <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
-        <div className="flex flex-shrink-0 items-center justify-between px-6 pb-2.5 pt-6">
+        <div className="flex flex-shrink-0 items-center justify-between px-5 pb-2 pt-5">
           {showComputerTracking ? (
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setShowComputerTracking(false)}
-                className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                aria-label="Back to integrations"
+                className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                 </svg>
               </button>
-              <h2 className="text-lg font-medium leading-none tracking-normal text-[var(--text-primary)]">Computer Use</h2>
+              <h2 className="text-[18px] font-medium leading-none tracking-[-0.01em] text-[#111111]">Computer Use</h2>
             </div>
           ) : showCustomization ? (
             <button
               onClick={handleBack}
-              className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+              aria-label="Back to habits"
+              className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -603,14 +608,15 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
               {selectedCategory && (
                 <button
                   onClick={handleBack}
-                  className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                  aria-label="Back to integrations"
+                  className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>
                 </button>
               )}
-              <h2 className="text-lg font-medium leading-none tracking-normal text-[var(--text-primary)]">
+              <h2 className="text-[18px] font-medium leading-none tracking-[-0.01em] text-[#111111]">
                 {selectedCategory
                   ? selectedCategory === 'whoop' ? 'Whoop'
                   : selectedCategory === 'fitness' ? 'Health'
@@ -625,7 +631,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           )}
             <button
               onClick={onClose}
-              className="rounded-sm p-1 text-[var(--icon-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+              aria-label="Close habit selection"
+              className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
             >
               <X className="w-4 h-4" />
             </button>
@@ -633,8 +640,8 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Description */}
         {!selectedCategory && !showComputerTracking && (
-          <div className="flex-shrink-0 px-6 pb-5">
-            <p className="text-sm leading-6 text-[var(--text-secondary)]">
+          <div className="flex-shrink-0 px-5 pb-3.5">
+            <p className="max-w-[500px] text-[14px] leading-[1.55] text-[var(--text-secondary)]">
               Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
             </p>
         </div>
@@ -642,20 +649,21 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
         {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
         {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="px-6 pb-2 flex-shrink-0">
+          <div className="flex-shrink-0 px-4 pb-2">
             <input
               type="text"
+              aria-label="Search habits"
               placeholder="Search..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 w-full rounded-sm border border-[var(--border-subtle)] bg-[var(--content-bg)] px-3 text-[13.5px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--border-muted)] focus:outline-none"
+              className="h-[var(--control-height)] w-full rounded-[var(--radius-control)] border border-[var(--border-subtle)] bg-white px-3 text-[13.5px] text-[#111111] placeholder:text-[var(--text-muted)] focus:border-[var(--border-floating)] focus:outline-none focus:ring-2 focus:ring-[var(--ritual-focus-ring)]"
             />
           </div>
         )}
 
         {/* Content Area - Scrollable */}
 
-        <div className={`min-h-0 overflow-y-auto px-6 pb-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[440px]' : 'max-h-[430px]'}`}>
+        <div className={`min-h-0 overflow-y-auto px-4 pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[440px]' : 'max-h-[430px]'}`}>
           {showComputerTracking ? (
             <div className="py-2">
               {resolvedUserId ? (

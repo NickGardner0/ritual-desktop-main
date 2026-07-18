@@ -66,7 +66,7 @@ export function HabitLogsActions({
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="w-[200px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+          className="w-[200px]"
         >
           {Object.entries(COLUMN_LABELS)
             .filter(([key]) => !REQUIRED_COLUMNS.includes(key))
@@ -76,7 +76,7 @@ export function HabitLogsActions({
               return (
                 <label
                   key={key}
-                  className="flex cursor-pointer items-center gap-2.5 rounded-sm px-3 py-2 ritual-snappy-row"
+                  className="ritual-menu-row cursor-pointer gap-2.5"
                 >
                   <Checkbox
                     checked={isVisible}
@@ -107,11 +107,10 @@ export function HabitLogsActions({
         <DropdownMenuContent
           align="end"
           sideOffset={8}
-          className="w-[220px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+          className="w-[220px]"
         >
           {onQuickSaveView && (
             <DropdownMenuItem
-              className="rounded-sm"
               onClick={onQuickSaveView}
             >
               <Save className="w-4 h-4 mr-2" />
@@ -121,7 +120,6 @@ export function HabitLogsActions({
 
           {onExportFiltered && (
             <DropdownMenuItem
-              className="rounded-sm"
               onClick={onExportFiltered}
               disabled={exportDisabled}
             >
@@ -130,10 +128,9 @@ export function HabitLogsActions({
             </DropdownMenuItem>
           )}
 
-          <DropdownMenuSeparator className="bg-black/5" />
+          <DropdownMenuSeparator />
 
           <DropdownMenuItem
-            className="rounded-sm"
             onClick={() => onDensityChange('comfortable')}
           >
             <Rows3 className="w-4 h-4 mr-2" />
@@ -142,7 +139,6 @@ export function HabitLogsActions({
           </DropdownMenuItem>
 
           <DropdownMenuItem
-            className="rounded-sm"
             onClick={() => onDensityChange('compact')}
           >
             <Rows3 className="w-4 h-4 mr-2" />

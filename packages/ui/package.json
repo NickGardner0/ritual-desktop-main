@@ -22,6 +22,7 @@
     "./globals.css": "./src/globals.css",
     "./input": "./src/components/input.tsx",
     "./label": "./src/components/label.tsx",
+    "./menu": "./src/components/menu.tsx",
     "./select": "./src/components/select.tsx",
     "./separator": "./src/components/separator.tsx",
     "./tabs": "./src/components/tabs.tsx",

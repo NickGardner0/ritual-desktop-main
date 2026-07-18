@@ -772,7 +772,7 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
                     Delete
                   </button>
                 </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-none">
+                <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Delete selected logs?</AlertDialogTitle>
                     <AlertDialogDescription>

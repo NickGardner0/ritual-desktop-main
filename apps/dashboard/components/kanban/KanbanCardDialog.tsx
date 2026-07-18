@@ -243,7 +243,7 @@ export function KanbanCardDialog({
                 <SelectTrigger className="rounded-sm border-border">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="rounded-sm border-border">
+                <SelectContent>
                   {columns.map((column) => (
                     <SelectItem key={column.id} value={column.id}>
                       {column.title}
@@ -340,7 +340,7 @@ export function KanbanCardDialog({
                 <SelectTrigger className="rounded-sm border-border">
                   <SelectValue placeholder="No metric linked" />
                 </SelectTrigger>
-                <SelectContent className="rounded-sm border-border">
+                <SelectContent>
                   <SelectItem value="none">No metric linked</SelectItem>
                   {habits.map((habit) => (
                     <SelectItem key={habit.id} value={habit.id}>

@@ -42,6 +42,9 @@ module.exports = {
         surface: {
           window: "var(--surface-window)",
           content: "var(--surface-content)",
+          raised: "var(--surface-raised)",
+          floating: "var(--surface-floating)",
+          overlay: "var(--surface-overlay)",
           chrome: "var(--surface-chrome)",
           sidebar: "var(--surface-sidebar)",
           panel: "var(--surface-panel)",
@@ -60,6 +63,13 @@ module.exports = {
         sm: "calc(var(--radius) - 4px)",
         control: "var(--radius-control)",
         row: "var(--radius-row)",
+        card: "var(--radius-card)",
+        floating: "var(--radius-floating)",
+        dialog: "var(--radius-dialog)",
+      },
+      boxShadow: {
+        popover: "var(--shadow-popover)",
+        dialog: "var(--shadow-dialog)",
       },
       fontFamily: {
         sans: ["'FK Grotesk Neue'", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "Roboto", "sans-serif"],

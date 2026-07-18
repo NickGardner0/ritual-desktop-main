@@ -133,7 +133,7 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
             </Avatar>
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-[220px] rounded-sm border border-gray-200 p-1.5" align="end" forceMount>
+        <DropdownMenuContent className="w-[220px]" align="end" forceMount>
           <div className="px-2.5 py-2">
             <p className="text-sm font-medium text-gray-900">{getUserName()}</p>
             <p className="text-xs text-gray-500">
@@ -141,24 +141,24 @@ export function TeamDropdown({ isExpanded, placement = 'sidebar' }: TeamDropdown
             </p>
           </div>
           
-          <div className="h-px bg-gray-200 my-1" />
+          <div className="ritual-menu-separator" />
           
           <div className="py-0.5">
-            <DropdownMenuItem onClick={handleAccount} className="rounded-sm px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleAccount}>
               Account
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleSupport} className="rounded-sm px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSupport}>
               Support
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleSupport} className="rounded-sm px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSupport}>
               Teams
             </DropdownMenuItem>
           </div>
           
-          <div className="h-px bg-gray-200 my-1" />
+          <div className="ritual-menu-separator" />
           
           <div className="py-0.5">
-            <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut} className="rounded-sm px-2.5 py-1.5 text-sm text-gray-700 ritual-snappy-row ritual-snappy-row-menu focus:bg-[#F3F3F3] cursor-pointer">
+            <DropdownMenuItem onClick={handleSignOut} disabled={isSigningOut}>
               {isSigningOut ? (
                 <>
                   <BrailleSpinner className="mr-2 text-sm text-gray-600" />

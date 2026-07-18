@@ -104,7 +104,7 @@ export function FilterMenuItem({
   return (
     <DropdownMenuGroup>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger className="px-2 py-1.5 text-sm text-neutral-950 focus:bg-[#F5F5F5] data-[state=open]:bg-[#F5F5F5]">
+        <DropdownMenuSubTrigger>
           <Icon className="mr-2 h-4 w-4 stroke-[1.75] text-neutral-950" />
           <span>{label}</span>
         </DropdownMenuSubTrigger>
@@ -112,7 +112,7 @@ export function FilterMenuItem({
           <DropdownMenuSubContent
             sideOffset={14}
             alignOffset={-4}
-            className="rounded-none border border-black/10 bg-white p-0 shadow-[0_12px_30px_-12px_rgba(15,23,42,0.18)]"
+            className="p-0"
           >
             {children}
           </DropdownMenuSubContent>

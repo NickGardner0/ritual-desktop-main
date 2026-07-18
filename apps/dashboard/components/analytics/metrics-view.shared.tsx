@@ -563,7 +563,7 @@ export const CompareSelect = ({
     <SelectTrigger className="h-[30px] min-w-[80px] border-[rgba(39,37,30,0.07)] bg-white px-2 text-[12px] font-medium tracking-[-0.4px] text-[rgba(39,37,30,0.65)] transition-colors hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E] focus:outline-none focus:ring-0">
       <SelectValue placeholder={placeholder} />
     </SelectTrigger>
-    <SelectContent align="end" className="border-[rgba(39,37,30,0.07)] bg-white shadow-[0_12px_24px_rgba(39,37,30,0.12)]">
+    <SelectContent align="end">
       <SelectItem value={COMPARE_NONE_VALUE} className="text-muted-foreground">
         None
       </SelectItem>

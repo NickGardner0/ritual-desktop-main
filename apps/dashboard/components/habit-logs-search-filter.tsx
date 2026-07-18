@@ -518,7 +518,7 @@ export function HabitLogsSearchFilter({
         </form>
 
         <DropdownMenuContent
-          className="w-[350px] rounded-none border-black/10 p-1 shadow-[0_12px_30px_-12px_rgba(15,23,42,0.18)]"
+          className="w-[350px]"
           align="end"
           sideOffset={14}
           alignOffset={-11}

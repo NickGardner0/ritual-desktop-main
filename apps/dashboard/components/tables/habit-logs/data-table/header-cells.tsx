@@ -164,7 +164,7 @@ export function InlineDateEditor({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-[220px] rounded-sm border border-black/10 bg-white p-2 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+        className="w-[220px] p-2"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="space-y-2">
@@ -245,12 +245,11 @@ export function InlineSourceEditor({
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="start"
-        className="w-[190px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+        className="w-[190px]"
       >
         {sourceOptions.map((option) => (
           <DropdownMenuItem
             key={option}
-            className="rounded-sm"
             onClick={() => {
               if (option !== currentSource) {
                 onSelect(option);

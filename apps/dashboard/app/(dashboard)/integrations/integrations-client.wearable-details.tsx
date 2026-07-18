@@ -207,7 +207,7 @@ export function renderWhoopSyncDetailsPanel(ctx: IntegrationRuntimeContext) {
             <SelectTrigger className="h-11 rounded-sm border-[#d8d5cb] bg-white text-[#1f1e1a] focus:ring-0 disabled:opacity-50">
               <SelectValue placeholder="Select time" />
             </SelectTrigger>
-            <SelectContent className="border-[#d8d5cb] bg-white text-[#1f1e1a]">
+            <SelectContent>
               {Array.from({ length: 24 }, (_, hour) => (
                 <SelectItem key={hour} value={String(hour)}>
                   {formatHour(hour)}

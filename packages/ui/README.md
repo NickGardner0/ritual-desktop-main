@@ -19,6 +19,7 @@ Import components through explicit package entry points:
 import { Button } from "@ritual/ui/button";
 import { Card, CardContent } from "@ritual/ui/card";
 import { Input } from "@ritual/ui/input";
+import { MenuSurface, MenuList, MenuRow } from "@ritual/ui/menu";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@ritual/ui/tabs";
 ```
@@ -62,9 +63,14 @@ Existing Input and Card consumers preserve their current density until they opt
 in. Button's shared default follows the 36px desktop contract, and new Select and
 Tabs consumers inherit the documented Ritual menu and category patterns.
 
+Floating menus, popovers, selects, and command surfaces share the Cursor-inspired
+`MenuSurface` / `MenuRow` visual contract. Radix wrappers consume the exported
+`menuSurfaceVariants` and `menuRowVariants` helpers instead of redefining border,
+radius, shadow, row height, or hover colors locally.
+
 ## Design reference
 
 Before changing frontend styling or adding shared primitives, read the repository
 root `DESIGN.md`. The standalone `DESIGN.html`, `tokens.json`, `variables.css`, and
-`theme.css` form the review and agent/v0 handoff layer. They are intentionally not
-production imports until a design-system migration is explicitly approved.
+`theme.css` form the review and agent/v0 handoff layer. Production-compatible
+values live in `src/globals.css`; the root reference files remain standalone.

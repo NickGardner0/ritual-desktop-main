@@ -208,7 +208,7 @@ function ConnectedDevicesModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[560px] p-0 gap-0 rounded-sm overflow-hidden">
+      <DialogContent className="max-w-[560px] gap-0 overflow-hidden p-0">
         <div className="flex flex-col h-[500px]">
           {/* Header */}
           <div className="px-5 pt-5 pb-3">

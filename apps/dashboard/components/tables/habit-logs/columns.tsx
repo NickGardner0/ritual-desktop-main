@@ -269,17 +269,15 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
       </DropdownMenuTrigger>
       <DropdownMenuContent
         align="end"
-        className="w-[200px] rounded-sm border border-black/10 bg-white p-1 shadow-[0_18px_30px_-24px_rgba(15,23,42,0.35)]"
+        className="w-[200px]"
       >
         <DropdownMenuItem
-          className="rounded-sm"
           onClick={() => copyToClipboard(log.habit_name)}
         >
           <Copy className="w-3.5 h-3.5 mr-2" />
           Copy habit name
         </DropdownMenuItem>
         <DropdownMenuItem
-          className="rounded-sm"
           onClick={() => copyToClipboard(formatLogValue(log))}
         >
           <Copy className="w-3.5 h-3.5 mr-2" />
@@ -287,7 +285,6 @@ export const ActionsCell = memo(({ log }: { log: HabitLog }) => {
         </DropdownMenuItem>
         {log.notes && log.notes !== 'none' && (
           <DropdownMenuItem
-            className="rounded-sm"
             onClick={() => copyToClipboard(log.notes || '')}
           >
             <Copy className="w-3.5 h-3.5 mr-2" />
