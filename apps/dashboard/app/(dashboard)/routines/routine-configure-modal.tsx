@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { ChevronsRight, Loader2, Plus, X } from 'lucide-react';
+import { Loader2, PanelRight, Plus, X } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
 import { Input } from '@ritual/ui/input';
@@ -569,16 +569,17 @@ export function RoutineConfigurePanel({
             className="flex h-full flex-col"
             style={{ width: panelWidth }}
           >
-            <div className="flex h-11 shrink-0 items-center gap-1 px-2.5">
+            <div className="flex h-11 shrink-0 items-center justify-end px-2.5">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
                 onClick={requestClose}
-                aria-label="Close panel"
-                className="h-7 w-7 rounded-[7px] text-[var(--text-secondary)] hover:bg-[rgba(15,23,42,0.055)] hover:text-[var(--text-primary)]"
+                aria-label="Hide panel"
+                title="Hide Panel (⌥⌘B)"
+                className="h-7 w-7 rounded-md text-[rgba(39,37,30,0.55)] hover:bg-[#F3F3F3] hover:text-[#27251E]"
               >
-                <ChevronsRight className="h-4 w-4" />
+                <PanelRight className="h-[18px] w-[18px] stroke-[2.05]" />
               </Button>
             </div>
 

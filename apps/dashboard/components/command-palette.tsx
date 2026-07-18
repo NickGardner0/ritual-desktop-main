@@ -406,13 +406,13 @@ export default function CommandPalette({
         className={cn(
           "inline-flex items-center border-0 bg-transparent shadow-none transition-colors",
           "text-[rgba(39,37,30,0.55)] hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-0",
-          isTight ? "h-7 gap-1.5 px-1 text-[13px]" : "h-8 gap-2 px-1.5 text-sm",
+          isTight ? "h-7 gap-1.5 px-1 text-[14px]" : "h-8 gap-2 px-1.5 text-[15px]",
           className,
         )}
       >
         <Search
-          className={cn("shrink-0 opacity-80", isTight ? "h-3.5 w-3.5" : "h-4 w-4")}
-          strokeWidth={1.75}
+          className={cn("shrink-0 opacity-80", isTight ? "h-4 w-4" : "h-[18px] w-[18px]")}
+          strokeWidth={1.85}
           aria-hidden
         />
         <span className="font-normal leading-none">Search...</span>

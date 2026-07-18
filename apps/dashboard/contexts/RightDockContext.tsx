@@ -79,4 +79,17 @@ export function useRegisterRightDockClose(open: boolean, onClose: () => void) {
     setRegistration({ close: stableClose });
     return () => setRegistration(null);
   }, [open, setRegistration, stableClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      // Cursor: ⌥⌘B — hide secondary side panel
+      if (event.altKey && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault();
+        stableClose();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, stableClose]);
 }
