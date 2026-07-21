@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import dynamic from "next/dynamic";
-import { Command } from "cmdk";
 // REMOVED: import * as LucideIcons from "lucide-react" - this imported 400+ icons
 // Now using dynamic import for the icon component
 import { 
@@ -54,13 +53,16 @@ const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; cla
   // Use dynamic icon loader for Lucide icons
   return <DynamicIcon name={iconName} className={`${className} text-gray-600`} />;
 };
-import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useAnalytics } from "@/lib/analytics";
 import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
 import { format, parseISO } from "date-fns";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";
+
+const paletteRowClass =
+  "ritual-snappy-row ritual-snappy-row-menu flex w-full cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left outline-none";
 
 // ================================
 // TYPES
@@ -200,6 +202,7 @@ export default function CommandPalette({
   const router = useRouter();
   const { trackQuickActionsOpened, track } = useAnalytics();
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const [activeIndex, setActiveIndex] = React.useState(0);
   
   // Debounce search query
   const debouncedQuery = useDebounce(query, 150);
@@ -389,7 +392,91 @@ export default function CommandPalette({
   // ================================
   // RENDER
   // ================================
-  
+
+  const hasResults = Boolean(
+    results && (
+      paletteActions.length > 0 ||
+      results.habits.found > 0 ||
+      results.logs.found > 0 ||
+      results.conversations.found > 0 ||
+      results.activity.found > 0
+    ),
+  );
+
+  type PaletteEntry =
+    | { kind: "action"; key: string; run: () => void }
+    | { kind: "habit"; key: string; run: () => void }
+    | { kind: "log"; key: string; run: () => void }
+    | { kind: "conversation"; key: string; run: () => void };
+
+  const selectableEntries = React.useMemo(() => {
+    const entries: PaletteEntry[] = [];
+    for (const action of paletteActions) {
+      entries.push({
+        kind: "action",
+        key: `action:${action.id}:${action.path || action.name}`,
+        run: () => handleActionSelect(action),
+      });
+    }
+    for (const habit of results?.habits?.hits?.slice(0, 5) || []) {
+      entries.push({
+        kind: "habit",
+        key: `habit:${habit.id}`,
+        run: () => handleHabitSelect(habit),
+      });
+    }
+    for (const log of results?.logs?.hits?.slice(0, 5) || []) {
+      entries.push({
+        kind: "log",
+        key: `log:${log.id}`,
+        run: () => handleLogSelect(log),
+      });
+    }
+    for (const conv of results?.conversations?.hits?.slice(0, 3) || []) {
+      entries.push({
+        kind: "conversation",
+        key: `conv:${conv.id}`,
+        run: () => handleConversationSelect(conv),
+      });
+    }
+    return entries;
+  }, [paletteActions, results]);
+
+  React.useEffect(() => {
+    setActiveIndex(0);
+  }, [debouncedQuery, open, selectableEntries.length]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        setQuery("");
+        return;
+      }
+      if (!selectableEntries.length) return;
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((index) => (index + 1) % selectableEntries.length);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex((index) => (index - 1 + selectableEntries.length) % selectableEntries.length);
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        selectableEntries[activeIndex]?.run();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, selectableEntries, activeIndex]);
+
+  React.useEffect(() => {
+    if (open) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [open]);
+
   // Button when closed — Midday-style quiet search affordance (icon + label, no chrome box)
   if (!open) {
     const isTight = density === "tight";
@@ -420,198 +507,207 @@ export default function CommandPalette({
     );
   }
 
-  const hasResults = results && (
-    paletteActions.length > 0 ||
-    results.habits.found > 0 ||
-    results.logs.found > 0 ||
-    results.conversations.found > 0 ||
-    results.activity.found > 0
-  );
+  if (typeof document === "undefined") return null;
 
-  return (
-    <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content
-          className="fixed inset-0 z-[9999] border-none bg-transparent p-0 shadow-none outline-none focus:outline-none"
-          onOpenAutoFocus={(event) => {
-            event.preventDefault();
-            inputRef.current?.focus();
-          }}
+  let optionIndex = -1;
+  const nextOptionIndex = () => {
+    optionIndex += 1;
+    return optionIndex;
+  };
+
+  const modal = (
+    <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden">
+      <div
+        className="absolute inset-0 bg-[rgba(232,229,223,0.22)] backdrop-blur-[6px]"
+        onClick={() => {
+          setOpen(false);
+          setQuery("");
+        }}
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
+        style={{ left: "var(--ritual-sidebar-current-width, 0px)" }}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Search"
+          className={cn(
+            "pointer-events-auto flex h-[min(420px,calc(100dvh-48px))] w-full max-w-[640px] flex-col overflow-hidden",
+            "rounded-2xl border border-[rgba(39,37,30,0.08)] text-[#111111]",
+            "bg-[rgba(255,255,255,0.55)] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)]",
+            "backdrop-blur-2xl backdrop-saturate-150",
+            "supports-[backdrop-filter]:bg-[rgba(255,255,255,0.48)]",
+          )}
         >
-          <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
-          <div
-            className="pointer-events-none absolute inset-y-0 right-0 grid place-items-center p-4"
-            style={{ left: 'var(--ritual-sidebar-current-width, 0px)' }}
-          >
-            <div className="pointer-events-auto flex h-[min(420px,calc(100dvh-48px))] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.78)] text-[#111111] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)] backdrop-blur-2xl supports-[backdrop-filter]:bg-[rgba(255,255,255,0.72)]">
-              {/* Search Input */}
-              <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] bg-white/40 px-4 py-3">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  placeholder="Type a command or search..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
-                  autoFocus
-                />
-                {isLoading && <BrailleSpinner className="text-sm text-[rgba(39,37,30,0.4)]" />}
+          <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] px-4 py-3">
+            <input
+              ref={inputRef}
+              type="text"
+              placeholder="Type a command or search..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
+              autoFocus
+            />
+            {isLoading && <BrailleSpinner className="text-sm text-[rgba(39,37,30,0.4)]" />}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+            {!hasResults && query && !isLoading && (
+              <div className="py-12 text-center">
+                <p className="text-[13.5px] text-[rgba(39,37,30,0.55)]">No results found for &quot;{query}&quot;</p>
+                <p className="mt-1 text-[12.5px] text-[rgba(39,37,30,0.4)]">Try a different search term</p>
               </div>
+            )}
 
-              {/* Results */}
-              <div className="min-h-0 flex-1 overflow-y-auto bg-transparent">
-                <Command className="rtlp-cmd bg-transparent" shouldFilter={false}>
-                  <Command.List className="max-h-full overflow-y-auto bg-transparent px-2 py-2">
-                
-                {/* No results */}
-                {!hasResults && query && !isLoading && (
-                  <div className="py-12 text-center">
-                    <p className="text-[13.5px] text-[rgba(39,37,30,0.55)]">No results found for &quot;{query}&quot;</p>
-                    <p className="mt-1 text-[12.5px] text-[rgba(39,37,30,0.4)]">Try a different search term</p>
-                  </div>
-                )}
+            {paletteActions.length > 0 && (
+              <div>
+                <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
+                </div>
+                {paletteActions.map((action) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={`action:${action.id}:${action.path || action.name}`}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleActionSelect(action)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        {getActionIcon(action.icon)}
+                      </span>
+                      <span className="text-[13.5px] font-normal tracking-[-0.01em] text-[#27251E]">
+                        {action.name}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* Quick Actions */}
-                {paletteActions.length > 0 && (
-                  <>
-                    <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
-                      {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
-                    </div>
-                    {paletteActions.map((action) => (
-                      <Command.Item
-                        key={action.id}
-                        value={action.name}
-                        onSelect={() => handleActionSelect(action)}
-                        onClick={() => handleActionSelect(action)}
-                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
-                      >
-                        <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
-                          {getActionIcon(action.icon)}
-                        </span>
-                        <span className="text-[13.5px] font-normal tracking-[-0.01em] text-[#27251E]">{action.name}</span>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-                {/* Habits */}
-                {results?.habits && results.habits.found > 0 && (
-                  <>
-                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
-                      <span>Habits</span>
-                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.habits.found} found</span>
-                    </div>
-                    {results.habits.hits.slice(0, 5).map((habit) => (
-                      <Command.Item
-                        key={habit.id}
-                        value={`habit-${habit.name}`}
-                        onSelect={() => handleHabitSelect(habit)}
-                        onClick={() => handleHabitSelect(habit)}
-                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
-                      >
-                        <span className="w-4 h-4 flex items-center justify-center">
-                          <HabitIcon iconName={habit.icon} className="w-4 h-4" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm text-gray-700">{habit.name}</span>
-                          {habit.category && (
-                            <span className="text-xs text-gray-400 ml-2">{habit.category}</span>
-                          )}
-                        </div>
-                        {habit.unit_type && (
-                          <span className="text-xs text-gray-400">{habit.unit_type}</span>
+            {results?.habits && results.habits.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Habits</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.habits.found} found</span>
+                </div>
+                {results.habits.hits.slice(0, 5).map((habit) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={habit.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleHabitSelect(habit)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center">
+                        <HabitIcon iconName={habit.icon} className="w-4 h-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm text-[#27251E]">{habit.name}</span>
+                        {habit.category && (
+                          <span className="ml-2 text-xs text-[rgba(39,37,30,0.4)]">{habit.category}</span>
                         )}
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
+                      </div>
+                      {habit.unit_type && (
+                        <span className="text-xs text-[rgba(39,37,30,0.4)]">{habit.unit_type}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* Recent Logs */}
-                {results?.logs && results.logs.found > 0 && (
-                  <>
-                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
-                      <span>Recent Logs</span>
-                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.logs.found} found</span>
-                    </div>
-                    {results.logs.hits.slice(0, 5).map((log) => (
-                      <Command.Item
-                        key={log.id}
-                        value={`log-${log.habit_name}-${log.date}`}
-                        onSelect={() => handleLogSelect(log)}
-                        onClick={() => handleLogSelect(log)}
-                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <Clock className="h-4 w-4" />
-                        </span>
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <span className="text-sm text-gray-700 truncate">{log.habit_name}</span>
-                          <span className="text-xs text-gray-400">{formatDate(log.date)}</span>
-                          {log.amount != null && (
-                            <span className="text-xs text-gray-400">{log.amount} {log.unit_type || ''}</span>
-                          )}
-                        </div>
-                        {log.notes && (
-                          <span className="hidden max-w-[180px] truncate text-xs text-gray-400 md:block">
-                            {log.notes}
+            {results?.logs && results.logs.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Recent Logs</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.logs.found} found</span>
+                </div>
+                {results.logs.hits.slice(0, 5).map((log) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={log.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleLogSelect(log)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <Clock className="h-4 w-4" />
+                      </span>
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <span className="truncate text-sm text-[#27251E]">{log.habit_name}</span>
+                        <span className="text-xs text-[rgba(39,37,30,0.4)]">{formatDate(log.date)}</span>
+                        {log.amount != null && (
+                          <span className="text-xs text-[rgba(39,37,30,0.4)]">
+                            {log.amount} {log.unit_type || ""}
                           </span>
                         )}
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-                {/* AI Conversations */}
-                {results?.conversations && results.conversations.found > 0 && (
-                  <>
-                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
-                      <span>AI Conversations</span>
-                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.conversations.found} found</span>
-                    </div>
-                    {results.conversations.hits.slice(0, 3).map((conv: any) => (
-                      <Command.Item
-                        key={conv.id}
-                        value={`conv-${conv.id}`}
-                        onSelect={() => handleConversationSelect(conv)}
-                        onClick={() => handleConversationSelect(conv)}
-                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
-                      >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
-                          <MessageSquare className="h-4 w-4" />
-                        </span>
-                        <span className="text-sm text-gray-700 truncate flex-1">
-                          {conv.content_preview || conv.content?.slice(0, 60)}...
-                        </span>
-                      </Command.Item>
-                    ))}
-                  </>
-                )}
-
-              </Command.List>
-            </Command>
+            {results?.conversations && results.conversations.found > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>AI Conversations</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.conversations.found} found</span>
+                </div>
+                {results.conversations.hits.slice(0, 3).map((conv: any) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={conv.id}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleConversationSelect(conv)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <MessageSquare className="h-4 w-4" />
+                      </span>
+                      <span className="flex-1 truncate text-sm text-[#27251E]">
+                        {conv.content_preview || conv.content?.slice(0, 60)}...
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          
-          {/* Footer */}
-          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] bg-white/35 px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
-            {/* Logo on left */}
-            <div className="flex items-center gap-2">
-              <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
-            </div>
-            
-            {/* Keyboard shortcuts on right */}
+
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
+            <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
             <div className="flex items-center gap-1.5">
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[rgba(255,255,255,0.45)] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
             </div>
           </div>
-            </div>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+        </div>
+      </div>
+    </div>
   );
+
+  return createPortal(modal, document.body);
 }
 
 // Also export as HabitSelector for backward compatibility
