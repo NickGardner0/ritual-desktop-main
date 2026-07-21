@@ -4,6 +4,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Calendar, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { menuRowClass } from './constants';
 
 export type CustomizationPanelProps = {
   selectedCategory: string | null;
@@ -127,12 +128,8 @@ export function CustomizationPanel(props: CustomizationPanelProps) {
                             setSelectedMetric(metric);
                             setIsMetricDropdownOpen(false);
                           }}
-                          className={cn(
-                            'flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[13px] font-normal tracking-[-0.01em] outline-none transition-colors',
-                            active
-                              ? 'bg-[#F3F3F3] text-[#27251E]'
-                              : 'text-[#27251E] hover:bg-[#F3F3F3]',
-                          )}
+                          className={menuRowClass}
+                          data-active={active ? 'true' : undefined}
                         >
                           {metric}
                         </button>
