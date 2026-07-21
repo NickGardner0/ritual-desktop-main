@@ -86,7 +86,9 @@ body[data-voice-hud-window="1"] {
 }
 
 .ritual-snappy-row[data-active="true"],
-.ritual-snappy-row[data-selected="true"] {
+.ritual-snappy-row[data-selected="true"],
+.ritual-snappy-row[data-selected],
+.ritual-snappy-row[aria-selected="true"] {
   background-color: var(--ritual-snappy-row-active, var(--row-active, rgba(39, 37, 30, 0.055))) !important;
 }
 

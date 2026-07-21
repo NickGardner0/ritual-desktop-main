@@ -432,43 +432,43 @@ export default function CommandPalette({
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
       <DialogPrimitive.Portal>
         {/* High z-index overlay to cover sidebar (z-[1001]) */}
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.18)] backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed left-[50%] top-[50%] z-[9999] translate-x-[-50%] translate-y-[-50%] w-full md:max-w-[680px] select-text border-none shadow-2xl focus:outline-none"
+          className="fixed left-[50%] top-[50%] z-[9999] w-full max-w-[calc(100%-32px)] translate-x-[-50%] translate-y-[-50%] select-text border-none bg-transparent p-0 shadow-none focus:outline-none md:max-w-[680px]"
         >
           <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
-          <div className="flex h-[420px] flex-col overflow-hidden rounded-sm border border-[rgba(255,255,255,0.58)] bg-[linear-gradient(180deg,rgba(255,255,255,0.50),rgba(246,244,240,0.42))] shadow-[0_24px_56px_rgba(15,23,42,0.16),0_6px_20px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.32)] backdrop-blur-[22px] supports-[backdrop-filter]:bg-[rgba(248,248,246,0.42)]">
+          <div className="flex h-[420px] flex-col overflow-hidden rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.92)] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)] supports-[backdrop-filter]:bg-[rgba(255,255,255,0.86)] supports-[backdrop-filter]:backdrop-blur-xl">
             {/* Search Input */}
-            <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.16)] px-4 py-3">
+            <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] px-4 py-3">
               <input
                 ref={inputRef}
                 type="text"
                 placeholder="Type a command or search..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 text-base border-0 focus:outline-none bg-transparent placeholder:text-gray-400"
+                className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
                 autoFocus
               />
               {isLoading && <BrailleSpinner className="text-sm text-gray-400" />}
             </div>
 
           {/* Results */}
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[rgba(255,255,255,0.10)]">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <Command className="rtlp-cmd" shouldFilter={false}>
-              <Command.List className="px-1 py-2 max-h-full overflow-y-auto">
+              <Command.List className="max-h-full overflow-y-auto px-2 py-2">
                 
                 {/* No results */}
                 {!hasResults && query && !isLoading && (
                   <div className="py-12 text-center">
-                    <p className="text-sm text-gray-500">No results found for &quot;{query}&quot;</p>
-                    <p className="text-xs text-gray-400 mt-1">Try a different search term</p>
+                    <p className="text-[13.5px] text-[rgba(39,37,30,0.55)]">No results found for &quot;{query}&quot;</p>
+                    <p className="mt-1 text-[12.5px] text-[rgba(39,37,30,0.4)]">Try a different search term</p>
                   </div>
                 )}
 
                 {/* Quick Actions */}
                 {paletteActions.length > 0 && (
                   <>
-                    <div className="px-3 py-1.5 text-xs font-medium text-gray-400">
+                    <div className="px-2.5 pb-1 pt-1.5 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                       {debouncedQuery.trim() ? "Best Matches" : "Quick Actions"}
                     </div>
                     {paletteActions.map((action) => (
@@ -477,12 +477,12 @@ export default function CommandPalette({
                         value={action.name}
                         onSelect={() => handleActionSelect(action)}
                         onClick={() => handleActionSelect(action)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
+                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
                       >
-                        <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
+                        <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
                           {getActionIcon(action.icon)}
                         </span>
-                        <span className="text-sm text-gray-700">{action.name}</span>
+                        <span className="text-[13.5px] font-normal tracking-[-0.01em] text-[#27251E]">{action.name}</span>
                       </Command.Item>
                     ))}
                   </>
@@ -491,9 +491,9 @@ export default function CommandPalette({
                 {/* Habits */}
                 {results?.habits && results.habits.found > 0 && (
                   <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
+                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                       <span>Habits</span>
-                      <span className="text-gray-300 text-xs">{results.habits.found} found</span>
+                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.habits.found} found</span>
                     </div>
                     {results.habits.hits.slice(0, 5).map((habit) => (
                       <Command.Item
@@ -501,7 +501,7 @@ export default function CommandPalette({
                         value={`habit-${habit.name}`}
                         onSelect={() => handleHabitSelect(habit)}
                         onClick={() => handleHabitSelect(habit)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
+                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
                       >
                         <span className="w-4 h-4 flex items-center justify-center">
                           <HabitIcon iconName={habit.icon} className="w-4 h-4" />
@@ -523,9 +523,9 @@ export default function CommandPalette({
                 {/* Recent Logs */}
                 {results?.logs && results.logs.found > 0 && (
                   <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
+                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                       <span>Recent Logs</span>
-                      <span className="text-gray-300 text-xs">{results.logs.found} found</span>
+                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.logs.found} found</span>
                     </div>
                     {results.logs.hits.slice(0, 5).map((log) => (
                       <Command.Item
@@ -533,7 +533,7 @@ export default function CommandPalette({
                         value={`log-${log.habit_name}-${log.date}`}
                         onSelect={() => handleLogSelect(log)}
                         onClick={() => handleLogSelect(log)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
+                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
                       >
                         <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
                           <Clock className="h-4 w-4" />
@@ -558,9 +558,9 @@ export default function CommandPalette({
                 {/* AI Conversations */}
                 {results?.conversations && results.conversations.found > 0 && (
                   <>
-                    <div className="px-3 py-1.5 pt-3 text-xs font-medium text-gray-400 flex items-center justify-between">
+                    <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                       <span>AI Conversations</span>
-                      <span className="text-gray-300 text-xs">{results.conversations.found} found</span>
+                      <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.conversations.found} found</span>
                     </div>
                     {results.conversations.hits.slice(0, 3).map((conv: any) => (
                       <Command.Item
@@ -568,7 +568,7 @@ export default function CommandPalette({
                         value={`conv-${conv.id}`}
                         onSelect={() => handleConversationSelect(conv)}
                         onClick={() => handleConversationSelect(conv)}
-                        className="flex cursor-pointer items-center gap-3 px-3 py-2 rounded-sm hover:bg-[#f0f0ef] data-[selected=true]:bg-[#f0f0ef]"
+                        className="ritual-snappy-row ritual-snappy-row-menu flex cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 outline-none"
                       >
                         <span className="text-gray-700 w-4 h-4 flex items-center justify-center">
                           <MessageSquare className="h-4 w-4" />
@@ -586,17 +586,17 @@ export default function CommandPalette({
           </div>
           
           {/* Footer */}
-          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.14)] px-3 py-2 text-xs text-gray-400">
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
             {/* Logo on left */}
             <div className="flex items-center gap-2">
               <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
             </div>
             
             {/* Keyboard shortcuts on right */}
-            <div className="flex items-center gap-2">
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↑</kbd>
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↓</kbd>
-              <kbd className="rounded-sm border border-[rgba(255,255,255,0.54)] bg-[rgba(255,255,255,0.20)] px-1.5 py-0.5 text-[11px] shadow-[inset_0_1px_0_rgba(255,255,255,0.22)]">↵</kbd>
+            <div className="flex items-center gap-1.5">
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
             </div>
           </div>
           </div>
