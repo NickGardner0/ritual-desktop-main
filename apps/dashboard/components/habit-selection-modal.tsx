@@ -188,7 +188,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     isMetricDropdownOpen,
     metricBtnRef,
     cardRef,
-    384,
+    undefined,
     160,
     280,
   );

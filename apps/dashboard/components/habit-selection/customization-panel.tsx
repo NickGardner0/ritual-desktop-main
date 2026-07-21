@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Calendar } from 'lucide-react';
-import { categoryMap } from './constants';
+import { Calendar, ChevronDown } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 export type CustomizationPanelProps = {
   selectedCategory: string | null;
@@ -23,116 +23,161 @@ export type CustomizationPanelProps = {
   handleCreateHabit: () => void;
 };
 
+const fieldRowClass =
+  'flex min-h-[44px] items-center justify-between gap-4 border-b border-[rgba(39,37,30,0.06)] px-3.5 last:border-b-0';
+
+const labelClass = 'shrink-0 text-[13px] font-normal text-[rgba(39,37,30,0.55)]';
+
+const controlClass =
+  'h-9 w-full min-w-0 rounded-md border border-[rgba(39,37,30,0.1)] bg-white px-2.5 text-[13.5px] font-normal tracking-[-0.01em] text-[#27251E] outline-none transition-colors placeholder:text-[rgba(39,37,30,0.35)] focus:border-[rgba(39,37,30,0.18)] focus:ring-1 focus:ring-gray-300';
+
 export function CustomizationPanel(props: CustomizationPanelProps) {
   const {
-    selectedCategory, selectedHabit, customHabitName, setCustomHabitName,
-    selectedMetric, setSelectedMetric, isMetricDropdownOpen, setIsMetricDropdownOpen,
-    metricDropdownRef, metricBtnRef, metricStyle, metricOptions,
-    isCreating, handleBack, handleCreateHabit,
+    selectedCategory,
+    selectedHabit,
+    customHabitName,
+    setCustomHabitName,
+    selectedMetric,
+    setSelectedMetric,
+    isMetricDropdownOpen,
+    setIsMetricDropdownOpen,
+    metricDropdownRef,
+    metricBtnRef,
+    metricStyle,
+    metricOptions,
+    isCreating,
+    handleBack,
+    handleCreateHabit,
   } = props;
+
   const portalTarget = typeof document !== 'undefined' ? document.body : null;
+  const titleValue = selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '');
+  const canSubmit = !(isCreating || (selectedCategory === 'custom' && !customHabitName.trim()));
+  const startDateLabel = `Today, ${new Date().toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })}`;
 
   return (
-            <div className="flex flex-col h-full py-2">
-              {/* Title */}
-              <h3 className="text-lg font-medium text-gray-900 mb-5">Configure</h3>
-              
-              {/* Form Fields */}
-              <div className="space-y-5">
-                {/* Title Input */}
-                <div className="flex items-center gap-4">
-                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Title</label>
-                  <input
-                    type="text"
-                    placeholder="Name"
-                    value={selectedCategory === 'custom' ? customHabitName : (selectedHabit?.label || '')}
-                    onChange={(e) => {
-                      if (selectedCategory === 'custom') {
-                        setCustomHabitName(e.target.value);
-                      }
-                    }}
-                    readOnly={selectedCategory !== 'custom'}
-                    className={`flex-1 px-3 py-2 border border-gray-300 rounded-sm text-sm font-normal text-gray-900 h-10 focus:outline-none focus:border-gray-400 ${
-                      selectedCategory === 'custom' ? 'bg-white' : 'bg-[#F3F3F3]'
-                    }`}
-                  />
-                </div>
+    <div className="flex h-full flex-col px-2 py-1">
+      <div className="mb-3 px-1.5 pt-1">
+        <h3 className="text-[18px] font-medium tracking-[-0.015em] text-[#27251E]">Configure</h3>
+        <p className="mt-1 text-[12.5px] leading-4 text-[rgba(39,37,30,0.45)]">
+          Choose how this habit should be tracked.
+        </p>
+      </div>
 
+      <section className="overflow-hidden rounded-md bg-[#f8f8f7]">
+        <div className={fieldRowClass}>
+          <span className={labelClass}>Title</span>
+          <div className="min-w-0 flex-1 max-w-[260px]">
+            <input
+              type="text"
+              placeholder="Name"
+              value={titleValue}
+              onChange={(event) => {
+                if (selectedCategory === 'custom') setCustomHabitName(event.target.value);
+              }}
+              readOnly={selectedCategory !== 'custom'}
+              className={cn(
+                controlClass,
+                selectedCategory !== 'custom' && 'cursor-default bg-[#F3F3F3] text-[rgba(39,37,30,0.7)]',
+              )}
+            />
+          </div>
+        </div>
 
-                {/* Metric Type Selection */}
-                <div className="flex items-center gap-4">
-                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Metric</label>
-                  <div className="flex-1">
-                    <div className="relative" ref={metricDropdownRef}>
-                      <button
-                        ref={metricBtnRef}
-                        onClick={() => setIsMetricDropdownOpen((v) => !v)}
-                        className="flex items-center justify-between w-full px-3 py-2 border border-gray-200 rounded-sm bg-white text-sm font-normal text-gray-700 hover:bg-[#F3F3F3] focus:outline-none h-10"
-                      >
-                        <span>{selectedMetric}</span>
-                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isMetricDropdownOpen ? 'rotate-180' : ''}`} />
-                      </button>
+        <div className={fieldRowClass}>
+          <span className={labelClass}>Metric</span>
+          <div className="relative min-w-0 flex-1 max-w-[260px]" ref={metricDropdownRef}>
+            <button
+              ref={metricBtnRef}
+              type="button"
+              onClick={() => setIsMetricDropdownOpen((open) => !open)}
+              className={cn(
+                controlClass,
+                'inline-flex items-center justify-between gap-2 hover:bg-[#F5F5F5]',
+                isMetricDropdownOpen && 'border-[rgba(39,37,30,0.18)] bg-[#F5F5F5]',
+              )}
+            >
+              <span className="truncate">{selectedMetric}</span>
+              <ChevronDown
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.4)] transition-transform',
+                  isMetricDropdownOpen && 'rotate-180',
+                )}
+              />
+            </button>
 
-                      {isMetricDropdownOpen &&
-                        portalTarget &&
-                        createPortal(
-                          <div style={metricStyle} data-metric-dropdown className="dropdown z-[10000] rounded-sm">
-                            <div className="py-1">
-                              {metricOptions.map((metric) => (
-                                <button
-                                  key={metric}
-                                  onClick={() => {
-                                    setSelectedMetric(metric);
-                                    setIsMetricDropdownOpen(false);
-                                  }}
-                                  className={`flex items-center w-full px-3 py-2 text-sm font-normal hover:bg-[#F3F3F3] text-left rounded-sm ${
-                                    selectedMetric === metric ? 'bg-[#F3F3F3] text-gray-900' : 'text-gray-700'
-                                  }`}
-                                >
-                                  {metric}
-                                </button>
-                              ))}
-                            </div>
-                          </div>,
-                          portalTarget
-                        )}
-                    </div>
-                  </div>
-                </div>
+            {isMetricDropdownOpen && portalTarget
+              ? createPortal(
+                  <div
+                    style={metricStyle}
+                    data-metric-dropdown
+                    className="overflow-hidden p-1"
+                  >
+                    {metricOptions.map((metric) => {
+                      const active = selectedMetric === metric;
+                      return (
+                        <button
+                          key={metric}
+                          type="button"
+                          onClick={() => {
+                            setSelectedMetric(metric);
+                            setIsMetricDropdownOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full items-center rounded-md px-2.5 py-1.5 text-left text-[13px] font-normal tracking-[-0.01em] outline-none transition-colors',
+                            active
+                              ? 'bg-[#F3F3F3] text-[#27251E]'
+                              : 'text-[#27251E] hover:bg-[#F3F3F3]',
+                          )}
+                        >
+                          {metric}
+                        </button>
+                      );
+                    })}
+                  </div>,
+                  portalTarget,
+                )
+              : null}
+          </div>
+        </div>
 
-                {/* Start Date Selection */}
-                <div className="flex items-center gap-4">
-                  <label className="text-sm font-normal text-gray-600 w-24 flex-shrink-0">Start Date</label>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2.5 px-3 py-2 border border-gray-200 rounded-sm bg-[#F3F3F3] text-sm font-normal text-gray-700 h-10 focus-within:ring-1 focus-within:ring-gray-300">
-                      <Calendar className="w-4 h-4 text-gray-500" />
-                      <span>Today, {new Date().toLocaleDateString('en-US', { 
-                        month: 'short', 
-                        day: 'numeric',
-                        year: 'numeric' 
-                      })}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer Buttons */}
-              <div className="flex justify-end items-center gap-3 mt-auto pt-6 border-t border-gray-100">
-                <button
-                  onClick={handleBack}
-                  className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 rounded-sm transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateHabit}
-                  disabled={isCreating || (selectedCategory === 'custom' && !customHabitName.trim())}
-                  className="px-5 py-2 bg-gray-900 text-white text-sm font-medium rounded-sm disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isCreating ? 'Starting...' : 'Start Tracking'}
-                </button>
-              </div>
+        <div className={fieldRowClass}>
+          <span className={labelClass}>Start date</span>
+          <div className="min-w-0 flex-1 max-w-[260px]">
+            <div
+              className={cn(
+                controlClass,
+                'inline-flex cursor-default items-center gap-2 bg-[#F3F3F3] text-[rgba(39,37,30,0.7)]',
+              )}
+            >
+              <Calendar className="h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.4)]" />
+              <span className="truncate">{startDateLabel}</span>
             </div>
+          </div>
+        </div>
+      </section>
 
+      <div className="mt-auto flex items-center justify-end gap-1.5 pt-5">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="h-8 rounded-md px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.55)] transition-colors hover:bg-[#F3F3F3] hover:text-[#27251E]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleCreateHabit}
+          disabled={!canSubmit}
+          className="h-8 rounded-md border border-black bg-black px-3 text-[12.5px] font-normal text-white transition-colors hover:bg-[#3D3C38] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {isCreating ? 'Starting…' : 'Start Tracking'}
+        </button>
+      </div>
+    </div>
   );
 }
