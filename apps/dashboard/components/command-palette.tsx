@@ -431,31 +431,38 @@ export default function CommandPalette({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(o) => { setOpen(o); if (!o) setQuery(""); }}>
       <DialogPrimitive.Portal>
-        {/* High z-index overlay to cover sidebar (z-[1001]) */}
         <DialogPrimitive.Overlay className="fixed inset-0 z-[9998] bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed left-[50%] top-[50%] z-[9999] w-full max-w-[calc(100%-32px)] translate-x-[-50%] translate-y-[-50%] select-text border-none bg-transparent p-0 shadow-none focus:outline-none md:max-w-[680px]"
+          className="fixed inset-0 z-[9999] border-none bg-transparent p-0 shadow-none outline-none focus:outline-none"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            inputRef.current?.focus();
+          }}
         >
           <DialogPrimitive.Title className="sr-only">Search</DialogPrimitive.Title>
-          <div className="flex h-[420px] flex-col overflow-hidden rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.92)] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)] supports-[backdrop-filter]:bg-[rgba(255,255,255,0.86)] supports-[backdrop-filter]:backdrop-blur-xl">
-            {/* Search Input */}
-            <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] px-4 py-3">
-              <input
-                ref={inputRef}
-                type="text"
-                placeholder="Type a command or search..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
-                autoFocus
-              />
-              {isLoading && <BrailleSpinner className="text-sm text-gray-400" />}
-            </div>
+          <div
+            className="pointer-events-none absolute inset-y-0 right-0 grid place-items-center p-4"
+            style={{ left: 'var(--ritual-sidebar-current-width, 0px)' }}
+          >
+            <div className="pointer-events-auto flex h-[min(420px,calc(100dvh-48px))] w-full max-w-[640px] flex-col overflow-hidden rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.78)] text-[#111111] shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)] backdrop-blur-2xl supports-[backdrop-filter]:bg-[rgba(255,255,255,0.72)]">
+              {/* Search Input */}
+              <div className="flex flex-shrink-0 items-center gap-2 border-b border-[rgba(39,37,30,0.06)] bg-white/40 px-4 py-3">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  placeholder="Type a command or search..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  className="flex-1 border-0 bg-transparent text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)] focus:outline-none"
+                  autoFocus
+                />
+                {isLoading && <BrailleSpinner className="text-sm text-[rgba(39,37,30,0.4)]" />}
+              </div>
 
-          {/* Results */}
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <Command className="rtlp-cmd" shouldFilter={false}>
-              <Command.List className="max-h-full overflow-y-auto px-2 py-2">
+              {/* Results */}
+              <div className="min-h-0 flex-1 overflow-y-auto bg-transparent">
+                <Command className="rtlp-cmd bg-transparent" shouldFilter={false}>
+                  <Command.List className="max-h-full overflow-y-auto bg-transparent px-2 py-2">
                 
                 {/* No results */}
                 {!hasResults && query && !isLoading && (
@@ -586,7 +593,7 @@ export default function CommandPalette({
           </div>
           
           {/* Footer */}
-          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
+          <div className="flex flex-shrink-0 items-center justify-between border-t border-[rgba(39,37,30,0.06)] bg-white/35 px-3 py-2 text-[12px] text-[rgba(39,37,30,0.4)]">
             {/* Logo on left */}
             <div className="flex items-center gap-2">
               <img src="/images/eclipse.svg" alt="Ritual" className="h-4 w-4 opacity-70" />
@@ -594,11 +601,12 @@ export default function CommandPalette({
             
             {/* Keyboard shortcuts on right */}
             <div className="flex items-center gap-1.5">
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
-              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-[#F3F3F3] px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↑</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↓</kbd>
+              <kbd className="rounded-md border border-[rgba(39,37,30,0.1)] bg-white/50 px-1.5 py-0.5 text-[11px] text-[rgba(39,37,30,0.55)]">↵</kbd>
             </div>
           </div>
+            </div>
           </div>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

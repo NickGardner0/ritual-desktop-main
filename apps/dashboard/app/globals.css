@@ -977,12 +977,29 @@ body[data-voice-hud-window="1"] {
     opacity: 0;
   }
 
-  /* Scoped command palette override: force square items */
+  /* Command palette rows: keep rounded + instant hover (override older square force) */
+  .rtlp-cmd {
+    background: transparent !important;
+  }
+
+  .rtlp-cmd [cmdk-list],
+  .rtlp-cmd [cmdk-group] {
+    background: transparent !important;
+  }
+
   .rtlp-cmd [cmdk-item],
   .rtlp-cmd [cmdk-item][data-selected="true"],
   .rtlp-cmd [cmdk-item]:hover,
   .rtlp-cmd [cmdk-item]:focus {
-    border-radius: 0 !important;
+    border-radius: 0.375rem !important;
+    cursor: pointer !important;
+    pointer-events: auto !important;
+  }
+
+  .rtlp-cmd [cmdk-item]:hover,
+  .rtlp-cmd [cmdk-item][data-selected="true"],
+  .rtlp-cmd [cmdk-item][aria-selected="true"] {
+    background-color: #F3F3F3 !important;
   }
 
   html.desktop body {

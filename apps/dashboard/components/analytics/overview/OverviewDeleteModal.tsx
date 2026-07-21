@@ -1,5 +1,6 @@
 'use client';
 
+import { createPortal } from 'react-dom';
 import { Spinner } from '@/components/ui/kibo-ui/spinner';
 
 interface OverviewDeleteModalProps {
@@ -17,8 +18,10 @@ export function OverviewDeleteModal({
 }: OverviewDeleteModalProps) {
   const isDeleting = deletingHabit === habitToDelete;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex h-[100dvh] w-screen items-center justify-center overflow-hidden p-4">
       <div
         className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
         onClick={onCancel}
@@ -61,6 +64,7 @@ export function OverviewDeleteModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
