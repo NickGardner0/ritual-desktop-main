@@ -1,11 +1,15 @@
 export const connectRowActionClass =
-  'inline-flex shrink-0 items-center justify-center px-1 text-[12.5px] font-medium text-[#8b8a86] transition-none group-hover:text-[#343330]';
+  'shrink-0 text-[12.5px] font-normal tabular-nums text-[rgba(39,37,30,0.4)] transition-colors group-hover:text-[rgba(39,37,30,0.55)] group-data-[active=true]:text-[rgba(39,37,30,0.55)]';
 
 export const connectRowActionConnectedClass =
-  'inline-flex shrink-0 items-center justify-center px-1 text-[12.5px] font-medium text-[#4b8d15] transition-none group-hover:text-[#3d7411]';
+  'shrink-0 text-[12.5px] font-normal text-[#4b8d15] transition-colors';
 
+/** Codex-like palette row: soft rounded hover/active, whole-row target */
 export const categoryRowClass =
-  'ritual-snappy-row group -mx-1 flex h-8 items-center justify-between gap-2.5 rounded-[var(--sidebar-row-radius)] px-2 text-[#2c2b28] outline-none focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-inset [&_svg]:text-[#222326]';
+  'ritual-snappy-row group flex h-9 w-full cursor-pointer items-center justify-between gap-3 rounded-md px-2.5 text-left text-[#27251E] outline-none transition-colors hover:bg-[#F3F3F3] focus-visible:bg-[#F3F3F3] data-[active=true]:bg-[#F3F3F3] disabled:cursor-wait disabled:opacity-50 [&_svg]:text-[#27251E]';
+
+export const sectionLabelClass =
+  'px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)] first:pt-1';
 
 export const categoryMap: Record<string, string> = {
   productivity: 'Productivity',

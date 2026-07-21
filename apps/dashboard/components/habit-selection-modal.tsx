@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { X } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { useHabits } from '@/contexts/HabitsContext';
 import type { Habit as StoredHabit } from '@/contexts/HabitsContext';
@@ -77,6 +78,10 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const [isMetricDropdownOpen, setIsMetricDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState(''); // Search state
   const [customHabitName, setCustomHabitName] = useState(''); // For custom habit input
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [selectableCount, setSelectableCount] = useState(0);
+  const selectHandlersRef = useRef<Array<() => void>>([]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const metricDropdownRef = useRef<HTMLDivElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const floatingLayerRef = useRef<HTMLDivElement>(null);
@@ -188,10 +193,38 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
     280,
   );
 
-    React.useEffect(() => {
+  React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && isOpen) {
+      if (!isOpen) return;
+
+      if (event.key === 'Escape') {
+        if (searchQuery.trim() && !showCustomization && !showComputerTracking) {
+          event.preventDefault();
+          setSearchQuery('');
+          return;
+        }
         onClose();
+        return;
+      }
+
+      if (showCustomization || showComputerTracking) return;
+
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveIndex((current) => Math.min(current + 1, Math.max(selectableCount - 1, 0)));
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveIndex((current) => Math.max(current - 1, 0));
+        return;
+      }
+      if (event.key === 'Enter') {
+        const handler = selectHandlersRef.current[activeIndex];
+        if (handler) {
+          event.preventDefault();
+          handler();
+        }
       }
     };
 
@@ -203,16 +236,45 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       setIsMetricDropdownOpen(false);
     };
 
-      if (isOpen) {
-        document.addEventListener('keydown', handleKeyDown);
+    if (isOpen) {
+      document.addEventListener('keydown', handleKeyDown);
       document.addEventListener('click', handleClickOutside);
     }
 
     return () => {
-          document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('click', handleClickOutside);
     };
-  }, [isOpen, isMetricDropdownOpen, onClose]);
+  }, [
+    isOpen,
+    isMetricDropdownOpen,
+    onClose,
+    searchQuery,
+    showCustomization,
+    showComputerTracking,
+    selectableCount,
+    activeIndex,
+  ]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+    setActiveIndex(0);
+    setSearchQuery('');
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [isOpen]);
+
+  React.useEffect(() => {
+    setActiveIndex(0);
+  }, [selectedCategory, searchQuery, showCustomization, showComputerTracking]);
+
+  const registerSelectHandlers = useCallback((handlers: Array<() => void>) => {
+    selectHandlersRef.current = handlers;
+  }, []);
+
+  const handleItemsChange = useCallback((count: number) => {
+    setSelectableCount(count);
+  }, []);
 
 
   const handleHabitClick = async (habit: { value: string; label: string }) => {
@@ -559,16 +621,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   if (!isOpen) return null;
 
+  const showPaletteChrome = !showCustomization && !showComputerTracking;
+  const searchPlaceholder = selectedCategory ? 'Search habits...' : 'Search devices...';
+
   const modalContent = (
-    <div 
+    <div
       className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden"
       data-tauri-drag-region="false"
     >
-      <div 
-        className="absolute inset-0 bg-[var(--surface-overlay)]"
+      <div
+        className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
         onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
         data-tauri-drag-region="false"
-        style={{ top: 0, left: 0, right: 0, bottom: 0, position: 'absolute' }}
       />
       <div
         className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
@@ -579,143 +643,154 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           role="dialog"
           aria-modal="true"
           aria-label="Habit selection"
-          className={`pointer-events-auto relative flex max-h-[calc(100dvh-32px)] w-full max-w-[520px] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--border-floating)] bg-white text-[#111111] shadow-[var(--shadow-dialog)] ${showCustomization ? 'min-h-[440px]' : ''}`}
+          className={cn(
+            'pointer-events-auto relative flex max-h-[calc(100dvh-32px)] w-full max-w-[540px] flex-col overflow-hidden',
+            'rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.92)] text-[#111111]',
+            'shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)]',
+            'supports-[backdrop-filter]:bg-[rgba(255,255,255,0.86)] supports-[backdrop-filter]:backdrop-blur-xl',
+            showCustomization && 'min-h-[440px]',
+          )}
         >
-        <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
-        <div className="flex flex-shrink-0 items-center justify-between px-4 pb-1.5 pt-4">
-          {showComputerTracking ? (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setShowComputerTracking(false)}
-                aria-label="Back to integrations"
-                className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-              </button>
-              <h2 className="text-[17px] font-medium leading-none tracking-[-0.01em] text-[#111111]">Computer Use</h2>
-            </div>
-          ) : showCustomization ? (
-            <button
-              onClick={handleBack}
-              aria-label="Back to habits"
-              className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-              </svg>
-            </button>
-          ) : (
-            <div className="flex items-center gap-3">
-              {selectedCategory && (
+          <div ref={floatingLayerRef} className="pointer-events-none absolute inset-0 z-50 overflow-visible" />
+
+          {showPaletteChrome ? (
+            <div className="flex flex-shrink-0 items-center gap-1.5 border-b border-[rgba(39,37,30,0.06)] px-3 py-2.5">
+              {selectedCategory ? (
                 <button
+                  type="button"
                   onClick={handleBack}
                   aria-label="Back to integrations"
-                  className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[rgba(39,37,30,0.45)] transition-colors hover:bg-[#F3F3F3] hover:text-[#27251E]"
                 >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                  </svg>
+                </button>
+              ) : null}
+              <input
+                ref={searchInputRef}
+                type="text"
+                aria-label={searchPlaceholder}
+                placeholder={searchPlaceholder}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 min-w-0 flex-1 border-0 bg-transparent px-1 text-[15px] font-normal tracking-[-0.01em] text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.38)]"
+              />
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close habit selection"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[rgba(39,37,30,0.45)] transition-colors hover:bg-[#F3F3F3] hover:text-[#27251E]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-shrink-0 items-center justify-between px-4 pb-1.5 pt-4">
+              {showComputerTracking ? (
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowComputerTracking(false)}
+                    aria-label="Back to integrations"
+                    className="rounded-md p-1 text-[#888888] transition-none hover:bg-[#F3F3F3] hover:text-[#111111]"
+                  >
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                  </button>
+                  <h2 className="text-[17px] font-medium leading-none tracking-[-0.01em] text-[#111111]">Computer Use</h2>
+                </div>
+              ) : (
+                <button
+                  onClick={handleBack}
+                  aria-label="Back to habits"
+                  className="rounded-md p-1 text-[#888888] transition-none hover:bg-[#F3F3F3] hover:text-[#111111]"
+                >
+                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
                   </svg>
                 </button>
               )}
-              <h2 className="text-[17px] font-medium leading-none tracking-[-0.01em] text-[#111111]">
-                {selectedCategory
-                  ? selectedCategory === 'whoop' ? 'Whoop'
-                  : selectedCategory === 'fitness' ? 'Health'
-                  : selectedCategory === 'education' ? 'Learning'
-                  : selectedCategory === 'experiments' ? 'Experiments'
-                  : selectedCategory === 'productivity' ? 'Productivity'
-                  : selectedCategory === 'applewatch' ? 'Apple Watch'
-                  : selectedCategory.charAt(0).toUpperCase() + selectedCategory.slice(1)
-                  : 'Connect devices'}
-              </h2>
+              <button
+                onClick={onClose}
+                aria-label="Close habit selection"
+                className="rounded-md p-1 text-[#888888] transition-none hover:bg-[#F3F3F3] hover:text-[#111111]"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           )}
-            <button
-              onClick={onClose}
-              aria-label="Close habit selection"
-              className="rounded-[var(--radius-row)] p-1 text-[#888888] transition-none hover:bg-[var(--row-hover)] hover:text-[#111111] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
-            >
-              <X className="w-4 h-4" />
-            </button>
-        </div>
 
-        {/* Description */}
-        {!selectedCategory && !showComputerTracking && (
-          <div className="flex-shrink-0 px-4 pb-2.5">
-            <p className="max-w-[470px] text-[13.5px] leading-[1.5] text-[var(--text-secondary)]">
-              Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
-            </p>
-        </div>
-        )}
+          {!selectedCategory && !showComputerTracking && !showCustomization && !searchQuery.trim() ? (
+            <div className="flex-shrink-0 px-4 pb-2 pt-1">
+              <p className="max-w-[470px] text-[13px] leading-[1.45] text-[rgba(39,37,30,0.45)]">
+                Automate tracking by connecting to these providers. New integrations and data sources are being added weekly.
+              </p>
+            </div>
+          ) : null}
 
-        {/* Search Bar - Only show when viewing habits within a category (not on main page, customization, or computer tracking) */}
-        {!showCustomization && !showComputerTracking && selectedCategory && (
-          <div className="flex-shrink-0 px-3 pb-2">
-            <input
-              type="text"
-              aria-label="Search habits"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-[var(--control-height)] w-full rounded-[var(--radius-control)] border border-[var(--border-subtle)] bg-white px-3 text-[13.5px] text-[#111111] placeholder:text-[var(--text-muted)] focus:border-[var(--border-floating)] focus:outline-none focus:ring-2 focus:ring-[var(--ritual-focus-ring)]"
-            />
+          <div className={cn(
+            'min-h-0 flex-1 overflow-y-auto px-2 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+            showCustomization ? 'max-h-[400px]' : 'max-h-[420px]',
+          )}>
+            {showComputerTracking ? (
+              <div className="px-2 py-2">
+                {resolvedUserId ? (
+                  <ComputerTrackingSettings userId={resolvedUserId} onClose={() => { setShowComputerTracking(false); checkComputerTrackingConnection(); }} />
+                ) : (
+                  <p className="py-2 text-sm text-gray-500">Sign in to configure desktop tracking.</p>
+                )}
+              </div>
+            ) : showCustomization ? (
+              <CustomizationPanel
+                selectedCategory={selectedCategory}
+                selectedHabit={selectedHabit}
+                customHabitName={customHabitName}
+                setCustomHabitName={setCustomHabitName}
+                selectedMetric={selectedMetric}
+                setSelectedMetric={setSelectedMetric}
+                isMetricDropdownOpen={isMetricDropdownOpen}
+                setIsMetricDropdownOpen={setIsMetricDropdownOpen}
+                metricDropdownRef={metricDropdownRef}
+                metricBtnRef={metricBtnRef}
+                metricStyle={metricStyle}
+                metricOptions={metricOptions}
+                isCreating={isCreating}
+                handleBack={handleBack}
+                handleCreateHabit={handleCreateHabit}
+              />
+            ) : !selectedCategory ? (
+              <CategoryList
+                computerTrackingConnected={computerTrackingConnected}
+                isAddingComputerHabit={isAddingComputerHabit}
+                appleWatchConnected={appleWatchConnected}
+                ouraConnected={ouraConnected}
+                whoopConnected={whoopConnected}
+                whoopConnecting={whoopConnecting}
+                garminConnected={garminConnected}
+                plaidConnected={plaidConnected}
+                handleCategorySelect={handleCategorySelect}
+                handleComputerUseConnect={() => void handleComputerUseConnect()}
+                openComputerUseSettings={() => void openComputerUseSettings()}
+                filterQuery={searchQuery}
+                activeIndex={activeIndex}
+                onActiveIndexChange={setActiveIndex}
+                onItemsChange={handleItemsChange}
+                onRegisterSelectHandlers={registerSelectHandlers}
+              />
+            ) : (
+              <HabitList
+                displayedHabits={displayedHabits}
+                searchQuery={searchQuery}
+                isCreating={isCreating}
+                handleHabitClick={handleHabitClick}
+                activeIndex={activeIndex}
+                onActiveIndexChange={setActiveIndex}
+                onItemsChange={handleItemsChange}
+                onRegisterSelectHandlers={registerSelectHandlers}
+              />
+            )}
           </div>
-        )}
-
-        {/* Content Area - Scrollable */}
-
-        <div className={`min-h-0 overflow-y-auto px-3 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${showCustomization ? 'max-h-[400px]' : 'max-h-[390px]'}`}>
-          {showComputerTracking ? (
-            <div className="py-2">
-              {resolvedUserId ? (
-                <ComputerTrackingSettings userId={resolvedUserId} onClose={() => { setShowComputerTracking(false); checkComputerTrackingConnection(); }} />
-              ) : (
-                <p className="text-sm text-gray-500 py-2">Sign in to configure desktop tracking.</p>
-              )}
-            </div>
-          ) : showCustomization ? (
-            <CustomizationPanel
-              selectedCategory={selectedCategory}
-              selectedHabit={selectedHabit}
-              customHabitName={customHabitName}
-              setCustomHabitName={setCustomHabitName}
-              selectedMetric={selectedMetric}
-              setSelectedMetric={setSelectedMetric}
-              isMetricDropdownOpen={isMetricDropdownOpen}
-              setIsMetricDropdownOpen={setIsMetricDropdownOpen}
-              metricDropdownRef={metricDropdownRef}
-              metricBtnRef={metricBtnRef}
-              metricStyle={metricStyle}
-              metricOptions={metricOptions}
-              isCreating={isCreating}
-              handleBack={handleBack}
-              handleCreateHabit={handleCreateHabit}
-            />
-          ) : !selectedCategory ? (
-            <CategoryList
-              computerTrackingConnected={computerTrackingConnected}
-              isAddingComputerHabit={isAddingComputerHabit}
-              appleWatchConnected={appleWatchConnected}
-              ouraConnected={ouraConnected}
-              whoopConnected={whoopConnected}
-              whoopConnecting={whoopConnecting}
-              garminConnected={garminConnected}
-              plaidConnected={plaidConnected}
-              handleCategorySelect={handleCategorySelect}
-              handleComputerUseConnect={() => void handleComputerUseConnect()}
-              openComputerUseSettings={() => void openComputerUseSettings()}
-            />
-          ) : (
-            <HabitList
-              displayedHabits={displayedHabits}
-              searchQuery={searchQuery}
-              isCreating={isCreating}
-              handleHabitClick={handleHabitClick}
-            />
-          )}
-        </div>
         </div>
       </div>
     </div>
