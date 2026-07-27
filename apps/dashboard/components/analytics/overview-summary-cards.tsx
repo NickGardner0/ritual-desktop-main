@@ -90,7 +90,7 @@ function SummaryCard({
   emptyState = false,
 }: SummaryCardProps) {
   return (
-    <div className="flex h-full min-h-[150px] flex-col rounded-sm border border-[#e6e6e6] bg-white px-4 py-3.5">
+    <div className="flex h-full min-h-[150px] flex-col rounded-md border border-[#e6e6e6] bg-white px-4 py-3.5 transition-colors duration-100 hover:bg-[var(--surface-panel)]">
       <span className="text-[12px] font-normal leading-none tracking-[-0.01em] text-[rgba(39,37,30,0.5)]">
         {title}
       </span>
