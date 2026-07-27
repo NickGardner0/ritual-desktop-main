@@ -10,6 +10,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner'
 import {
   clearFromWelcomeFlow,
   clearSignUpIntent,
+  hasPendingSignUpIntent,
   markDeviceAuthenticated,
 } from '@/lib/onboarding-flow'
 import {
@@ -115,11 +116,16 @@ async function fetchBootstrapWithRetry({
   throw lastError
 }
 
-async function restoreDashboardSizeBeforeRedirect(target: string): Promise<void> {
+async function prepareDashboardRedirect(
+  target: string,
+  shouldRestoreWindowSize: boolean,
+): Promise<void> {
   if (target.startsWith('/dashboard')) {
     clearPersistedOnboardingStep()
     clearSetupSubstep()
-    await restoreDashboardWindowSize()
+    if (shouldRestoreWindowSize) {
+      await restoreDashboardWindowSize()
+    }
   }
 }
 
@@ -144,6 +150,7 @@ export default function SSOCallback() {
     const bootstrapAndRedirect = async () => {
       try {
         setFailed(false)
+        const shouldRestoreDashboardWindowSize = hasPendingSignUpIntent()
         markDeviceAuthenticated()
         clearFromWelcomeFlow()
         clearSignUpIntent()
@@ -174,7 +181,7 @@ export default function SSOCallback() {
         const bootstrap = await response.json() as BootstrapResponse
         setStatus('Taking you to Ritual...')
         const redirectTarget = resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl())
-        await restoreDashboardSizeBeforeRedirect(redirectTarget)
+        await prepareDashboardRedirect(redirectTarget, shouldRestoreDashboardWindowSize)
         router.replace(redirectTarget)
       } catch (error) {
         console.error('Error completing sign-in:', error)

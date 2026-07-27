@@ -153,7 +153,7 @@ export function HomeClient() {
     lastCheckedUserIdRef.current = user.id;
     queueMicrotask(() => setIsChecking(true));
 
-    const restoreDashboardOnRedirect = isNewUser === true;
+    const restoreDashboardOnRedirect = hasPendingSignUpIntent();
 
     const checkAndRedirect = async () => {
       try {
