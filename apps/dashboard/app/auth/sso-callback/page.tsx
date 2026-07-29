@@ -219,7 +219,7 @@ export default function SSOCallback() {
   }, [getToken, isLoaded, retryNonce, router, user])
 
   return (
-    <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
+    <div className="ritual-onboarding-font min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
       <div className="text-center">
         {!failure ? (
           <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" intervalMs={45} />

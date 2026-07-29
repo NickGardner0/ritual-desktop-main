@@ -105,7 +105,7 @@ function OnboardingButton({
 
 function SignUpStep({ desktopMode, oauthFlowMode }: { desktopMode: boolean; oauthFlowMode: 'redirect' | 'auto' }) {
   return (
-    <div className="flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-5">
+    <div className="ritual-onboarding-font flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-5">
       <div className="w-full max-w-[420px]">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
@@ -123,6 +123,12 @@ function SignUpStep({ desktopMode, oauthFlowMode }: { desktopMode: boolean; oaut
               fallbackRedirectUrl="/auth/sso-callback"
               oauthFlow={oauthFlowMode}
               oidcPrompt={desktopMode ? "select_account" : undefined}
+              appearance={{
+                variables: {
+                  fontFamily: "'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                  fontFamilyButtons: "'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                },
+              }}
             />
           </ClerkLoaded>
         </div>
@@ -488,7 +494,7 @@ export default function OnboardingPage() {
 
   if (!isLoaded && step !== "welcome") {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-white">
+      <div className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white">
         <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     )
@@ -500,7 +506,7 @@ export default function OnboardingPage() {
 
   if (step === "setup") {
     return (
-      <>
+      <div className="ritual-onboarding-font h-screen w-screen">
         <SetupWizard
           busy={busy}
           userId={user?.id}
@@ -511,7 +517,7 @@ export default function OnboardingPage() {
             {error}
           </p>
         ) : null}
-      </>
+      </div>
     )
   }
 
@@ -520,7 +526,7 @@ export default function OnboardingPage() {
     : "min-h-screen bg-[#e9e9e7]"
 
   return (
-    <div className={cn("flex items-center justify-center overflow-hidden", pageClassName)}>
+    <div className={cn("ritual-onboarding-font flex items-center justify-center overflow-hidden", pageClassName)}>
       <div data-tauri-drag-region className="fixed left-0 right-0 top-0 z-50 h-8" />
       {step === "welcome" ? (
         <OnboardingWindow

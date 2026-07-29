@@ -1973,12 +1973,17 @@ body[data-voice-hud-window="1"] {
   --px-onboarding-chip: #ffffff;
   --px-onboarding-chip-hover: var(--surface-panel, #f4f4f3);
   --px-onboarding-recessed: #f7f8f5;
-  --px-onboarding-serif: var(--font-onboarding-serif), 'Newsreader', Georgia, 'Times New Roman', serif;
+}
+
+.ritual-onboarding-font,
+.ritual-onboarding-font *:not([class*="material-symbols"]):not(code):not(pre):not(kbd),
+.px-onboarding,
+.px-onboarding *:not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+  --ritual-selected-font-family: var(--ritual-font-fk);
+  font-family: var(--ritual-font-fk) !important;
 }
 
 .px-onboarding {
-  --ritual-selected-font-family: var(--ritual-font-fk);
-  font-family: var(--ritual-selected-font-family);
   color: var(--px-onboarding-ink);
 }
 
@@ -1990,8 +1995,8 @@ html body .ritual-font-waldenburg .px-onboarding .px-onboarding-title,
 html body .ritual-font-inter .px-onboarding .px-onboarding-title,
 html body .ritual-font-dm-sans .px-onboarding .px-onboarding-title,
 html body .ritual-font-geist .px-onboarding .px-onboarding-title {
-  font-family: var(--px-onboarding-serif) !important;
-  font-weight: 400;
+  font-family: var(--ritual-font-fk) !important;
+  font-weight: 500;
   letter-spacing: -0.015em;
   color: var(--px-onboarding-ink);
 }

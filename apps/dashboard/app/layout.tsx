@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { Suspense } from 'react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
 import { GeistSans } from 'geist/font/sans'
-import { DM_Sans, Inter, Newsreader } from 'next/font/google'
+import { DM_Sans, Inter } from 'next/font/google'
 import './globals.css'
 import ChunkErrorBoundary from '@/components/ChunkErrorBoundary'
 import { RootProviders } from '@/components/root-providers'
@@ -28,12 +28,6 @@ const dmSans = DM_Sans({
   display: 'swap',
 })
 
-const newsreader = Newsreader({
-  subsets: ['latin'],
-  variable: '--font-onboarding-serif',
-  display: 'swap',
-})
-
 export default function RootLayout({
   children,
 }: {
@@ -42,7 +36,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`desktop ${geistSans.variable} ${inter.variable} ${dmSans.variable} ${newsreader.variable}`}
+      className={`desktop ${geistSans.variable} ${inter.variable} ${dmSans.variable}`}
       suppressHydrationWarning
     >
       <head>

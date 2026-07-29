@@ -34,7 +34,7 @@ export function PerplexityOnboardingShell({
   return (
     <div
       className={cn(
-        "px-onboarding h-screen w-screen overflow-hidden bg-[var(--px-onboarding-stage)]",
+        "ritual-onboarding-font px-onboarding h-screen w-screen overflow-hidden bg-[var(--px-onboarding-stage)]",
         className,
       )}
     >

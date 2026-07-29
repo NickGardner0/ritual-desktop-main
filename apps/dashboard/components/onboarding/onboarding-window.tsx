@@ -35,7 +35,7 @@ export function OnboardingWindow({
         "flex w-full flex-col overflow-hidden rounded-xl bg-white text-[#14171d] shadow-[0_18px_54px_rgba(18,20,28,0.16)]",
         className,
       )}
-      style={{ fontFamily: "var(--ritual-selected-font-family)" }}
+      style={{ fontFamily: "var(--ritual-font-fk)" }}
     >
       <div
         className={cn(

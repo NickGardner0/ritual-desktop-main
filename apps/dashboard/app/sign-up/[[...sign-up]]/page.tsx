@@ -14,7 +14,7 @@ export default async function SignUpPage() {
     const isDesktopApp = isDesktopUserAgent(userAgent);
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
+        <div className="ritual-onboarding-font min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
                 <AuthFlowIntent mode="sign_up" />
                 {isDesktopApp ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
@@ -23,6 +23,8 @@ export default async function SignUpPage() {
                         appearance={{
                             variables: {
                                 borderRadius: '0.125rem',
+                                fontFamily: "'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+                                fontFamilyButtons: "'FK Grotesk Neue', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
                             },
                             elements: {
                                 rootBox: "mx-auto",

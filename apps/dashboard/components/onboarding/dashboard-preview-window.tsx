@@ -1,6 +1,5 @@
 "use client";
 
-import { GeistSans } from "geist/font/sans";
 import {
   ArrowUp,
   AudioLines,
@@ -406,7 +405,8 @@ function DashboardPreviewCompact() {
 
   return (
     <div
-      className={`relative mx-auto w-full overflow-hidden rounded-[12px] border border-[#E6E6E3] bg-white text-[#27251E] shadow-[0_28px_70px_-30px_rgba(39,37,30,0.42),0_10px_24px_-18px_rgba(39,37,30,0.28)] ${GeistSans.variable}`}
+      className="relative mx-auto w-full overflow-hidden rounded-[12px] border border-[#E6E6E3] bg-white text-[#27251E] shadow-[0_28px_70px_-30px_rgba(39,37,30,0.42),0_10px_24px_-18px_rgba(39,37,30,0.28)]"
+      style={{ fontFamily: "var(--ritual-font-fk)" }}
       aria-label="Ritual desktop dashboard preview"
     >
       <div className="overflow-hidden bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.82)]">
@@ -537,13 +537,13 @@ function DashboardPreviewScaled() {
   const scaledWindowStyle = {
     transform: `scale(${previewScale})`,
     transformOrigin: "top left",
-    fontFamily: "var(--font-geist-sans), system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    fontFamily: "var(--ritual-font-fk)",
   } satisfies CSSProperties;
 
   return (
     <div
       ref={previewRef}
-      className={`relative mx-auto aspect-[1080/600] w-full overflow-hidden rounded-[12px] border border-[#E6E6E3] bg-white text-[#27251E] shadow-[0_28px_70px_-30px_rgba(39,37,30,0.42),0_10px_24px_-18px_rgba(39,37,30,0.28)] ${GeistSans.variable}`}
+      className="relative mx-auto aspect-[1080/600] w-full overflow-hidden rounded-[12px] border border-[#E6E6E3] bg-white text-[#27251E] shadow-[0_28px_70px_-30px_rgba(39,37,30,0.42),0_10px_24px_-18px_rgba(39,37,30,0.28)]"
       aria-label="Ritual desktop dashboard preview"
     >
       <div

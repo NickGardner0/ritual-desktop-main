@@ -109,7 +109,7 @@ function DesktopStartOAuthInner() {
   if ('error' in parsed || error) {
     const message = error ?? parsed.error;
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white px-6">
+      <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white px-6">
         <div className="w-full max-w-lg rounded-2xl border border-red-200 bg-red-50 p-8 text-[#1d1a16] shadow-sm">
           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-red-700">
             Ritual Desktop Auth
@@ -141,7 +141,7 @@ function DesktopStartOAuthInner() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-6">
+    <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white px-6">
       <div className="w-full max-w-lg rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-sm">
         <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
         <h1 className="mt-6 text-2xl font-medium text-gray-900">
@@ -159,7 +159,7 @@ export default function DesktopStartOAuthPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen items-center justify-center bg-white px-6">
+        <main className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white px-6">
           <div className="text-center text-gray-900">
             <BrailleSpinner className="mx-auto text-2xl text-gray-900" />
             <p className="mt-4 text-sm text-gray-600">Preparing desktop sign-in…</p>
