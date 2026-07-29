@@ -16,12 +16,47 @@ test('onboarding uses the canonical Ritual mark instead of the animated shader',
   ])
 
   assert.match(introSource, /src="\/images\/eclipse\.svg"/)
-  assert.match(introSource, /width=\{72\}/)
-  assert.match(introSource, /height=\{72\}/)
+  assert.match(introSource, /width=\{40\}/)
+  assert.match(introSource, /height=\{40\}/)
+  assert.match(introSource, /className="mx-auto h-10 w-10"/)
+  assert.match(introSource, /className="translate-y-6"/)
   assert.doesNotMatch(introSource, /LiquidMetal|ritual-liquid-metal/)
   assert.doesNotMatch(packageSource, /@paper-design\/shaders-react/)
   assert.match(ritualMark, /viewBox="0 0 330 330"/)
   assert.match(ritualMark, /fill="black"/)
+})
+
+test('tracking interests use behavior domains and updated recommendations copy', async () => {
+  const workTypeSource = await readDashboardFile(
+    'components/onboarding/steps/work-type-step.tsx',
+  )
+
+  assert.match(workTypeSource, /title="What would you like to track"/)
+  assert.match(
+    workTypeSource,
+    /subtitle="This helps Ritual make recommendations and suggestions"/,
+  )
+
+  for (const label of [
+    'Health',
+    'Learning',
+    'Productivity',
+    'Work',
+    'Sleep',
+    'Side Projects',
+    'Coding',
+    'Finance',
+    'Drugs',
+    'Goals',
+    'Supplements',
+    'Habits',
+  ]) {
+    assert.match(workTypeSource, new RegExp(`label: "${label}"`))
+  }
+
+  assert.doesNotMatch(workTypeSource, /Business Owner|Software Engineering|Marketing/)
+  assert.match(workTypeSource, /useState<Set<string>>/)
+  assert.match(workTypeSource, /selected=\{selected\.has\(item\.id\)\}/)
 })
 
 test('every onboarding surface is scoped to FK Grotesk Neue', async () => {

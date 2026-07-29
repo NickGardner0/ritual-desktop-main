@@ -19,14 +19,14 @@ export function IntroStep({
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <div className="flex flex-1 items-center justify-center px-8 text-center">
-        <div className="-translate-y-6">
+        <div className="translate-y-6">
           <Image
             src="/images/eclipse.svg"
             alt="Ritual"
-            width={72}
-            height={72}
+            width={40}
+            height={40}
             priority
-            className="mx-auto h-[72px] w-[72px]"
+            className="mx-auto h-10 w-10"
           />
           <h1 className="px-onboarding-title mt-8 text-[24px] leading-[1.2]">
             Welcome to Ritual
