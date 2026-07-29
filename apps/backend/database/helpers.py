@@ -46,7 +46,12 @@ def user_db_to_profile(user: UserDB) -> UserProfile:
     )
 
 
-def habit_db_to_pydantic(habit: HabitDB) -> Habit:
+def habit_db_to_pydantic(
+    habit: HabitDB,
+    *,
+    was_inserted: bool = True,
+    receipt_id: Optional[str] = None,
+) -> Habit:
     """Convert HabitDB model to Habit Pydantic model"""
     return Habit(
         id=habit.id,
@@ -60,11 +65,18 @@ def habit_db_to_pydantic(habit: HabitDB) -> Habit:
         sensor_type=habit.sensor_type,
         metric_type=habit.metric_type,
         created_at=habit.created_at,
-        updated_at=habit.updated_at
+        updated_at=habit.updated_at,
+        was_inserted=was_inserted,
+        receipt_id=receipt_id,
     )
 
 
-def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
+def habit_log_db_to_pydantic(
+    log: HabitLogDB,
+    *,
+    was_inserted: bool = True,
+    receipt_id: Optional[str] = None,
+) -> HabitLog:
     """Convert HabitLogDB model to HabitLog Pydantic model"""
     return HabitLog(
         id=log.id,
@@ -77,6 +89,11 @@ def habit_log_db_to_pydantic(log: HabitLogDB) -> HabitLog:
         status=log.status,
         notes=log.notes,
         source=log.source,
+        client_event_id=getattr(log, "client_event_id", None),
+        actor_type=getattr(log, "actor_type", None),
+        actor_ref=getattr(log, "actor_ref", None),
+        was_inserted=was_inserted,
+        receipt_id=receipt_id,
         log_metadata=log.log_metadata,
         location_lat=getattr(log, "location_lat", None),
         location_lon=getattr(log, "location_lon", None),

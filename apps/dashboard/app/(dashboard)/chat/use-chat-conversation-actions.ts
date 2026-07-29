@@ -202,19 +202,30 @@ export function useChatConversationActions({
       
       if (response.ok) {
         const conversation: PersistedConversation = await response.json();
-        setConversationId(conversation.id);
-        setVoiceStyleEnabled(conversation.response_mode === 'voice');
-        setQueueAutoRun(Boolean(conversation.auto_run_queued));
-
+        
         if (conversation && conversation.messages && conversation.messages.length > 0) {
           const loadedMessages: Message[] = conversation.messages.map((m) => {
             let messageCanvasData: HabitCanvasData | undefined;
+            let actionReceipts: Message['actionReceipts'];
             if (m.tool_payload && m.role === 'assistant') {
-              const toolData = m.tool_payload as { stats?: unknown; dailyBreakdown?: unknown; dailyBreakdownHabit?: unknown; correlation?: unknown; screenTimeSpent?: unknown; weeklyOverview?: unknown; dailyOverview?: unknown; monthlyOverview?: unknown };
+              const toolData = m.tool_payload as {
+                stats?: unknown;
+                dailyBreakdown?: unknown;
+                dailyBreakdownHabit?: unknown;
+                correlation?: unknown;
+                screenTimeSpent?: unknown;
+                weeklyOverview?: unknown;
+                dailyOverview?: unknown;
+                monthlyOverview?: unknown;
+                actionReceipts?: Message['actionReceipts'];
+              };
               const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
               const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
               const question = previousUserMessage?.role === 'user' ? previousUserMessage.content : '';
               messageCanvasData = buildCanvasFromToolData(toolData, question);
+              if (Array.isArray(toolData.actionReceipts)) {
+                actionReceipts = toolData.actionReceipts;
+              }
             }
             
             return {
@@ -222,10 +233,17 @@ export function useChatConversationActions({
               role: m.role,
               content: m.content,
               canvasData: messageCanvasData,
+              actionReceipts,
             };
           });
           
           setMessages(loadedMessages);
+          setConversationId(conversation.id);
+          
+          // Initialize voice style from conversation's response_mode
+          setVoiceStyleEnabled(conversation.response_mode === 'voice');
+          setQueueAutoRun(Boolean(conversation.auto_run_queued));
+          
           const lastMessageWithCanvas = [...loadedMessages].reverse().find(m => m.canvasData);
           if (lastMessageWithCanvas?.canvasData) {
             setCanvasData(lastMessageWithCanvas.canvasData);

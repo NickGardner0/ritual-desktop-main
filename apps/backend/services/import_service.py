@@ -734,7 +734,9 @@ class ImportService:
                             results.append(BatchLogResult(
                                 index=i,
                                 status="skipped",
-                                error="Exact duplicate"
+                                log_id=existing_by_key[dedupe_key],
+                                error="Exact duplicate",
+                                was_inserted=False,
                             ))
                             skipped += 1
                             continue
@@ -749,7 +751,8 @@ class ImportService:
                                 results.append(BatchLogResult(
                                     index=i,
                                     status="skipped",
-                                    log_id=existing_log.id
+                                    log_id=existing_log.id,
+                                    was_inserted=False,
                                 ))
                                 skipped += 1
                                 continue
@@ -830,6 +833,8 @@ class ImportService:
                             "status": "completed",
                             "notes": log_data.notes,
                             "source": log_data.source or "import",
+                            "actor_type": "import",
+                            "actor_ref": request.import_run_id,
                             "source_id": log_data.source_id,
                             "dedupe_key": dedupe_key,
                             "import_run_id": request.import_run_id,
@@ -842,7 +847,8 @@ class ImportService:
                         results.append(BatchLogResult(
                             index=i,
                             status="inserted",
-                            log_id=log_id
+                            log_id=log_id,
+                            was_inserted=True,
                         ))
                         inserted += 1
                         

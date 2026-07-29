@@ -780,6 +780,18 @@ def create_core_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
+    @router.delete("/api/habits/{habit_id}/logs/{log_id}")
+    async def delete_habit_log(
+        habit_id: str,
+        log_id: str,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            await habits_service.delete_habit_log(habit_id, log_id, current_user["id"])
+            return {"message": "Habit log deleted successfully"}
+        except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
     @router.get("/api/habits/{habit_id}/logs", response_model=List[HabitLog])
     async def get_habit_logs(
         habit_id: str,

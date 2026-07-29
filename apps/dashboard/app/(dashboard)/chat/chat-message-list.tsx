@@ -9,6 +9,7 @@ import {
   cleanContentForDisplay,
 } from './chat-client.shared';
 import type { Message } from './chat-client.shared';
+import { ChatActionReceiptList } from './chat-action-receipt';
 
 type ToolStatus = {
   label: string;
@@ -83,6 +84,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
           <Response className="text-[14px] leading-[1.55] text-[#535353]">
             {message.content}
           </Response>
+          {message.actionReceipts && message.actionReceipts.length > 0 ? (
+            <ChatActionReceiptList receipts={message.actionReceipts} />
+          ) : null}
           {voiceStyleEnabled &&
             message.replyChips &&
             message.replyChips.length > 0 &&

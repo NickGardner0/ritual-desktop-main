@@ -213,7 +213,21 @@ export type ChatToolResults = {
   calendarEvents?: CalendarEventsResult;
   suggested_followups?: string[];
   reply_chips?: string[];
+  actionReceipts?: ActionReceiptSummary[];
 };
+
+/** Mutation receipt returned by logHabit / createHabit tools */
+export interface ActionReceiptSummary {
+  receipt_id: string;
+  action_kind: 'logHabit' | 'createHabit' | string;
+  habit_id?: string | null;
+  habit_name?: string | null;
+  was_inserted?: boolean;
+  undoable?: boolean;
+  log_id?: string | null;
+  amount?: number | null;
+  date?: string | null;
+}
 
 // ---------------------------------------------------------------------------
 // Local (desktop) activity data passed from the client

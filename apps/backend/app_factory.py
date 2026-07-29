@@ -17,6 +17,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import text
 
 from api.action_profiles import create_action_profiles_router
+from api.action_receipts import create_action_receipts_router
 from api.account_deletion import create_account_deletion_router
 from api.analytics import create_analytics_router
 from api.approvals import create_approvals_router
@@ -208,6 +209,7 @@ def create_app() -> FastAPI:
     app.include_router(create_tasks_router(get_current_user=get_current_user))
     app.include_router(create_workflows_router(get_current_user=get_current_user))
     app.include_router(create_action_profiles_router(get_current_user=get_current_user))
+    app.include_router(create_action_receipts_router(get_current_user=get_current_user))
     app.include_router(create_approvals_router(get_current_user=get_current_user))
     app.include_router(create_facts_router(get_current_user=get_current_user))
     app.include_router(create_metric_facts_router(get_current_user=get_current_user))

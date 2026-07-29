@@ -23,7 +23,11 @@ class HabitBase(BaseModel):
 
 class HabitCreate(HabitBase):
     """Model for creating a new habit"""
-    pass
+    client_event_id: Optional[str] = None
+    source: Optional[str] = None
+    actor_type: Optional[Literal['user', 'assistant', 'import', 'integration', 'system']] = None
+    actor_ref: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 class HabitUpdate(BaseModel):
     """Model for updating a habit - all fields optional"""
@@ -42,6 +46,8 @@ class Habit(HabitBase):
     user_id: str
     created_at: datetime
     updated_at: datetime
+    was_inserted: Optional[bool] = True
+    receipt_id: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -60,7 +66,11 @@ class HabitLogBase(BaseModel):
 
 class HabitLogCreate(HabitLogBase):
     """Model for creating a new habit log"""
-    pass
+    client_event_id: Optional[str] = None
+    source: Optional[str] = None
+    actor_type: Optional[Literal['user', 'assistant', 'import', 'integration', 'system']] = None
+    actor_ref: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 class HabitLog(HabitLogBase):
     """Full habit log model"""
@@ -68,6 +78,11 @@ class HabitLog(HabitLogBase):
     habit_id: str
     habit_name: Optional[str] = None
     source: Optional[str] = None
+    client_event_id: Optional[str] = None
+    actor_type: Optional[str] = None
+    actor_ref: Optional[str] = None
+    was_inserted: Optional[bool] = True
+    receipt_id: Optional[str] = None
     log_metadata: Optional[str] = None
     location_lat: Optional[float] = None
     location_lon: Optional[float] = None

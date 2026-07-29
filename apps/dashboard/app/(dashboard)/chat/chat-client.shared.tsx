@@ -196,12 +196,25 @@ export const Response = memo(function Response({
   );
 });
 
+export type ChatActionReceiptData = {
+  receipt_id: string;
+  action_kind: string;
+  habit_id?: string | null;
+  habit_name?: string | null;
+  was_inserted?: boolean;
+  undoable?: boolean;
+  log_id?: string | null;
+  amount?: number | null;
+  date?: string | null;
+};
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   canvasData?: HabitCanvasData;
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
+  actionReceipts?: ChatActionReceiptData[];
 }
 
 export type ConversationContextMenuState = {
@@ -726,7 +739,6 @@ export interface PersistedMessage {
 export interface PersistedConversation {
   id: string;
   user_id: string;
-  experiment_id?: string | null;
   title: string | null;
   response_mode?: 'text' | 'voice';
   auto_run_queued?: boolean;
@@ -738,7 +750,6 @@ export interface PersistedConversation {
 // Sidebar conversation item (without full messages)
 export interface ConversationListItem {
   id: string;
-  experiment_id?: string | null;
   title: string | null;
   created_at: string;
   updated_at: string;

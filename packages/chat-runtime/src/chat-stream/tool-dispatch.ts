@@ -16,6 +16,8 @@ export type ToolDispatchContext = {
     strictThisWeek?: boolean;
   };
   strictThisWeekForWeeklyOverview: boolean;
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
 };
 
 export function collectToolResult(toolResults: ChatToolResults, name: string, raw: string): void {
@@ -100,6 +102,21 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
         break;
       case 'logHabit':
       case 'createHabit':
+        if (parsed.success && parsed.receipt?.receipt_id) {
+          toolResults.actionReceipts = toolResults.actionReceipts || [];
+          toolResults.actionReceipts.push({
+            receipt_id: parsed.receipt.receipt_id,
+            action_kind: name,
+            habit_id: parsed.habit_id ?? parsed.receipt.habit_id ?? null,
+            habit_name: parsed.habit_name ?? parsed.receipt.habit_name ?? null,
+            was_inserted: parsed.receipt.was_inserted ?? parsed.was_inserted ?? true,
+            undoable: parsed.receipt.undoable ?? true,
+            log_id: parsed.log?.id ?? parsed.receipt.log_id ?? null,
+            amount: parsed.amount ?? null,
+            date: parsed.date ?? null,
+          });
+        }
+        break;
       case 'getSmsPreferences':
       case 'updateSmsPreferences':
         break;
@@ -184,6 +201,8 @@ export async function runToolLoop(
               latestUserContent: dispatchContext.latestUserContent,
               weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
               strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
+              conversationId: dispatchContext.conversationId,
+              conversationIdPromise: dispatchContext.conversationIdPromise,
             },
           ),
         );

@@ -893,7 +893,9 @@ def create_imports_router(
                     if habit_for_tinybird and tinybird_service:
                         tinybird_payloads: List[Dict[str, Any]] = []
                         for log_result in result.results:
-                            if log_result.status in ["inserted", "updated"] and log_result.log_id:
+                            # Only fan out newly inserted or updated rows; skipped
+                            # duplicates have was_inserted=false and must not re-ingest.
+                            if log_result.status in ["inserted", "updated"] and log_result.log_id and log_result.was_inserted is not False:
                                 log_data = logs[log_result.index] if log_result.index < len(logs) else None
                                 if log_data:
                                     tinybird_payloads.append({

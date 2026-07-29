@@ -45,6 +45,8 @@ class HabitLogDB(Base):
     log_metadata = Column(Text)  # JSON string for additional data (e.g. Whoop sleep_onset, sleep_end)
     client_event_id = Column(String, nullable=True)  # Phase 5A: For idempotency checking
     source = Column(String, nullable=True)  # Phase 5A: Source of the log (ai_log_v2, screenshot, manual)
+    actor_type = Column(String, nullable=True)  # user | assistant | import | integration | system
+    actor_ref = Column(String, nullable=True)  # conversation id, import run id, integration name, etc.
     origin_record_kind = Column(String, nullable=True)  # sample, event
     origin_record_id = Column(String, nullable=True)  # canonical wearable record ID
     
@@ -77,6 +79,13 @@ class HabitLogDB(Base):
             "client_event_id",
             unique=True,
             sqlite_where=text("client_event_id IS NOT NULL AND source = 'first_run'"),
+        ),
+        Index(
+            "idx_habit_logs_habit_client_event",
+            "habit_id",
+            "client_event_id",
+            unique=True,
+            sqlite_where=text("client_event_id IS NOT NULL"),
         ),
     )
 

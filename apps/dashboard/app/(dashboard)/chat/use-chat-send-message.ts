@@ -159,7 +159,21 @@ export function useChatSendMessage({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
-      let toolData: { stats?: any; dailyBreakdown?: any; dailyBreakdownHabit?: any; correlation?: any; trends?: any; anomalies?: any; screenTimeSpent?: any; weeklyOverview?: any; dailyOverview?: any; monthlyOverview?: any; suggested_followups?: string[]; reply_chips?: string[] } | null = null;
+      let toolData: {
+        stats?: any;
+        dailyBreakdown?: any;
+        dailyBreakdownHabit?: any;
+        correlation?: any;
+        trends?: any;
+        anomalies?: any;
+        screenTimeSpent?: any;
+        weeklyOverview?: any;
+        dailyOverview?: any;
+        monthlyOverview?: any;
+        suggested_followups?: string[];
+        reply_chips?: string[];
+        actionReceipts?: Message['actionReceipts'];
+      } | null = null;
       let streamBuffer = '';
       let toolMarkedDone = false;
       let pendingStreamingContent = '';
@@ -307,12 +321,17 @@ export function useChatSendMessage({
         : td?.stats ? ['Show daily breakdown', 'Compare with another habit', 'Any unusual days?']
         : undefined;
 
+      const actionReceipts = Array.isArray((toolData as any)?.actionReceipts)
+        ? ((toolData as any).actionReceipts as Message['actionReceipts'])
+        : undefined;
+
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         content: displayContent || 'I was unable to process your request.',
         canvasData: extractedCanvas,
         replyChips: replyChips,  // Phase 4A
+        actionReceipts,
       };
       
       setMessages([...newMessages, assistantMessage]);

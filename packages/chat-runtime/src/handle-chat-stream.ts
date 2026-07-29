@@ -105,6 +105,8 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         latestUserContent,
         weeklyOverviewQueryParams: route.weeklyOverviewQueryParams,
         strictThisWeekForWeeklyOverview: route.strictThisWeekForWeeklyOverview,
+        conversationId: immediateConversationId,
+        conversationIdPromise,
       },
       isVoiceMode,
     );

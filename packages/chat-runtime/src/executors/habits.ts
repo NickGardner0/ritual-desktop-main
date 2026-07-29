@@ -418,12 +418,37 @@ export async function executeGetStreaks(token: string, params: {
 // executeLogHabit
 // ---------------------------------------------------------------------------
 
+async function resolveConversationId(ctx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+}): Promise<string | null> {
+  if (ctx?.conversationId) return ctx.conversationId;
+  if (ctx?.conversationIdPromise) {
+    try {
+      return (await ctx.conversationIdPromise) || null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+function newClientEventId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function executeLogHabit(token: string, params: {
   habitName: string;
   amount?: number;
   unitType?: string;
   note?: string;
-}, timezone?: string) {
+}, timezone?: string, conversationCtx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
+}) {
   console.log('📝 logHabit called:', params);
 
   try {
@@ -461,9 +486,16 @@ export async function executeLogHabit(token: string, params: {
 
     // Step 3: Log the entry
     const today = getLocalDateString(timezone);
+    const clientEventId = newClientEventId();
+    const conversationId = await resolveConversationId(conversationCtx);
     const logBody: Record<string, unknown> = {
       date: today,
       status: 'completed',
+      client_event_id: clientEventId,
+      source: 'ai_chat',
+      actor_type: 'assistant',
+      actor_ref: conversationId,
+      conversation_id: conversationId,
     };
     if (normalized.amount !== undefined && normalized.amount !== null) {
       logBody.amount = normalized.amount;
@@ -510,6 +542,9 @@ export async function executeLogHabit(token: string, params: {
       }
     }
 
+    const receiptId = result?.receipt_id ?? null;
+    const wasInserted = result?.was_inserted !== false;
+
     return JSON.stringify({
       success: true,
       habit_name: matched.name,
@@ -517,6 +552,17 @@ export async function executeLogHabit(token: string, params: {
       amount: normalized.amount ?? null,
       date: today,
       log: result,
+      was_inserted: wasInserted,
+      receipt: receiptId
+        ? {
+            receipt_id: receiptId,
+            was_inserted: wasInserted,
+            undoable: true,
+            habit_id: matched.id,
+            habit_name: matched.name,
+            log_id: result?.id ?? null,
+          }
+        : null,
       sms_confirmation: smsConfirmation,
       sms_confirmation_meta: smsConfirmationMeta,
     });
@@ -534,21 +580,33 @@ export async function executeCreateHabit(token: string, params: {
   name: string;
   category: string;
   unitType?: string;
+}, conversationCtx?: {
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
 }) {
   console.log('➕ createHabit called:', params);
 
   try {
+    const clientEventId = newClientEventId();
+    const conversationId = await resolveConversationId(conversationCtx);
     const body: Record<string, unknown> = {
       name: params.name,
       category: params.category,
       is_custom: true,
       sensor_type: 'Manual',
+      client_event_id: clientEventId,
+      source: 'ai_chat',
+      actor_type: 'assistant',
+      actor_ref: conversationId,
+      conversation_id: conversationId,
     };
     if (params.unitType) {
       body.unit_type = params.unitType;
     }
 
     const result = await fetchPythonApiPost('/api/habits', token, body);
+    const receiptId = result?.receipt_id ?? null;
+    const wasInserted = result?.was_inserted !== false;
 
     return JSON.stringify({
       success: true,
@@ -556,6 +614,16 @@ export async function executeCreateHabit(token: string, params: {
       habit_id: result.id,
       category: result.category,
       unit_type: result.unit_type || null,
+      was_inserted: wasInserted,
+      receipt: receiptId
+        ? {
+            receipt_id: receiptId,
+            was_inserted: wasInserted,
+            undoable: true,
+            habit_id: result.id,
+            habit_name: result.name,
+          }
+        : null,
       message: `Created new habit "${result.name}"`,
     });
   } catch (error) {

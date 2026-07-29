@@ -39,6 +39,7 @@ export function buildCanvasToolPayload(toolResults: ChatToolResults): Record<str
     calendarEvents: toolResults.calendarEvents,
     suggested_followups: toolResults.suggested_followups,
     reply_chips: toolResults.reply_chips,
+    actionReceipts: toolResults.actionReceipts,
   };
 
   for (const key of Object.keys(payload)) {

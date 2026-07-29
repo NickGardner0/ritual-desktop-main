@@ -133,10 +133,12 @@ class ActionReceiptDB(Base):
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     workflow_run_id = Column(String, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
     conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="SET NULL"), nullable=True)
+    client_event_id = Column(String, nullable=True)
     action_kind = Column(String, nullable=False)
     capability = Column(String, nullable=False)
     target_ref = Column(String, nullable=True)
-    status = Column(String, nullable=False, default="applied")  # applied | rejected | approved_pending
+    # applied | rejected | approved_pending | undone
+    status = Column(String, nullable=False, default="applied")
     before_json = Column(Text, nullable=True)
     after_json = Column(Text, nullable=True)
     undo_json = Column(Text, nullable=True)
@@ -146,6 +148,16 @@ class ActionReceiptDB(Base):
     user = orm_relationship("UserDB")
     workflow_run = orm_relationship("WorkflowRunDB")
     conversation = orm_relationship("AIConversationDB")
+
+    __table_args__ = (
+        Index(
+            "idx_action_receipts_user_client_event",
+            "user_id",
+            "client_event_id",
+            unique=True,
+            sqlite_where=text("client_event_id IS NOT NULL"),
+        ),
+    )
 
 
 

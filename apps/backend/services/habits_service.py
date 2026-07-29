@@ -19,6 +19,8 @@ from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.realtime import websocket_manager
 from services.tinybird_service import TinybirdService
+from services.secondary_job_runner import secondary_job_runner
+from services.action_receipt_service import action_receipt_service
 
 logger = logging.getLogger(__name__)
 
@@ -329,12 +331,19 @@ class HabitsService:
     def _fire_habit_log_side_effects(
         self, habit_log: HabitLog, habit: Habit, user_id: str
     ):
-        """Fire-and-forget Tinybird sync, Typesense indexing, and WebSocket notification for a habit log."""
+        """Bounded secondary Tinybird/Typesense/WebSocket fan-out for a habit log."""
+        if getattr(habit_log, "was_inserted", True) is False:
+            return
+
         if self.tinybird_enabled:
             asyncio.create_task(
-                self._safe_background_task(
-                    self._sync_habit_log_to_tinybird(habit_log, habit, user_id),
-                    f"tinybird_sync_log:{habit_log.id}",
+                secondary_job_runner.enqueue(
+                    job_class="analytics",
+                    name=f"tinybird_sync_log:{habit_log.id}",
+                    dedupe_key=f"tinybird_sync_log:{habit_log.id}",
+                    coro_factory=lambda hl=habit_log, h=habit, uid=user_id: self._sync_habit_log_to_tinybird(
+                        hl, h, uid
+                    ),
                 )
             )
 
@@ -348,35 +357,52 @@ class HabitsService:
             )
 
         asyncio.create_task(
-            self._safe_background_task(_index_log(), f"typesense_index_log:{habit_log.id}")
-        )
-
-        asyncio.create_task(
-            self._safe_background_task(
-                websocket_manager.notify_habit_logged(
-                    {
-                        "id": habit_log.id,
-                        "habit_id": habit_log.habit_id,
-                        "habit_name": habit_log.habit_name,
-                        "date": habit_log.date,
-                        "completed_at": habit_log.completed_at,
-                        "amount": habit_log.amount,
-                        "duration": habit_log.duration,
-                        "status": habit_log.status,
-                    },
-                    user_id,
-                ),
-                f"websocket_notify_log:{habit_log.id}",
+            secondary_job_runner.enqueue(
+                job_class="search",
+                name=f"typesense_index_log:{habit_log.id}",
+                dedupe_key=f"typesense_index_log:{habit_log.id}",
+                coro_factory=_index_log,
             )
         )
 
-    def _fire_habit_definition_side_effects(self, habit: Habit, user_id: str):
-        """Fire-and-forget Tinybird sync and Typesense indexing for a habit definition."""
+        async def _notify():
+            await websocket_manager.notify_habit_logged(
+                {
+                    "id": habit_log.id,
+                    "habit_id": habit_log.habit_id,
+                    "habit_name": habit_log.habit_name,
+                    "date": habit_log.date,
+                    "completed_at": habit_log.completed_at,
+                    "amount": habit_log.amount,
+                    "duration": habit_log.duration,
+                    "status": habit_log.status,
+                },
+                user_id,
+            )
+
+        asyncio.create_task(
+            secondary_job_runner.enqueue(
+                job_class="notify",
+                name=f"websocket_notify_log:{habit_log.id}",
+                dedupe_key=f"websocket_notify_log:{habit_log.id}",
+                coro_factory=_notify,
+            )
+        )
+
+    def _fire_habit_definition_side_effects(
+        self, habit: Habit, user_id: str, *, was_inserted: bool = True
+    ):
+        """Bounded secondary Tinybird/Typesense fan-out for a habit definition."""
+        if was_inserted is False:
+            return
+
         if self.tinybird_enabled:
             asyncio.create_task(
-                self._safe_background_task(
-                    self._sync_habit_to_tinybird(habit),
-                    f"tinybird_sync_habit:{habit.id}",
+                secondary_job_runner.enqueue(
+                    job_class="analytics",
+                    name=f"tinybird_sync_habit:{habit.id}",
+                    dedupe_key=f"tinybird_sync_habit:{habit.id}",
+                    coro_factory=lambda h=habit: self._sync_habit_to_tinybird(h),
                 )
             )
 
@@ -385,7 +411,12 @@ class HabitsService:
             await search_service.index_habit(habit.model_dump(), user_id)
 
         asyncio.create_task(
-            self._safe_background_task(_index_habit(), f"typesense_index_habit:{habit.id}")
+            secondary_job_runner.enqueue(
+                job_class="search",
+                name=f"typesense_index_habit:{habit.id}",
+                dedupe_key=f"typesense_index_habit:{habit.id}",
+                coro_factory=_index_habit,
+            )
         )
 
     async def create_habit(self, habit_data: HabitCreate, user_id: str) -> Habit:
@@ -394,6 +425,38 @@ class HabitsService:
         """
         async with get_db_session() as session:
             try:
+                client_event_id = getattr(habit_data, "client_event_id", None)
+                conversation_id = getattr(habit_data, "conversation_id", None)
+                actor_type = getattr(habit_data, "actor_type", None) or "user"
+                actor_ref = getattr(habit_data, "actor_ref", None) or conversation_id
+                source = getattr(habit_data, "source", None) or "manual"
+                should_receipt = actor_type == "assistant" or bool(conversation_id)
+
+                if client_event_id:
+                    existing_receipt = await action_receipt_service.get_db_by_client_event_id(
+                        session, user_id, client_event_id
+                    )
+                    if existing_receipt and existing_receipt.after_json:
+                        try:
+                            after = json.loads(existing_receipt.after_json)
+                        except (TypeError, json.JSONDecodeError):
+                            after = None
+                        habit_id = (after or {}).get("id")
+                        if habit_id:
+                            existing = await session.execute(
+                                select(HabitDB).where(
+                                    HabitDB.id == habit_id,
+                                    HabitDB.user_id == user_id,
+                                )
+                            )
+                            existing_habit = existing.scalar_one_or_none()
+                            if existing_habit:
+                                return habit_db_to_pydantic(
+                                    existing_habit,
+                                    was_inserted=False,
+                                    receipt_id=existing_receipt.id,
+                                )
+
                 name_key = (habit_data.name or "").strip().lower()
                 if name_key:
                     dup = await session.execute(
@@ -409,7 +472,7 @@ class HabitsService:
                             habit_data.name,
                             user_id,
                         )
-                        return habit_db_to_pydantic(existing_row)
+                        return habit_db_to_pydantic(existing_row, was_inserted=False)
 
                 # Create habit record
                 habit_db = HabitDB(
@@ -428,14 +491,41 @@ class HabitsService:
                 )
                 
                 session.add(habit_db)
+                await session.flush()
+
+                receipt_id = None
+                if should_receipt:
+                    habit_payload = habit_db_to_pydantic(habit_db).model_dump(mode="json")
+                    receipt = await action_receipt_service.create_receipt(
+                        session,
+                        user_id=user_id,
+                        action_kind="createHabit",
+                        capability="habits.write",
+                        target_ref=habit_db.id,
+                        conversation_id=conversation_id,
+                        client_event_id=client_event_id,
+                        before=None,
+                        after=habit_payload,
+                        undo={"op": "delete_habit", "habit_id": habit_db.id},
+                        metadata={
+                            "source": source,
+                            "actor_type": actor_type,
+                            "actor_ref": actor_ref,
+                            "tool": "createHabit",
+                        },
+                    )
+                    receipt_id = receipt.id
+
                 await session.commit()
                 await session.refresh(habit_db)
                 
                 # Convert to Pydantic model
-                habit = habit_db_to_pydantic(habit_db)
+                habit = habit_db_to_pydantic(
+                    habit_db, was_inserted=True, receipt_id=receipt_id
+                )
 
                 # Fire-and-forget: Tinybird sync + Typesense indexing (background)
-                self._fire_habit_definition_side_effects(habit, user_id)
+                self._fire_habit_definition_side_effects(habit, user_id, was_inserted=True)
 
                 if self._is_whoop_heart_rate_habit(habit):
                     try:
@@ -603,6 +693,34 @@ class HabitsService:
                 habit = await self.get_habit_by_id(habit_id, user_id)
                 if not habit:
                     raise Exception("Habit not found or not authorized")
+
+                client_event_id = getattr(log_data, "client_event_id", None)
+                conversation_id = getattr(log_data, "conversation_id", None)
+                actor_type = getattr(log_data, "actor_type", None) or "user"
+                actor_ref = getattr(log_data, "actor_ref", None) or conversation_id
+                source = getattr(log_data, "source", None) or "manual"
+                should_receipt = actor_type == "assistant" or bool(conversation_id)
+
+                if client_event_id:
+                    existing = await session.execute(
+                        select(HabitLogDB).where(
+                            HabitLogDB.habit_id == habit_id,
+                            HabitLogDB.client_event_id == client_event_id,
+                        )
+                    )
+                    existing_log = existing.scalar_one_or_none()
+                    if existing_log:
+                        receipt_id = None
+                        if client_event_id:
+                            receipt_row = await action_receipt_service.get_db_by_client_event_id(
+                                session, user_id, client_event_id
+                            )
+                            receipt_id = receipt_row.id if receipt_row else None
+                        return habit_log_db_to_pydantic(
+                            existing_log,
+                            was_inserted=False,
+                            receipt_id=receipt_id,
+                        )
                 
                 # Create habit log (include habit_name for denormalization)
                 log_db = HabitLogDB(
@@ -614,7 +732,11 @@ class HabitsService:
                     date=log_data.date,
                     completed_at=log_data.completed_at,
                     status=log_data.status,
-                    notes=log_data.notes
+                    notes=log_data.notes,
+                    client_event_id=client_event_id,
+                    source=source,
+                    actor_type=actor_type,
+                    actor_ref=actor_ref,
                 )
 
                 # Location enrichment (Phase: Location Tracking)
@@ -628,10 +750,42 @@ class HabitsService:
                     logger.debug("Location enrichment skipped for habit log: %s", _loc_exc)
 
                 session.add(log_db)
+                await session.flush()
+
+                receipt_id = None
+                if should_receipt:
+                    after_payload = habit_log_db_to_pydantic(log_db).model_dump(mode="json")
+                    receipt = await action_receipt_service.create_receipt(
+                        session,
+                        user_id=user_id,
+                        action_kind="logHabit",
+                        capability="habits.write",
+                        target_ref=log_db.id,
+                        conversation_id=conversation_id,
+                        client_event_id=client_event_id,
+                        before=None,
+                        after=after_payload,
+                        undo={
+                            "op": "delete_habit_log",
+                            "habit_id": habit_id,
+                            "log_id": log_db.id,
+                        },
+                        metadata={
+                            "source": source,
+                            "actor_type": actor_type,
+                            "actor_ref": actor_ref,
+                            "tool": "logHabit",
+                            "habit_name": habit.name,
+                        },
+                    )
+                    receipt_id = receipt.id
+
                 await session.commit()
                 await session.refresh(log_db)
                 
-                habit_log = habit_log_db_to_pydantic(log_db)
+                habit_log = habit_log_db_to_pydantic(
+                    log_db, was_inserted=True, receipt_id=receipt_id
+                )
                 await self._refresh_metric_facts_for_logs(user_id=user_id, logs=[log_db])
 
                 # Fire-and-forget: Tinybird + Typesense + WebSocket (background)
@@ -642,6 +796,34 @@ class HabitsService:
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise Exception(f"Failed to log habit: {str(e)}")
+
+    async def delete_habit_log(self, habit_id: str, log_id: str, user_id: str) -> None:
+        """Delete a single habit log owned by the user."""
+        async with get_db_session() as session:
+            try:
+                result = await session.execute(
+                    select(HabitLogDB)
+                    .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitDB.user_id == user_id,
+                    )
+                )
+                log_row = result.scalar_one_or_none()
+                if not log_row:
+                    raise Exception("Habit log not found or not authorized")
+                session.delete(log_row)
+                await session.commit()
+                try:
+                    from services.search_service import search_service
+
+                    await search_service.delete_habit_log_index(log_id)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Typesense delete for habit log failed: %s", exc)
+            except SQLAlchemyError as e:
+                await session.rollback()
+                raise Exception(f"Failed to delete habit log: {str(e)}") from e
 
     async def upsert_habit_log_rollup(
         self,
@@ -920,9 +1102,13 @@ class HabitsService:
                         for _, log_db, habit in prepared_logs
                     ]
                     asyncio.create_task(
-                        self._safe_background_task(
-                            self.tinybird.ingest_habit_logs_batch(batch_payload),
-                            "tinybird_batch_sync",
+                        secondary_job_runner.enqueue(
+                            job_class="analytics",
+                            name="tinybird_batch_sync",
+                            dedupe_key=f"tinybird_batch_sync:{prepared_logs[0][1].id}:{len(prepared_logs)}",
+                            coro_factory=lambda payload=batch_payload: self.tinybird.ingest_habit_logs_batch(
+                                payload
+                            ),
                         )
                     )
 
@@ -936,9 +1122,11 @@ class HabitsService:
                             habit_name=h.name, category=h.category,
                         )
                     asyncio.create_task(
-                        self._safe_background_task(
-                            _index_batch_log(),
-                            f"typesense_index_batch_log:{log_db.id}",
+                        secondary_job_runner.enqueue(
+                            job_class="search",
+                            name=f"typesense_index_batch_log:{log_db.id}",
+                            dedupe_key=f"typesense_index_batch_log:{log_db.id}",
+                            coro_factory=_index_batch_log,
                         )
                     )
 

@@ -94,6 +94,8 @@ export interface ToolExecutionContext {
   latestUserContent: string;
   weeklyOverviewQueryParams: { startDate?: string; endDate?: string; daysBack?: number; strictThisWeek?: boolean };
   strictThisWeekForWeeklyOverview?: boolean;
+  conversationId?: string | null;
+  conversationIdPromise?: Promise<string | null>;
 }
 
 /**
@@ -197,9 +199,15 @@ export async function dispatchToolCall(
     case 'getCalendarEvents':
       return executeGetCalendarEvents(token, a, ctx.timezone);
     case 'logHabit':
-      return executeLogHabit(token, a, ctx.timezone);
+      return executeLogHabit(token, a, ctx.timezone, {
+        conversationId: ctx.conversationId,
+        conversationIdPromise: ctx.conversationIdPromise,
+      });
     case 'createHabit':
-      return executeCreateHabit(token, a);
+      return executeCreateHabit(token, a, {
+        conversationId: ctx.conversationId,
+        conversationIdPromise: ctx.conversationIdPromise,
+      });
     case 'getSmsPreferences':
       return executeGetSmsPreferences(token);
     case 'updateSmsPreferences':

@@ -198,6 +198,7 @@ class ActionReceiptRead(BaseModel):
     user_id: str
     workflow_run_id: Optional[str] = None
     conversation_id: Optional[str] = None
+    client_event_id: Optional[str] = None
     action_kind: str
     capability: str
     target_ref: Optional[str] = None
@@ -207,6 +208,13 @@ class ActionReceiptRead(BaseModel):
     undo: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: Optional[datetime] = None
+    undoable: bool = False
+
+
+class ActionReceiptUndoResponse(BaseModel):
+    receipt: ActionReceiptRead
+    undone: bool = True
+    noop: bool = False
 
 
 class InternalWorkflowWindow(BaseModel):
