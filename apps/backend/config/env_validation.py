@@ -27,6 +27,7 @@ def validate_environment() -> Tuple[bool, List[str], List[str]]:
         'NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY',
         'CLERK_SECRET_KEY',
         'CLERK_JWKS_URL',
+        'CLERK_WEBHOOK_SIGNING_SECRET',
     ]
 
     # Highly recommended variables (warnings only)

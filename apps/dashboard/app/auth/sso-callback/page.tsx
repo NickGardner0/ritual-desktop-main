@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth, useUser } from '@clerk/nextjs'
+import { useAuth, useClerk, useUser } from '@clerk/nextjs'
 import { Button } from '@ritual/ui/button'
 
 import { clearSetupSubstep } from '@/components/onboarding/setup-wizard'
@@ -27,6 +27,54 @@ const BOOTSTRAP_RETRY_DELAYS_MS = [0, 750, 1_500] as const
 
 type BootstrapResponse = {
   nextRoute?: string
+}
+
+type BootstrapFailure = {
+  code: string
+  message: string
+}
+
+class BootstrapError extends Error {
+  code: string
+
+  constructor(failure: BootstrapFailure) {
+    super(failure.message)
+    this.name = 'BootstrapError'
+    this.code = failure.code
+  }
+}
+
+async function readBootstrapFailure(response: Response): Promise<BootstrapFailure> {
+  const fallback = {
+    code: 'account_setup_failed',
+    message: 'Ritual could not finish creating your account. Please try again.',
+  }
+
+  try {
+    const payload = await response.json() as {
+      detail?: unknown
+      error?: unknown
+    }
+    let detail = payload.detail
+    if (!detail && typeof payload.error === 'string') {
+      try {
+        detail = (JSON.parse(payload.error) as { detail?: unknown }).detail
+      } catch {
+        detail = null
+      }
+    }
+    if (detail && typeof detail === 'object') {
+      const candidate = detail as { code?: unknown; message?: unknown }
+      return {
+        code: typeof candidate.code === 'string' ? candidate.code : fallback.code,
+        message: typeof candidate.message === 'string' ? candidate.message : fallback.message,
+      }
+    }
+  } catch {
+    // Keep the safe user-facing fallback.
+  }
+
+  return fallback
 }
 
 function readDashboardReturnUrl(): string | null {
@@ -99,7 +147,7 @@ async function fetchBootstrapWithRetry({
         return response
       }
 
-      lastError = new Error(`Bootstrap failed (${response.status})`)
+      lastError = new BootstrapError(await readBootstrapFailure(response))
       if (response.status < 500 && response.status !== 408 && response.status !== 429) {
         throw lastError
       }
@@ -133,8 +181,9 @@ export default function SSOCallback() {
   const router = useRouter()
   const { user, isLoaded } = useUser()
   const { getToken } = useAuth()
+  const { signOut } = useClerk()
   const [status, setStatus] = useState('Completing sign-in...')
-  const [failed, setFailed] = useState(false)
+  const [failure, setFailure] = useState<BootstrapFailure | null>(null)
   const [retryNonce, setRetryNonce] = useState(0)
 
   useEffect(() => {
@@ -149,7 +198,7 @@ export default function SSOCallback() {
 
     const bootstrapAndRedirect = async () => {
       try {
-        setFailed(false)
+        setFailure(null)
         const shouldRestoreDashboardWindowSize = hasPendingSignUpIntent()
         markDeviceAuthenticated()
         clearFromWelcomeFlow()
@@ -185,8 +234,13 @@ export default function SSOCallback() {
         router.replace(redirectTarget)
       } catch (error) {
         console.error('Error completing sign-in:', error)
-        setFailed(true)
         setStatus("We couldn't finish setting up your account.")
+        setFailure({
+          code: error instanceof BootstrapError ? error.code : 'account_setup_failed',
+          message: error instanceof Error
+            ? error.message
+            : 'Ritual could not finish creating your account. Please try again.',
+        })
       }
     }
 
@@ -196,18 +250,37 @@ export default function SSOCallback() {
   return (
     <div className="min-h-screen bg-white glass-opaque-screen flex items-center justify-center">
       <div className="text-center">
-        {!failed ? (
+        {!failure ? (
           <BrailleSpinner className="mx-auto mb-4 h-12 w-12 text-4xl text-gray-900" intervalMs={45} />
         ) : null}
         <p className="text-sm text-gray-600">{status}</p>
-        {failed ? (
-          <Button
-            variant="outline"
-            className="mt-4 shadow-none hover:bg-[var(--surface-panel)]"
-            onClick={() => setRetryNonce((current) => current + 1)}
-          >
-            Try again
-          </Button>
+        {failure ? (
+          <>
+            <p role="alert" className="mt-3 max-w-md text-sm leading-6 text-[var(--ritual-text-secondary)]">
+              {failure.message}
+            </p>
+            {failure.code === 'account_identity_conflict' ? (
+              <p className="mt-2 max-w-md text-sm leading-6 text-[var(--ritual-text-muted)]">
+                If you just deleted this account, cleanup may still be processing. Retrying is safe.
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-center gap-3">
+              <Button
+                variant="outline"
+                className="shadow-none hover:bg-[var(--surface-panel)]"
+                onClick={() => setRetryNonce((current) => current + 1)}
+              >
+                Try again
+              </Button>
+              <Button
+                variant="outline"
+                className="shadow-none hover:bg-[var(--surface-panel)]"
+                onClick={() => void signOut({ redirectUrl: '/sign-in' })}
+              >
+                Sign out
+              </Button>
+            </div>
+          </>
         ) : null}
       </div>
     </div>

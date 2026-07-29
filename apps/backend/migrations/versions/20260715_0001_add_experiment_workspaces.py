@@ -68,9 +68,12 @@ def upgrade() -> None:
         )
 
     if not _column_exists(bind, "ai_conversations", "experiment_id"):
+        # SQLite/libSQL cannot add a foreign-key constraint with ALTER TABLE.
+        # Ownership and target validation are enforced by the application, and
+        # fresh databases still receive the FK from the SQLAlchemy model.
         op.add_column(
             "ai_conversations",
-            sa.Column("experiment_id", sa.String, sa.ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True),
+            sa.Column("experiment_id", sa.String, nullable=True),
         )
 
     indexes = [

@@ -8,12 +8,23 @@ import re
 from typing import Optional, List
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
 from database.models import UserDB
 
 logger = logging.getLogger(__name__)
+
+
+class AccountIdentityConflictError(RuntimeError):
+    """A Clerk id changed while the email is still owned by an older Ritual row."""
+
+    def __init__(self, *, email: str, existing_user_id: str, requested_user_id: str):
+        super().__init__("This email is still attached to a previous Ritual account.")
+        self.email = email
+        self.existing_user_id = existing_user_id
+        self.requested_user_id = requested_user_id
+
 
 _USER_SAFE_COLUMNS = (
     UserDB.id,
@@ -341,6 +352,20 @@ class UserService:
                         )
                     logger.info(f"✅ User already exists: {user.email}")
                     return user
+
+                if email:
+                    existing_email_result = await session.execute(
+                        select(UserDB.id).where(
+                            func.lower(UserDB.email) == email.strip().lower()
+                        )
+                    )
+                    existing_user_id = existing_email_result.scalar_one_or_none()
+                    if existing_user_id and existing_user_id != user_id:
+                        raise AccountIdentityConflictError(
+                            email=email,
+                            existing_user_id=existing_user_id,
+                            requested_user_id=user_id,
+                        )
                 
                 # Create new user with defaults
                 logger.info(f"🆕 Creating new user: {email or user_id}")

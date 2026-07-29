@@ -26,6 +26,7 @@ cryptography>=41.0.0
 python-multipart>=0.0.6
 httpx>=0.25.0
 sentry-sdk[fastapi]>=2.35.0
+svix>=1.64.0
 
 # Configuration and WebSockets
 python-dotenv>=1.0.0

@@ -17,6 +17,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import text
 
 from api.action_profiles import create_action_profiles_router
+from api.account_deletion import create_account_deletion_router
 from api.analytics import create_analytics_router
 from api.approvals import create_approvals_router
 from api.artifacts import create_artifacts_router
@@ -173,6 +174,9 @@ def create_app() -> FastAPI:
             require_tinybird=require_tinybird,
             habits_service=habits_service,
         )
+    )
+    app.include_router(
+        create_account_deletion_router(get_current_user=get_current_user)
     )
     app.include_router(create_biometrics_router(get_current_user=get_current_user))
     app.include_router(

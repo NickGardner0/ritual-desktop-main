@@ -91,6 +91,8 @@ export function SettingsFrame({
   const [activeTab, setActiveTab] = useState<DesktopSettingsView>(() => normalizeSettingsFrameView(initialView));
   const [aiDataRetention, setAiDataRetention] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
   const [showFontDropdown, setShowFontDropdown] = useState(false);
   const [showSidebarDropdown, setShowSidebarDropdown] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -163,8 +165,36 @@ export function SettingsFrame({
   };
 
   const confirmDeleteAccount = async () => {
-    console.log('Account deletion confirmed');
-    setShowDeleteConfirm(false);
+    if (isDeletingAccount) return;
+
+    setIsDeletingAccount(true);
+    setDeleteAccountError(null);
+    try {
+      const response = await fetch('/api/user/account', {
+        method: 'DELETE',
+        cache: 'no-store',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!response.ok) {
+        throw new Error('Ritual could not finish deleting your account. Please try again.');
+      }
+
+      try {
+        await signOutOfRitual(signOut);
+      } catch {
+        // Clerk has already removed the identity, so the session may already be invalid.
+      }
+      setShowDeleteConfirm(false);
+      router.replace('/');
+    } catch (error) {
+      setDeleteAccountError(
+        error instanceof Error
+          ? error.message
+          : 'Ritual could not finish deleting your account. Please try again.',
+      );
+    } finally {
+      setIsDeletingAccount(false);
+    }
   };
 
   return (
@@ -452,12 +482,18 @@ export function SettingsFrame({
           <div className="relative mx-4 max-w-sm rounded-[12px] border border-black/10 bg-white p-6 shadow-[0_18px_54px_rgba(0,0,0,0.18)]">
             <h3 className="text-base font-semibold text-[#252525]">Delete account?</h3>
             <p className="mt-2 text-[13px] leading-relaxed text-[#6f6f6f]">
-              This action cannot be undone. All your data will be permanently deleted.
+              This permanently deletes your Ritual account, cloud data, and connected account records. This action cannot be undone.
             </p>
+            {deleteAccountError ? (
+              <p role="alert" className="mt-3 text-[13px] leading-relaxed text-[var(--ritual-status-danger)]">
+                {deleteAccountError}
+              </p>
+            ) : null}
             <div className="mt-5 flex gap-2.5">
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(false)}
+                disabled={isDeletingAccount}
                 className="flex-1 rounded-lg border border-black/10 bg-[#f5f5f4] py-2.5 text-[13px] font-medium text-[#4a4a4a] transition-colors hover:bg-[#eeeeec]"
               >
                 Cancel
@@ -465,9 +501,10 @@ export function SettingsFrame({
               <button
                 type="button"
                 onClick={confirmDeleteAccount}
+                disabled={isDeletingAccount}
                 className="flex-1 rounded-lg bg-red-500 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-red-600"
               >
-                Delete
+                {isDeletingAccount ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

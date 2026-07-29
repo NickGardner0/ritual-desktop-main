@@ -63,6 +63,7 @@ from database.models.tasks import (
     TaskEventDB,
 )
 from database.models.user import (
+    AccountDeletionJobDB,
     UserDB,
     UserActivationStateDB,
     UserActivationChecklistItemDB,
@@ -117,6 +118,7 @@ __all__ = [
     "AIMessageDB",
     "ActionProfileDB",
     "ActionReceiptDB",
+    "AccountDeletionJobDB",
     "ActivityEventDB",
     "AfkEventDB",
     "AiFactDB",

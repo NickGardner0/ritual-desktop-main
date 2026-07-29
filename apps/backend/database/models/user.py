@@ -37,6 +37,26 @@ class UserDB(Base):
     habits = orm_relationship("HabitDB", back_populates="user", cascade="all, delete-orphan")
 
 
+class AccountDeletionJobDB(Base):
+    """Durable, data-minimized receipt for coordinated account erasure.
+
+    This row intentionally does not reference ``users`` so it survives deletion
+    of the account and can make Clerk webhook retries idempotent.
+    """
+
+    __tablename__ = "account_deletion_jobs"
+
+    user_id = Column(String, primary_key=True)
+    event_id = Column(String, nullable=True)
+    source = Column(String, nullable=False)
+    email_hash = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    receipt_json = Column(Text, nullable=True)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+    completed_at = Column(DateTime, nullable=True)
 
 
 class UserActivationStateDB(Base):
@@ -150,4 +170,3 @@ class UserLocationStateDB(Base):
     updated_at = Column(BigInteger, nullable=False)  # when this row was last written
     place_label = Column(String, nullable=True)  # reverse-geocoded, e.g. "Home", "Equinox Brooklyn"
     place_confidence = Column(Float, nullable=True)  # 0.0-1.0
-
