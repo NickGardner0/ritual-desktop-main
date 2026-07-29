@@ -166,6 +166,10 @@ test("integration cards use the compact rounded-md surface contract", () => {
 
   assert.match(
     cardSource,
-    /h-\[188px\][^"]*rounded-md[^"]*border border-gray-300/,
+    /h-\[168px\][^"]*rounded-md[^"]*border border-gray-300/,
+  );
+  assert.match(
+    cardSource,
+    /inline-flex h-7 items-center justify-center[^']*text-\[12px\]/,
   );
 });

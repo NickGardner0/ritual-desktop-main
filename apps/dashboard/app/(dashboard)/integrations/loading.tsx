@@ -21,15 +21,15 @@ export default function IntegrationsLoading() {
         </div>
 
         {/* Integration Cards Grid Skeleton */}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div 
               key={i} 
-              className="h-[188px] rounded-md border border-gray-200 bg-white p-3"
+              className="h-[168px] rounded-md border border-gray-200 bg-white px-3 py-2"
             >
               {/* Logo */}
-              <div className="h-10 mb-2">
-                <div className={`w-16 h-7 rounded ${shimmerClass}`}></div>
+              <div className="mb-1 h-7">
+                <div className={`h-6 w-16 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Title */}
@@ -38,15 +38,15 @@ export default function IntegrationsLoading() {
               </div>
               
               {/* Description */}
-              <div className="space-y-1.5 mb-3">
+              <div className="mb-2 space-y-1.5">
                 <div className={`h-3 w-full rounded ${shimmerClass}`}></div>
                 <div className={`h-3 w-3/4 rounded ${shimmerClass}`}></div>
               </div>
               
               {/* Buttons */}
-              <div className="flex items-center gap-2 mt-auto">
-                <div className={`h-6 w-16 rounded ${shimmerClass}`}></div>
-                <div className={`h-6 w-14 rounded ${shimmerClass}`}></div>
+              <div className="mt-auto flex items-center gap-1">
+                <div className={`h-7 w-16 rounded ${shimmerClass}`}></div>
+                <div className={`h-7 w-14 rounded ${shimmerClass}`}></div>
               </div>
             </div>
           ))}

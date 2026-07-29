@@ -25,9 +25,9 @@ export default function IntegrationsPage() {
               <div className="w-4 h-4 rounded mr-2 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
               <div className="h-5 w-28 rounded animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200"></div>
             </div>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
               {[1,2,3,4,5,6].map(i => (
-                <div key={i} className="h-[188px] rounded-md border border-gray-200 p-3 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
+                <div key={i} className="h-[168px] rounded-md border border-gray-200 px-3 py-2 animate-shimmer bg-[length:200%_100%] bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200" />
               ))}
             </div>
           </div>

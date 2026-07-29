@@ -4,6 +4,9 @@ import { memo } from 'react';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { cn } from '@/lib/utils';
 
+const compactActionClassName =
+  'inline-flex h-7 items-center justify-center rounded-sm px-2.5 text-[12px] leading-none';
+
 export const IntegrationCard = memo(({
   logo,
   title,
@@ -44,19 +47,19 @@ export const IntegrationCard = memo(({
   onDetails?: () => void
   extraActions?: React.ReactNode
 }) => (
-  <div className="flex h-[188px] flex-col rounded-md border border-gray-300 bg-white px-3 py-2.5">
-    <div className="mb-1 flex h-7 items-center [&>*]:max-h-6 [&>*]:w-auto [&_img]:max-h-6 [&_img]:w-auto">
+  <div className="flex h-[168px] flex-col rounded-md border border-gray-300 bg-white px-3 py-2">
+    <div className="mb-0.5 flex h-6 items-center [&>*]:max-h-6 [&>*]:w-auto [&_img]:max-h-6 [&_img]:w-auto">
       {logo}
     </div>
-    <div className="flex items-center mb-0.5">
-      <h3 className="text-[14px] leading-5 font-medium">{title}</h3>
+    <div className="mb-0.5 flex items-center">
+      <h3 className="text-[14px] font-medium leading-5">{title}</h3>
       {comingSoon && (
         <span className="ml-2 text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
       )}
     </div>
     <p
       className={cn(
-        'text-[12px] leading-[1.35] text-gray-500 mb-2 flex-grow',
+        'mb-1.5 flex-grow text-[12px] leading-[1.35] text-gray-500',
         descriptionLineClamp === 4 && 'line-clamp-4',
         descriptionLineClamp === 3 && 'line-clamp-3',
         descriptionLineClamp === 2 && 'line-clamp-2'
@@ -66,25 +69,31 @@ export const IntegrationCard = memo(({
     </p>
 
     {details ? (
-      <div className="mb-2.5">
+      <div className="mb-1.5">
         {details}
       </div>
     ) : null}
 
-    <div className="mt-auto flex items-center gap-1.5">
+    <div className="mt-auto flex items-center gap-1">
       {isStatusLoading ? (
         <>
           <button
             type="button"
             disabled
-            className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm text-gray-500 bg-[#F8F8F8] cursor-default"
+            className={cn(
+              compactActionClassName,
+              'cursor-default border border-gray-300 bg-[#F8F8F8] text-gray-500',
+            )}
           >
             Checking...
           </button>
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className={cn(
+                compactActionClassName,
+                'border border-gray-300 hover:bg-[#EBEAE8]',
+              )}
             >
               Details
             </button>
@@ -104,7 +113,10 @@ export const IntegrationCard = memo(({
             <button
               onClick={onSync}
               disabled={isSyncing}
-              className="px-2.5 py-1.5 text-[13px] whitespace-nowrap border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900 disabled:opacity-50"
+              className={cn(
+                compactActionClassName,
+                'whitespace-nowrap border border-gray-300 text-gray-900 hover:bg-[#F3F3F3] disabled:opacity-50',
+              )}
             >
               {isSyncing ? (
                 <>
@@ -119,7 +131,10 @@ export const IntegrationCard = memo(({
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#F3F3F3] text-gray-900"
+              className={cn(
+                compactActionClassName,
+                'border border-gray-300 text-gray-900 hover:bg-[#F3F3F3]',
+              )}
             >
               Details
             </button>
@@ -130,14 +145,17 @@ export const IntegrationCard = memo(({
         <>
           <button
             type="button"
-            className="px-2.5 py-1.5 text-[13px] bg-black text-white rounded-sm"
+            className={cn(compactActionClassName, 'bg-black text-white')}
           >
             Connect
           </button>
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className={cn(
+                compactActionClassName,
+                'border border-gray-300 hover:bg-[#EBEAE8]',
+              )}
             >
               Details
             </button>
@@ -148,11 +166,12 @@ export const IntegrationCard = memo(({
           <button
             onClick={onConnect}
             disabled={isConnecting}
-            className={
+            className={cn(
+              compactActionClassName,
               connectVariant === 'outline'
-                ? "px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8] disabled:opacity-50 text-gray-900"
-                : "px-2.5 py-1.5 text-[13px] bg-black text-white rounded-sm disabled:opacity-50"
-            }
+                ? 'border border-gray-300 text-gray-900 hover:bg-[#EBEAE8] disabled:opacity-50'
+                : 'bg-black text-white disabled:opacity-50',
+            )}
           >
             {isConnecting ? (
               <>
@@ -166,7 +185,10 @@ export const IntegrationCard = memo(({
           {onDetails && (
             <button
               onClick={onDetails}
-              className="px-2.5 py-1.5 text-[13px] border border-gray-300 rounded-sm hover:bg-[#EBEAE8]"
+              className={cn(
+                compactActionClassName,
+                'border border-gray-300 hover:bg-[#EBEAE8]',
+              )}
             >
               Details
             </button>
