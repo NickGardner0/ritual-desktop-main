@@ -3,11 +3,12 @@
 import asyncio
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import and_, delete, select
 
@@ -38,16 +39,22 @@ from services.user_service import AccountIdentityConflictError
 
 logger = logging.getLogger(__name__)
 
-BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS = 2.5
+_bootstrap_setup_inflight: set[str] = set()
 
 
-async def ensure_current_user_record(user_service: Any, current_user: Dict[str, Any]):
+async def ensure_current_user_record(
+    user_service: Any,
+    current_user: Dict[str, Any],
+    *,
+    send_welcome_sms: bool = True,
+):
     try:
         return await user_service.ensure_user_exists(
             user_id=current_user["id"],
             email=current_user.get("email") or "",
             full_name=current_user.get("name"),
             phone_number=current_user.get("phone"),
+            send_welcome_sms=send_welcome_sms,
         )
     except AccountIdentityConflictError as conflict:
         if await clerk_identity_exists(conflict.existing_user_id):
@@ -70,6 +77,7 @@ async def ensure_current_user_record(user_service: Any, current_user: Dict[str, 
             email=current_user.get("email") or "",
             full_name=current_user.get("name"),
             phone_number=current_user.get("phone"),
+            send_welcome_sms=send_welcome_sms,
         )
 
 
@@ -151,35 +159,63 @@ async def _maybe_force_fresh_read(request: Request):
         await force_local_replica_sync()
 
 
-async def _ensure_activity_metadata_for_bootstrap(user_id: str) -> None:
-    """Best-effort provisioning guard for login/bootstrap.
+async def _provision_activity_metadata_deferred(user_id: str) -> None:
+    """Provision per-user activity storage after the routing response."""
 
-    Per-user activity databases are useful for local watcher sync, but a slow
-    Turso platform call should never trap an authenticated user on the desktop
-    setup spinner.
-    """
     try:
-        await asyncio.wait_for(
-            turso_user_service.ensure_user_activity_metadata(user_id),
-            timeout=BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Timed out provisioning per-user activity metadata during bootstrap for user %s after %.1fs",
-            user_id,
-            BOOTSTRAP_ACTIVITY_METADATA_TIMEOUT_SECONDS,
-        )
+        await turso_user_service.ensure_user_activity_metadata(user_id)
     except TursoProvisioningError:
         logger.warning(
-            "Failed provisioning per-user activity metadata during bootstrap for user %s",
+            "Failed deferred per-user activity provisioning for user %s",
             user_id,
             exc_info=True,
         )
     except Exception:
         logger.warning(
-            "Unexpected error provisioning per-user activity metadata during bootstrap for user %s",
+            "Unexpected deferred per-user activity provisioning error for user %s",
             user_id,
             exc_info=True,
+        )
+
+
+async def _run_deferred_bootstrap_setup(
+    user_id: str,
+    *,
+    user_service: Any,
+    current_user: Dict[str, Any],
+) -> None:
+    """Run non-routing setup after the bootstrap response has been sent."""
+
+    if user_id in _bootstrap_setup_inflight:
+        return
+
+    _bootstrap_setup_inflight.add(user_id)
+    started_at = time.perf_counter()
+    try:
+        results = await asyncio.gather(
+            _provision_activity_metadata_deferred(user_id),
+            user_service.ensure_user_exists(
+                user_id=user_id,
+                email=current_user.get("email") or "",
+                full_name=current_user.get("name"),
+                phone_number=current_user.get("phone"),
+                send_welcome_sms=True,
+            ),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(
+                    "Deferred bootstrap setup failed for user %s: %s",
+                    user_id,
+                    result,
+                )
+    finally:
+        _bootstrap_setup_inflight.discard(user_id)
+        logger.info(
+            "Deferred bootstrap setup finished for user %s duration_ms=%.1f",
+            user_id,
+            (time.perf_counter() - started_at) * 1000,
         )
 
 
@@ -228,13 +264,55 @@ def create_core_router(
     @router.get("/api/user/bootstrap", response_model=UserBootstrapResponse)
     async def get_user_bootstrap(
         request: Request,
+        response: Response,
+        background_tasks: BackgroundTasks,
         current_user=Depends(get_current_user),
     ):
+        started_at = time.perf_counter()
         try:
             await _maybe_force_fresh_read(request)
-            user = await ensure_current_user_record(user_service, current_user)
-            await _ensure_activity_metadata_for_bootstrap(user.id)
-            return await activation_service.get_bootstrap(current_user["id"])
+            identity_started_at = time.perf_counter()
+            user = await ensure_current_user_record(
+                user_service,
+                current_user,
+                send_welcome_sms=False,
+            )
+            identity_ms = (time.perf_counter() - identity_started_at) * 1000
+
+            activation_started_at = time.perf_counter()
+            if getattr(user, "_ritual_created", False):
+                bootstrap = activation_service.build_initial_bootstrap(user)
+                mode = "created"
+            else:
+                bootstrap = await activation_service.get_bootstrap(current_user["id"])
+                mode = "existing"
+            activation_ms = (time.perf_counter() - activation_started_at) * 1000
+            total_ms = (time.perf_counter() - started_at) * 1000
+
+            response.headers["Server-Timing"] = (
+                f"identity;dur={identity_ms:.1f}, "
+                f"activation;dur={activation_ms:.1f}, "
+                f"total;dur={total_ms:.1f}"
+            )
+            response.headers["X-Ritual-Bootstrap-Mode"] = mode
+            response.headers["X-Ritual-Bootstrap-Duration-Ms"] = f"{total_ms:.1f}"
+            logger.info(
+                "Bootstrap completed for user %s mode=%s total_ms=%.1f "
+                "identity_ms=%.1f activation_ms=%.1f",
+                current_user["id"],
+                mode,
+                total_ms,
+                identity_ms,
+                activation_ms,
+            )
+
+            background_tasks.add_task(
+                _run_deferred_bootstrap_setup,
+                user.id,
+                user_service=user_service,
+                current_user=dict(current_user),
+            )
+            return bootstrap
         except AccountIdentityConflictError:
             raise HTTPException(
                 status_code=409,

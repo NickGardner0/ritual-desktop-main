@@ -18,12 +18,12 @@ import {
   resolveOnboardingStep,
   resolveSsoRedirectRoute,
 } from '@/lib/activation-flow.mjs'
+import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
 import { restoreDashboardWindowSize } from '@/lib/tauri-utils'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
-const BOOTSTRAP_TIMEOUT_MS = 8_000
-const BOOTSTRAP_RETRY_DELAYS_MS = [0, 750, 1_500] as const
+const BOOTSTRAP_TIMEOUT_MS = 30_000
 
 type BootstrapResponse = {
   nextRoute?: string
@@ -110,58 +110,22 @@ function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string
   return onboardingRouteForStep(resolvedStep)
 }
 
-function wait(delayMs: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, delayMs))
-}
+async function fetchBootstrap(token: string): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_TIMEOUT_MS)
 
-async function fetchBootstrapWithRetry({
-  token,
-  onAttempt,
-}: {
-  token: string
-  onAttempt: (attempt: number) => void
-}): Promise<Response> {
-  let lastError: unknown = new Error('Bootstrap did not start')
-
-  for (let index = 0; index < BOOTSTRAP_RETRY_DELAYS_MS.length; index += 1) {
-    const delayMs = BOOTSTRAP_RETRY_DELAYS_MS[index]
-    if (delayMs > 0) {
-      await wait(delayMs)
-    }
-
-    onAttempt(index + 1)
-    const controller = new AbortController()
-    const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_TIMEOUT_MS)
-
-    try {
-      const response = await fetch('/api/user/bootstrap', {
-        cache: 'no-store',
-        signal: controller.signal,
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      })
-
-      if (response.ok || response.status === 401 || response.status === 403) {
-        return response
-      }
-
-      lastError = new BootstrapError(await readBootstrapFailure(response))
-      if (response.status < 500 && response.status !== 408 && response.status !== 429) {
-        throw lastError
-      }
-    } catch (error) {
-      lastError = error
-      if (index === BOOTSTRAP_RETRY_DELAYS_MS.length - 1) {
-        throw error
-      }
-    } finally {
-      window.clearTimeout(timeoutId)
-    }
+  try {
+    return await fetch('/api/user/bootstrap', {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    })
+  } finally {
+    window.clearTimeout(timeoutId)
   }
-
-  throw lastError
 }
 
 async function prepareDashboardRedirect(
@@ -211,11 +175,15 @@ export default function SSOCallback() {
           return
         }
 
-        const response = await fetchBootstrapWithRetry({
-          token,
-          onAttempt: (attempt) => {
-            setStatus(attempt === 1 ? 'Setting up your account...' : 'Still setting up your account...')
-          },
+        const bootstrapStartedAt = window.performance.now()
+        const response = await fetchBootstrap(token)
+        const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
+        console.info('[Ritual][account-bootstrap] completed', {
+          duration_ms: Math.round(bootstrapDurationMs),
+          backend_duration_ms: response.headers.get('x-ritual-bootstrap-duration-ms'),
+          mode: response.headers.get('x-ritual-bootstrap-mode'),
+          server_timing: response.headers.get('server-timing'),
+          status: response.status,
         })
 
         if (response.status === 401 || response.status === 403) {
@@ -224,12 +192,15 @@ export default function SSOCallback() {
         }
 
         if (!response.ok) {
-          throw new Error(`Bootstrap failed (${response.status})`)
+          throw new BootstrapError(await readBootstrapFailure(response))
         }
 
         const bootstrap = await response.json() as BootstrapResponse
         setStatus('Taking you to Ritual...')
         const redirectTarget = resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl())
+        if (redirectTarget.startsWith('/onboarding')) {
+          storeBootstrapHandoff(bootstrap)
+        }
         await prepareDashboardRedirect(redirectTarget, shouldRestoreDashboardWindowSize)
         router.replace(redirectTarget)
       } catch (error) {

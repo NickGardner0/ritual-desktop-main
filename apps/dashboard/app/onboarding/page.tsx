@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState, type ButtonHTMLAttributes } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, type ButtonHTMLAttributes } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ClerkLoaded, ClerkLoading, SignUp, useAuth, useUser } from "@clerk/nextjs"
@@ -17,6 +17,7 @@ import {
   resolveOnboardingStep,
   resolveSsoRedirectRoute,
 } from "@/lib/activation-flow.mjs"
+import { consumeBootstrapHandoff } from "@/lib/bootstrap-handoff"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
@@ -143,6 +144,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<V3Step>(initialStep)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const bootstrapSyncUserRef = useRef<string | null>(null)
 
   const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const token = await getToken({ skipCache: true })
@@ -191,11 +193,43 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!isLoaded || !user) return
+    if (bootstrapSyncUserRef.current === user.id) return
+    bootstrapSyncUserRef.current = user.id
 
     let cancelled = false
 
+    const applyBootstrapRoute = async (bootstrap: BootstrapResponse) => {
+      if (cancelled) return
+
+      const redirectRoute = resolveSsoRedirectRoute(bootstrap.nextRoute, undefined)
+
+      if (redirectRoute === "/dashboard") {
+        clearPersistedStep()
+        clearSetupSubstep()
+        await restoreDashboardWindowSize()
+        router.replace("/dashboard")
+        return
+      }
+
+      const backendStep = parseOnboardingStepFromRoute(redirectRoute)
+      if (!backendStep) {
+        return
+      }
+
+      const resolvedStep = resolveOnboardingStep(redirectRoute, readPersistedStep() ?? queryStep)
+      if (resolvedStep !== step) {
+        goToStep(resolvedStep)
+      }
+    }
+
     const syncBootstrapRoute = async () => {
       try {
+        const handoff = consumeBootstrapHandoff()
+        if (handoff) {
+          await applyBootstrapRoute(handoff)
+          return
+        }
+
         const response = await fetch("/api/user/bootstrap", {
           cache: "no-store",
           headers: await authHeaders(),
@@ -206,25 +240,7 @@ export default function OnboardingPage() {
         }
 
         const bootstrap = await response.json() as BootstrapResponse
-        const redirectRoute = resolveSsoRedirectRoute(bootstrap.nextRoute, undefined)
-
-        if (redirectRoute === "/dashboard") {
-          clearPersistedStep()
-          clearSetupSubstep()
-          await restoreDashboardWindowSize()
-          router.replace("/dashboard")
-          return
-        }
-
-        const backendStep = parseOnboardingStepFromRoute(redirectRoute)
-        if (!backendStep) {
-          return
-        }
-
-        const resolvedStep = resolveOnboardingStep(redirectRoute, readPersistedStep() ?? queryStep)
-        if (resolvedStep !== step) {
-          goToStep(resolvedStep)
-        }
+        await applyBootstrapRoute(bootstrap)
       } catch (bootstrapError) {
         console.warn("Unable to sync onboarding bootstrap route:", bootstrapError)
       }

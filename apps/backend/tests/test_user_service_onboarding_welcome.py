@@ -17,6 +17,9 @@ class _Result:
     def first(self):
         return self._first
 
+    def scalar_one_or_none(self):
+        return self._first
+
 
 class _ExecResult:
     def __init__(self, rowcount: int):
@@ -74,7 +77,9 @@ class UserServiceOnboardingWelcomeTests(unittest.IsolatedAsyncioTestCase):
         service = UserService()
         session = AsyncMock()
         session.add = Mock()
-        session.execute = AsyncMock(side_effect=[_Result(first=None), _ExecResult(1)])
+        session.execute = AsyncMock(
+            side_effect=[_Result(first=None), _Result(first=None), _ExecResult(1)]
+        )
 
         with patch("services.user_service.get_db_session", return_value=_SessionContext(session)), patch(
             "services.sms_onboarding_service.sms_onboarding_service.send_desktop_welcome",

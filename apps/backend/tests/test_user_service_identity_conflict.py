@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from database.models import Base, UserDB
+from database.models import Base, UserActivationStateDB, UserDB
 from services import user_service as user_service_module
 from services.user_service import AccountIdentityConflictError, UserService
 
@@ -50,3 +50,21 @@ class UserServiceIdentityConflictTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.existing_user_id, "old-clerk-id")
         self.assertEqual(raised.exception.requested_user_id, "new-clerk-id")
+
+    async def test_new_user_and_activation_state_are_committed_together(self):
+        user = await UserService().ensure_user_exists(
+            user_id="new-clerk-id",
+            email="test@example.com",
+            send_welcome_sms=False,
+        )
+
+        async with self.Session() as session:
+            persisted_user = await session.get(UserDB, "new-clerk-id")
+            activation_state = await session.get(
+                UserActivationStateDB,
+                "new-clerk-id",
+            )
+
+        self.assertIsNotNone(persisted_user)
+        self.assertIsNotNone(activation_state)
+        self.assertTrue(getattr(user, "_ritual_created", False))

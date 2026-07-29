@@ -104,6 +104,24 @@ def _parse_metadata(value: Optional[str]) -> Optional[Dict[str, Any]]:
 class ActivationService:
     """Owns first-run activation routing and state transitions."""
 
+    def build_initial_bootstrap(self, user: UserDB) -> UserBootstrapResponse:
+        """Build the first-run response from the just-committed user transaction."""
+
+        state = getattr(user, "_ritual_initial_activation_state", None)
+        if state is None:
+            now = _utcnow()
+            state = UserActivationStateDB(
+                user_id=user.id,
+                created_at=now,
+                updated_at=now,
+            )
+        return self._build_response(
+            user=user,
+            state=state,
+            checklist_rows=[],
+            connected_providers=set(),
+        )
+
     async def get_bootstrap(self, user_id: str) -> UserBootstrapResponse:
         async with get_db_session() as session:
             user = await session.get(UserDB, user_id)

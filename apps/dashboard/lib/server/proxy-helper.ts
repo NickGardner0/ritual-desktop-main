@@ -103,8 +103,21 @@ export async function forwardProxyRequest(
       duration_ms: Date.now() - startedAt,
       count: Array.isArray(data) ? data.length : undefined,
     });
+    const responseHeaders = new Headers({
+      "Cache-Control": "no-store, max-age=0",
+    });
+    for (const headerName of [
+      "server-timing",
+      "x-ritual-bootstrap-duration-ms",
+      "x-ritual-bootstrap-mode",
+    ]) {
+      const headerValue = response.headers.get(headerName);
+      if (headerValue) {
+        responseHeaders.set(headerName, headerValue);
+      }
+    }
     const nextResponse = NextResponse.json(data, {
-      headers: { "Cache-Control": "no-store, max-age=0" },
+      headers: responseHeaders,
     });
     if (shouldSetForceFreshCookie(method, backendPath)) {
       nextResponse.cookies.set(FORCE_FRESH_COOKIE, String(Date.now() + FORCE_FRESH_WINDOW_MS), {

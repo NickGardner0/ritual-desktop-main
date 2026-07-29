@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from database.connection import get_db_session
-from database.models import UserDB
+from database.models import UserActivationStateDB, UserDB
 
 logger = logging.getLogger(__name__)
 
@@ -307,7 +307,15 @@ class UserService:
                 logger.error(f"❌ Database error looking up user by phone: {str(e)}")
                 return None
 
-    async def ensure_user_exists(self, user_id: str, email: str, full_name: Optional[str] = None, phone_number: Optional[str] = None) -> UserDB:
+    async def ensure_user_exists(
+        self,
+        user_id: str,
+        email: str,
+        full_name: Optional[str] = None,
+        phone_number: Optional[str] = None,
+        *,
+        send_welcome_sms: bool = True,
+    ) -> UserDB:
         """
         Ensure user exists in database, create if not
         """
@@ -322,6 +330,7 @@ class UserService:
                 user = self._row_to_user_projection(row) if row else None
                 
                 if user:
+                    setattr(user, "_ritual_created", False)
                     # Update email if it's the fallback format and we have a real email
                     updates = {}
                     if email and email != user.email and user.email.endswith("@clerk.user"):
@@ -341,7 +350,11 @@ class UserService:
                         for key, value in updates.items():
                             setattr(user, key, value)
 
-                    if normalized_phone_number and not getattr(user, "sms_welcome_sent_at", None):
+                    if (
+                        send_welcome_sms
+                        and normalized_phone_number
+                        and not getattr(user, "sms_welcome_sent_at", None)
+                    ):
                         await self._maybe_send_sms_welcome(
                             session=session,
                             user_id=user_id,
@@ -377,26 +390,41 @@ class UserService:
                 elif not default_name:
                     default_name = f"User_{user_id[:8]}"
                 
+                now = datetime.utcnow()
                 new_user = UserDB(
                     id=user_id,
                     email=email or f"{user_id}@clerk.user",  # Fallback email if not provided
                     full_name=default_name,
                     phone_number=normalized_phone_number,
                     onboarding_completed=False,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow()
+                    created_at=now,
+                    updated_at=now,
+                )
+                initial_activation_state = UserActivationStateDB(
+                    user_id=user_id,
+                    created_at=now,
+                    updated_at=now,
                 )
                 session.add(new_user)
+                session.add(initial_activation_state)
                 await session.commit()
 
-                await self._maybe_send_sms_welcome(
-                    session=session,
-                    user_id=user_id,
-                    phone_number=normalized_phone_number,
-                    full_name=default_name,
-                    sms_welcome_sent_at=None,
-                    user_obj=new_user,
+                setattr(new_user, "_ritual_created", True)
+                setattr(
+                    new_user,
+                    "_ritual_initial_activation_state",
+                    initial_activation_state,
                 )
+
+                if send_welcome_sms:
+                    await self._maybe_send_sms_welcome(
+                        session=session,
+                        user_id=user_id,
+                        phone_number=normalized_phone_number,
+                        full_name=default_name,
+                        sms_welcome_sent_at=None,
+                        user_obj=new_user,
+                    )
                 
                 logger.info(f"✅ Created new user: {email or user_id}")
                 return new_user
