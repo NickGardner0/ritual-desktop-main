@@ -105,13 +105,13 @@ function OnboardingButton({
 
 function SignUpStep({ desktopMode, oauthFlowMode }: { desktopMode: boolean; oauthFlowMode: 'redirect' | 'auto' }) {
   return (
-    <div className="ritual-onboarding-font flex h-screen items-center justify-center overflow-hidden bg-white px-4 py-5">
+    <div className="ritual-onboarding-font flex h-screen items-center justify-center overflow-hidden bg-[#fcfcfa] px-4 py-5">
       <div className="w-full max-w-[420px]">
         <AuthFlowIntent mode="sign_up" />
         {desktopMode ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}
         <div className="flex justify-center">
           <ClerkLoading>
-            <div className="flex h-[420px] w-full items-center justify-center bg-white">
+            <div className="flex h-[420px] w-full items-center justify-center bg-[#fcfcfa]">
               <BrailleSpinner className="text-2xl text-gray-900" />
             </div>
           </ClerkLoading>
@@ -494,7 +494,7 @@ export default function OnboardingPage() {
 
   if (!isLoaded && step !== "welcome") {
     return (
-      <div className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white">
+      <div className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-[#fcfcfa]">
         <BrailleSpinner className="text-2xl text-gray-900" />
       </div>
     )
@@ -522,7 +522,7 @@ export default function OnboardingPage() {
   }
 
   const pageClassName = isDesktop
-    ? "min-h-screen bg-white"
+    ? "min-h-screen bg-[#fcfcfa]"
     : "min-h-screen bg-[#e9e9e7]"
 
   return (

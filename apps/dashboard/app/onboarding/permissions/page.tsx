@@ -14,7 +14,7 @@ export default function PermissionsOnboardingPage() {
   }, [router])
 
   return (
-    <div className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-white">
+    <div className="ritual-onboarding-font flex min-h-screen items-center justify-center bg-[#fcfcfa]">
       <BrailleSpinner className="text-2xl text-gray-900" />
     </div>
   )

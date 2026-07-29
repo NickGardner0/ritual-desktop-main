@@ -1965,8 +1965,8 @@ body[data-voice-hud-window="1"] {
   --ritual-selected-font-family: var(--ritual-font-fk);
 
   /* Post-signup Perplexity-style onboarding (scoped via .px-onboarding) */
-  --px-onboarding-stage: #ffffff;
-  --px-onboarding-cream: #ffffff;
+  --px-onboarding-stage: #fcfcfa;
+  --px-onboarding-cream: #fcfcfa;
   --px-onboarding-ink: #292720;
   --px-onboarding-muted: #777570;
   --px-onboarding-border: #e5e1db;
@@ -1985,6 +1985,12 @@ body[data-voice-hud-window="1"] {
 
 .px-onboarding {
   color: var(--px-onboarding-ink);
+}
+
+html.desktop[data-platform="macos"][data-main-glass="1"] .ritual-onboarding-font.glass-opaque-screen,
+html.desktop:not([data-platform])[data-main-glass="1"] .ritual-onboarding-font.glass-opaque-screen {
+  background: #fcfcfa !important;
+  background-color: #fcfcfa !important;
 }
 
 html body .px-onboarding .px-onboarding-title,

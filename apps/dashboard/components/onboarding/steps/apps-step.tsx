@@ -60,7 +60,7 @@ export function AppsStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="What apps do you work in?"
-        subtitle="Connecting your apps helps Computer do more for you."
+        subtitle="Connecting your apps helps Ritual build a more complete view of your behavior."
       />
 
       <div className="min-h-0 flex-1 px-8 pt-5">

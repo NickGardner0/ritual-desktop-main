@@ -21,7 +21,7 @@ export function NotificationsStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Know the moment it gets done"
-        subtitle="Get notified when Computer finishes a task or needs your input."
+        subtitle="Get notified when Ritual discovers a pattern, prepares a report, or needs your input."
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-6">
@@ -34,7 +34,7 @@ export function NotificationsStep({
                 <span className="grid h-8 w-8 place-items-center rounded-[8px] border border-[var(--px-onboarding-border)] bg-[#f4f2ee]">
                   <Monitor className="h-4 w-4 text-[var(--px-onboarding-ink)]" strokeWidth={1.7} />
                 </span>
-                <p className="text-[15px] font-normal text-[var(--px-onboarding-ink)]">Computer</p>
+                <p className="text-[15px] font-normal text-[var(--px-onboarding-ink)]">Ritual</p>
                 <span className="ml-auto text-[13px] text-[var(--px-onboarding-muted)]">just now</span>
               </div>
               <div className="mt-3 space-y-2">

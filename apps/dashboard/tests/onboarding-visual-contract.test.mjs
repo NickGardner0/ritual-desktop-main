@@ -20,10 +20,55 @@ test('onboarding uses the canonical Ritual mark instead of the animated shader',
   assert.match(introSource, /height=\{40\}/)
   assert.match(introSource, /className="mx-auto h-10 w-10"/)
   assert.match(introSource, /className="translate-y-6"/)
+  assert.match(
+    introSource,
+    /The unified system for tracking, observing, and analyzing all of\s+your online and offline behavior/,
+  )
   assert.doesNotMatch(introSource, /LiquidMetal|ritual-liquid-metal/)
   assert.doesNotMatch(packageSource, /@paper-design\/shaders-react/)
   assert.match(ritualMark, /viewBox="0 0 330 330"/)
   assert.match(ritualMark, /fill="black"/)
+})
+
+test('product story and insight goals describe Ritual functionality', async () => {
+  const [productDemoSource, tasksSource] = await Promise.all([
+    readDashboardFile('components/onboarding/steps/product-demo-step.tsx'),
+    readDashboardFile('components/onboarding/steps/tasks-step.tsx'),
+  ])
+
+  assert.match(productDemoSource, /title="Ritual turns behavior into insight"/)
+  assert.match(productDemoSource, /activity, health, habits, and routines/)
+  assert.match(productDemoSource, /What would you like to understand\?/)
+  assert.match(productDemoSource, /Show me what improves my sleep and focus\./)
+  assert.doesNotMatch(productDemoSource, /Computer can tackle|support emails|AI agents/)
+
+  assert.match(
+    tasksSource,
+    /title="What would you like Ritual to help you understand\?"/,
+  )
+  assert.match(tasksSource, /Choose a few to personalize your insights\./)
+  assert.match(tasksSource, /Sleep improvements/)
+  assert.match(tasksSource, /Hidden correlations/)
+  assert.match(tasksSource, /Substance use/)
+  assert.match(tasksSource, /Personalized insights/)
+  assert.doesNotMatch(tasksSource, /Computer|Build an app|Create a spreadsheet|Triage my email/)
+})
+
+test('onboarding window and page canvases use the warm fcfcfa surface', async () => {
+  const [globalStyles, onboardingWindow, onboardingPage, callbackPage] =
+    await Promise.all([
+      readDashboardFile('app/globals.css'),
+      readDashboardFile('components/onboarding/onboarding-window.tsx'),
+      readDashboardFile('app/onboarding/page.tsx'),
+      readDashboardFile('app/auth/sso-callback/page.tsx'),
+    ])
+
+  assert.match(globalStyles, /--px-onboarding-stage: #fcfcfa;/)
+  assert.match(globalStyles, /--px-onboarding-cream: #fcfcfa;/)
+  assert.match(globalStyles, /background-color: #fcfcfa !important;/)
+  assert.match(onboardingWindow, /bg-\[#fcfcfa\]/)
+  assert.match(onboardingPage, /bg-\[#fcfcfa\]/)
+  assert.match(callbackPage, /bg-\[#fcfcfa\]/)
 })
 
 test('tracking interests use behavior domains and updated recommendations copy', async () => {

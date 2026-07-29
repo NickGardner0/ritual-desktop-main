@@ -4,9 +4,7 @@ import type { ReactNode } from "react"
 
 import { cn } from "@/lib/utils"
 
-export const ONBOARDING_TEXTURE_BACKGROUND = `
-  linear-gradient(#fafaf9, #fafaf9)
-`
+export const ONBOARDING_TEXTURE_BACKGROUND = "#fcfcfa"
 
 type OnboardingWindowProps = {
   banner: ReactNode
@@ -32,7 +30,7 @@ export function OnboardingWindow({
   return (
     <section
       className={cn(
-        "flex w-full flex-col overflow-hidden rounded-xl bg-white text-[#14171d] shadow-[0_18px_54px_rgba(18,20,28,0.16)]",
+        "flex w-full flex-col overflow-hidden rounded-xl bg-[#fcfcfa] text-[#14171d] shadow-[0_18px_54px_rgba(18,20,28,0.16)]",
         className,
       )}
       style={{ fontFamily: "var(--ritual-font-fk)" }}
@@ -42,11 +40,11 @@ export function OnboardingWindow({
           "relative flex shrink-0 justify-center overflow-hidden",
           isWelcome ? "h-[360px]" : "h-[276px]",
         )}
-        style={{ backgroundImage: ONBOARDING_TEXTURE_BACKGROUND }}
+        style={{ backgroundColor: ONBOARDING_TEXTURE_BACKGROUND }}
       >
         {banner}
       </div>
-      <div className={cn("flex flex-1 flex-col bg-white", isWelcome ? "px-7 pb-6 pt-[32px]" : "px-6 pb-5 pt-5")}>
+      <div className={cn("flex flex-1 flex-col bg-[#fcfcfa]", isWelcome ? "px-7 pb-6 pt-[32px]" : "px-6 pb-5 pt-5")}>
         <h1 className={cn("font-medium leading-[1.14] tracking-[-0.01em] text-[#14171d]", isWelcome ? "text-[28px]" : "text-[23px]")}>
           {title}
         </h1>

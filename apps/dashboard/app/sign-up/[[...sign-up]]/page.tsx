@@ -14,7 +14,7 @@ export default async function SignUpPage() {
     const isDesktopApp = isDesktopUserAgent(userAgent);
 
     return (
-        <div className="ritual-onboarding-font min-h-screen flex items-center justify-center bg-white py-12 px-4 sm:px-6 lg:px-8">
+        <div className="ritual-onboarding-font min-h-screen flex items-center justify-center bg-[#fcfcfa] py-12 px-4 sm:px-6 lg:px-8">
             <div className="w-full max-w-md">
                 <AuthFlowIntent mode="sign_up" />
                 {isDesktopApp ? <ClerkOAuthHandler mode="sign_up" desktopMode /> : null}

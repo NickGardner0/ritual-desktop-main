@@ -345,7 +345,7 @@ export function OnboardingSetupStep({
 
   return (
     <div
-      className="flex h-[612px] w-full max-w-[800px] flex-col bg-[#fdfdfb] text-[#18181b]"
+      className="flex h-[612px] w-full max-w-[800px] flex-col bg-[#fcfcfa] text-[#18181b]"
       style={{ fontFamily: "var(--ritual-font-fk)" }}
     >
       <div data-tauri-drag-region className="h-8 shrink-0" />

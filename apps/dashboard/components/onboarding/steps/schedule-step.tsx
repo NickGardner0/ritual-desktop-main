@@ -29,7 +29,7 @@ export function ScheduleStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Schedule your tasks to run while you sleep"
-        subtitle="Schedule recurring tasks on any cadence. Computer runs in the background and produces finished deliverables."
+        subtitle="Schedule recurring reviews on any cadence. Ritual keeps your patterns and progress ready when you are."
       />
 
       <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-6">

@@ -32,8 +32,8 @@ export function IntroStep({
             Welcome to Ritual
           </h1>
           <p className="mx-auto mt-3 max-w-[390px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">
-            Your private intelligence layer for remembering what matters and
-            helping you move through every day.
+            The unified system for tracking, observing, and analyzing all of
+            your online and offline behavior
           </p>
         </div>
       </div>
