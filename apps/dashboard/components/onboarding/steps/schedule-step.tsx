@@ -1,6 +1,6 @@
 "use client"
 
-import { Clock3, RefreshCw } from "lucide-react"
+import { CalendarDays, Check, Circle, Flag, ListTodo, Plus } from "lucide-react"
 
 import {
   OnboardingFooter,
@@ -10,12 +10,11 @@ import {
   SETUP_STEPPER_COUNT,
 } from "@/components/onboarding/perplexity-onboarding-shell"
 
-const SCHEDULED_TASKS = [
-  { title: "Daily Inbox Sweep", cadence: "7am every day" },
-  { title: "Competitor Watch", cadence: "8am on Mon" },
-  { title: "Weekly KPI Digest", cadence: "9am on Fri" },
-  { title: "Meeting Prep Pack", cadence: "6:30am weekdays" },
-  { title: "Customer Pulse Check", cadence: "10am on Wed" },
+const TASKS = [
+  { title: "Review weekly goals", meta: "Today", completed: true, priority: false },
+  { title: "Finish product brief", meta: "Today", completed: false, priority: true },
+  { title: "Plan tomorrow", meta: "5:00 PM", completed: false, priority: false },
+  { title: "Book training session", meta: "Friday", completed: false, priority: false },
 ]
 
 export function ScheduleStep({
@@ -28,50 +27,64 @@ export function ScheduleStep({
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
-        title="Schedule your tasks to run while you sleep"
-        subtitle="Schedule recurring reviews on any cadence. Ritual keeps your patterns and progress ready when you are."
+        title="Tasks"
+        subtitle="Capture, prioritize, and complete work alongside the context that shapes your day."
       />
 
-      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-6">
-        <div className="relative h-full max-h-[444px] w-full overflow-hidden rounded-[16px] border border-[var(--px-onboarding-border)] bg-[linear-gradient(145deg,#f4f2ee_0%,#edf3f1_100%)] px-12 py-5">
-          <div
-            className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10"
-            style={{
-              background:
-                "linear-gradient(to bottom, var(--px-onboarding-recessed) 0%, rgba(242,241,235,0) 100%)",
-            }}
-          />
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10"
-            style={{
-              background:
-                "linear-gradient(to top, var(--px-onboarding-recessed) 0%, rgba(242,241,235,0) 100%)",
-            }}
-          />
-          <div className="flex h-full flex-col justify-center gap-2">
-            {SCHEDULED_TASKS.map((task, index) => {
-              const faded = index === 0 || index === SCHEDULED_TASKS.length - 1
-              return (
-                <div
-                  key={task.title}
-                  className="flex min-h-[64px] items-center gap-3 rounded-[12px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5 py-2.5 shadow-[0_8px_20px_rgba(0,0,0,0.045)]"
-                  style={{ opacity: faded ? 0.4 : 1 }}
+      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
+        <div className="w-full rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] p-4">
+          <div className="flex items-center">
+            <span className="grid h-8 w-8 place-items-center rounded-[8px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)]">
+              <ListTodo className="h-4 w-4" strokeWidth={1.7} />
+            </span>
+            <div className="ml-2.5">
+              <p className="text-[14px] text-[var(--px-onboarding-ink)]">Today</p>
+              <p className="text-[11px] text-[var(--px-onboarding-muted)]">3 remaining</p>
+            </div>
+            <span className="ml-auto grid h-7 w-7 place-items-center rounded-full border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)]">
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.7} />
+            </span>
+          </div>
+
+          <div className="mt-3 space-y-2">
+            {TASKS.map((task) => (
+              <div
+                key={task.title}
+                className="flex min-h-[52px] items-center gap-3 rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] px-3"
+              >
+                <span
+                  className={
+                    task.completed
+                      ? "grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[var(--px-onboarding-ink)] text-white"
+                      : "grid h-5 w-5 shrink-0 place-items-center text-[var(--px-onboarding-muted)]"
+                  }
                 >
-                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-[#f1efeb] text-[var(--px-onboarding-muted)]">
-                    <Clock3 className="h-[18px] w-[18px]" strokeWidth={1.7} />
+                  {task.completed ? (
+                    <Check className="h-3 w-3" strokeWidth={2} />
+                  ) : (
+                    <Circle className="h-5 w-5" strokeWidth={1.5} />
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={
+                      task.completed
+                        ? "block truncate text-[14px] text-[var(--px-onboarding-muted)] line-through"
+                        : "block truncate text-[14px] text-[var(--px-onboarding-ink)]"
+                    }
+                  >
+                    {task.title}
                   </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-normal text-[var(--px-onboarding-ink)]">
-                      {task.title}
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1.5 text-[13px] text-[var(--px-onboarding-muted)]">
-                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.7} />
-                    <span>{task.cadence}</span>
-                  </div>
-                </div>
-              )
-            })}
+                </span>
+                {task.priority ? (
+                  <Flag className="h-3.5 w-3.5 shrink-0 text-[var(--px-onboarding-ink)]" strokeWidth={1.7} />
+                ) : null}
+                <span className="flex shrink-0 items-center gap-1 text-[11px] text-[var(--px-onboarding-muted)]">
+                  <CalendarDays className="h-3 w-3" strokeWidth={1.6} />
+                  {task.meta}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

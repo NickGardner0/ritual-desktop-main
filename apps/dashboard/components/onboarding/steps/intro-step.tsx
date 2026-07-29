@@ -31,9 +31,13 @@ export function IntroStep({
           <h1 className="px-onboarding-title mt-8 text-[24px] leading-[1.2]">
             Welcome to Ritual
           </h1>
-          <p className="mx-auto mt-3 max-w-[390px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">
-            The unified system for tracking, observing, and analyzing all of
-            your online and offline behavior
+          <p className="mx-auto mt-3 max-w-[440px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">
+            <span className="block whitespace-nowrap">
+              The unified system for tracking, observing, and
+            </span>
+            <span className="block whitespace-nowrap">
+              analyzing all of your online and offline behavior
+            </span>
           </p>
         </div>
       </div>

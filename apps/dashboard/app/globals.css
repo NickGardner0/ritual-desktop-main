@@ -1970,7 +1970,7 @@ body[data-voice-hud-window="1"] {
   --px-onboarding-ink: #292720;
   --px-onboarding-muted: #777570;
   --px-onboarding-border: #e5e1db;
-  --px-onboarding-chip: #ffffff;
+  --px-onboarding-chip: #fcfcfa;
   --px-onboarding-chip-hover: var(--surface-panel, #f4f4f3);
   --px-onboarding-recessed: #f7f8f5;
 }

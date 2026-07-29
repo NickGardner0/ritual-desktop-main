@@ -120,7 +120,7 @@ export function OnboardingNavButton({
         "h-8 min-w-[58px] rounded-md px-3 text-[15px] font-normal shadow-none transition-colors duration-150 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-[var(--px-onboarding-cream)]",
         variant === "primary"
           ? "border-[var(--px-onboarding-ink)] bg-[var(--px-onboarding-ink)] text-white hover:bg-[var(--brand-action-hover)]"
-          : "border-[var(--px-onboarding-border)] bg-white text-[var(--px-onboarding-ink)] hover:bg-[var(--surface-panel)]",
+          : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] text-[var(--px-onboarding-ink)] hover:bg-[var(--surface-panel)]",
         className,
       )}
       {...props}

@@ -20,38 +20,64 @@ test('onboarding uses the canonical Ritual mark instead of the animated shader',
   assert.match(introSource, /height=\{40\}/)
   assert.match(introSource, /className="mx-auto h-10 w-10"/)
   assert.match(introSource, /className="translate-y-6"/)
-  assert.match(
-    introSource,
-    /The unified system for tracking, observing, and analyzing all of\s+your online and offline behavior/,
-  )
+  assert.match(introSource, /The unified system for tracking, observing, and/)
+  assert.match(introSource, /analyzing all of your online and offline behavior/)
+  assert.match(introSource, /block whitespace-nowrap/)
   assert.doesNotMatch(introSource, /LiquidMetal|ritual-liquid-metal/)
   assert.doesNotMatch(packageSource, /@paper-design\/shaders-react/)
   assert.match(ritualMark, /viewBox="0 0 330 330"/)
   assert.match(ritualMark, /fill="black"/)
 })
 
-test('product story and insight goals describe Ritual functionality', async () => {
-  const [productDemoSource, tasksSource] = await Promise.all([
+test('feature tour describes Ritual devices, imports, tasks, routines, and analytics', async () => {
+  const [
+    productDemoSource,
+    tasksSource,
+    scheduleSource,
+    appsSource,
+    notificationsSource,
+  ] = await Promise.all([
     readDashboardFile('components/onboarding/steps/product-demo-step.tsx'),
     readDashboardFile('components/onboarding/steps/tasks-step.tsx'),
+    readDashboardFile('components/onboarding/steps/schedule-step.tsx'),
+    readDashboardFile('components/onboarding/steps/apps-step.tsx'),
+    readDashboardFile('components/onboarding/steps/notifications-step.tsx'),
   ])
 
-  assert.match(productDemoSource, /title="Ritual turns behavior into insight"/)
-  assert.match(productDemoSource, /activity, health, habits, and routines/)
-  assert.match(productDemoSource, /What would you like to understand\?/)
-  assert.match(productDemoSource, /Show me what improves my sleep and focus\./)
-  assert.doesNotMatch(productDemoSource, /Computer can tackle|support emails|AI agents/)
+  assert.match(productDemoSource, /title="Connect your devices"/)
+  assert.match(productDemoSource, /Apple Health/)
+  assert.match(productDemoSource, /WHOOP/)
+  assert.match(productDemoSource, /Screen Time/)
 
-  assert.match(
+  assert.match(tasksSource, /title="Import your data"/)
+  assert.match(tasksSource, /Apple Health/)
+  assert.match(tasksSource, /Spreadsheets/)
+  assert.match(tasksSource, /Screenshots/)
+
+  assert.match(scheduleSource, /title="Tasks"/)
+  assert.match(scheduleSource, /Review weekly goals/)
+  assert.match(scheduleSource, /Finish product brief/)
+
+  assert.match(appsSource, /title="Routines"/)
+  assert.match(appsSource, /Morning reset/)
+  assert.match(appsSource, /Deep work block/)
+
+  assert.match(notificationsSource, /title="Analytics"/)
+  assert.match(notificationsSource, /Focus trend/)
+  assert.match(notificationsSource, /Pattern found/)
+
+  for (const source of [
+    productDemoSource,
     tasksSource,
-    /title="What would you like Ritual to help you understand\?"/,
-  )
-  assert.match(tasksSource, /Choose a few to personalize your insights\./)
-  assert.match(tasksSource, /Sleep improvements/)
-  assert.match(tasksSource, /Hidden correlations/)
-  assert.match(tasksSource, /Substance use/)
-  assert.match(tasksSource, /Personalized insights/)
-  assert.doesNotMatch(tasksSource, /Computer|Build an app|Create a spreadsheet|Triage my email/)
+    scheduleSource,
+    appsSource,
+    notificationsSource,
+  ]) {
+    assert.doesNotMatch(
+      source,
+      /Computer can tackle|support emails|AI agents|Build an app|Triage my email/,
+    )
+  }
 })
 
 test('onboarding window and page canvases use the warm fcfcfa surface', async () => {
@@ -65,6 +91,7 @@ test('onboarding window and page canvases use the warm fcfcfa surface', async ()
 
   assert.match(globalStyles, /--px-onboarding-stage: #fcfcfa;/)
   assert.match(globalStyles, /--px-onboarding-cream: #fcfcfa;/)
+  assert.match(globalStyles, /--px-onboarding-chip: #fcfcfa;/)
   assert.match(globalStyles, /background-color: #fcfcfa !important;/)
   assert.match(onboardingWindow, /bg-\[#fcfcfa\]/)
   assert.match(onboardingPage, /bg-\[#fcfcfa\]/)

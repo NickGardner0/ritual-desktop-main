@@ -1,7 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
-import { Search } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
+import { Check, Clock3, Focus, Moon, Repeat2, Sunrise } from "lucide-react"
 
 import {
   OnboardingFooter,
@@ -10,25 +10,35 @@ import {
   OnboardingStepper,
   SETUP_STEPPER_COUNT,
 } from "@/components/onboarding/perplexity-onboarding-shell"
-import { cn } from "@/lib/utils"
 
-const APPS: { id: string; label: string; color: string; initial: string }[] = [
-  { id: "gmail", label: "Gmail", color: "#EA4335", initial: "G" },
-  { id: "outlook", label: "Outlook", color: "#0078D4", initial: "O" },
-  { id: "slack", label: "Slack", color: "#4A154B", initial: "S" },
-  { id: "notion", label: "Notion", color: "#111111", initial: "N" },
-  { id: "hubspot", label: "HubSpot", color: "#FF7A59", initial: "H" },
-  { id: "stripe", label: "Stripe", color: "#635BFF", initial: "S" },
-  { id: "vercel", label: "Vercel", color: "#000000", initial: "V" },
-  { id: "linear", label: "Linear", color: "#5E6AD2", initial: "L" },
-  { id: "github", label: "GitHub", color: "#24292F", initial: "G" },
-  { id: "figma", label: "Figma", color: "#F24E1E", initial: "F" },
-  { id: "calendar", label: "Google Calendar", color: "#4285F4", initial: "C" },
-  { id: "sheets", label: "Google Sheets", color: "#0F9D58", initial: "S" },
-  { id: "asana", label: "Asana", color: "#F06A6A", initial: "A" },
-  { id: "jira", label: "Jira", color: "#0052CC", initial: "J" },
-  { id: "salesforce", label: "Salesforce", color: "#00A1E0", initial: "S" },
-  { id: "zoom", label: "Zoom", color: "#2D8CFF", initial: "Z" },
+const ROUTINES: {
+  title: string
+  schedule: string
+  detail: string
+  progress: number
+  icon: LucideIcon
+}[] = [
+  {
+    title: "Morning reset",
+    schedule: "7:00 AM",
+    detail: "3 of 4 steps",
+    progress: 75,
+    icon: Sunrise,
+  },
+  {
+    title: "Deep work block",
+    schedule: "Weekdays",
+    detail: "90 minutes",
+    progress: 48,
+    icon: Focus,
+  },
+  {
+    title: "Evening review",
+    schedule: "9:30 PM",
+    detail: "3 steps",
+    progress: 100,
+    icon: Moon,
+  },
 ]
 
 export function AppsStep({
@@ -38,67 +48,65 @@ export function AppsStep({
   onBack: () => void
   onNext: () => void
 }) {
-  const [query, setQuery] = useState("")
-  const [selected, setSelected] = useState<Set<string>>(new Set(["gmail", "slack"]))
-
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase()
-    if (!normalized) return APPS
-    return APPS.filter((app) => app.label.toLowerCase().includes(normalized))
-  }, [query])
-
-  function toggle(id: string) {
-    setSelected((current) => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
-        title="What apps do you work in?"
-        subtitle="Connecting your apps helps Ritual build a more complete view of your behavior."
+        title="Routines"
+        subtitle="Build repeatable schedules, track completion, and see which routines actually work."
       />
 
-      <div className="min-h-0 flex-1 px-8 pt-5">
-        <label className="flex h-10 items-center gap-2.5 rounded-md border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-3.5 focus-within:ring-2 focus-within:ring-[hsl(var(--ring))] focus-within:ring-offset-1">
-          <Search className="h-[18px] w-[18px] shrink-0 text-[#85827d]" strokeWidth={1.7} />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search 400+ apps"
-            className="w-full bg-transparent text-[15px] text-[var(--px-onboarding-ink)] outline-none placeholder:text-[#a4a19b]"
-          />
-        </label>
+      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
+        <div className="w-full rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Repeat2 className="h-4 w-4" strokeWidth={1.7} />
+            <p className="text-[13px] font-medium text-[var(--px-onboarding-ink)]">
+              Your routines
+            </p>
+            <span className="ml-auto text-[11px] text-[var(--px-onboarding-muted)]">
+              Today
+            </span>
+          </div>
 
-        <div className="mt-4 max-h-[410px] overflow-y-auto pb-1">
-          <div className="grid grid-cols-2 gap-2.5">
-            {filtered.map((app) => {
-              const isSelected = selected.has(app.id)
+          <div className="space-y-2.5">
+            {ROUTINES.map((routine) => {
+              const Icon = routine.icon
               return (
-                <button
-                  key={app.id}
-                  type="button"
-                  onClick={() => toggle(app.id)}
-                  aria-pressed={isSelected}
-                  className={cn(
-                    "flex h-[42px] items-center gap-3 rounded-md border px-3 text-left text-[15px] font-normal transition-colors duration-100 hover:bg-[var(--px-onboarding-chip-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[hsl(var(--ring))] focus-visible:ring-offset-1",
-                    isSelected
-                      ? "border-[hsl(var(--border))] bg-[var(--px-onboarding-chip-hover)]"
-                      : "border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)]",
-                  )}
+                <div
+                  key={routine.title}
+                  className="rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] px-3 py-3"
                 >
-                  <span
-                    className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[11px] font-semibold text-white"
-                    style={{ backgroundColor: app.color }}
-                  >
-                    {app.initial}
-                  </span>
-                  <span className="truncate">{app.label}</span>
-                </button>
+                  <div className="flex items-center gap-3">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)]">
+                      <Icon className="h-4 w-4" strokeWidth={1.65} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] text-[var(--px-onboarding-ink)]">
+                        {routine.title}
+                      </span>
+                      <span className="mt-0.5 flex items-center gap-1 text-[11px] text-[var(--px-onboarding-muted)]">
+                        <Clock3 className="h-3 w-3" strokeWidth={1.6} />
+                        {routine.schedule}
+                        <span aria-hidden="true">·</span>
+                        {routine.detail}
+                      </span>
+                    </span>
+                    {routine.progress === 100 ? (
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-[var(--px-onboarding-ink)] text-white">
+                        <Check className="h-3.5 w-3.5" strokeWidth={2} />
+                      </span>
+                    ) : (
+                      <span className="text-[12px] text-[var(--px-onboarding-muted)]">
+                        {routine.progress}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-[var(--px-onboarding-border)]">
+                    <div
+                      className="h-full rounded-full bg-[var(--px-onboarding-ink)]"
+                      style={{ width: `${routine.progress}%` }}
+                    />
+                  </div>
+                </div>
               )
             })}
           </div>

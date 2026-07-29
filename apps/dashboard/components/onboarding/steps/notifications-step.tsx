@@ -1,47 +1,91 @@
 "use client"
 
-import { Monitor } from "lucide-react"
+import { Brain, Focus, Moon, Smartphone, TrendingDown, TrendingUp } from "lucide-react"
 
 import {
   OnboardingFooter,
   OnboardingNavButton,
   OnboardingStepHeader,
+  OnboardingStepper,
+  SETUP_STEPPER_COUNT,
 } from "@/components/onboarding/perplexity-onboarding-shell"
+
+const FOCUS_BARS = [36, 52, 44, 66, 58, 82, 74]
 
 export function NotificationsStep({
   onBack,
-  onSkip,
-  onEnable,
+  onNext,
 }: {
   onBack: () => void
-  onSkip: () => void
-  onEnable: () => void
+  onNext: () => void
 }) {
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
-        title="Know the moment it gets done"
-        subtitle="Get notified when Ritual discovers a pattern, prepares a report, or needs your input."
+        title="Analytics"
+        subtitle="See trends, correlations, and patterns across every part of your life."
       />
 
-      <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-6">
-        <div className="relative flex h-full max-h-[464px] w-full items-center justify-center rounded-[16px] border border-[var(--px-onboarding-border)] bg-[linear-gradient(145deg,#f4f2ee_0%,#edf3f1_100%)]">
-          <div className="relative w-[340px]">
-            <div className="absolute left-5 top-8 h-[104px] w-[calc(100%_-_40px)] rounded-[14px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)]/70 shadow-[0_10px_24px_rgba(0,0,0,0.05)]" />
-            <div className="absolute left-2.5 top-4 h-[104px] w-[calc(100%_-_20px)] rounded-[14px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)]/85 shadow-[0_10px_24px_rgba(0,0,0,0.06)]" />
-            <div className="relative rounded-[14px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-cream)] px-4 py-4 shadow-[0_16px_36px_rgba(0,0,0,0.10)]">
-              <div className="flex items-center gap-2.5">
-                <span className="grid h-8 w-8 place-items-center rounded-[8px] border border-[var(--px-onboarding-border)] bg-[#f4f2ee]">
-                  <Monitor className="h-4 w-4 text-[var(--px-onboarding-ink)]" strokeWidth={1.7} />
-                </span>
-                <p className="text-[15px] font-normal text-[var(--px-onboarding-ink)]">Ritual</p>
-                <span className="ml-auto text-[13px] text-[var(--px-onboarding-muted)]">just now</span>
+      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
+        <div className="w-full rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] p-4">
+          <div className="grid grid-cols-3 gap-2">
+            <div className="rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] p-2.5">
+              <Moon className="h-3.5 w-3.5 text-[var(--px-onboarding-muted)]" strokeWidth={1.7} />
+              <p className="mt-2 text-[16px] text-[var(--px-onboarding-ink)]">7h 42m</p>
+              <p className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--px-onboarding-muted)]">
+                <TrendingUp className="h-3 w-3" strokeWidth={1.7} />
+                Sleep +34m
+              </p>
+            </div>
+            <div className="rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] p-2.5">
+              <Focus className="h-3.5 w-3.5 text-[var(--px-onboarding-muted)]" strokeWidth={1.7} />
+              <p className="mt-2 text-[16px] text-[var(--px-onboarding-ink)]">4h 18m</p>
+              <p className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--px-onboarding-muted)]">
+                <TrendingUp className="h-3 w-3" strokeWidth={1.7} />
+                Focus +12%
+              </p>
+            </div>
+            <div className="rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] p-2.5">
+              <Smartphone className="h-3.5 w-3.5 text-[var(--px-onboarding-muted)]" strokeWidth={1.7} />
+              <p className="mt-2 text-[16px] text-[var(--px-onboarding-ink)]">3h 06m</p>
+              <p className="mt-0.5 flex items-center gap-1 text-[10px] text-[var(--px-onboarding-muted)]">
+                <TrendingDown className="h-3 w-3" strokeWidth={1.7} />
+                Screen time -18%
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-2.5 rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] p-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[13px] text-[var(--px-onboarding-ink)]">Focus trend</p>
+                <p className="mt-0.5 text-[10px] text-[var(--px-onboarding-muted)]">
+                  Last 7 days
+                </p>
               </div>
-              <div className="mt-3 space-y-2">
-                <div className="h-2 w-[88%] rounded-full bg-[#ecece8]" />
-                <div className="h-2 w-[72%] rounded-full bg-[#ecece8]" />
-                <div className="h-2 w-[54%] rounded-full bg-[#ecece8]" />
-              </div>
+              <span className="text-[11px] text-[var(--px-onboarding-muted)]">+12%</span>
+            </div>
+            <div className="mt-3 flex h-[76px] items-end gap-2">
+              {FOCUS_BARS.map((height, index) => (
+                <div key={index} className="flex h-full flex-1 items-end">
+                  <div
+                    className="w-full rounded-t-[3px] bg-[var(--px-onboarding-ink)]"
+                    style={{ height: `${height}%`, opacity: 0.42 + index * 0.08 }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-2.5 flex items-start gap-2.5 rounded-[10px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] p-3">
+            <Brain className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={1.7} />
+            <div>
+              <p className="text-[12px] font-medium text-[var(--px-onboarding-ink)]">
+                Pattern found
+              </p>
+              <p className="mt-0.5 text-[11px] leading-[1.4] text-[var(--px-onboarding-muted)]">
+                Earlier sleep was linked to 21% more focus the next day.
+              </p>
             </div>
           </div>
         </div>
@@ -49,14 +93,8 @@ export function NotificationsStep({
 
       <OnboardingFooter
         left={<OnboardingNavButton variant="secondary" onClick={onBack}>Back</OnboardingNavButton>}
-        right={
-          <>
-            <OnboardingNavButton variant="secondary" onClick={onSkip}>
-              Not now
-            </OnboardingNavButton>
-            <OnboardingNavButton onClick={onEnable}>Enable</OnboardingNavButton>
-          </>
-        }
+        center={<OnboardingStepper total={SETUP_STEPPER_COUNT} activeIndex={6} />}
+        right={<OnboardingNavButton onClick={onNext}>Next</OnboardingNavButton>}
       />
     </div>
   )

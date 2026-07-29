@@ -109,7 +109,7 @@ export function SetupWizard({
         <AppsStep onBack={goBack} onNext={goNext} />
       ) : null}
       {substep === "notifications" ? (
-        <NotificationsStep onBack={goBack} onSkip={goNext} onEnable={goNext} />
+        <NotificationsStep onBack={goBack} onNext={goNext} />
       ) : null}
       {substep === "permissions" ? (
         <PermissionsStep
