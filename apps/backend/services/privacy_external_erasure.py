@@ -205,7 +205,7 @@ async def execute_external_erasure(
 
     for target in selected:
         if target == "private_sync_envelopes":
-            result = await delete_private_sync_envelopes(user_id, enforce_device=False)
+            result = await delete_private_sync_envelopes(user_id)
             receipts.append({
                 "target": target,
                 "status": "deleted",

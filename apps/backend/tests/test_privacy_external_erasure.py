@@ -66,7 +66,7 @@ class PrivacyExternalErasureTests(unittest.TestCase):
 
         with patch(
             "services.privacy_external_erasure.delete_private_sync_envelopes",
-            new=lambda user_id, **kwargs: asyncio.sleep(0, result={
+            new=lambda user_id: asyncio.sleep(0, result={
                 "deleted_count": 2,
                 "deletes_cloud_data": True,
             }),

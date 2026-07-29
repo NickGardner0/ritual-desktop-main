@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -147,61 +148,64 @@ async def _update_job(
 def _user_ownership_predicate(
     table: Table,
     user_id: str,
-    *,
-    memo: Dict[str, Any],
-    visiting: set[str],
 ):
-    cached = memo.get(table.name)
-    if cached is not None:
-        return cached
-    if table.name in visiting:
-        return None
+    """Build one bounded, shortest ownership path back to the user.
 
-    visiting.add(table.name)
-    terms = []
+    Expanding every possible foreign-key path creates exponentially large SQL
+    on the full Ritual schema and exceeds Turso's SQLite expression-depth
+    limit. A shortest path is sufficient because every user-owned indirect
+    table has a canonical parent chain to a table with ``user_id``.
+    """
 
-    if table.name == UserDB.__tablename__:
-        terms.append(table.c.id == user_id)
-    elif "user_id" in table.c:
-        terms.append(table.c.user_id == user_id)
+    queue = deque([(table, [])])
+    visited = {table.name}
 
-    for foreign_key in table.foreign_keys:
-        parent_table = foreign_key.column.table
-        local_column = foreign_key.parent
-        parent_column = foreign_key.column
+    while queue:
+        current, path = queue.popleft()
+        if current.name == UserDB.__tablename__:
+            predicate = current.c.id == user_id
+        elif "user_id" in current.c:
+            predicate = current.c.user_id == user_id
+        else:
+            predicate = None
 
-        if parent_table.name == UserDB.__tablename__ and parent_column.name == "id":
-            terms.append(local_column == user_id)
-            continue
+        if predicate is not None:
+            for local_column, parent_table, parent_column in reversed(path):
+                predicate = exists(
+                    select(1)
+                    .select_from(parent_table)
+                    .where(parent_column == local_column)
+                    .where(predicate)
+                )
+            return predicate
 
-        parent_predicate = _user_ownership_predicate(
-            parent_table,
-            user_id,
-            memo=memo,
-            visiting=visiting,
-        )
-        if parent_predicate is None:
-            continue
-        terms.append(
-            exists(
-                select(1)
-                .select_from(parent_table)
-                .where(parent_column == local_column)
-                .where(parent_predicate)
-            )
-        )
+        for foreign_key in sorted(
+            current.foreign_keys,
+            key=lambda item: (
+                item.column.table.name,
+                item.parent.name,
+                item.column.name,
+            ),
+        ):
+            parent_table = foreign_key.column.table
+            if parent_table.name in visited:
+                continue
+            visited.add(parent_table.name)
+            queue.append((
+                parent_table,
+                path + [(
+                    foreign_key.parent,
+                    parent_table,
+                    foreign_key.column,
+                )],
+            ))
 
-    visiting.remove(table.name)
-    predicate = or_(*terms) if terms else None
-    if predicate is not None:
-        memo[table.name] = predicate
-    return predicate
+    return None
 
 
 async def delete_shared_user_rows(user_id: str) -> Dict[str, Any]:
     """Delete every shared-database row transitively owned by ``user_id``."""
 
-    memo: Dict[str, Any] = {}
     deleted_by_table: Dict[str, int] = {}
 
     async with get_db_session() as session:
@@ -211,8 +215,6 @@ async def delete_shared_user_rows(user_id: str) -> Dict[str, Any]:
             predicate = _user_ownership_predicate(
                 table,
                 user_id,
-                memo=memo,
-                visiting=set(),
             )
             if predicate is None:
                 continue

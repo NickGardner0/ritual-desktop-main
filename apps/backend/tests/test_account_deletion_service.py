@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects import sqlite
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -164,3 +165,25 @@ class AccountDeletionServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(receipt["status"], "completed")
         self.assertEqual(receipt["attempts"], 1)
         self.assertEqual(receipt["receipt"], {"done": True})
+
+    def test_ownership_predicates_stay_below_turso_expression_depth(self):
+        for table in Base.metadata.tables.values():
+            if table.name == AccountDeletionJobDB.__tablename__:
+                continue
+            predicate = account_deletion_service._user_ownership_predicate(
+                table,
+                "user-delete",
+            )
+            if predicate is None:
+                continue
+            compiled = str(
+                predicate.compile(
+                    dialect=sqlite.dialect(),
+                    compile_kwargs={"literal_binds": True},
+                )
+            )
+            self.assertLessEqual(
+                compiled.upper().count("EXISTS"),
+                10,
+                table.name,
+            )
