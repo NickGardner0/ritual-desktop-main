@@ -44,8 +44,8 @@ export const IntegrationCard = memo(({
   onDetails?: () => void
   extraActions?: React.ReactNode
 }) => (
-  <div className="bg-white border border-gray-300 px-3 py-2.5 flex flex-col h-[212px] rounded-sm">
-        <div className="mb-1 flex h-7 items-center [&>*]:max-h-6 [&>*]:w-auto [&_img]:max-h-6 [&_img]:w-auto">
+  <div className="flex h-[188px] flex-col rounded-md border border-gray-300 bg-white px-3 py-2.5">
+    <div className="mb-1 flex h-7 items-center [&>*]:max-h-6 [&>*]:w-auto [&_img]:max-h-6 [&_img]:w-auto">
       {logo}
     </div>
     <div className="flex items-center mb-0.5">

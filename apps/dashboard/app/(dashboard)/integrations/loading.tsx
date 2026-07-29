@@ -21,11 +21,11 @@ export default function IntegrationsLoading() {
         </div>
 
         {/* Integration Cards Grid Skeleton */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <div 
               key={i} 
-              className="bg-white border border-gray-200 p-4 h-[200px] rounded-sm"
+              className="h-[188px] rounded-md border border-gray-200 bg-white p-3"
             >
               {/* Logo */}
               <div className="h-10 mb-2">

@@ -33,6 +33,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
 import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
+import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
@@ -307,10 +308,7 @@ function UnifiedAnalyticsContent({
   
   // Sync view mode with URL
   useEffect(() => {
-    const viewParam = searchParams.get('view');
-    if (viewParam === 'overview' || viewParam === 'metrics') {
-      setViewMode(viewParam);
-    }
+    setViewMode(resolveDashboardViewMode(searchParams));
   }, [searchParams, setViewMode]);
 
   useEffect(() => {
@@ -575,11 +573,7 @@ function UnifiedAnalyticsContent({
 
 // Determine initial view mode from URL
 function getInitialViewMode(searchParams: URLSearchParams): ViewMode {
-  const viewParam = searchParams.get('view');
-  if (viewParam === 'overview' || viewParam === 'metrics') {
-    return viewParam;
-  }
-  return 'overview'; // Default to overview
+  return resolveDashboardViewMode(searchParams);
 }
 
 // Main component with provider wrapper

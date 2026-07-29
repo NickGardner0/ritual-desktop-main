@@ -154,3 +154,18 @@ test("integrations orchestrator stays under 400 lines", () => {
   const lineCount = implSource.split("\n").length;
   assert.ok(lineCount < 400, `integrations-client.impl.tsx is ${lineCount} lines (expected <400)`);
 });
+
+test("integration cards use the compact rounded-md surface contract", () => {
+  const cardSource = readFileSync(
+    join(
+      process.cwd(),
+      "apps/dashboard/app/(dashboard)/integrations/integrations-client.shared.card.tsx",
+    ),
+    "utf8",
+  );
+
+  assert.match(
+    cardSource,
+    /h-\[188px\][^"]*rounded-md[^"]*border border-gray-300/,
+  );
+});
