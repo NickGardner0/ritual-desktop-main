@@ -174,8 +174,8 @@ body[data-voice-hud-window="1"] {
 }
 
 .ritual-text-shimmer {
-  --ritual-text-shimmer-base: #000;
-  --ritual-text-shimmer-highlight: #a1a1aa;
+  --ritual-text-shimmer-base: var(--text-primary, #111111);
+  --ritual-text-shimmer-highlight: var(--text-muted, #a1a1aa);
   --ritual-text-shimmer-spread: 96px;
   display: inline-block;
   color: transparent;
@@ -458,11 +458,11 @@ body[data-voice-hud-window="1"] {
   --ring: 212.7 26.8% 83.9%;
 
   /* macOS sidebar vibrancy tuning knobs (dark mode) */
-  --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.15);
+  --sidebar-vibrancy-bg: rgba(20, 20, 22, 0.82);
   --sidebar-vibrancy-border: rgba(255, 255, 255, 0.10);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.06);
-  --titlebar-glass-bg: rgba(31, 32, 34, 0.44);
-  --titlebar-glass-bg-strong: rgba(45, 46, 48, 0.5);
+  --titlebar-glass-bg: rgba(31, 32, 34, 0.72);
+  --titlebar-glass-bg-strong: rgba(45, 46, 48, 0.82);
   --titlebar-glass-control-bg: rgba(255, 255, 255, 0.1);
   --titlebar-glass-control-hover-bg: rgba(255, 255, 255, 0.16);
   --titlebar-glass-control-active-bg: rgba(255, 255, 255, 0.22);
@@ -497,6 +497,62 @@ body[data-voice-hud-window="1"] {
   --icon-muted: #969690;
   --sidebar-nav-foreground: #d0d0ca;
   --sidebar-nav-active: #f7f7f3;
+}
+
+/* Remap common hardcoded Tailwind text/bg utilities so dark themes stay readable
+   until surfaces are migrated to semantic tokens. */
+.dark .text-gray-950,
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-black,
+.dark .text-\[\#111111\],
+.dark .text-\[\#1d1d1f\],
+.dark .text-\[\#252525\],
+.dark .text-\[\#33363b\],
+.dark .text-\[\#16181d\] {
+  color: var(--text-primary, hsl(var(--foreground))) !important;
+}
+
+.dark .text-gray-700,
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-\[\#535353\],
+.dark .text-\[\#6b7077\],
+.dark .text-\[\#6f6f6f\],
+.dark .text-\[\#747981\],
+.dark .text-\[\#8a8a8a\] {
+  color: var(--text-muted, hsl(var(--muted-foreground))) !important;
+}
+
+.dark .bg-white,
+.dark .bg-white\/60,
+.dark .bg-white\/75,
+.dark .bg-white\/92 {
+  background-color: var(--content-bg, hsl(var(--background))) !important;
+}
+
+.dark .bg-gray-50,
+.dark .bg-gray-100,
+.dark .bg-\[\#F3F3F3\],
+.dark .bg-\[\#f7f7f7\],
+.dark .bg-\[\#f5f5f4\] {
+  background-color: var(--surface-panel, hsl(var(--muted))) !important;
+}
+
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .border-black\/\[0\.08\],
+.dark .border-black\/10 {
+  border-color: var(--border-subtle, hsl(var(--border))) !important;
+}
+
+.dark .placeholder-gray-400::placeholder,
+.dark .placeholder\:text-gray-400::placeholder {
+  color: var(--text-muted, hsl(var(--muted-foreground))) !important;
+}
+
+.dark .text-gray-400 {
+  color: var(--text-muted, hsl(var(--muted-foreground))) !important;
 }
 
 @layer base {

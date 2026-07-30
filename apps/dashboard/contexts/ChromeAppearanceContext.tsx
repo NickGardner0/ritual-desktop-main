@@ -124,18 +124,19 @@ const chromeVariablesLight: Record<ChromeAppearance, Record<string, string>> = {
 
 const chromeVariablesDark: Record<ChromeAppearance, Record<string, string>> = {
   frosted: {
-    "--sidebar-vibrancy-bg": "rgba(20, 20, 22, 0.15)",
+    // Opaque enough that light nav tokens stay readable over native vibrancy.
+    "--sidebar-vibrancy-bg": "rgba(18, 18, 20, 0.88)",
     "--sidebar-vibrancy-border": "rgba(255, 255, 255, 0.10)",
-    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.06)",
-    "--titlebar-glass-bg": "rgba(31, 32, 34, 0.44)",
-    "--titlebar-glass-bg-strong": "rgba(45, 46, 48, 0.5)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.08)",
+    "--titlebar-glass-bg": "rgba(22, 22, 24, 0.88)",
+    "--titlebar-glass-bg-strong": "rgba(32, 32, 34, 0.92)",
     "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.1)",
     "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.16)",
     "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.22)",
     "--titlebar-glass-control-border": "rgba(255, 255, 255, 0.13)",
-    "--titlebar-glass-control-text": "rgba(255, 255, 255, 0.72)",
-    "--titlebar-glass-control-text-muted": "rgba(255, 255, 255, 0.48)",
-    "--titlebar-glass-control-text-active": "rgba(255, 255, 255, 0.94)",
+    "--titlebar-glass-control-text": "rgba(255, 255, 255, 0.78)",
+    "--titlebar-glass-control-text-muted": "rgba(255, 255, 255, 0.52)",
+    "--titlebar-glass-control-text-active": "rgba(255, 255, 255, 0.96)",
     "--titlebar-glass-border": "rgba(255, 255, 255, 0.08)",
     "--titlebar-glass-highlight": "rgba(255, 255, 255, 0.06)",
     "--titlebar-glass-filter": "saturate(1.08) blur(24px)",
