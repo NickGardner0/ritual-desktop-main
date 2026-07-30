@@ -1,13 +1,12 @@
 "use client"
 
+import { useTheme } from "next-themes"
 import { Toaster as Sonner } from "sonner"
-import { useRitualThemeOptional } from "@/lib/theme"
 
 type ToasterProps = React.ComponentProps<typeof Sonner>
 
 const Toaster = ({ ...props }: ToasterProps) => {
-  const ritualTheme = useRitualThemeOptional()
-  const theme = ritualTheme?.isDark ? "dark" : "light"
+  const { theme = "system" } = useTheme()
 
   return (
     <Sonner

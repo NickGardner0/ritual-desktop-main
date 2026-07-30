@@ -76,7 +76,6 @@
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
-    "shiki": "^4.3.1",
     "sonner": "^1.7.1",
     "streamdown": "^1.6.9",
     "tailwind-merge": "^2.6.0",

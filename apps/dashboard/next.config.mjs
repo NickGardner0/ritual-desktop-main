@@ -61,7 +61,7 @@ const nextConfig = {
     ],
   },
 
-  transpilePackages: ['@ritual/chat-runtime', '@ritual/shared-contracts', 'shiki'],
+  transpilePackages: ['@ritual/chat-runtime', '@ritual/shared-contracts'],
 
   serverExternalPackages: ['pino'],
 

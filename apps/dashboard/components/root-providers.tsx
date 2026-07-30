@@ -2,6 +2,7 @@
 
 import { ReactNode, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
+import { ThemeProvider } from '@/components/theme-provider';
 import { ClerkProvider } from '@clerk/nextjs';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
@@ -15,7 +16,6 @@ import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabili
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { showMainWindow } from '@/lib/tauri-utils';
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
-import { RitualThemeProvider } from '@/lib/theme';
 
 /**
  * Root Providers Wrapper
@@ -215,7 +215,11 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   );
 
   return (
-    <RitualThemeProvider defaultTheme="ritual">
+    <ThemeProvider
+      attribute="class"
+      forcedTheme="light"
+      disableTransitionOnChange
+    >
       {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
       <PlatformDetector />
       {isTransparencyProbe ? (
@@ -249,6 +253,6 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
           {content}
         </ClerkProvider>
       )}
-    </RitualThemeProvider>
+    </ThemeProvider>
   );
 }

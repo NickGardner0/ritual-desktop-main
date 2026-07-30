@@ -368,12 +368,6 @@ body[data-voice-hud-window="1"] {
   --ring: 222.2 84% 4.9%;
   --radius: 0.5rem;
 
-  /* Ritual brand theme preview gradients (Appearance picker tiles) */
-  --ritual-gradient-light-top: #e8f2f3;
-  --ritual-gradient-light-bottom: #f4f7f7;
-  --ritual-gradient-dark-top: #1a3338;
-  --ritual-gradient-dark-bottom: #0f1c20;
-
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
