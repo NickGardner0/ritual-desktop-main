@@ -1,9 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { AnimatePresence, motion } from "framer-motion"
 import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { MenuSurface } from "@ritual/ui/menu"
 
+import { TextShimmer } from "@/components/core/text-shimmer"
 import {
   OnboardingFooter,
   OnboardingNavButton,
@@ -13,12 +15,11 @@ import {
 } from "@/components/onboarding/perplexity-onboarding-shell"
 import { cn } from "@/lib/utils"
 
-const CATEGORIES = ["All", "Health", "Productivity", "Learning", "Finances", "Work"] as const
+const CATEGORIES = ["All", "Health", "Productivity", "Learning", "Finances"] as const
 
 type DemoTask = {
   id: string
   title: string
-  completed: boolean
   category: Exclude<(typeof CATEGORIES)[number], "All">
 }
 
@@ -26,64 +27,62 @@ const INITIAL_TASKS: DemoTask[] = [
   {
     id: "demo",
     title: "Record demo video walkthrough",
-    completed: false,
-    category: "Work",
+    category: "Productivity",
   },
   {
     id: "hn",
     title: "Draft Hacker News launch post",
-    completed: false,
-    category: "Work",
+    category: "Productivity",
   },
   {
     id: "badge",
     title: "Fix Today badge / view sync bug",
-    completed: false,
-    category: "Work",
+    category: "Productivity",
   },
   {
     id: "cpa",
     title: "Confirm CPA appointment",
-    completed: false,
     category: "Finances",
   },
   {
     id: "run",
     title: "Easy 5k recovery run",
-    completed: false,
     category: "Health",
   },
   {
     id: "read",
     title: "Read 30 pages of current book",
-    completed: false,
     category: "Learning",
   },
   {
     id: "deep-work",
     title: "Deep work: launch checklist review",
-    completed: false,
     category: "Productivity",
   },
   {
     id: "weekly",
     title: "Weekly planning review",
-    completed: false,
     category: "Productivity",
   },
   {
     id: "hero",
     title: "Design landing page hero",
-    completed: false,
-    category: "Work",
+    category: "Productivity",
   },
   {
     id: "groceries",
     title: "buy groceries",
-    completed: false,
     category: "Productivity",
   },
 ]
+
+const DEMO_COMPLETE_SEQUENCE = [
+  { id: "run", delay: 900 },
+  { id: "read", delay: 1800 },
+  { id: "groceries", delay: 2700 },
+] as const
+
+const SHIMMER_MS = 480
 
 export function ScheduleStep({
   onBack,
@@ -94,19 +93,45 @@ export function ScheduleStep({
 }) {
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>("All")
   const [tasks, setTasks] = useState(INITIAL_TASKS)
+  const [completingIds, setCompletingIds] = useState<Set<string>>(new Set())
+  const completingRef = useRef(new Set<string>())
+  const dismissTimers = useRef<number[]>([])
 
   const visibleTasks = useMemo(() => {
     if (category === "All") return tasks
     return tasks.filter((task) => task.category === category)
   }, [category, tasks])
 
-  function toggleTask(id: string) {
-    setTasks((current) =>
-      current.map((task) =>
-        task.id === id ? { ...task, completed: !task.completed } : task,
-      ),
+  const completeTask = useCallback((id: string) => {
+    if (completingRef.current.has(id)) return
+
+    completingRef.current.add(id)
+    setCompletingIds(new Set(completingRef.current))
+
+    const timer = window.setTimeout(() => {
+      setTasks((current) => current.filter((task) => task.id !== id))
+      completingRef.current.delete(id)
+      setCompletingIds(new Set(completingRef.current))
+    }, SHIMMER_MS)
+    dismissTimers.current.push(timer)
+  }, [])
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (reducedMotion) return
+
+    const timers = DEMO_COMPLETE_SEQUENCE.map(({ id, delay }) =>
+      window.setTimeout(() => {
+        completeTask(id)
+      }, delay),
     )
-  }
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer))
+      dismissTimers.current.forEach((timer) => window.clearTimeout(timer))
+      dismissTimers.current = []
+    }
+  }, [completeTask])
 
   return (
     <div className="px-onboarding-step-enter flex h-full flex-col">
@@ -140,7 +165,7 @@ export function ScheduleStep({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-0.5 px-2.5 pb-2.5">
+          <div className="flex flex-nowrap items-center gap-0.5 overflow-hidden px-2.5 pb-2.5">
             {CATEGORIES.map((option) => {
               const active = category === option
               return (
@@ -149,7 +174,7 @@ export function ScheduleStep({
                   type="button"
                   onClick={() => setCategory(option)}
                   className={cn(
-                    "h-6 rounded-full px-2.5 text-[12px] transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1",
+                    "h-6 shrink-0 rounded-full px-2.5 text-[12px] transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1",
                     active
                       ? "bg-[var(--surface-panel,#f4f4f3)] font-medium text-[var(--text-primary)]"
                       : "font-normal text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]",
@@ -163,36 +188,51 @@ export function ScheduleStep({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
             {visibleTasks.length ? (
-              visibleTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="grid min-h-[28px] grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 rounded-[6px] px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
-                >
-                  <button
-                    type="button"
-                    onClick={() => toggleTask(task.id)}
-                    className={cn(
-                      "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1",
-                      task.completed
-                        ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-white"
-                        : "border-[rgba(39,37,30,0.28)] bg-white text-transparent hover:border-[var(--text-primary)]",
-                    )}
-                    aria-label={`${task.completed ? "Reopen" : "Complete"} ${task.title}`}
-                    aria-pressed={task.completed}
-                  >
-                    <Check className="h-2 w-2" strokeWidth={2.8} />
-                  </button>
+              <AnimatePresence initial={false}>
+                {visibleTasks.map((task) => {
+                  const completing = completingIds.has(task.id)
+                  return (
+                    <motion.div
+                      key={task.id}
+                      layout
+                      initial={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
+                      transition={{ duration: 0.18, ease: "easeOut" }}
+                      className="grid min-h-[28px] grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded-[6px] px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => completeTask(task.id)}
+                        disabled={completing}
+                        className={cn(
+                          "flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-full border transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-100",
+                          completing
+                            ? "border-[var(--text-primary)] bg-[var(--text-primary)] text-white"
+                            : "border-[rgba(39,37,30,0.28)] bg-white text-transparent hover:border-[var(--text-primary)]",
+                        )}
+                        aria-label={`Complete ${task.title}`}
+                        aria-pressed={completing}
+                      >
+                        <Check className="h-2 w-2" strokeWidth={2.8} />
+                      </button>
 
-                  <span
-                    className={cn(
-                      "truncate text-[13px] font-normal leading-none text-[var(--text-primary)]",
-                      task.completed && "text-[var(--text-muted)] line-through",
-                    )}
-                  >
-                    {task.title}
-                  </span>
-                </div>
-              ))
+                      {completing ? (
+                        <TextShimmer
+                          className="truncate text-[13px] font-normal leading-none"
+                          duration={0.35}
+                          spread={1.4}
+                        >
+                          {task.title}
+                        </TextShimmer>
+                      ) : (
+                        <span className="truncate text-[13px] font-normal leading-none text-[var(--text-primary)]">
+                          {task.title}
+                        </span>
+                      )}
+                    </motion.div>
+                  )
+                })}
+              </AnimatePresence>
             ) : (
               <p className="px-2 py-5 text-center text-[13px] text-[var(--text-muted)]">
                 No tasks in {category}
