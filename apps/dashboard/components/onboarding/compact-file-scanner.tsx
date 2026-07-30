@@ -1,20 +1,28 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { Check } from "lucide-react"
+import { Badge } from "@ritual/ui/badge"
 import { MenuSurface } from "@ritual/ui/menu"
 
-const TEXT_COLOR = "#242321"
-const WINDOW_BACKGROUND = "#fefefe"
-const SCAN_ACCENT = "#275c56"
-const SCRAMBLE_COLOR = "#9a8d80"
 const SCRAMBLE_CHARACTERS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_#"
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+
+const CYCLE_DURATION = 6000
+const SCAN_START = 900
+const SCAN_END = 3000
+const SETTLE_END = 3500
+const COMPLETION_DURATION = 240
+const RESET_START = 5250
+const RESET_END = 5650
+const PROCESSING_BAND_HEIGHT = 84
 
 type FileId = "apple" | "whoop" | "oura"
 
 type FileContent = {
-  initialLines: string[]
-  finalLines: string[]
+  sourceLines: string[]
+  parsedLines: string[]
+  completionLabel: string
 }
 
 const TABS: Array<{ id: FileId; label: string }> = [
@@ -23,7 +31,7 @@ const TABS: Array<{ id: FileId; label: string }> = [
   { id: "oura", label: "oura_ring_import.csv" },
 ]
 
-const APPLE_HEALTH_RAW_LINES = [
+const APPLE_HEALTH_SOURCE_LINES = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   '<HealthData locale="en_US">',
   '  <ExportDate value="2026-05-15 18:42:18 -0400"/>',
@@ -54,18 +62,14 @@ const APPLE_HEALTH_RAW_LINES = [
   '    <MetadataEntry key="HKIndoorWorkout" value="0"/>',
   '    <MetadataEntry key="HKWeatherHumidity" value="58"/>',
   "  </Workout>",
-  '  <Workout workoutActivityType="HKWorkoutActivityTypeRunning">',
-  '    <MetadataEntry key="HKElevationAscended" value="42"/>',
-  '    <MetadataEntry key="HKIndoorWorkout" value="0"/>',
-  "  </Workout>",
   '  <CorrelationMetric type="steps_to_hrv" coefficient="0.41"/>',
   "</HealthData>",
 ]
 
 const APPLE_HEALTH_PARSED_LINES = [
-  "Apple Health Export",
+  "# Apple Health Export",
   "",
-  "Parsed daily summary",
+  "## Parsed daily summary",
   "",
   "| Metric | Value | Source |",
   "| --- | ---: | --- |",
@@ -79,280 +83,523 @@ const APPLE_HEALTH_PARSED_LINES = [
   "| Exercise time | 42 min | Apple Watch |",
   "| Running workout | 3.2 mi | Apple Watch |",
   "",
-  "Normalized records",
+  "## Normalized records",
   "",
-  "- Activity window: 2026-05-14 08:00-09:00 EDT",
-  "- Sleep window: 2026-05-13 23:18-2026-05-14 06:52 EDT",
-  "- Workout type: walking",
+  "| Window | Start | End |",
+  "| --- | --- | --- |",
+  "| Activity | May 14, 08:00 | May 14, 09:00 |",
+  "| Sleep | May 13, 23:18 | May 14, 06:52 |",
+  "| Workout | walking | 42 minutes |",
+  "",
+  "## Import validation",
+  "",
   "- Export rows parsed: 2,418",
+  "- Metric types detected: 12",
+  "- Duplicate workouts: 0",
+  "- Invalid timestamps: 0",
+  "- Ready to add to Ritual",
 ]
 
-const WHOOP_LINES = [
-  "whoop_import = pl.DataFrame(",
-  "shape: (16, 8)",
+const WHOOP_SOURCE_LINES = [
+  "cycle_start,cycle_end,recovery_score,resting_hr,hrv_ms,",
+  "2026-05-03T04:00Z,2026-05-04T04:00Z,74,51,58,",
+  "2026-05-04T04:00Z,2026-05-05T04:00Z,81,49,64,",
+  "2026-05-05T04:00Z,2026-05-06T04:00Z,62,56,49,",
+  "2026-05-06T04:00Z,2026-05-07T04:00Z,88,47,71,",
+  "2026-05-07T04:00Z,2026-05-08T04:00Z,69,53,55,",
+  "2026-05-08T04:00Z,2026-05-09T04:00Z,77,50,61,",
+  "2026-05-09T04:00Z,2026-05-10T04:00Z,90,46,74,",
+  "2026-05-10T04:00Z,2026-05-11T04:00Z,58,59,43,",
+  "2026-05-11T04:00Z,2026-05-12T04:00Z,73,52,57,",
+  "2026-05-12T04:00Z,2026-05-13T04:00Z,85,48,68,",
+  "2026-05-13T04:00Z,2026-05-14T04:00Z,71,54,54,",
+  "2026-05-14T04:00Z,2026-05-15T04:00Z,79,50,63,",
+  "2026-05-15T04:00Z,2026-05-16T04:00Z,83,49,66,",
+  "2026-05-16T04:00Z,2026-05-17T04:00Z,67,55,52,",
+  "2026-05-17T04:00Z,2026-05-18T04:00Z,92,45,76,",
+  "2026-05-18T04:00Z,2026-05-19T04:00Z,76,51,60,",
   "",
-  "   date        recovery  strain  hrv_ms  rhr  sleep_h  calories  source",
-  "0  2026-05-03        74    10.8      58   51     7.42      2380  whoop",
-  "1  2026-05-04        81     8.7      64   49     7.88      2294  whoop",
-  "2  2026-05-05        62    14.1      49   56     6.21      2718  whoop",
-  "3  2026-05-06        88     6.3      71   47     8.16      2206  whoop",
-  "4  2026-05-07        69    12.4      55   53     6.92      2540  whoop",
-  "5  2026-05-08        77    11.2      61   50     7.35      2467  whoop",
-  "6  2026-05-09        90     5.9      74   46     8.44      2188  whoop",
-  "7  2026-05-10        58    15.8      43   59     5.88      2891  whoop",
-  "8  2026-05-11        73     9.6      57   52     7.10      2345  whoop",
-  "9  2026-05-12        85     7.4      68   48     8.02      2240  whoop",
-  "10 2026-05-13        71    12.9      54   54     6.74      2612  whoop",
-  "11 2026-05-14        79     9.1      63   50     7.61      2377  whoop",
-  "12 2026-05-15        83     8.5      66   49     7.94      2316  whoop",
-  "13 2026-05-16        67    13.7      52   55     6.48      2669  whoop",
-  "14 2026-05-17        92     5.4      76   45     8.63      2142  whoop",
-  "15 2026-05-18        76    10.2      60   51     7.27      2431  whoop",
-  "",
-  "dtypes: [date, i64, f64, i64, i64, f64, i64, str]",
-  "scan_status='parsed'  rows=16  nulls=0",
+  "strain,sleep_performance,sleep_hours,calories,",
+  "10.8,84,7.42,2380",
+  "8.7,91,7.88,2294",
+  "14.1,72,6.21,2718",
+  "6.3,94,8.16,2206",
+  "12.4,79,6.92,2540",
+  "11.2,86,7.35,2467",
+  "5.9,96,8.44,2188",
+  "15.8,65,5.88,2891",
+  "9.6,82,7.10,2345",
+  "7.4,92,8.02,2240",
+  "12.9,76,6.74,2612",
+  "9.1,88,7.61,2377",
 ]
 
-const OURA_LINES = [
-  "oura_ring_import = pd.DataFrame.from_records([...])",
+const WHOOP_PARSED_LINES = [
+  "# WHOOP Import",
   "",
-  "          day  readiness  sleep_score  rem_h  deep_h  temp_dev  latency_m  source",
-  "0  2026-05-03         82           86   1.44    1.31     -0.10         11    oura",
-  "1  2026-05-04         88           91   1.62    1.48     -0.06          9    oura",
-  "2  2026-05-05         70           74   1.05    0.92      0.14         18    oura",
-  "3  2026-05-06         91           93   1.73    1.55     -0.12          8    oura",
-  "4  2026-05-07         76           80   1.22    1.08      0.03         15    oura",
-  "5  2026-05-08         84           87   1.51    1.34     -0.04         10    oura",
-  "6  2026-05-09         93           95   1.81    1.66     -0.16          7    oura",
-  "7  2026-05-10         64           68   0.88    0.71      0.21         24    oura",
-  "8  2026-05-11         79           82   1.36    1.19      0.02         14    oura",
-  "9  2026-05-12         89           90   1.69    1.50     -0.09          9    oura",
-  "10 2026-05-13         75           78   1.18    1.02      0.07         17    oura",
-  "11 2026-05-14         86           88   1.57    1.43     -0.05         10    oura",
-  "12 2026-05-15         90           92   1.74    1.52     -0.11          8    oura",
-  "13 2026-05-16         72           76   1.13    0.98      0.10         19    oura",
-  "14 2026-05-17         94           96   1.86    1.70     -0.18          6    oura",
-  "15 2026-05-18         83           85   1.47    1.28     -0.02         12    oura",
+  "## Recovery overview",
   "",
-  "[16 rows x 8 columns]",
-  "scan_status='parsed'  rows=16  duplicate_days=0",
+  "| Metric | Average | Range |",
+  "| --- | ---: | ---: |",
+  "| Recovery | 76 | 58–92 |",
+  "| Resting HR | 51 bpm | 45–59 |",
+  "| HRV | 60 ms | 43–76 |",
+  "| Daily strain | 10.5 | 5.9–15.8 |",
+  "| Sleep | 7h 28m | 5h 53m–8h 38m |",
+  "| Calories | 2,429 | 2,188–2,891 |",
+  "",
+  "## Detected patterns",
+  "",
+  "- Best recovery: May 17 · 92%",
+  "- Highest strain: May 10 · 15.8",
+  "- Longest sleep: May 17 · 8h 38m",
+  "- Recovery and HRV correlation: 0.82",
+  "- Sleep consistency: 84%",
+  "",
+  "## Import validation",
+  "",
+  "- Date range: May 3–18, 2026",
+  "- Daily cycles parsed: 16",
+  "- Missing days: 0",
+  "- Duplicate cycles: 0",
+  "- Invalid values: 0",
+  "- Timezone normalized: EDT",
+  "- Ready to add to Ritual",
+]
+
+const OURA_SOURCE_LINES = [
+  "day,score,temperature_deviation,temperature_trend_deviation,",
+  "2026-05-03,82,-0.10,-0.05,",
+  "2026-05-04,88,-0.06,-0.03,",
+  "2026-05-05,70,0.14,0.09,",
+  "2026-05-06,91,-0.12,-0.07,",
+  "2026-05-07,76,0.03,0.01,",
+  "2026-05-08,84,-0.04,-0.02,",
+  "2026-05-09,93,-0.16,-0.09,",
+  "2026-05-10,64,0.21,0.12,",
+  "2026-05-11,79,0.02,0.01,",
+  "2026-05-12,89,-0.09,-0.04,",
+  "2026-05-13,75,0.07,0.04,",
+  "2026-05-14,86,-0.05,-0.02,",
+  "2026-05-15,90,-0.11,-0.06,",
+  "2026-05-16,72,0.10,0.06,",
+  "2026-05-17,94,-0.18,-0.10,",
+  "2026-05-18,83,-0.02,-0.01,",
+  "",
+  "day,sleep_score,rem_sleep,deep_sleep,latency,",
+  "2026-05-03,86,1.44,1.31,11",
+  "2026-05-04,91,1.62,1.48,9",
+  "2026-05-05,74,1.05,0.92,18",
+  "2026-05-06,93,1.73,1.55,8",
+  "2026-05-07,80,1.22,1.08,15",
+  "2026-05-08,87,1.51,1.34,10",
+  "2026-05-09,95,1.81,1.66,7",
+  "2026-05-10,68,0.88,0.71,24",
+  "2026-05-11,82,1.36,1.19,14",
+  "2026-05-12,90,1.69,1.50,9",
+  "2026-05-13,78,1.18,1.02,17",
+  "2026-05-14,88,1.57,1.43,10",
+]
+
+const OURA_PARSED_LINES = [
+  "# Oura Ring Import",
+  "",
+  "## Sleep and readiness",
+  "",
+  "| Metric | Average | Best |",
+  "| --- | ---: | ---: |",
+  "| Readiness | 82 | 94 |",
+  "| Sleep score | 85 | 96 |",
+  "| REM sleep | 1h 30m | 1h 52m |",
+  "| Deep sleep | 1h 17m | 1h 42m |",
+  "| Sleep latency | 12 min | 6 min |",
+  "| Temperature deviation | -0.02 °C | -0.18 °C |",
+  "",
+  "## Detected patterns",
+  "",
+  "- Best readiness: May 17 · 94",
+  "- Best sleep score: May 17 · 96",
+  "- Average bedtime: 11:24 PM",
+  "- Average wake time: 7:08 AM",
+  "- Sleep regularity: 87%",
+  "",
+  "## Import validation",
+  "",
+  "- Date range: May 3–18, 2026",
+  "- Nights parsed: 16",
+  "- Missing nights: 0",
+  "- Duplicate sessions: 0",
+  "- Invalid values: 0",
+  "- Timezone normalized: EDT",
+  "- Ready to add to Ritual",
 ]
 
 const FILE_CONTENT: Record<FileId, FileContent> = {
   apple: {
-    initialLines: APPLE_HEALTH_RAW_LINES,
-    finalLines: APPLE_HEALTH_PARSED_LINES,
+    sourceLines: APPLE_HEALTH_SOURCE_LINES,
+    parsedLines: APPLE_HEALTH_PARSED_LINES,
+    completionLabel: "2,418 records normalized",
   },
   whoop: {
-    initialLines: WHOOP_LINES,
-    finalLines: WHOOP_LINES,
+    sourceLines: WHOOP_SOURCE_LINES,
+    parsedLines: WHOOP_PARSED_LINES,
+    completionLabel: "16 cycles normalized",
   },
   oura: {
-    initialLines: OURA_LINES,
-    finalLines: OURA_LINES,
+    sourceLines: OURA_SOURCE_LINES,
+    parsedLines: OURA_PARSED_LINES,
+    completionLabel: "16 nights normalized",
   },
 }
 
-function scrambleText(
-  initialText: string,
-  finalText: string,
-  progress: number,
-  lineIndex: number,
-) {
-  if (progress >= 1) return finalText || " "
+function clamp(value: number, minimum = 0, maximum = 1) {
+  return Math.min(Math.max(value, minimum), maximum)
+}
 
-  const revealCount = Math.floor(finalText.length * progress)
-  const frame = Math.floor(progress * 18)
+function easeInScan(progress: number) {
+  return Math.pow(progress, 1.7)
+}
 
-  return Array.from(finalText, (character, characterIndex) => {
-    if (characterIndex < revealCount || character === " ") return character
+function smoothStep(progress: number) {
+  const clamped = clamp(progress)
+  return clamped * clamped * (3 - 2 * clamped)
+}
 
-    const initialCharacter = initialText[characterIndex]
-    if (progress < 0.08 && initialCharacter) return initialCharacter
+function scrambleLine(line: string, lineIndex: number) {
+  return Array.from(line, (character, characterIndex) => {
+    if (!/[A-Za-z0-9]/.test(character)) return character
 
     const characterIndexInSet =
-      (characterIndex * 13 + lineIndex * 7 + frame * 5) %
+      (characterIndex * 13 + lineIndex * 17 + character.charCodeAt(0) * 3) %
       SCRAMBLE_CHARACTERS.length
     return SCRAMBLE_CHARACTERS[characterIndexInSet]
   }).join("")
 }
 
-function applyLineContent(
-  node: HTMLDivElement,
-  text: string,
-  color = TEXT_COLOR,
-  opacity = "1",
-) {
-  node.textContent = text || " "
-  node.style.color = color
-  node.style.opacity = opacity
+function DocumentText({
+  lines,
+  tone,
+}: {
+  lines: string[]
+  tone: "source" | "parsed" | "processing"
+}) {
+  const isSource = tone === "source"
+
+  return (
+    <code
+      className={
+        isSource
+          ? "block text-[7px] font-normal leading-[9.5px] [font-variant-ligatures:none]"
+          : "block text-[7.5px] font-normal leading-[10.5px] [font-variant-ligatures:none]"
+      }
+      style={{
+        color:
+          tone === "processing"
+            ? "var(--ritual-text-muted, #7a7a7a)"
+            : "var(--ritual-text-primary, #111111)",
+        fontFamily:
+          '"Server Mono", "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace',
+        opacity: isSource ? 0.68 : tone === "processing" ? 0.76 : 1,
+        WebkitFontSmoothing: "antialiased",
+      }}
+    >
+      {lines.map((line, index) => (
+        <div
+          key={`${tone}-${index}`}
+          className={
+            isSource
+              ? "h-[9.5px] truncate whitespace-pre"
+              : "h-[10.5px] truncate whitespace-pre"
+          }
+        >
+          {line || " "}
+        </div>
+      ))}
+    </code>
+  )
 }
 
-function ScannerBody({ activeFile }: { activeFile: FileId }) {
+function ScannerBody({
+  activeFile,
+  content,
+}: {
+  activeFile: FileId
+  content: FileContent
+}) {
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const scanLineRef = useRef<HTMLDivElement | null>(null)
-  const lineRefs = useRef<Array<HTMLDivElement | null>>([])
-  const animationFrames = useRef<number[]>([])
-  const timers = useRef<number[]>([])
-  const content = useMemo(() => FILE_CONTENT[activeFile], [activeFile])
-  const displayLines = useMemo(() => {
-    const lineCount = Math.max(
-      content.initialLines.length,
-      content.finalLines.length,
-    )
-    return Array.from({ length: lineCount }, (_, index) => ({
-      initialText: content.initialLines[index] ?? "",
-      finalText: content.finalLines[index] ?? "",
-    }))
-  }, [content])
+  const scrambledLines = useMemo(
+    () => content.parsedLines.map(scrambleLine),
+    [content.parsedLines],
+  )
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia(
+    const root = rootRef.current
+    const body = bodyRef.current
+    if (!root || !body) return
+
+    const reducedMotionQuery = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
-    ).matches
+    )
+    let animationFrame = 0
+    let bodyHeight = body.clientHeight
+    let cycleStartedAt = performance.now()
 
-    const clearCycle = () => {
-      animationFrames.current.forEach((frame) =>
-        window.cancelAnimationFrame(frame),
+    const setVariable = (name: string, value: string) => {
+      root.style.setProperty(name, value)
+    }
+
+    const updateBodyHeight = () => {
+      bodyHeight = body.clientHeight
+      setVariable("--scanner-body-height", `${bodyHeight}px`)
+    }
+
+    const showFinalState = () => {
+      updateBodyHeight()
+      setVariable("--scan-y", `${bodyHeight}px`)
+      setVariable(
+        "--scan-band-top",
+        `${Math.max(0, bodyHeight - PROCESSING_BAND_HEIGHT)}px`,
       )
-      animationFrames.current = []
-      timers.current.forEach((timer) => window.clearTimeout(timer))
-      timers.current = []
+      setVariable("--scan-band-height", "0px")
+      setVariable("--scan-band-offset", "0px")
+      setVariable("--scan-band-opacity", "0")
+      setVariable("--scan-line-opacity", "0")
+      setVariable("--parsed-opacity", "1")
+      setVariable("--completion-opacity", "1")
+      setVariable("--completion-scale", "1")
+      setVariable("--completion-shift", "0px")
     }
 
-    const setLines = (key: "initialText" | "finalText") => {
-      lineRefs.current.forEach((node, index) => {
-        if (!node) return
-        applyLineContent(node, displayLines[index]?.[key] ?? "")
-      })
-    }
+    const updateFrame = (now: number) => {
+      const elapsed = (now - cycleStartedAt) % CYCLE_DURATION
+      const isScanning = elapsed >= SCAN_START && elapsed < SCAN_END
+      const isSettling = elapsed >= SCAN_END && elapsed < SETTLE_END
+      const isResetting = elapsed >= RESET_START && elapsed < RESET_END
 
-    if (reducedMotion) {
-      setLines("finalText")
-      return clearCycle
-    }
-
-    const animateLine = (
-      node: HTMLDivElement,
-      initialText: string,
-      finalText: string,
-      lineIndex: number,
-    ) => {
-      const startedAt = performance.now()
-
-      const tick = (now: number) => {
-        const progress = Math.min((now - startedAt) / 620, 1)
-        applyLineContent(
-          node,
-          scrambleText(initialText, finalText, progress, lineIndex),
-          progress === 1 ? TEXT_COLOR : SCRAMBLE_COLOR,
-          progress === 1 ? "1" : "0.58",
+      let scanProgress = 0
+      if (isScanning) {
+        scanProgress = easeInScan(
+          clamp((elapsed - SCAN_START) / (SCAN_END - SCAN_START)),
         )
-
-        if (progress < 1) {
-          const frame = window.requestAnimationFrame(tick)
-          animationFrames.current.push(frame)
-        }
+      } else if (elapsed >= SCAN_END && elapsed < RESET_END) {
+        scanProgress = 1
       }
 
-      const frame = window.requestAnimationFrame(tick)
-      animationFrames.current.push(frame)
+      const scanY = bodyHeight * scanProgress
+      const bandHeight = isScanning
+        ? Math.min(PROCESSING_BAND_HEIGHT, scanY)
+        : isSettling
+          ? PROCESSING_BAND_HEIGHT
+          : 0
+      const bandTop = Math.max(0, scanY - bandHeight)
+      const settleProgress = isSettling
+        ? smoothStep((elapsed - SCAN_END) / (SETTLE_END - SCAN_END))
+        : 0
+      const resetProgress = isResetting
+        ? smoothStep((elapsed - RESET_START) / (RESET_END - RESET_START))
+        : elapsed >= RESET_END
+          ? 1
+          : 0
+      const lineEntrance = clamp((elapsed - SCAN_START) / 120)
+      const lineExit = clamp((SCAN_END - elapsed) / 100)
+      const lineOpacity = isScanning
+        ? Math.min(lineEntrance, lineExit)
+        : 0
+      const completionProgress =
+        elapsed >= SETTLE_END && elapsed < RESET_END
+          ? smoothStep(
+              (elapsed - SETTLE_END) / COMPLETION_DURATION,
+            ) * (1 - resetProgress)
+          : 0
+      const parsedOpacity = isResetting ? 1 - resetProgress : 1
+
+      setVariable("--scan-y", `${scanY}px`)
+      setVariable("--scan-band-top", `${bandTop}px`)
+      setVariable("--scan-band-height", `${bandHeight}px`)
+      setVariable("--scan-band-offset", `${-bandTop}px`)
+      setVariable(
+        "--scan-band-opacity",
+        `${isScanning ? 1 : isSettling ? 1 - settleProgress : 0}`,
+      )
+      setVariable("--scan-line-opacity", `${lineOpacity}`)
+      setVariable("--parsed-opacity", `${parsedOpacity}`)
+      setVariable("--completion-opacity", `${completionProgress}`)
+      setVariable(
+        "--completion-scale",
+        `${0.96 + completionProgress * 0.04}`,
+      )
+      setVariable(
+        "--completion-shift",
+        `${(1 - completionProgress) * 5}px`,
+      )
+
+      animationFrame = window.requestAnimationFrame(updateFrame)
     }
 
-    const runCycle = () => {
-      clearCycle()
-      setLines("initialText")
+    const startMotion = () => {
+      window.cancelAnimationFrame(animationFrame)
+      cycleStartedAt = performance.now()
+      updateBodyHeight()
 
-      if (scanLineRef.current && bodyRef.current) {
-        scanLineRef.current.style.animation = "none"
-        scanLineRef.current.style.opacity = "1"
-        scanLineRef.current.style.setProperty(
-          "--scan-distance",
-          `${bodyRef.current.clientHeight}px`,
-        )
-        void scanLineRef.current.offsetWidth
-        scanLineRef.current.style.animation =
-          "ritual-compact-file-scan 2600ms cubic-bezier(0.65, 0, 0.35, 1) forwards"
+      if (reducedMotionQuery.matches) {
+        showFinalState()
+        return
       }
 
-      displayLines.forEach((line, index) => {
-        const node = lineRefs.current[index]
-        if (!node || (!line.initialText && !line.finalText)) return
-
-        const timer = window.setTimeout(() => {
-          animateLine(node, line.initialText, line.finalText, index)
-        }, 180 + index * 54)
-        timers.current.push(timer)
-      })
+      animationFrame = window.requestAnimationFrame(updateFrame)
     }
 
-    runCycle()
-    const loopTimer = window.setInterval(runCycle, 4400)
+    const resizeObserver = new ResizeObserver(() => {
+      updateBodyHeight()
+      if (reducedMotionQuery.matches) showFinalState()
+    })
+    resizeObserver.observe(body)
+    reducedMotionQuery.addEventListener("change", startMotion)
+    startMotion()
 
     return () => {
-      window.clearInterval(loopTimer)
-      clearCycle()
+      window.cancelAnimationFrame(animationFrame)
+      resizeObserver.disconnect()
+      reducedMotionQuery.removeEventListener("change", startMotion)
     }
-  }, [activeFile, displayLines])
+  }, [activeFile])
 
   return (
     <div
-      ref={bodyRef}
-      className="relative min-h-0 flex-1 overflow-hidden"
-      style={{ backgroundColor: WINDOW_BACKGROUND }}
+      ref={rootRef}
+      className="ritual-scanner-body relative min-h-0 flex-1 overflow-hidden"
+      style={{ backgroundColor: "var(--ritual-surface-canvas, #fefefe)" }}
     >
-      <div className="h-full overflow-hidden px-4 pb-3 pt-3">
-        <code
-          className="block text-[7.5px] font-normal leading-[10.5px] [font-variant-ligatures:none]"
-          style={{
-            color: TEXT_COLOR,
-            fontFamily:
-              '"Server Mono", "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace',
-            WebkitFontSmoothing: "antialiased",
-          }}
-        >
-          {displayLines.map((line, index) => (
-            <div
-              key={`${activeFile}-${index}`}
-              ref={(node) => {
-                lineRefs.current[index] = node
-              }}
-              className="h-[10.5px] truncate whitespace-pre"
-            >
-              {line.initialText || " "}
-            </div>
-          ))}
-        </code>
-      </div>
+      <div ref={bodyRef} className="absolute inset-0">
+        <div className="absolute inset-0 px-4 pb-3 pt-3">
+          <DocumentText lines={content.sourceLines} tone="source" />
+        </div>
 
-      <div
-        ref={scanLineRef}
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 top-0 opacity-0"
-      >
-        <div className="h-px w-full" style={{ backgroundColor: SCAN_ACCENT }} />
+        <div className="ritual-scanner-parsed absolute inset-0 px-4 pb-3 pt-3">
+          <DocumentText lines={content.parsedLines} tone="parsed" />
+        </div>
+
+        <div
+          className="ritual-scanner-processing pointer-events-none absolute inset-x-0 overflow-hidden"
+          aria-hidden="true"
+        >
+          <div className="ritual-scanner-processing-wash absolute inset-0" />
+          <div className="ritual-scanner-processing-content absolute inset-x-0 px-4 pb-3 pt-3">
+            <DocumentText lines={scrambledLines} tone="processing" />
+          </div>
+        </div>
+
+        <div
+          className="ritual-scanner-line pointer-events-none absolute inset-x-0 top-0"
+          aria-hidden="true"
+        >
+          <div className="ritual-scanner-line-glow absolute inset-x-0 bottom-0 h-5" />
+          <div className="h-px w-full bg-[var(--ritual-interactive-primary,#27251e)]" />
+        </div>
+
+        <div
+          aria-hidden="true"
+          className="ritual-scanner-completion pointer-events-none absolute right-3 top-1/2 z-20"
+        >
+          <Badge
+            variant="outline"
+            className="gap-1.5 border-[var(--ritual-border-default,#dad9d7)] bg-[var(--ritual-surface-raised,#fff)] px-2.5 py-1 text-[9.5px] font-medium text-[var(--ritual-text-primary,#111)] shadow-[var(--shadow-popover)]"
+          >
+            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-[var(--ritual-interactive-primary,#27251e)] text-white">
+              <Check className="h-2.5 w-2.5" strokeWidth={2.4} />
+            </span>
+            {content.completionLabel}
+          </Badge>
+        </div>
       </div>
 
       <style jsx>{`
-        @keyframes ritual-compact-file-scan {
-          0% {
-            opacity: 0;
-            transform: translateY(0);
-          }
-          8%,
-          88% {
-            opacity: 1;
-          }
-          100% {
-            opacity: 0;
-            transform: translateY(var(--scan-distance));
-          }
+        .ritual-scanner-body {
+          --scan-y: 0px;
+          --scan-band-top: 0px;
+          --scan-band-height: 0px;
+          --scan-band-offset: 0px;
+          --scan-band-opacity: 0;
+          --scan-line-opacity: 0;
+          --parsed-opacity: 1;
+          --completion-opacity: 0;
+          --completion-scale: 0.96;
+          --completion-shift: 5px;
+        }
+
+        .ritual-scanner-parsed {
+          background: var(--ritual-surface-canvas, #fefefe);
+          clip-path: inset(
+            0 0 calc(100% - var(--scan-y)) 0
+          );
+          opacity: var(--parsed-opacity);
+          will-change: clip-path, opacity;
+        }
+
+        .ritual-scanner-processing {
+          top: var(--scan-band-top);
+          height: var(--scan-band-height);
+          opacity: var(--scan-band-opacity);
+          -webkit-mask-image: linear-gradient(
+            to bottom,
+            transparent 0%,
+            rgba(0, 0, 0, 0.7) 34%,
+            black 62%
+          );
+          mask-image: linear-gradient(
+            to bottom,
+            transparent 0%,
+            rgba(0, 0, 0, 0.7) 34%,
+            black 62%
+          );
+          will-change: top, height, opacity;
+        }
+
+        .ritual-scanner-processing-wash {
+          background: linear-gradient(
+            to bottom,
+            var(--ritual-surface-canvas, #fefefe) 0%,
+            var(--ritual-surface-recessed, #f7f8f5) 100%
+          );
+        }
+
+        .ritual-scanner-processing-content {
+          top: var(--scan-band-offset);
+          height: var(--scanner-body-height);
+          will-change: top;
+        }
+
+        .ritual-scanner-line {
+          opacity: var(--scan-line-opacity);
+          transform: translateY(var(--scan-y));
+          will-change: transform, opacity;
+        }
+
+        .ritual-scanner-line-glow {
+          background: linear-gradient(
+            to bottom,
+            transparent,
+            var(--ritual-surface-panel, #f4f4f3)
+          );
+        }
+
+        .ritual-scanner-completion {
+          opacity: var(--completion-opacity);
+          transform: translateY(
+              calc(-50% + var(--completion-shift))
+            )
+            scale(var(--completion-scale));
+          transform-origin: right center;
+          will-change: transform, opacity;
         }
 
         @media (prefers-reduced-motion: reduce) {
-          div[aria-hidden="true"] {
-            animation: none !important;
-            opacity: 0 !important;
+          .ritual-scanner-parsed,
+          .ritual-scanner-processing,
+          .ritual-scanner-line,
+          .ritual-scanner-completion {
+            will-change: auto;
           }
         }
       `}</style>
@@ -362,14 +609,15 @@ function ScannerBody({ activeFile }: { activeFile: FileId }) {
 
 export function CompactFileScanner() {
   const [activeFile, setActiveFile] = useState<FileId>("apple")
+  const content = FILE_CONTENT[activeFile]
 
   return (
     <MenuSurface
       aria-label="Ritual file scanner preview"
-      className="flex h-full min-h-[318px] w-full flex-col"
+      className="flex h-full min-h-[328px] w-full flex-col overflow-hidden"
     >
       <div
-        className="flex h-[26px] shrink-0 overflow-hidden border-b border-[#e4e4e7] bg-[#fefefe]"
+        className="flex h-7 shrink-0 overflow-hidden border-b border-[var(--ritual-border-default,#dad9d7)] bg-[var(--ritual-surface-raised,#fff)]"
         role="tablist"
         aria-label="Imported files"
       >
@@ -382,19 +630,19 @@ export function CompactFileScanner() {
               role="tab"
               aria-selected={active}
               onClick={() => setActiveFile(tab.id)}
-              className="flex min-w-0 flex-1 items-center border-r border-[#e4e4e7] px-2 text-left text-[9.5px] leading-4 outline-none transition-colors last:border-r-0 hover:text-[#242321] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7a746d]/30"
+              className="relative flex min-w-0 flex-1 items-center border-r border-[var(--ritual-border-default,#dad9d7)] px-2 text-left text-[9px] leading-4 outline-none last:border-r-0 hover:text-[var(--ritual-text-primary,#111)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ritual-focus-ring,#306774)]"
             >
               <span
                 className={
                   active
-                    ? "min-w-0 truncate text-[#242321]"
-                    : "min-w-0 truncate text-[#77736d]"
+                    ? "min-w-0 truncate font-medium text-[var(--ritual-text-primary,#111)]"
+                    : "min-w-0 truncate font-normal text-[var(--ritual-text-muted,#7a7a7a)]"
                 }
               >
                 {tab.label}
               </span>
               {active ? (
-                <span className="ml-auto pl-1 text-[12px] leading-none text-[#8d8983]">
+                <span className="ml-auto pl-1 text-[11px] leading-none text-[var(--ritual-text-muted,#7a7a7a)]">
                   ×
                 </span>
               ) : null}
@@ -403,7 +651,11 @@ export function CompactFileScanner() {
         })}
       </div>
 
-      <ScannerBody activeFile={activeFile} />
+      <ScannerBody
+        key={activeFile}
+        activeFile={activeFile}
+        content={content}
+      />
     </MenuSurface>
   )
 }

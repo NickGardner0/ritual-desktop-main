@@ -29,7 +29,7 @@ export function TasksStep({
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
-        <div className="h-[350px] w-full max-w-[400px]">
+        <div className="h-[368px] w-full max-w-[376px]">
           <CompactFileScanner />
         </div>
       </div>
