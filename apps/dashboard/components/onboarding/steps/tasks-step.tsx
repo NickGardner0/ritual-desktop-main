@@ -7,9 +7,9 @@ import {
   FileText,
   HeartPulse,
   Images,
-  UploadCloud,
 } from "lucide-react"
 
+import { CompactFileScanner } from "@/components/onboarding/compact-file-scanner"
 import {
   OnboardingFooter,
   OnboardingNavButton,
@@ -45,17 +45,7 @@ export function TasksStep({
 
       <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
         <div className="w-full rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] p-4">
-          <div className="flex min-h-[112px] flex-col items-center justify-center rounded-[12px] border border-dashed border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-chip)] text-center">
-            <span className="grid h-9 w-9 place-items-center rounded-full border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)]">
-              <UploadCloud className="h-[18px] w-[18px]" strokeWidth={1.7} />
-            </span>
-            <p className="mt-2 text-[14px] text-[var(--px-onboarding-ink)]">
-              Drop files here to import
-            </p>
-            <p className="mt-0.5 text-[11px] text-[var(--px-onboarding-muted)]">
-              Ritual keeps the original source attached.
-            </p>
-          </div>
+          <CompactFileScanner />
 
           <div className="mt-3 grid grid-cols-2 gap-2.5">
             {IMPORT_SOURCES.map((source) => {
