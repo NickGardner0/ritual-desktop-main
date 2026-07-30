@@ -229,12 +229,18 @@ export function createThemeVars(
   const textFg = hexToHsl(syntaxFg);
   const huddleControlFg = isDark ? textFg : "0 0% 98%";
 
+  const panelBg = elevate(0.04);
+  const floatingBg = elevate(0.08);
+  const rowHover = overlay(syntaxFg, isDark ? 0.08 : 0.032);
+  const borderSubtle = overlay(syntaxFg, isDark ? 0.12 : 0.052);
+  const borderMuted = overlay(syntaxFg, isDark ? 0.08 : 0.035);
+
   return {
     isDark,
     vars: {
       "--background": hexToHsl(primaryBg),
       "--card": hexToHsl(primaryBg),
-      "--popover": hexToHsl(elevate(0.08)),
+      "--popover": hexToHsl(floatingBg),
       "--muted": hexToHsl(hoverBg),
       "--accent": hexToHsl(hoverBg),
       "--secondary": hexToHsl(hoverBg),
@@ -276,6 +282,27 @@ export function createThemeVars(
 
       "--ui-warning": accentOrange,
       "--ui-warning-bg": overlay(accentOrange, isDark ? 0.1 : 0.08),
+
+      // Ritual app chrome/content tokens (hex — used via var(--content-bg) etc.)
+      "--content-bg": primaryBg,
+      "--surface-window": primaryBg,
+      "--surface-content": primaryBg,
+      "--surface-panel": panelBg,
+      "--surface-floating": floatingBg,
+      "--surface-control": overlay(syntaxFg, isDark ? 0.1 : 0.06),
+      "--surface-control-hover": overlay(syntaxFg, isDark ? 0.16 : 0.1),
+      "--text-primary": syntaxFg,
+      "--text-secondary": syntaxComment,
+      "--text-muted": syntaxComment,
+      "--icon-default": syntaxComment,
+      "--icon-muted": mix(syntaxComment, primaryBg, isDark ? 0.25 : 0.15),
+      "--sidebar-nav-foreground": mix(syntaxFg, syntaxComment, 0.35),
+      "--sidebar-nav-active": syntaxFg,
+      "--border-subtle": borderSubtle,
+      "--border-muted": borderMuted,
+      "--row-hover": rowHover,
+      "--row-active": rowHover,
+      "--row-active-hover": rowHover,
     },
   };
 }

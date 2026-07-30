@@ -33,6 +33,7 @@ const CACHE_KEY = "ritual-theme-cache";
 export const ACCENT_STORAGE_KEY = "ritual-accent-color";
 export const NEUTRAL_ACCENT = "neutral";
 const FOLLOW_SYSTEM_KEY = "ritual-follow-system";
+const THEME_CHANNEL_NAME = "ritual-theme";
 
 export const ACCENT_COLORS = [
   { name: "Neutral", value: NEUTRAL_ACCENT },
@@ -290,21 +291,92 @@ export function RitualThemeProvider({
     applyAccentColor(resolveEffectiveAccent(effectiveTheme, accentColor));
   }, [accentColor, effectiveTheme]);
 
-  const setTheme = useCallback((name: string) => {
-    if (!isValidThemeName(name)) return;
-    setSelectedTheme(name);
-    window.localStorage.setItem(THEME_STORAGE_KEY, name);
+  // Settings is a separate Tauri webview — sync theme/accent/follow across windows.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncFromStorage = () => {
+      const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (storedTheme && isValidThemeName(storedTheme)) {
+        setSelectedTheme(storedTheme);
+      }
+      const storedAccent = window.localStorage.getItem(ACCENT_STORAGE_KEY);
+      if (storedAccent) {
+        setAccentColorState(storedAccent);
+      }
+      const storedFollow = window.localStorage.getItem(FOLLOW_SYSTEM_KEY);
+      if (storedFollow !== null) {
+        setFollowSystemState(storedFollow === "true");
+      }
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key === THEME_STORAGE_KEY ||
+        event.key === ACCENT_STORAGE_KEY ||
+        event.key === FOLLOW_SYSTEM_KEY ||
+        event.key === CACHE_KEY
+      ) {
+        syncFromStorage();
+        applyCachedVars();
+      }
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      channel = new BroadcastChannel(THEME_CHANNEL_NAME);
+      channel.onmessage = () => {
+        syncFromStorage();
+        applyCachedVars();
+      };
+    }
+
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      channel?.close();
+    };
   }, []);
 
-  const setAccentColor = useCallback((color: string) => {
-    window.localStorage.setItem(ACCENT_STORAGE_KEY, color);
-    setAccentColorState(color);
+  const broadcastThemeChange = useCallback(() => {
+    try {
+      if ("BroadcastChannel" in window) {
+        const channel = new BroadcastChannel(THEME_CHANNEL_NAME);
+        channel.postMessage({ type: "theme-changed" });
+        channel.close();
+      }
+    } catch {
+      // Ignore broadcast failures (private mode / unsupported).
+    }
   }, []);
 
-  const setFollowSystem = useCallback((enabled: boolean) => {
-    window.localStorage.setItem(FOLLOW_SYSTEM_KEY, enabled ? "true" : "false");
-    setFollowSystemState(enabled);
-  }, []);
+  const setTheme = useCallback(
+    (name: string) => {
+      if (!isValidThemeName(name)) return;
+      setSelectedTheme(name);
+      window.localStorage.setItem(THEME_STORAGE_KEY, name);
+      broadcastThemeChange();
+    },
+    [broadcastThemeChange],
+  );
+
+  const setAccentColor = useCallback(
+    (color: string) => {
+      window.localStorage.setItem(ACCENT_STORAGE_KEY, color);
+      setAccentColorState(color);
+      broadcastThemeChange();
+    },
+    [broadcastThemeChange],
+  );
+
+  const setFollowSystem = useCallback(
+    (enabled: boolean) => {
+      window.localStorage.setItem(FOLLOW_SYSTEM_KEY, enabled ? "true" : "false");
+      setFollowSystemState(enabled);
+      broadcastThemeChange();
+    },
+    [broadcastThemeChange],
+  );
 
   const value: ThemeContextValue = {
     themeName: effectiveTheme,

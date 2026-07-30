@@ -29,12 +29,20 @@ describe('theme engine', () => {
       import { createThemeVars } from './apps/dashboard/lib/theme/adaptive-theme.ts';
       const light = createThemeVars('#fefefe', '#020817', '#64748b');
       const dark = createThemeVars('#020817', '#f8fafc', '#94a3b8');
-      console.log(JSON.stringify({ light: light.isDark, dark: dark.isDark, hasBg: !!light.vars['--background'] }));
+      console.log(JSON.stringify({
+        light: light.isDark,
+        dark: dark.isDark,
+        hasBg: !!light.vars['--background'],
+        contentBg: dark.vars['--content-bg'],
+        textPrimary: dark.vars['--text-primary'],
+      }));
     `);
     const parsed = JSON.parse(out);
     assert.equal(parsed.light, false);
     assert.equal(parsed.dark, true);
     assert.equal(parsed.hasBg, true);
+    assert.match(parsed.contentBg, /^#[0-9a-f]{6}$/i);
+    assert.equal(parsed.textPrimary, '#f8fafc');
   });
 
   test('THEME_PAIRS and system resolve for ritual', () => {

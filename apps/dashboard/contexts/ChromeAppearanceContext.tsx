@@ -51,7 +51,7 @@ const STORAGE_KEY = "ritual-chrome-appearance";
 const CHANNEL_NAME = "ritual-chrome-appearance";
 const DEFAULT_APPEARANCE: ChromeAppearance = "frosted";
 
-const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
+const chromeVariablesLight: Record<ChromeAppearance, Record<string, string>> = {
   frosted: {
     "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.27)",
     "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.05)",
@@ -122,6 +122,77 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   },
 };
 
+const chromeVariablesDark: Record<ChromeAppearance, Record<string, string>> = {
+  frosted: {
+    "--sidebar-vibrancy-bg": "rgba(20, 20, 22, 0.15)",
+    "--sidebar-vibrancy-border": "rgba(255, 255, 255, 0.10)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.06)",
+    "--titlebar-glass-bg": "rgba(31, 32, 34, 0.44)",
+    "--titlebar-glass-bg-strong": "rgba(45, 46, 48, 0.5)",
+    "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.1)",
+    "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.16)",
+    "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.22)",
+    "--titlebar-glass-control-border": "rgba(255, 255, 255, 0.13)",
+    "--titlebar-glass-control-text": "rgba(255, 255, 255, 0.72)",
+    "--titlebar-glass-control-text-muted": "rgba(255, 255, 255, 0.48)",
+    "--titlebar-glass-control-text-active": "rgba(255, 255, 255, 0.94)",
+    "--titlebar-glass-border": "rgba(255, 255, 255, 0.08)",
+    "--titlebar-glass-highlight": "rgba(255, 255, 255, 0.06)",
+    "--titlebar-glass-filter": "saturate(1.08) blur(24px)",
+  },
+  white: {
+    "--sidebar-vibrancy-bg": "#141416",
+    "--sidebar-vibrancy-border": "rgba(255, 255, 255, 0.1)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.06)",
+    "--titlebar-glass-bg": "#141416",
+    "--titlebar-glass-bg-strong": "#1c1c1e",
+    "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.08)",
+    "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.16)",
+    "--titlebar-glass-control-border": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-text": "rgba(255, 255, 255, 0.72)",
+    "--titlebar-glass-control-text-muted": "rgba(255, 255, 255, 0.48)",
+    "--titlebar-glass-control-text-active": "rgba(255, 255, 255, 0.94)",
+    "--titlebar-glass-border": "rgba(255, 255, 255, 0.1)",
+    "--titlebar-glass-highlight": "rgba(255, 255, 255, 0)",
+    "--titlebar-glass-filter": "none",
+  },
+  soft: {
+    "--sidebar-vibrancy-bg": "#1a1a1c",
+    "--sidebar-vibrancy-border": "rgba(255, 255, 255, 0.1)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.06)",
+    "--titlebar-glass-bg": "#1a1a1c",
+    "--titlebar-glass-bg-strong": "#222224",
+    "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.08)",
+    "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.16)",
+    "--titlebar-glass-control-border": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-text": "rgba(255, 255, 255, 0.72)",
+    "--titlebar-glass-control-text-muted": "rgba(255, 255, 255, 0.48)",
+    "--titlebar-glass-control-text-active": "rgba(255, 255, 255, 0.94)",
+    "--titlebar-glass-border": "rgba(255, 255, 255, 0.1)",
+    "--titlebar-glass-highlight": "rgba(255, 255, 255, 0)",
+    "--titlebar-glass-filter": "none",
+  },
+  zed: {
+    "--sidebar-vibrancy-bg": "#1c1c1a",
+    "--sidebar-vibrancy-border": "rgba(255, 255, 255, 0.1)",
+    "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.06)",
+    "--titlebar-glass-bg": "#1c1c1a",
+    "--titlebar-glass-bg-strong": "#242422",
+    "--titlebar-glass-control-bg": "rgba(255, 255, 255, 0.08)",
+    "--titlebar-glass-control-hover-bg": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-active-bg": "rgba(255, 255, 255, 0.16)",
+    "--titlebar-glass-control-border": "rgba(255, 255, 255, 0.12)",
+    "--titlebar-glass-control-text": "rgba(220, 220, 210, 0.78)",
+    "--titlebar-glass-control-text-muted": "rgba(220, 220, 210, 0.55)",
+    "--titlebar-glass-control-text-active": "rgba(240, 240, 230, 0.94)",
+    "--titlebar-glass-border": "rgba(255, 255, 255, 0.1)",
+    "--titlebar-glass-highlight": "rgba(255, 255, 255, 0)",
+    "--titlebar-glass-filter": "none",
+  },
+};
+
 const ChromeAppearanceContext = createContext<ChromeAppearanceContextValue | undefined>(undefined);
 
 function isChromeAppearance(value: string | null): value is ChromeAppearance {
@@ -130,6 +201,7 @@ function isChromeAppearance(value: string | null): value is ChromeAppearance {
 
 export function ChromeAppearanceProvider({ children }: { children: ReactNode }) {
   const [appearance, setAppearanceState] = useState<ChromeAppearance>(DEFAULT_APPEARANCE);
+  const [isDarkChrome, setIsDarkChrome] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -174,11 +246,26 @@ export function ChromeAppearanceProvider({ children }: { children: ReactNode }) 
     if (typeof document === "undefined") return;
 
     const root = document.documentElement;
+    const syncDark = () => {
+      setIsDarkChrome(root.classList.contains("dark"));
+    };
+    syncDark();
+
+    const observer = new MutationObserver(syncDark);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const root = document.documentElement;
     root.dataset.chromeAppearance = appearance;
-    Object.entries(chromeVariables[appearance]).forEach(([property, value]) => {
+    const vars = (isDarkChrome ? chromeVariablesDark : chromeVariablesLight)[appearance];
+    Object.entries(vars).forEach(([property, value]) => {
       root.style.setProperty(property, value);
     });
-  }, [appearance]);
+  }, [appearance, isDarkChrome]);
 
   const setAppearance = useCallback((next: ChromeAppearance) => {
     setAppearanceState(next);

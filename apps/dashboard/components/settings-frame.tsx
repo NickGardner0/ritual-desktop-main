@@ -199,9 +199,9 @@ export function SettingsFrame({
   };
 
   return (
-    <div className="settings-frame settings-frame-window ritual-settings-window relative flex h-screen w-screen overflow-hidden bg-white text-[#1d1d1f]">
+    <div className="settings-frame settings-frame-window ritual-settings-window relative flex h-screen w-screen overflow-hidden bg-[var(--content-bg)] text-[var(--text-primary)]">
       <div className="settings-frame-body flex min-h-0 min-w-0 flex-1 flex-row">
-        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-black/[0.08] bg-[#f7f7f7] px-[8px] pb-3">
+        <aside className="settings-frame-sidebar settings-frame-sidebar-window flex w-[200px] shrink-0 flex-col overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--surface-panel)] px-[8px] pb-3">
           <div
             className="tauri-drag-region flex h-[52px] shrink-0 items-center px-[4px]"
             data-tauri-drag-region
@@ -212,7 +212,6 @@ export function SettingsFrame({
             {TAB_ORDER.map((id) => {
               const { label, icon: Icon } = TABS[id];
               const selected = activeTab === id;
-              const selectedColor = 'rgba(0,0,0,0.06)';
               return (
                 <button
                   key={id}
@@ -221,17 +220,17 @@ export function SettingsFrame({
                   className={cn(
                     'ritual-snappy-row flex h-[30px] w-full items-center gap-2.5 rounded-[7px] px-[10px] text-left text-[13px] font-medium leading-none transition-colors',
                     selected
-                      ? 'bg-black/[0.06] text-[#1d1d1f]'
-                      : 'text-[#1d1d1f]',
+                      ? 'bg-[var(--row-active)] text-[var(--text-primary)]'
+                      : 'text-[var(--text-primary)]',
                   )}
                   style={{
-                    '--ritual-snappy-row-hover': selected ? selectedColor : 'rgba(0,0,0,0.04)',
-                    '--ritual-snappy-row-active': selected ? selectedColor : 'rgba(0,0,0,0.07)',
+                    '--ritual-snappy-row-hover': 'var(--row-hover)',
+                    '--ritual-snappy-row-active': 'var(--row-active)',
                   } as React.CSSProperties}
                   data-active={selected ? 'true' : undefined}
                 >
                   <Icon
-                    className="h-[15px] w-[15px] shrink-0 text-[#1d1d1f]"
+                    className="h-[15px] w-[15px] shrink-0 text-[var(--text-primary)]"
                     strokeWidth={1.75}
                   />
                   <span className="truncate">{label}</span>
@@ -241,7 +240,7 @@ export function SettingsFrame({
           </nav>
         </aside>
 
-        <main className="settings-frame-main relative min-w-0 flex-1 overflow-y-auto bg-white">
+        <main className="settings-frame-main relative min-w-0 flex-1 overflow-y-auto bg-[var(--content-bg)]">
         <div
           data-tauri-drag-region
           className="tauri-drag-region sticky top-0 z-[5] h-[52px] w-full shrink-0"
@@ -256,11 +255,11 @@ export function SettingsFrame({
                   {userInitial}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold leading-tight text-[#252525]">{userName}</p>
+                  <p className="truncate text-[13px] font-semibold leading-tight text-[var(--text-primary)]">{userName}</p>
                   <button
                     type="button"
                     onClick={handleManageAccount}
-                    className="mt-0.5 text-[12px] font-medium text-[#8a8a8a] transition-colors hover:text-[#252525]"
+                    className="mt-0.5 text-[12px] font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"
                   >
                     Manage account
                   </button>
@@ -532,7 +531,7 @@ function SettingsPage({
 }) {
   return (
     <div className={cn('settings-frame-page w-full pb-6 pt-[14px]', embedded && 'settings-embedded-pane')}>
-      <h1 className="mb-[18px] text-[20px] font-semibold leading-[1.2] tracking-[-0.02em] text-[#1d1d1f]">{title}</h1>
+      <h1 className="mb-[18px] text-[20px] font-semibold leading-[1.2] tracking-[-0.02em] text-[var(--text-primary)]">{title}</h1>
       <div className="space-y-[18px]">
         {children}
       </div>
@@ -543,7 +542,7 @@ function SettingsPage({
 function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-[8px] text-[13px] font-semibold leading-tight text-[#1d1d1f]">{title}</h2>
+      <h2 className="mb-[8px] text-[13px] font-semibold leading-tight text-[var(--text-primary)]">{title}</h2>
       <SettingsGroup>{children}</SettingsGroup>
     </section>
   );
@@ -572,14 +571,14 @@ function SettingsRow({
     <RitualSettingsRow>
       <div className="flex min-w-0 items-center gap-3">
         {icon ? (
-          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center text-[#7a7a7a]">
+          <span className="flex h-[22px] w-[22px] shrink-0 items-center justify-center text-[var(--text-muted)]">
             {icon}
           </span>
         ) : null}
         <div className="min-w-0">
-          <p className="text-[13px] font-medium leading-[16px] text-[#1d1d1f]">{title}</p>
+          <p className="text-[13px] font-medium leading-[16px] text-[var(--text-primary)]">{title}</p>
           {description ? (
-            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{description}</p>
+            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[var(--text-muted)]">{description}</p>
           ) : null}
         </div>
       </div>
@@ -596,12 +595,12 @@ function SettingsToggle({ checked, onClick }: { checked: boolean; onClick: () =>
       aria-pressed={checked}
       className={cn(
         'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
-        checked ? 'bg-black' : 'bg-[#d1d1d1]',
+        checked ? 'bg-[var(--text-primary)]' : 'bg-[var(--border-subtle)]',
       )}
     >
       <span
         className={cn(
-          'inline-block h-[17px] w-[17px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.28),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-transform duration-200',
+          'inline-block h-[17px] w-[17px] rounded-full bg-[var(--content-bg)] shadow-[0_1px_3px_rgba(0,0,0,0.28),0_0_0_0.5px_rgba(0,0,0,0.04)] transition-transform duration-200',
           checked ? 'translate-x-[19px]' : 'translate-x-[2px]',
         )}
       />
@@ -619,7 +618,7 @@ function SegmentedControl<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="inline-flex items-center gap-[2px] rounded-[8px] bg-black/[0.06] p-[3px]">
+    <div className="inline-flex items-center gap-[2px] rounded-[8px] bg-[var(--row-hover)] p-[3px]">
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -630,8 +629,8 @@ function SegmentedControl<T extends string>({
             className={cn(
               'rounded-[6px] px-3 py-[5px] text-[12px] font-medium leading-none transition-all',
               active
-                ? 'bg-white text-[#1d1d1f] shadow-[0_0_0_1px_rgba(26,99,107,0.55),0_1px_2px_rgba(0,0,0,0.08)]'
-                : 'text-[#5f5f5f] hover:text-[#1d1d1f]',
+                ? 'bg-[var(--content-bg)] text-[var(--text-primary)] shadow-[0_0_0_1px_rgba(26,99,107,0.55),0_1px_2px_rgba(0,0,0,0.08)]'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]',
             )}
           >
             {option.label}
