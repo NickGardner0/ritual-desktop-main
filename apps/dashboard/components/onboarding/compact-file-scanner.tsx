@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
+import { MenuSurface } from "@ritual/ui/menu"
 
 const TEXT_COLOR = "#242321"
 const WINDOW_BACKGROUND = "#fefefe"
@@ -363,21 +364,10 @@ export function CompactFileScanner() {
   const [activeFile, setActiveFile] = useState<FileId>("apple")
 
   return (
-    <div
+    <MenuSurface
       aria-label="Ritual file scanner preview"
-      className="flex h-full min-h-[318px] w-full flex-col overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#fefefe] shadow-[0_12px_28px_rgba(24,24,27,0.07)]"
+      className="flex h-full min-h-[318px] w-full flex-col"
     >
-      <div className="relative flex h-7 shrink-0 items-center border-b border-[#e4e4e7] bg-[#fbfbfa] px-2.5">
-        <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
-          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
-          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
-        </div>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-medium text-[#a8a4a0]">
-          Ritual
-        </span>
-      </div>
-
       <div
         className="flex h-[26px] shrink-0 overflow-hidden border-b border-[#e4e4e7] bg-[#fefefe]"
         role="tablist"
@@ -414,6 +404,6 @@ export function CompactFileScanner() {
       </div>
 
       <ScannerBody activeFile={activeFile} />
-    </div>
+    </MenuSurface>
   )
 }

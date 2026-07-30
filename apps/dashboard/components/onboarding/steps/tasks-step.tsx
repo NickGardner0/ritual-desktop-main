@@ -20,11 +20,16 @@ export function TasksStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Import your data"
-        subtitle="You don't have to start self-tracking from scratch, import some or all your historical wearable data"
+        subtitle={
+          <>
+            <span className="block">Bring historical wearable and activity data into Ritual.</span>
+            <span className="block">Continue self-tracking without starting over from scratch.</span>
+          </>
+        }
       />
 
-      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
-        <div className="h-[350px] w-full">
+      <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
+        <div className="h-[350px] w-full max-w-[400px]">
           <CompactFileScanner />
         </div>
       </div>
