@@ -1,8 +1,7 @@
-"use client"
+"use client";
 
-import * as React from "react"
-import { ThemeProvider as NextThemesProvider, type ThemeProviderProps } from "next-themes"
-
-export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
-  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
-} 
+/**
+ * @deprecated Prefer RitualThemeProvider from `@/lib/theme`.
+ * Kept as a thin re-export for any lingering imports.
+ */
+export { RitualThemeProvider as ThemeProvider } from "@/lib/theme";

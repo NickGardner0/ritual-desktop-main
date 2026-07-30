@@ -19,6 +19,7 @@ import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
 import { PrivacySettingsPanel } from './privacy-settings-panel';
 import { VoiceSettings } from './voice-settings';
+import { AppearanceSettings } from '@/components/appearance/appearance-settings';
 import {
   SettingsGroup as RitualSettingsGroup,
   SettingsRow as RitualSettingsRow,
@@ -267,6 +268,28 @@ export function SettingsFrame({
               </div>
             </SettingsGroup>
 
+            <SettingsSection title="Appearance">
+              <div className="px-[14px] py-3">
+                <AppearanceSettings />
+              </div>
+
+              <SettingsRow
+                icon={<Palette className="h-[15px] w-[15px]" strokeWidth={1.9} />}
+                title="Chrome appearance"
+                description={selectedChromeOption.description}
+                control={(
+                  <SegmentedControl
+                    value={chromeAppearance}
+                    onChange={(value) => setChromeAppearance(value)}
+                    options={CHROME_APPEARANCE_OPTIONS.map((option) => ({
+                      value: option.value,
+                      label: option.label,
+                    }))}
+                  />
+                )}
+              />
+            </SettingsSection>
+
             <SettingsSection title="Preferences">
               <SettingsRow
                 icon={<Brain className="h-[15px] w-[15px]" strokeWidth={1.9} />}
@@ -346,22 +369,6 @@ export function SettingsFrame({
                       </Dropdown>
                     ) : null}
                   </PopupRoot>
-                )}
-              />
-
-              <SettingsRow
-                icon={<Palette className="h-[15px] w-[15px]" strokeWidth={1.9} />}
-                title="Chrome appearance"
-                description={selectedChromeOption.description}
-                control={(
-                  <SegmentedControl
-                    value={chromeAppearance}
-                    onChange={(value) => setChromeAppearance(value)}
-                    options={CHROME_APPEARANCE_OPTIONS.map((option) => ({
-                      value: option.value,
-                      label: option.label,
-                    }))}
-                  />
                 )}
               />
 
