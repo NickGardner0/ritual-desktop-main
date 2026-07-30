@@ -143,6 +143,60 @@ class ActivationServiceTests(unittest.TestCase):
 
 
 class ActivationCompletionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_log_backfill_uses_minimal_column_projection(self):
+        service = ActivationService()
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            return_value=SimpleNamespace(
+                first=lambda: ("habit-1", "log-1", "2026-07-29T18:00:00Z")
+            )
+        )
+
+        result = await service._get_first_existing_log(session, "user-1")
+
+        self.assertEqual(
+            result,
+            ("habit-1", "log-1", "2026-07-29T18:00:00Z"),
+        )
+        statement = session.execute.await_args.args[0]
+        selected_columns = {column.key for column in statement.selected_columns}
+        self.assertEqual(selected_columns, {"id", "completed_at"})
+        self.assertNotIn("actor_type", str(statement))
+        self.assertNotIn("actor_ref", str(statement))
+
+    async def test_existing_first_log_tuple_backfills_activation(self):
+        service = ActivationService()
+        user = SimpleNamespace(
+            id="user-1",
+            full_name="Nick",
+            timezone="America/New_York",
+            onboarding_completed=False,
+            updated_at=None,
+        )
+        state = SimpleNamespace(
+            profile_completed_at=None,
+            first_habit_id=None,
+            first_log_id=None,
+            first_behavior_logged_at=None,
+            activation_completed_at=None,
+            permissions_seen_at=None,
+            updated_at=None,
+        )
+        session = AsyncMock()
+        session.get = AsyncMock(return_value=state)
+
+        with patch.object(
+            service,
+            "_get_first_existing_log",
+            AsyncMock(return_value=("habit-1", "log-1", "2026-07-29T18:00:00Z")),
+        ):
+            result = await service._ensure_activation_state(session, user)
+
+        self.assertIs(result, state)
+        self.assertEqual(state.first_habit_id, "habit-1")
+        self.assertEqual(state.first_log_id, "log-1")
+        self.assertTrue(user.onboarding_completed)
+
     async def test_existing_permissions_seen_state_is_backfilled_as_completed(self):
         service = ActivationService()
         user = SimpleNamespace(

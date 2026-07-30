@@ -16,14 +16,15 @@ import { resolveDashboardActivationRedirect } from '@/lib/activation-flow.mjs';
 import { serverBackendFetch } from '@/lib/api/server-client';
 const FORCE_FRESH_COOKIE = 'ritual_force_fresh_until';
 const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 8000;
+const DASHBOARD_BOOTSTRAP_RECOVERY_ROUTE = '/auth/sso-callback?reason=dashboard-bootstrap';
 
 function recordBootstrapFailure(reason: string, details?: Record<string, unknown>) {
-  console.warn('[Ritual][dashboard-layout] bootstrap skipped', {
+  console.warn('[Ritual][dashboard-layout] bootstrap blocked dashboard', {
     reason,
     ...details,
   });
 
-  Sentry.captureMessage('Dashboard bootstrap skipped', {
+  Sentry.captureMessage('Dashboard bootstrap blocked dashboard', {
     level: 'warning',
     tags: {
       surface: 'dashboard-layout',
@@ -31,6 +32,11 @@ function recordBootstrapFailure(reason: string, details?: Record<string, unknown
     },
     extra: details,
   });
+}
+
+function recoverFromBootstrapFailure(reason: string, details?: Record<string, unknown>): never {
+  recordBootstrapFailure(reason, details);
+  redirect(DASHBOARD_BOOTSTRAP_RECOVERY_ROUTE);
 }
 
 async function assertDashboardActivation() {
@@ -60,12 +66,11 @@ async function assertDashboardActivation() {
       signal: AbortSignal.timeout(DASHBOARD_BOOTSTRAP_TIMEOUT_MS),
     });
   } catch (error) {
-    recordBootstrapFailure('fetch_failed', {
+    recoverFromBootstrapFailure('fetch_failed', {
       error: error instanceof Error ? error.message : String(error),
       errorName: error instanceof Error ? error.name : undefined,
       timeoutMs: DASHBOARD_BOOTSTRAP_TIMEOUT_MS,
     });
-    return;
   }
 
   if (response.status === 401 || response.status === 403) {
@@ -73,21 +78,19 @@ async function assertDashboardActivation() {
   }
 
   if (!response.ok) {
-    recordBootstrapFailure('bad_status', {
+    recoverFromBootstrapFailure('bad_status', {
       status: response.status,
       statusText: response.statusText,
     });
-    return;
   }
 
   let bootstrap: { nextRoute?: unknown } | null = null;
   try {
     bootstrap = await response.json();
   } catch (error) {
-    recordBootstrapFailure('invalid_json', {
+    recoverFromBootstrapFailure('invalid_json', {
       error: error instanceof Error ? error.message : String(error),
     });
-    return;
   }
 
   const redirectRoute = resolveDashboardActivationRedirect(bootstrap?.nextRoute);

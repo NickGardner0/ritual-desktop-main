@@ -387,10 +387,10 @@ class ActivationService:
         if not state.first_behavior_logged_at:
             first_log = await self._get_first_existing_log(session, user.id)
             if first_log:
-                habit, log = first_log
-                state.first_habit_id = habit.id
-                state.first_log_id = log.id
-                state.first_behavior_logged_at = log.completed_at and _utcnow() or now
+                habit_id, log_id, completed_at = first_log
+                state.first_habit_id = habit_id
+                state.first_log_id = log_id
+                state.first_behavior_logged_at = completed_at and _utcnow() or now
                 state.activation_completed_at = state.activation_completed_at or now
                 state.permissions_seen_at = state.permissions_seen_at or now
                 state.updated_at = now
@@ -401,8 +401,14 @@ class ActivationService:
         return state
 
     async def _get_first_existing_log(self, session, user_id: str):
+        """Read only columns required for legacy activation backfill.
+
+        Bootstrap routing must stay available while an additive habit-log
+        migration is rolling out. Selecting the ORM entities here would expand
+        to every mapped column and make onboarding depend on unrelated schema.
+        """
         result = await session.execute(
-            select(HabitDB, HabitLogDB)
+            select(HabitDB.id, HabitLogDB.id, HabitLogDB.completed_at)
             .join(HabitLogDB, HabitLogDB.habit_id == HabitDB.id)
             .where(HabitDB.user_id == user_id)
             .order_by(HabitLogDB.date.asc(), HabitLogDB.completed_at.asc())

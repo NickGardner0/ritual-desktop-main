@@ -1,7 +1,7 @@
 """Add habit log provenance fields and action receipt client_event_id.
 
-Revision ID: 20260729_0002
-Revises: 20260729_0001
+Revision ID: 20260729_0003
+Revises: 20260729_0002
 Create Date: 2026-07-29
 """
 
@@ -11,8 +11,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260729_0002"
-down_revision = "20260729_0001"
+revision = "20260729_0003"
+down_revision = "20260729_0002"
 branch_labels = None
 depends_on = None
 

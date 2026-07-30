@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
 const callbackSourceUrl = new URL('../app/auth/sso-callback/page.tsx', import.meta.url)
+const dashboardLayoutSourceUrl = new URL('../app/(dashboard)/layout.tsx', import.meta.url)
 const onboardingSourceUrl = new URL('../app/onboarding/page.tsx', import.meta.url)
 const proxySourceUrl = new URL('../lib/server/proxy-helper.ts', import.meta.url)
 
@@ -29,4 +30,17 @@ test('backend timing headers are forwarded to the browser', async () => {
   assert.match(source, /server-timing/)
   assert.match(source, /x-ritual-bootstrap-duration-ms/)
   assert.match(source, /x-ritual-bootstrap-mode/)
+})
+
+test('dashboard activation failures fail closed through bootstrap recovery', async () => {
+  const source = await readFile(dashboardLayoutSourceUrl, 'utf8')
+
+  assert.match(
+    source,
+    /DASHBOARD_BOOTSTRAP_RECOVERY_ROUTE = '\/auth\/sso-callback\?reason=dashboard-bootstrap'/,
+  )
+  assert.match(source, /recoverFromBootstrapFailure\('fetch_failed'/)
+  assert.match(source, /recoverFromBootstrapFailure\('bad_status'/)
+  assert.match(source, /recoverFromBootstrapFailure\('invalid_json'/)
+  assert.doesNotMatch(source, /recordBootstrapFailure\('(?:fetch_failed|bad_status|invalid_json)'[\s\S]*?\n\s*return;/)
 })
