@@ -1733,9 +1733,9 @@ body[data-voice-hud-window="1"] {
     box-shadow: none;
   }
 
-  /* Theme-aware grouped cards on the settings content pane. */
+  /* Perplexity-style grouped cards: light gray fill on white content pane. */
   .settings-group-card {
-    background: var(--surface-panel);
+    background: #f7f7f7;
     border-radius: 10px;
     border: 0;
     box-shadow: none;
@@ -1743,7 +1743,7 @@ body[data-voice-hud-window="1"] {
 
   .settings-embedded-pane .settings-group-card,
   .settings-native-embedded .settings-group-card {
-    background: var(--surface-panel);
+    background: #f7f7f7;
     box-shadow: none;
   }
 
@@ -1762,7 +1762,7 @@ body[data-voice-hud-window="1"] {
     height: 1px;
     transform: scaleY(0.5);
     transform-origin: top;
-    background: var(--border-subtle);
+    background: rgba(0, 0, 0, 0.08);
     pointer-events: none;
   }
 
@@ -1773,29 +1773,29 @@ body[data-voice-hud-window="1"] {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    border: 1px solid var(--border-subtle);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: 7px;
-    background: var(--surface-control);
+    background: linear-gradient(180deg, #ffffff 0%, #f8f8f8 100%);
     padding: 0 10px;
-    color: var(--text-primary);
+    color: #1d1d1f;
     font-size: 12px;
     font-weight: 500;
     line-height: 16px;
     white-space: nowrap;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95), 0 1px 1px rgba(0, 0, 0, 0.06);
     transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
   }
 
   .settings-value-button:hover,
   .settings-native-value-button:hover {
-    border-color: var(--border-muted);
-    background: var(--surface-control-hover);
+    border-color: rgba(0, 0, 0, 0.2);
+    background: #fbfbfb;
   }
 
   .settings-value-button:focus-visible,
   .settings-native-value-button:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ritual-focus-ring, #1a636b) 28%, transparent);
+    box-shadow: 0 0 0 3px rgba(26, 99, 107, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.9);
   }
 
   .settings-action-row,
@@ -1805,7 +1805,7 @@ body[data-voice-hud-window="1"] {
     width: 100%;
     align-items: center;
     padding: 0 16px;
-    color: var(--text-secondary);
+    color: #374151;
     font-size: 13px;
     font-weight: 500;
     line-height: 18px;
@@ -2099,7 +2099,7 @@ html body .ritual-font-geist .px-onboarding .px-onboarding-title {
 
 /* Settings intentionally mimic native macOS preferences typography. */
 html body:has(.ritual-settings-window) {
-  background: var(--content-bg) !important;
+  background: #ffffff !important;
   overflow: hidden;
 }
 
@@ -2108,5 +2108,5 @@ html.desktop body:has(.ritual-settings-window) {
 }
 
 .ritual-settings-window.settings-frame-window {
-  background: var(--content-bg);
+  background: #ffffff;
 }
