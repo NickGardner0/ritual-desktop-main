@@ -300,9 +300,9 @@ function ScannerBody({ activeFile }: { activeFile: FileId }) {
       className="relative min-h-0 flex-1 overflow-hidden"
       style={{ backgroundColor: WINDOW_BACKGROUND }}
     >
-      <div className="h-full overflow-hidden px-5 pb-3 pt-4">
+      <div className="h-full overflow-hidden px-4 pb-3 pt-3">
         <code
-          className="block text-[9px] font-normal leading-[13px] [font-variant-ligatures:none]"
+          className="block text-[7.5px] font-normal leading-[10.5px] [font-variant-ligatures:none]"
           style={{
             color: TEXT_COLOR,
             fontFamily:
@@ -316,7 +316,7 @@ function ScannerBody({ activeFile }: { activeFile: FileId }) {
               ref={(node) => {
                 lineRefs.current[index] = node
               }}
-              className="h-[13px] truncate whitespace-pre"
+              className="h-[10.5px] truncate whitespace-pre"
             >
               {line.initialText || " "}
             </div>
@@ -367,19 +367,19 @@ export function CompactFileScanner() {
       aria-label="Ritual file scanner preview"
       className="flex h-full min-h-[318px] w-full flex-col overflow-hidden rounded-[10px] border border-[#e4e4e7] bg-[#fefefe] shadow-[0_12px_28px_rgba(24,24,27,0.07)]"
     >
-      <div className="relative flex h-8 shrink-0 items-center border-b border-[#e4e4e7] bg-[#fbfbfa] px-3">
+      <div className="relative flex h-7 shrink-0 items-center border-b border-[#e4e4e7] bg-[#fbfbfa] px-2.5">
         <div className="flex items-center gap-1.5" aria-hidden="true">
-          <span className="h-2.5 w-2.5 rounded-full border border-black/10 bg-[#d2d2d1]" />
-          <span className="h-2.5 w-2.5 rounded-full border border-black/10 bg-[#d2d2d1]" />
-          <span className="h-2.5 w-2.5 rounded-full border border-black/10 bg-[#d2d2d1]" />
+          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
+          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
+          <span className="h-2 w-2 rounded-full border border-black/10 bg-[#d2d2d1]" />
         </div>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[11px] font-medium text-[#a8a4a0]">
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10px] font-medium text-[#a8a4a0]">
           Ritual
         </span>
       </div>
 
       <div
-        className="flex h-[30px] shrink-0 overflow-hidden border-b border-[#e4e4e7] bg-[#fefefe]"
+        className="flex h-[26px] shrink-0 overflow-hidden border-b border-[#e4e4e7] bg-[#fefefe]"
         role="tablist"
         aria-label="Imported files"
       >
@@ -392,7 +392,7 @@ export function CompactFileScanner() {
               role="tab"
               aria-selected={active}
               onClick={() => setActiveFile(tab.id)}
-              className="flex min-w-0 flex-1 items-center border-r border-[#e4e4e7] px-2.5 text-left text-[10.5px] leading-4 outline-none transition-colors last:border-r-0 hover:text-[#242321] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7a746d]/30"
+              className="flex min-w-0 flex-1 items-center border-r border-[#e4e4e7] px-2 text-left text-[9.5px] leading-4 outline-none transition-colors last:border-r-0 hover:text-[#242321] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#7a746d]/30"
             >
               <span
                 className={
@@ -404,7 +404,7 @@ export function CompactFileScanner() {
                 {tab.label}
               </span>
               {active ? (
-                <span className="ml-auto pl-1.5 text-[14px] leading-none text-[#8d8983]">
+                <span className="ml-auto pl-1 text-[12px] leading-none text-[#8d8983]">
                   ×
                 </span>
               ) : null}

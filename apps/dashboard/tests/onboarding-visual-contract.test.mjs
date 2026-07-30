@@ -76,9 +76,8 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
 
   assert.match(tasksSource, /title="Import your data"/)
   assert.match(tasksSource, /CompactFileScanner/)
-  assert.match(tasksSource, /Apple Health/)
-  assert.match(tasksSource, /Spreadsheets/)
-  assert.match(tasksSource, /Screenshots/)
+  assert.doesNotMatch(tasksSource, /bg-\[var\(--px-onboarding-recessed\)\]/)
+  assert.doesNotMatch(tasksSource, /rounded-\[16px\] border/)
   assert.doesNotMatch(tasksSource, /Drop files here to import/)
 
   assert.match(compactFileScannerSource, /apple_health_export\.xml/)
@@ -86,7 +85,10 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   assert.match(compactFileScannerSource, /oura_ring_import\.csv/)
   assert.match(compactFileScannerSource, /ritual-compact-file-scan/)
   assert.match(compactFileScannerSource, /prefers-reduced-motion: reduce/)
-  assert.match(compactFileScannerSource, /2,418 records normalized/)
+  assert.match(compactFileScannerSource, /Parsed daily summary/)
+  assert.match(compactFileScannerSource, /Export rows parsed: 2,418/)
+  assert.match(compactFileScannerSource, /text-\[7\.5px\]/)
+  assert.match(compactFileScannerSource, /leading-\[10\.5px\]/)
 
   assert.match(scheduleSource, /title="Tasks"/)
   assert.match(scheduleSource, /Review weekly goals/)

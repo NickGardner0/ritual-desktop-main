@@ -24,7 +24,7 @@ export function TasksStep({
       />
 
       <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
-        <div className="h-[350px] w-full rounded-[16px] border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] p-4">
+        <div className="h-[350px] w-full">
           <CompactFileScanner />
         </div>
       </div>
