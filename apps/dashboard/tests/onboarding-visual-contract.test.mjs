@@ -49,10 +49,9 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   ])
 
   assert.match(productDemoSource, /title="Connect your devices"/)
-  assert.match(
-    productDemoSource,
-    /subtitle="Connect to the devices you use and wear every day to automate self-tracking"/,
-  )
+  assert.match(productDemoSource, /Connect to the devices you use and wear/)
+  assert.match(productDemoSource, /every day to automate self-tracking/)
+  assert.match(productDemoSource, /<br \/>/)
   assert.match(productDemoSource, /SourcesPicker/)
   assert.doesNotMatch(productDemoSource, /Available sources/)
 

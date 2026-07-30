@@ -57,7 +57,7 @@ export function OnboardingStepHeader({
   className,
 }: {
   title: string
-  subtitle?: string
+  subtitle?: ReactNode
   className?: string
 }) {
   return (
