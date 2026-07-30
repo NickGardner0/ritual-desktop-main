@@ -22,8 +22,8 @@ export function TasksStep({
         title="Import your data"
         subtitle={
           <>
-            <span className="block">Bring historical wearable and activity data into Ritual.</span>
-            <span className="block">Continue self-tracking without starting over from scratch.</span>
+            <span className="block">{"You don't have to start self-tracking from scratch,"}</span>
+            <span className="block">import some or all your historical wearable data</span>
           </>
         }
       />

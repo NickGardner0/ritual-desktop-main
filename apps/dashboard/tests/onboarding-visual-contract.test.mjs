@@ -76,8 +76,8 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
 
   assert.match(tasksSource, /title="Import your data"/)
   assert.match(tasksSource, /CompactFileScanner/)
-  assert.match(tasksSource, /Bring historical wearable and activity data into Ritual\./)
-  assert.match(tasksSource, /Continue self-tracking without starting over from scratch\./)
+  assert.match(tasksSource, /You don't have to start self-tracking from scratch,/)
+  assert.match(tasksSource, /import some or all your historical wearable data/)
   assert.match(tasksSource, /max-w-\[400px\]/)
   assert.doesNotMatch(tasksSource, /bg-\[var\(--px-onboarding-recessed\)\]/)
   assert.doesNotMatch(tasksSource, /rounded-\[16px\] border/)
