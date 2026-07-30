@@ -92,6 +92,11 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   assert.match(scheduleSource, /title="Tasks"/)
   assert.match(scheduleSource, /Review weekly goals/)
   assert.match(scheduleSource, /Finish product brief/)
+  assert.match(scheduleSource, /MenuSurface/)
+  assert.match(scheduleSource, /View by List/)
+  assert.match(scheduleSource, /Confirm CPA appointment/)
+  assert.doesNotMatch(scheduleSource, /bg-\[var\(--px-onboarding-recessed\)\]/)
+  assert.doesNotMatch(scheduleSource, /rounded-\[10px\] border border-\[var\(--px-onboarding-border\)\] bg-\[var\(--px-onboarding-chip\)\]/)
 
   assert.match(appsSource, /title="Routines"/)
   assert.match(appsSource, /Morning reset/)
