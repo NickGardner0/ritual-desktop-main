@@ -100,6 +100,15 @@ function clearPersistedOnboardingStep(): void {
   window.localStorage.removeItem(ONBOARDING_V3_STEP_KEY)
 }
 
+function readPersistedOnboardingRoute(): string | null {
+  const persistedStep = readPersistedOnboardingStep()
+  if (!persistedStep) {
+    return null
+  }
+
+  return onboardingRouteForStep(resolveOnboardingStep(undefined, persistedStep))
+}
+
 function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string | null): string {
   const redirectRoute = resolveSsoRedirectRoute(nextRoute, dashboardReturnUrl)
   if (redirectRoute === '/dashboard' || !redirectRoute.startsWith('/onboarding')) {
@@ -205,6 +214,18 @@ export default function SSOCallback() {
         router.replace(redirectTarget)
       } catch (error) {
         console.error('Error completing sign-in:', error)
+        const persistedOnboardingRoute = error instanceof BootstrapError
+          ? null
+          : readPersistedOnboardingRoute()
+        if (persistedOnboardingRoute) {
+          console.warn('[Ritual][account-bootstrap] recovering saved onboarding route', {
+            route: persistedOnboardingRoute,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          router.replace(persistedOnboardingRoute)
+          return
+        }
+
         setStatus("We couldn't finish setting up your account.")
         setFailure({
           code: error instanceof BootstrapError ? error.code : 'account_setup_failed',
