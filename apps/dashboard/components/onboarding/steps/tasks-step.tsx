@@ -20,7 +20,7 @@ export function TasksStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Import your data"
-        subtitle="Bring existing health, habit, and activity history into Ritual in a few clicks."
+        subtitle="You don't have to start self-tracking from scratch, import some or all your historical wearable data"
       />
 
       <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
