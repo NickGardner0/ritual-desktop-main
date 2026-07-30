@@ -30,6 +30,8 @@ const DEMO_SEQUENCE = [
   { id: "apple-health", delay: 600 },
   { id: "whoop", delay: 1100 },
   { id: "oura", delay: 1600 },
+  { id: "screen-time", delay: 2100 },
+  { id: "computer-use", delay: 2600 },
 ] as const
 
 function SourceToggle({
@@ -84,6 +86,8 @@ export function SourcesPicker() {
           "apple-health": true,
           whoop: true,
           oura: true,
+          "screen-time": true,
+          "computer-use": true,
         })
       })
       return () => window.cancelAnimationFrame(animationFrame)
@@ -102,7 +106,7 @@ export function SourcesPicker() {
         top: scrollArea.scrollHeight - scrollArea.clientHeight,
         behavior: "smooth",
       })
-    }, 2300)
+    }, 3300)
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer))
@@ -123,7 +127,7 @@ export function SourcesPicker() {
   }
 
   return (
-    <MenuSurface className="w-full max-w-[390px]">
+    <MenuSurface className="w-full max-w-[360px]">
       <Input
         value={search}
         onChange={(event) => setSearch(event.target.value)}

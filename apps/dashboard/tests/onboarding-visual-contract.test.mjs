@@ -49,6 +49,10 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   ])
 
   assert.match(productDemoSource, /title="Connect your devices"/)
+  assert.match(
+    productDemoSource,
+    /subtitle="Connect to the devices you use and wear every day to automate self-tracking"/,
+  )
   assert.match(productDemoSource, /SourcesPicker/)
   assert.doesNotMatch(productDemoSource, /Available sources/)
 
@@ -63,6 +67,9 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   assert.match(sourcesPickerSource, /id: "apple-health", delay: 600/)
   assert.match(sourcesPickerSource, /id: "whoop", delay: 1100/)
   assert.match(sourcesPickerSource, /id: "oura", delay: 1600/)
+  assert.match(sourcesPickerSource, /id: "screen-time", delay: 2100/)
+  assert.match(sourcesPickerSource, /id: "computer-use", delay: 2600/)
+  assert.match(sourcesPickerSource, /max-w-\[360px\]/)
   assert.match(sourcesPickerSource, /scrollTo\(\{/)
   assert.match(sourcesPickerSource, /source\.name\.toLowerCase\(\)\.includes\(query\)/)
   assert.match(sourcesPickerSource, /Add Source/)

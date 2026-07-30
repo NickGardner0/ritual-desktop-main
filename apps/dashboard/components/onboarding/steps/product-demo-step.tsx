@@ -20,7 +20,7 @@ export function ProductDemoStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Connect your devices"
-        subtitle="Bring health, activity, sleep, and screen-time data into one private timeline."
+        subtitle="Connect to the devices you use and wear every day to automate self-tracking"
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
