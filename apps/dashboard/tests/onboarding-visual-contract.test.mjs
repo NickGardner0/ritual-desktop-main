@@ -32,6 +32,7 @@ test('onboarding uses the canonical Ritual mark instead of the animated shader',
 test('feature tour describes Ritual devices, imports, tasks, routines, and analytics', async () => {
   const [
     productDemoSource,
+    sourcesPickerSource,
     tasksSource,
     compactFileScannerSource,
     scheduleSource,
@@ -39,6 +40,7 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
     notificationsSource,
   ] = await Promise.all([
     readDashboardFile('components/onboarding/steps/product-demo-step.tsx'),
+    readDashboardFile('components/onboarding/sources-picker.tsx'),
     readDashboardFile('components/onboarding/steps/tasks-step.tsx'),
     readDashboardFile('components/onboarding/compact-file-scanner.tsx'),
     readDashboardFile('components/onboarding/steps/schedule-step.tsx'),
@@ -47,9 +49,24 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   ])
 
   assert.match(productDemoSource, /title="Connect your devices"/)
-  assert.match(productDemoSource, /Apple Health/)
-  assert.match(productDemoSource, /WHOOP/)
-  assert.match(productDemoSource, /Screen Time/)
+  assert.match(productDemoSource, /SourcesPicker/)
+  assert.doesNotMatch(productDemoSource, /Available sources/)
+
+  assert.match(sourcesPickerSource, /placeholder="Search sources"/)
+  assert.match(sourcesPickerSource, /Apple Health/)
+  assert.match(sourcesPickerSource, /WHOOP/)
+  assert.match(sourcesPickerSource, /Screen Time/)
+  assert.match(sourcesPickerSource, /Computer Use/)
+  assert.match(sourcesPickerSource, /Plaid/)
+  assert.match(sourcesPickerSource, /role="switch"/)
+  assert.match(sourcesPickerSource, /DEMO_SEQUENCE/)
+  assert.match(sourcesPickerSource, /id: "apple-health", delay: 600/)
+  assert.match(sourcesPickerSource, /id: "whoop", delay: 1100/)
+  assert.match(sourcesPickerSource, /id: "oura", delay: 1600/)
+  assert.match(sourcesPickerSource, /scrollTo\(\{/)
+  assert.match(sourcesPickerSource, /source\.name\.toLowerCase\(\)\.includes\(query\)/)
+  assert.match(sourcesPickerSource, /Add Source/)
+  assert.match(sourcesPickerSource, /prefers-reduced-motion: reduce/)
 
   assert.match(tasksSource, /title="Import your data"/)
   assert.match(tasksSource, /CompactFileScanner/)
