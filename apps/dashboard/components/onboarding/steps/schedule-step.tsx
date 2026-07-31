@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion"
 import { Check, ChevronsUpDown, Plus } from "lucide-react"
 import { MenuSurface } from "@ritual/ui/menu"
 
-import { TextShimmer } from "@/components/core/text-shimmer"
+import { ShimmeringText } from "@/components/ui/shimmering-text"
 import {
   OnboardingFooter,
   OnboardingNavButton,
@@ -50,6 +50,31 @@ const INITIAL_TASKS: DemoTask[] = [
     category: "Health",
   },
   {
+    id: "meditate",
+    title: "10 minute morning meditation",
+    category: "Health",
+  },
+  {
+    id: "sleep",
+    title: "In bed by 10:30 PM",
+    category: "Health",
+  },
+  {
+    id: "water",
+    title: "Drink 1/2 gallon of water",
+    category: "Health",
+  },
+  {
+    id: "stretch",
+    title: "15 minute mobility stretch",
+    category: "Health",
+  },
+  {
+    id: "vitamins",
+    title: "Take vitamins and supplements",
+    category: "Health",
+  },
+  {
     id: "read",
     title: "Read 30 pages of current book",
     category: "Learning",
@@ -77,12 +102,15 @@ const INITIAL_TASKS: DemoTask[] = [
 ]
 
 const DEMO_COMPLETE_SEQUENCE = [
-  { id: "run", delay: 900 },
-  { id: "read", delay: 1800 },
-  { id: "groceries", delay: 2700 },
+  { id: "meditate", delay: 800 },
+  { id: "run", delay: 1600 },
+  { id: "water", delay: 2400 },
+  { id: "stretch", delay: 3200 },
+  { id: "vitamins", delay: 4000 },
 ] as const
 
-const SHIMMER_MS = 480
+const SHIMMER_DURATION_S = 0.55
+const SHIMMER_MS = Math.round(SHIMMER_DURATION_S * 1000) + 120
 
 export function ScheduleStep({
   onBack,
@@ -217,13 +245,13 @@ export function ScheduleStep({
                       </button>
 
                       {completing ? (
-                        <TextShimmer
-                          className="truncate text-[13px] font-normal leading-none"
-                          duration={0.35}
-                          spread={1.4}
-                        >
-                          {task.title}
-                        </TextShimmer>
+                        <ShimmeringText
+                          text={task.title}
+                          duration={SHIMMER_DURATION_S}
+                          color="var(--text-primary, #111111)"
+                          shimmeringColor="#b0b0b5"
+                          className="min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-normal leading-none"
+                        />
                       ) : (
                         <span className="truncate text-[13px] font-normal leading-none text-[var(--text-primary)]">
                           {task.title}
