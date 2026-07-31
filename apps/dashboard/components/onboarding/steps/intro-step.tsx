@@ -23,12 +23,12 @@ export function IntroStep({
           <Image
             src="/images/eclipse.svg"
             alt="Ritual"
-            width={40}
-            height={40}
+            width={32}
+            height={32}
             priority
-            className="mx-auto h-10 w-10"
+            className="mx-auto h-8 w-8"
           />
-          <h1 className="px-onboarding-title mt-8 text-[24px] leading-[1.2]">
+          <h1 className="px-onboarding-title mt-6 text-[24px] leading-[1.2]">
             Welcome to Ritual
           </h1>
           <p className="mx-auto mt-3 max-w-[440px] text-[14px] font-normal leading-[1.45] text-[var(--px-onboarding-muted)]">

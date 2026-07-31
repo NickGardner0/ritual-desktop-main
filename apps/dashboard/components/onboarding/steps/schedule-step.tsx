@@ -141,7 +141,14 @@ export function ScheduleStep({
     <div className="px-onboarding-step-enter flex h-full flex-col">
       <OnboardingStepHeader
         title="Tasks"
-        subtitle="Extremely fast, unified interface for all your tasks"
+        subtitle={
+          <>
+            <span className="block">Extremely fast, unified interface for all your tasks</span>
+            <span className="mt-1 block">
+              Timing, completion rate, and stats are calculated and logged
+            </span>
+          </>
+        }
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">

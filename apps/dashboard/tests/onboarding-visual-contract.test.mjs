@@ -16,9 +16,9 @@ test('onboarding uses the canonical Ritual mark instead of the animated shader',
   ])
 
   assert.match(introSource, /src="\/images\/eclipse\.svg"/)
-  assert.match(introSource, /width=\{40\}/)
-  assert.match(introSource, /height=\{40\}/)
-  assert.match(introSource, /className="mx-auto h-10 w-10"/)
+  assert.match(introSource, /width=\{32\}/)
+  assert.match(introSource, /height=\{32\}/)
+  assert.match(introSource, /className="mx-auto h-8 w-8"/)
   assert.match(introSource, /className="translate-y-6"/)
   assert.match(introSource, /The unified system for tracking, observing, and/)
   assert.match(introSource, /analyzing all of your online and offline behavior/)
