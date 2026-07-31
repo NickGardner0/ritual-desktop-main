@@ -1,15 +1,21 @@
 "use client"
 
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
+import { ChevronLeft, Ellipsis, Plus, Repeat2 } from "lucide-react"
 import {
-  ChevronDown,
-  ChevronsRight,
-  Ellipsis,
-  Plus,
-  Repeat2,
-} from "lucide-react"
-import { MenuSurface } from "@ritual/ui/menu"
+  MenuList,
+  MenuRow,
+  MenuSeparator,
+  MenuSurface,
+} from "@ritual/ui/menu"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@ritual/ui/select"
 
 import {
   OnboardingFooter,
@@ -18,6 +24,7 @@ import {
   OnboardingStepper,
   SETUP_STEPPER_COUNT,
 } from "@/components/onboarding/perplexity-onboarding-shell"
+import { Switch } from "@/components/ui/switch"
 
 type DemoPhase =
   | "list"
@@ -42,6 +49,11 @@ type TriggerType =
   | "Monthly"
   | "Yearly"
   | "On completion"
+
+type ScheduleRow = {
+  label: string
+  value: string
+}
 
 const ROUTINES = [
   { title: "Grocery shopping", schedule: "Every Wed and Sun" },
@@ -72,332 +84,205 @@ const DEMO_SEQUENCE: Array<{ phase: DemoPhase; delay: number }> = [
 
 const DEMO_LOOP_DURATION = 30500
 
-const TRIGGER_OPTIONS = [
+const TRIGGER_OPTIONS: TriggerType[] = [
   "Daily",
   "Weekly",
   "Monthly",
   "Yearly",
   "On completion",
-] as const
+]
 
-const PANEL_TRANSITION = {
+const VIEW_TRANSITION = {
   duration: 0.24,
   ease: [0.2, 0, 0, 1] as const,
 }
 
-function RoutineList({
-  detailVisible,
-  selected,
-}: {
-  detailVisible: boolean
-  selected: boolean
-}) {
+function RoutineList({ selected }: { selected: boolean }) {
   return (
-    <motion.div
-      className="relative z-10 h-full shrink-0 overflow-hidden bg-[var(--ritual-surface-raised,#fff)]"
-      animate={{ width: detailVisible ? "32.5%" : "100%" }}
-      transition={PANEL_TRANSITION}
+    <motion.section
+      key="routine-list"
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -12 }}
+      transition={VIEW_TRANSITION}
+      className="absolute inset-0 flex flex-col bg-[var(--surface-floating,#fff)]"
     >
-      <div className="flex h-12 items-center px-4">
-        <p className="text-[17.5px] font-medium tracking-[-0.02em] text-[var(--ritual-text-primary,#111)]">
+      <div className="flex h-10 shrink-0 items-center px-3">
+        <span className="text-[13px] font-normal text-[var(--text-muted,#7a7a7a)]">
           Routines
-        </p>
+        </span>
         <button
           type="button"
           aria-label="Add routine"
-          className="ml-auto grid h-6 w-6 place-items-center rounded-md text-[var(--ritual-text-muted,#7a7a7a)]"
+          className="ml-auto grid h-7 w-7 place-items-center rounded-[8px] text-[var(--icon-muted,#888)] outline-none hover:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
         >
           <Plus className="h-4 w-4" strokeWidth={1.7} />
         </button>
       </div>
 
-      <div className="space-y-0.5 px-2.5">
+      <MenuSeparator className="!m-0" />
+
+      <MenuList className="min-h-0 flex-1 overflow-hidden p-1">
         {ROUTINES.map((routine, index) => {
           const active = selected && index === 1
+
           return (
-            <motion.div
+            <MenuRow
               key={routine.title}
-              className="relative flex h-[34px] items-center overflow-hidden rounded-[8px] px-2"
-              animate={{
-                backgroundColor: active
-                  ? "var(--ritual-surface-panel, #f4f4f3)"
-                  : "rgba(255,255,255,0)",
-              }}
-              transition={{ duration: 0.16 }}
+              data-selected={active ? "true" : undefined}
+              className="h-[34px] min-h-[34px] gap-2 px-2 py-0 text-[13px]"
             >
               <Repeat2
-                className={
-                  active
-                    ? "h-3.5 w-3.5 shrink-0 text-[var(--ritual-text-primary,#111)]"
-                    : "h-3.5 w-3.5 shrink-0 text-[var(--ritual-text-muted,#7a7a7a)]"
-                }
+                className="h-3.5 w-3.5 shrink-0 text-[var(--icon-muted,#888)]"
                 strokeWidth={1.55}
               />
               <span
                 className={
                   active
-                    ? "ml-2 min-w-0 truncate text-[10.5px] font-medium text-[var(--ritual-text-primary,#111)]"
-                    : "ml-2 min-w-0 truncate text-[10.5px] font-normal text-[var(--ritual-text-primary,#111)]"
+                    ? "min-w-0 flex-1 truncate font-medium text-[var(--text-primary,#111)]"
+                    : "min-w-0 flex-1 truncate font-normal text-[var(--text-primary,#111)]"
                 }
               >
                 {routine.title}
               </span>
-              {!detailVisible ? (
-                <span className="ml-auto block min-w-0 overflow-hidden whitespace-nowrap pl-3 text-[8.5px] text-[var(--ritual-text-muted,#7a7a7a)]">
-                  {routine.schedule}
-                </span>
-              ) : null}
-            </motion.div>
+              <span className="max-w-[146px] shrink-0 truncate text-right font-normal text-[var(--text-muted,#7a7a7a)]">
+                {routine.schedule}
+              </span>
+            </MenuRow>
           )
         })}
-      </div>
-    </motion.div>
+      </MenuList>
+
+      <MenuSeparator className="!m-0" />
+
+      <button
+        type="button"
+        className="flex h-[34px] shrink-0 items-center px-3 text-left text-[13px] font-normal text-[var(--text-muted,#7a7a7a)] outline-none hover:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ritual-focus-ring)]"
+      >
+        Add Routine
+      </button>
+    </motion.section>
   )
 }
 
-function Toggle() {
-  return (
-    <span className="relative h-[18px] w-8 rounded-full bg-[var(--ritual-border-default,#dad9d7)]">
-      <span className="absolute left-0.5 top-0.5 h-3.5 w-3.5 rounded-full bg-white shadow-sm" />
-    </span>
-  )
+function getScheduleRows(
+  trigger: TriggerType,
+  phase: DemoPhase,
+): ScheduleRow[] {
+  if (trigger === "Daily") {
+    return [
+      { label: "Every", value: "1 day" },
+      { label: "First run", value: "Select date" },
+      { label: "Ends", value: "Select date" },
+    ]
+  }
+
+  if (trigger === "Weekly") {
+    return [
+      { label: "Every", value: "1 week" },
+      { label: "On", value: "Tuesday" },
+      ...(phase === "weekly-expanded"
+        ? [{ label: "And on", value: "Monday" }]
+        : []),
+      { label: "First run", value: "Select date" },
+      { label: "Ends", value: "Select date" },
+    ]
+  }
+
+  if (trigger === "Monthly") {
+    return [
+      { label: "Every", value: "1 month" },
+      {
+        label: "On the",
+        value: phase === "monthly-refined" ? "First Sunday" : "26th day",
+      },
+      { label: "First run", value: "Select date" },
+      { label: "Ends", value: "Select date" },
+    ]
+  }
+
+  if (trigger === "Yearly") {
+    return [
+      {
+        label: "Every",
+        value: phase === "yearly-refined" ? "2 years" : "1 year",
+      },
+      {
+        label: "On the",
+        value:
+          phase === "yearly-refined"
+            ? "5th Monday in March"
+            : "26th day in May",
+      },
+      { label: "First run", value: "Select date" },
+      { label: "Ends", value: "Select date" },
+    ]
+  }
+
+  return [
+    {
+      label: "Repeat",
+      value:
+        phase === "completion-refined"
+          ? "2 days after completion"
+          : "1 week after completion",
+    },
+  ]
 }
 
-function TriggerMenu({
-  target,
-}: {
-  target: Exclude<TriggerType, "Daily">
-}) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -4, scale: 0.97 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -3, scale: 0.98 }}
-      transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
-      className="absolute right-0 top-7 z-50 w-[108px]"
-    >
-      <MenuSurface className="overflow-hidden p-1">
-        {TRIGGER_OPTIONS.map((option) => (
-          <div
-            key={option}
-            className={
-              option === target
-                ? "flex h-6 items-center rounded-[8px] bg-[var(--row-hover)] px-2 text-[9px] font-medium text-[var(--ritual-text-primary,#111)]"
-                : "flex h-6 items-center rounded-[8px] px-2 text-[9px] text-[var(--ritual-text-secondary,#666)]"
-            }
-          >
-            {option}
-          </div>
-        ))}
-      </MenuSurface>
-    </motion.div>
-  )
-}
-
-function ScheduleFields({
+function ScheduleRows({
   phase,
   trigger,
 }: {
   phase: DemoPhase
   trigger: TriggerType
 }) {
-  const weeklyExpanded = phase === "weekly-expanded"
-  const monthlyRefined = phase === "monthly-refined"
-  const yearlyRefined = phase === "yearly-refined"
-  const completionRefined = phase === "completion-refined"
+  const rows = getScheduleRows(trigger, phase)
 
   return (
     <AnimatePresence initial={false} mode="wait">
       <motion.div
         key={`${trigger}-${phase}`}
-        initial={{ opacity: 0, y: 6 }}
+        initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -5 }}
-        transition={{ duration: 0.2, ease: [0.2, 0, 0, 1] }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.16, ease: [0.2, 0, 0, 1] }}
       >
-        {trigger === "Daily" ? (
-          <>
-            <FieldRow
-              label="Every"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>1</ValueChip>
-                  day
-                </span>
-              }
-            />
-            <FieldRow label="First run" value="Select date" />
-            <FieldRow label="Ends" value="Select date" last />
-          </>
-        ) : trigger === "Weekly" ? (
-          <>
-            <FieldRow
-              label="Every"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>1</ValueChip>
-                  week
-                </span>
-              }
-            />
-            <FieldRow
-              label="On"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>Tuesday</ValueChip>
-                  <span className="text-[11px]">+</span>
-                </span>
-              }
-            />
-            {weeklyExpanded ? (
-              <FieldRow
-                label="And on"
-                value={
-                  <span className="flex items-center gap-1.5">
-                    <ValueChip>Monday</ValueChip>
-                    <span className="text-[11px]">−</span>
-                  </span>
-                }
-              />
-            ) : null}
-            <FieldRow label="First run" value="Select date" />
-            <FieldRow label="Ends" value="Select date" last />
-          </>
-        ) : trigger === "Monthly" ? (
-          <>
-            <FieldRow
-              label="Every"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>1</ValueChip>
-                  month
-                </span>
-              }
-            />
-            <FieldRow
-              label="On the"
-              value={
-                <span className="flex items-center gap-1.5">
-                  {monthlyRefined ? (
-                    <>
-                      <ValueChip>First</ValueChip>
-                      <ValueChip>Sunday</ValueChip>
-                    </>
-                  ) : (
-                    <>
-                      <ValueChip>26th</ValueChip>
-                      day
-                    </>
-                  )}
-                </span>
-              }
-            />
-            <FieldRow label="First run" value="Select date" />
-            <FieldRow label="Ends" value="Select date" last />
-          </>
-        ) : trigger === "Yearly" ? (
-          <>
-            <FieldRow
-              label="Every"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>{yearlyRefined ? "2" : "1"}</ValueChip>
-                  {yearlyRefined ? "years" : "year"}
-                </span>
-              }
-            />
-            <FieldRow
-              label="On the"
-              value={
-                <span className="flex items-center gap-1.5">
-                  {yearlyRefined ? (
-                    <>
-                      <ValueChip>5th</ValueChip>
-                      <ValueChip>Monday</ValueChip>
-                      in
-                      <ValueChip>March</ValueChip>
-                    </>
-                  ) : (
-                    <>
-                      <ValueChip>26th</ValueChip>
-                      day in
-                      <ValueChip>May</ValueChip>
-                    </>
-                  )}
-                </span>
-              }
-            />
-            <FieldRow label="First run" value="Select date" />
-            <FieldRow label="Ends" value="Select date" last />
-          </>
-        ) : (
-          <>
-            <FieldRow
-              label="Repeat"
-              value={
-                <span className="flex items-center gap-1.5">
-                  <ValueChip>{completionRefined ? "2" : "1"}</ValueChip>
-                  {completionRefined ? "days" : "week"}
-                  <span>after completion</span>
-                </span>
-              }
-              last
-            />
-          </>
-        )}
+        {rows.map((row) => (
+          <MenuRow
+            key={row.label}
+            className="h-[34px] min-h-[34px] justify-between px-3 py-0 text-[13px]"
+          >
+            <span className="text-[var(--text-primary,#111)]">
+              {row.label}
+            </span>
+            <span className="max-w-[210px] truncate text-right text-[var(--text-muted,#7a7a7a)]">
+              {row.value}
+            </span>
+          </MenuRow>
+        ))}
       </motion.div>
     </AnimatePresence>
-  )
-}
-
-function ValueChip({ children }: { children: ReactNode }) {
-  return (
-    <span className="rounded-[6px] bg-[var(--ritual-surface-raised,#fff)] px-1.5 py-0.5 text-[9px] text-[var(--ritual-text-primary,#111)] shadow-[inset_0_0_0_1px_var(--ritual-border-subtle,rgba(15,23,42,.052))]">
-      {children}
-    </span>
-  )
-}
-
-function FieldRow({
-  label,
-  value,
-  last = false,
-}: {
-  label: string
-  value: ReactNode
-  last?: boolean
-}) {
-  return (
-    <div
-      className={
-        last
-          ? "flex min-h-6 items-center justify-between"
-          : "flex min-h-6 items-center justify-between border-b border-[var(--ritual-border-subtle,rgba(15,23,42,.052))]"
-      }
-    >
-      <span className="text-[9.5px] text-[var(--ritual-text-secondary,#666)]">
-        {label}
-      </span>
-      <span className="text-[9px] text-[var(--ritual-text-muted,#7a7a7a)]">
-        {value}
-      </span>
-    </div>
   )
 }
 
 function RoutineDetail({
   phase,
   trigger,
+  paused,
+  onPausedChange,
 }: {
   phase: DemoPhase
   trigger: TriggerType
+  paused: boolean
+  onPausedChange: (checked: boolean) => void
 }) {
   const showMenu =
     phase === "weekly-menu" ||
     phase === "monthly-menu" ||
     phase === "yearly-menu" ||
     phase === "completion-menu"
-  const menuTarget: Exclude<TriggerType, "Daily"> =
+  const menuTarget: TriggerType =
     phase === "weekly-menu"
       ? "Weekly"
       : phase === "monthly-menu"
@@ -407,117 +292,109 @@ function RoutineDetail({
           : "On completion"
 
   return (
-    <motion.div
-      initial={{ x: 72 }}
-      animate={{ x: 0 }}
-      exit={{ x: 72 }}
-      transition={PANEL_TRANSITION}
-      className="absolute inset-y-0 right-0 z-20 w-[67.5%] border-l border-[var(--ritual-border-default,#dad9d7)] bg-[var(--ritual-surface-canvas,#fefefe)]"
+    <motion.section
+      key="routine-detail"
+      initial={{ opacity: 0, x: 18 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 18 }}
+      transition={VIEW_TRANSITION}
+      className="absolute inset-0 flex flex-col bg-[var(--surface-floating,#fff)]"
     >
-      <div className="relative flex h-8 items-center justify-center border-b border-[var(--ritual-border-subtle,rgba(15,23,42,.052))] px-3">
-        <ChevronsRight
-          className="absolute left-2.5 h-3.5 w-3.5 text-[var(--ritual-text-muted,#7a7a7a)]"
-          strokeWidth={1.7}
-        />
-        <span className="text-[8px] text-[var(--ritual-text-muted,#7a7a7a)]">
+      <div className="relative flex h-10 shrink-0 items-center justify-center px-3">
+        <button
+          type="button"
+          aria-label="Back to routines"
+          className="absolute left-2 grid h-7 w-7 place-items-center rounded-[8px] text-[var(--icon-muted,#888)] outline-none hover:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+        >
+          <ChevronLeft className="h-4 w-4" strokeWidth={1.7} />
+        </button>
+        <span className="text-[13px] font-normal text-[var(--text-muted,#7a7a7a)]">
           Routine
         </span>
-        <Ellipsis
-          className="absolute right-2.5 h-3.5 w-3.5 text-[var(--ritual-text-muted,#7a7a7a)]"
-          strokeWidth={1.7}
-        />
+        <button
+          type="button"
+          aria-label="More routine options"
+          className="absolute right-2 grid h-7 w-7 place-items-center rounded-[8px] text-[var(--icon-muted,#888)] outline-none hover:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+        >
+          <Ellipsis className="h-4 w-4" strokeWidth={1.7} />
+        </button>
       </div>
 
-      <div className="px-3.5 pb-2.5 pt-2.5">
-        <h3 className="flex h-6 items-center truncate text-[16px] font-medium tracking-[-0.02em] text-[var(--ritual-text-primary,#111)]">
-          <span className="truncate">Daily morning exercise</span>
-          {phase === "daily" ? (
-            <motion.span
-              aria-hidden="true"
-              className="ml-px h-[17px] w-px shrink-0 bg-[var(--ritual-text-primary,#111)]"
-              animate={{ opacity: [1, 1, 0, 0] }}
-              transition={{ duration: 0.9, repeat: Infinity }}
-            />
-          ) : null}
-        </h3>
+      <MenuSeparator className="!m-0" />
 
-        <div className="mt-2 rounded-[8px] bg-[var(--ritual-surface-panel,#f4f4f3)] px-2.5">
-          <div className="flex h-7 items-center justify-between border-b border-[var(--ritual-border-subtle,rgba(15,23,42,.052))]">
-            <span className="text-[9.5px] text-[var(--ritual-text-secondary,#666)]">
-              Trigger
-            </span>
-            <span className="relative">
-              <span className="flex items-center gap-1 rounded-[8px] bg-[var(--ritual-surface-raised,#fff)] px-2 py-1 text-[9px] font-medium text-[var(--ritual-text-primary,#111)] shadow-[inset_0_0_0_1px_var(--ritual-border-subtle,rgba(15,23,42,.052))]">
-                {trigger}
-                <ChevronDown
-                  className="h-2.5 w-2.5 text-[var(--ritual-text-muted,#7a7a7a)]"
-                  strokeWidth={1.7}
-                />
-              </span>
-              <AnimatePresence>
-                {showMenu ? <TriggerMenu target={menuTarget} /> : null}
-              </AnimatePresence>
-            </span>
-          </div>
-          <div className="flex h-7 items-center justify-between">
-            <span className="text-[9.5px] text-[var(--ritual-text-secondary,#666)]">
-              Paused
-            </span>
-            <Toggle />
-          </div>
-        </div>
-
-        <div className="mt-2 rounded-[8px] bg-[var(--ritual-surface-panel,#f4f4f3)] px-2.5">
-          <ScheduleFields phase={phase} trigger={trigger} />
-        </div>
-
-        <div className="mt-2 px-1 text-[8.5px] leading-[1.35] text-[var(--ritual-text-muted,#7a7a7a)]">
-          <p>Last: Jul 29</p>
-          <p className="truncate">
-            {trigger === "On completion"
-              ? "If completed today → next Aug 13"
-              : trigger === "Yearly"
-                ? "Next: Mar 20, 2028 · Mar 18, 2030…"
-                : trigger === "Monthly"
-                  ? "Next: Aug 2, Sep 6, Oct 4…"
-                  : trigger === "Weekly"
-                    ? "Next: Aug 4, Aug 11, Aug 18…"
-                    : "Next: Jul 30, Jul 31, Aug 1…"}
-          </p>
-        </div>
-
-        <div className="mt-2 flex h-7 items-center justify-between rounded-[8px] bg-[var(--ritual-surface-panel,#f4f4f3)] px-2.5">
-          <span className="text-[9.5px] text-[var(--ritual-text-secondary,#666)]">
-            Priority
-          </span>
-          <span className="flex items-end gap-0.5 text-[8.5px] font-medium text-[var(--ritual-text-primary,#111)]">
-            <span className="h-1.5 w-0.5 rounded-full bg-[var(--ritual-text-muted,#7a7a7a)]" />
-            <span className="h-2.5 w-0.5 rounded-full bg-[var(--ritual-text-secondary,#666)]" />
-            <span className="mr-1 h-3.5 w-0.5 rounded-full bg-[var(--ritual-text-primary,#111)]" />
-            High
-          </span>
-        </div>
-
-        <div className="mt-2 h-9 rounded-[8px] bg-[var(--ritual-surface-panel,#f4f4f3)] px-2.5 py-2 text-[9px] text-[var(--ritual-text-secondary,#666)]">
-          Start each day with physical activity
-        </div>
-
-        <div className="mt-2 px-1">
-          <p className="text-[8.5px] text-[var(--ritual-text-muted,#7a7a7a)]">
-            Tags
-          </p>
-          <span className="mt-1 inline-flex rounded-full border border-dashed border-[var(--ritual-border-default,#dad9d7)] px-2 py-0.5 text-[8px] text-[var(--ritual-text-muted,#7a7a7a)]">
-            + tag
-          </span>
-        </div>
+      <div className="flex h-11 shrink-0 items-center px-3 text-[16px] font-medium tracking-[-0.015em] text-[var(--text-primary,#111)]">
+        <span className="truncate">Daily morning exercise</span>
+        {phase === "daily" ? (
+          <motion.span
+            aria-hidden="true"
+            className="ml-px h-4 w-px shrink-0 bg-[var(--text-primary,#111)]"
+            animate={{ opacity: [1, 1, 0, 0] }}
+            transition={{ duration: 0.9, repeat: Infinity }}
+          />
+        ) : null}
       </div>
-    </motion.div>
+
+      <MenuSeparator className="!m-0" />
+
+      <MenuList className="min-h-0 flex-1 overflow-visible p-1">
+        <MenuRow className="h-[34px] min-h-[34px] justify-between px-3 py-0 text-[13px]">
+          <span className="text-[var(--text-primary,#111)]">Trigger</span>
+          <Select
+            value={trigger}
+            open={showMenu}
+            onOpenChange={() => undefined}
+            onValueChange={() => undefined}
+          >
+            <SelectTrigger
+              density="compact"
+              aria-label="Routine trigger"
+              className="h-7 w-[154px] rounded-[8px] border-[var(--border-subtle)] bg-[var(--surface-raised,#fff)] px-2 text-[13px] shadow-none focus:ring-2 focus:ring-[var(--ritual-focus-ring)] focus:ring-offset-0"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent
+              align="end"
+              className="rounded-[var(--radius-floating)] border-[var(--border-floating)] bg-[var(--surface-floating)] shadow-[var(--shadow-popover)]"
+            >
+              {TRIGGER_OPTIONS.map((option) => (
+                <SelectItem
+                  key={option}
+                  value={option}
+                  className={
+                    showMenu && option === menuTarget
+                      ? "bg-[var(--row-hover)]"
+                      : undefined
+                  }
+                >
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </MenuRow>
+
+        <MenuRow className="h-[34px] min-h-[34px] justify-between px-3 py-0 text-[13px]">
+          <span className="text-[var(--text-primary,#111)]">Paused</span>
+          <Switch
+            checked={paused}
+            onCheckedChange={onPausedChange}
+            aria-label="Pause routine"
+            className="data-[state=checked]:bg-[var(--ritual-interactive-primary,#27251e)] data-[state=unchecked]:bg-[#d4d4d8]"
+          />
+        </MenuRow>
+
+        <MenuSeparator className="!m-0" />
+
+        <ScheduleRows phase={phase} trigger={trigger} />
+      </MenuList>
+    </motion.section>
   )
 }
 
 function AnimatedRoutinesDemo() {
   const reduceMotion = useReducedMotion()
   const [phase, setPhase] = useState<DemoPhase>("list")
+  const [paused, setPaused] = useState(false)
 
   useEffect(() => {
     if (reduceMotion) return
@@ -541,7 +418,7 @@ function AnimatedRoutinesDemo() {
 
   const visiblePhase = reduceMotion ? "completion-refined" : phase
   const detailVisible = !["list", "selected"].includes(visiblePhase)
-  const selected = visiblePhase !== "list"
+  const selected = visiblePhase === "selected"
   const trigger: TriggerType =
     visiblePhase === "daily" || visiblePhase === "weekly-menu"
       ? "Daily"
@@ -563,16 +440,19 @@ function AnimatedRoutinesDemo() {
     <MenuSurface
       aria-label="Animated routines preview"
       data-demo-phase={visiblePhase}
-      className="relative h-[376px] w-full overflow-hidden bg-[var(--ritual-surface-raised,#fff)]"
+      className="relative h-[352px] w-full max-w-[360px] overflow-hidden"
     >
-      <RoutineList
-        detailVisible={detailVisible}
-        selected={selected}
-      />
-      <AnimatePresence>
+      <AnimatePresence initial={false} mode="wait">
         {detailVisible ? (
-          <RoutineDetail phase={visiblePhase} trigger={trigger} />
-        ) : null}
+          <RoutineDetail
+            phase={visiblePhase}
+            trigger={trigger}
+            paused={paused}
+            onPausedChange={setPaused}
+          />
+        ) : (
+          <RoutineList selected={selected} />
+        )}
       </AnimatePresence>
     </MenuSurface>
   )
@@ -592,10 +472,8 @@ export function AppsStep({
         subtitle="Build repeatable schedules, track completion, and see which routines actually work."
       />
 
-      <div className="flex min-h-0 flex-1 items-center px-8 pb-2 pt-5">
-        <div className="mx-auto w-full max-w-[420px]">
-          <AnimatedRoutinesDemo />
-        </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
+        <AnimatedRoutinesDemo />
       </div>
 
       <OnboardingFooter
@@ -605,10 +483,7 @@ export function AppsStep({
           </OnboardingNavButton>
         }
         center={
-          <OnboardingStepper
-            total={SETUP_STEPPER_COUNT}
-            activeIndex={5}
-          />
+          <OnboardingStepper total={SETUP_STEPPER_COUNT} activeIndex={5} />
         }
         right={
           <OnboardingNavButton onClick={onNext}>

@@ -13,7 +13,7 @@ const SETTLE_END = 3500
 const COMPLETION_DURATION = 240
 const RESET_START = 5250
 const RESET_END = 5650
-const PROCESSING_BAND_HEIGHT = 84
+const PROCESSING_BAND_HEIGHT = 48
 
 type FileId = "apple" | "whoop" | "oura"
 
@@ -284,7 +284,7 @@ function DocumentText({
       style={{
         color:
           tone === "processing"
-            ? "var(--ritual-text-muted, #7a7a7a)"
+            ? "var(--ritual-text-secondary, #666666)"
             : "var(--ritual-text-primary, #111111)",
         fontFamily: "var(--ritual-font-fk)",
         opacity: isSource ? 0.68 : 1,
@@ -559,7 +559,13 @@ function ScannerBody({
           className="ritual-scanner-line pointer-events-none absolute inset-x-0 top-0"
           aria-hidden="true"
         >
-          <div className="h-px w-full bg-[var(--ritual-interactive-primary,#27251e)]" />
+          <div
+            className="h-px w-full"
+            style={{
+              backgroundColor: "var(--ritual-text-muted, #7a7a7a)",
+              opacity: 0.48,
+            }}
+          />
         </div>
 
         <div
@@ -609,12 +615,29 @@ function ScannerBody({
         }
 
         .ritual-scanner-processing-wash {
-          background: var(--ritual-surface-recessed, #f7f8f5);
+          background: linear-gradient(
+            to bottom,
+            transparent 0%,
+            var(--ritual-surface-canvas, #fefefe) 38%,
+            var(--ritual-surface-canvas, #fefefe) 100%
+          );
         }
 
         .ritual-scanner-processing-content {
           top: var(--scan-band-offset);
           height: var(--scanner-body-height);
+          -webkit-mask-image: linear-gradient(
+            to bottom,
+            transparent 0%,
+            #000 34%,
+            #000 100%
+          );
+          mask-image: linear-gradient(
+            to bottom,
+            transparent 0%,
+            #000 34%,
+            #000 100%
+          );
           will-change: top;
         }
 
@@ -657,7 +680,7 @@ export function CompactFileScanner() {
       className="flex h-full min-h-[328px] w-full flex-col overflow-hidden"
     >
       <div
-        className="flex h-7 shrink-0 overflow-hidden border-b border-[var(--ritual-border-default,#dad9d7)] bg-[var(--ritual-surface-raised,#fff)]"
+        className="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--ritual-border-default,#dad9d7)] bg-[var(--ritual-surface-raised,#fff)] p-1"
         role="tablist"
         aria-label="Imported files"
       >
@@ -670,7 +693,11 @@ export function CompactFileScanner() {
               role="tab"
               aria-selected={active}
               onClick={() => setActiveFile(tab.id)}
-              className="relative flex min-w-0 flex-1 items-center border-r border-[var(--ritual-border-default,#dad9d7)] px-2 text-left text-[9px] leading-4 outline-none last:border-r-0 hover:text-[var(--ritual-text-primary,#111)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ritual-focus-ring,#306774)]"
+              className={`relative flex h-6 min-w-0 flex-1 items-center rounded-[8px] border px-2 text-left text-[9px] leading-4 outline-none transition-colors duration-100 hover:bg-[var(--row-hover)] hover:text-[var(--ritual-text-primary,#111)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ritual-focus-ring,#306774)] ${
+                active
+                  ? "border-[var(--ritual-border-subtle,rgba(15,23,42,0.052))] bg-[var(--row-hover)]"
+                  : "border-transparent bg-transparent"
+              }`}
             >
               <span
                 className={
