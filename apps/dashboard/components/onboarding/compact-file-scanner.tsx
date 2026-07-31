@@ -236,7 +236,7 @@ const FILE_CONTENT: Record<FileId, FileContent> = {
   apple: {
     sourceLines: APPLE_HEALTH_SOURCE_LINES,
     parsedLines: APPLE_HEALTH_PARSED_LINES,
-    completionLabel: "2,418 records normalized",
+    completionLabel: "2,418 logs imported",
   },
   whoop: {
     sourceLines: WHOOP_SOURCE_LINES,
@@ -286,9 +286,8 @@ function DocumentText({
           tone === "processing"
             ? "var(--ritual-text-muted, #7a7a7a)"
             : "var(--ritual-text-primary, #111111)",
-        fontFamily:
-          '"Server Mono", "SFMono-Regular", "SF Mono", Menlo, Monaco, Consolas, monospace',
-        opacity: isSource ? 0.68 : tone === "processing" ? 0.76 : 1,
+        fontFamily: "var(--ritual-font-fk)",
+        opacity: isSource ? 0.68 : 1,
         WebkitFontSmoothing: "antialiased",
       }}
     >
@@ -560,7 +559,6 @@ function ScannerBody({
           className="ritual-scanner-line pointer-events-none absolute inset-x-0 top-0"
           aria-hidden="true"
         >
-          <div className="ritual-scanner-line-glow absolute inset-x-0 bottom-0 h-5" />
           <div className="h-px w-full bg-[var(--ritual-interactive-primary,#27251e)]" />
         </div>
 
@@ -607,27 +605,11 @@ function ScannerBody({
           top: var(--scan-band-top);
           height: var(--scan-band-height);
           opacity: var(--scan-band-opacity);
-          -webkit-mask-image: linear-gradient(
-            to bottom,
-            transparent 0%,
-            rgba(0, 0, 0, 0.7) 34%,
-            black 62%
-          );
-          mask-image: linear-gradient(
-            to bottom,
-            transparent 0%,
-            rgba(0, 0, 0, 0.7) 34%,
-            black 62%
-          );
           will-change: top, height, opacity;
         }
 
         .ritual-scanner-processing-wash {
-          background: linear-gradient(
-            to bottom,
-            var(--ritual-surface-canvas, #fefefe) 0%,
-            var(--ritual-surface-recessed, #f7f8f5) 100%
-          );
+          background: var(--ritual-surface-recessed, #f7f8f5);
         }
 
         .ritual-scanner-processing-content {
@@ -640,14 +622,6 @@ function ScannerBody({
           opacity: var(--scan-line-opacity);
           transform: translateY(var(--scan-y));
           will-change: transform, opacity;
-        }
-
-        .ritual-scanner-line-glow {
-          background: linear-gradient(
-            to bottom,
-            transparent,
-            var(--ritual-surface-panel, #f4f4f3)
-          );
         }
 
         .ritual-scanner-completion {
