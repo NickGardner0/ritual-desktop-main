@@ -5,6 +5,10 @@ import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
 import styles from "@/components/onboarding/analytics-preview.module.css"
 
+const MUTED_WINDOW_DOT = "#CFCFCD"
+const FEATURE_WINDOW_SHADOW =
+  "0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 12px 40px -12px rgba(40, 30, 20, 0.12), 0 2px 8px -2px rgba(40, 30, 20, 0.06)"
+
 const sparkCards = [
   {
     title: "Sleep Duration",
@@ -50,6 +54,9 @@ const habitRows = [
   ["Nicotine Consumption", "146 MG", -8.1],
   ["Computer Time", "126.4 Hours", 6.5],
   ["Daily Reading", "245 Pages", 12],
+  ["Workout", "18.5 Hours", -4.6],
+  ["iPhone Time", "96.2 Hours", -9.5],
+  ["Car miles", "642 Miles", 6.1],
 ] as const
 
 const appRows = [
@@ -57,10 +64,14 @@ const appRows = [
   ["Codex", "32.4h", 14],
   ["x.com", "12.8h", -11],
   ["Ritual", "8.6h", 5.2],
+  ["Paper", "3.2h", 2.1],
+  ["Finder", "5.4h", -3.8],
   ["Obsidian", "18.3h", -8.0],
+  ["loginwindow", "2.1h", -4.2],
 ] as const
 
 const analyticsTabs = ["All", "Health", "Digital", "Productivity", "Experiments"] as const
+const rangeOptions = ["12H", "1D", "1W", "1M", "3M", "6M", "1Y"] as const
 
 function formatAmount(n: number, decimals: number): string {
   const fixed = n.toFixed(decimals)
@@ -161,10 +172,28 @@ const appMetrics = parseRows(appRows)
 const sparkBases = sparkCards.map((card) => parseFloat(card.value))
 const sparkBaselines = sparkCards.map((card) => parseFloat(card.value) - parseFloat(card.absolute))
 
+function WindowTrafficLights() {
+  return (
+    <div className="flex items-center gap-[6px]">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <span
+          key={index}
+          className="block h-[10px] w-[10px] shrink-0 rounded-full"
+          style={{
+            backgroundColor: MUTED_WINDOW_DOT,
+            boxShadow: "inset 0 0 0 0.5px rgba(0, 0, 0, 0.08)",
+          }}
+          aria-hidden
+        />
+      ))}
+    </div>
+  )
+}
+
 function TrendArrow({ trend }: { trend: "up" | "down" }) {
   const isUp = trend === "up"
   return (
-    <svg width="11" height="11" viewBox="0 0 16.8 16.8" fill="none" aria-hidden="true">
+    <svg width="12" height="12" viewBox="0 0 16.8 16.8" fill="none" aria-hidden="true">
       <path
         d={isUp ? "M3.2 12.2L12 3.4M12 3.4H6.2M12 3.4V9.2" : "M3.2 4.6L12 13.4M12 13.4H6.2M12 13.4V7.6"}
         stroke={isUp ? "#136A22" : "#A23544"}
@@ -184,10 +213,10 @@ function Sparkline({ card, index }: { card: (typeof sparkCards)[number]; index: 
   return (
     <svg
       width="100%"
-      height="28"
+      height="41"
       viewBox="0 0 225 41"
       preserveAspectRatio="none"
-      className="h-[24px] shrink-0 overflow-hidden"
+      className="h-[30px] shrink-0 overflow-hidden"
       aria-hidden="true"
     >
       <defs>
@@ -226,28 +255,28 @@ function SparkMetricCard({
     <div
       className={cn(
         styles.sparkCard,
-        "flex h-[72px] min-w-0 flex-col gap-0.5 overflow-hidden rounded-md border border-[rgba(39,37,30,0.10)] bg-[#FEFEFE] px-0 py-[2px]",
+        "flex h-[84px] min-w-0 flex-col gap-1 overflow-hidden rounded-md border border-[rgba(39,37,30,0.10)] bg-[#FEFEFE] px-0 py-[2px]",
       )}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_52px] items-start gap-x-1.5 px-2.5 pb-px pt-0.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_60px] items-start gap-x-2 px-3 pb-[2px] pt-[2px]">
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[11px] font-medium leading-[14px] text-[#27251E]">{card.title}</div>
-          <div className="mt-px flex min-w-0 items-baseline gap-1 text-[10px] font-medium leading-[13px] text-[rgba(39,37,30,0.62)]">
+          <div className="truncate text-[12px] font-medium leading-[16px] text-[#27251E]">{card.title}</div>
+          <div className="mt-px flex min-w-0 items-baseline gap-1 text-[11px] font-medium leading-[14px] text-[rgba(39,37,30,0.62)]">
             <AnimatedAmount value={formatAmount(live, decimals)} />
             <span className="truncate">{card.unit}</span>
           </div>
         </div>
-        <div className="flex min-w-[52px] shrink-0 flex-col items-end text-right">
-          <div className={cn("flex items-center justify-end gap-px text-[11px] font-medium leading-[14px] tabular-nums", trendColor)}>
+        <div className="flex min-w-[60px] shrink-0 flex-col items-end text-right">
+          <div className={cn("flex items-center justify-end gap-px text-[12px] font-medium leading-[16px] tabular-nums", trendColor)}>
             <TrendArrow trend={card.trend} />
             <span>{pctDisplay}%</span>
           </div>
-          <div className="mt-px min-h-[12px] text-[10px] font-medium leading-[12px] text-[rgba(39,37,30,0.62)] tabular-nums">
+          <div className="mt-px min-h-[14px] text-[10.75px] font-medium leading-[14px] text-[rgba(39,37,30,0.62)] tabular-nums">
             {absoluteDisplay}
           </div>
         </div>
       </div>
-      <div className="min-h-0 w-full flex-1">
+      <div className="min-h-0 w-full flex-1 pb-0 pt-0">
         <Sparkline card={card} index={index} />
       </div>
     </div>
@@ -257,7 +286,7 @@ function SparkMetricCard({
 function AnalyticsChangeBadge({ change }: { change: number }) {
   if (Math.abs(change) < 0.05) {
     return (
-      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium leading-[12px] tabular-nums bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.45)]">
+      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium leading-[14px] tabular-nums bg-[rgba(39,37,30,0.06)] text-[rgba(39,37,30,0.45)]">
         — 0.0%
       </span>
     )
@@ -265,12 +294,12 @@ function AnalyticsChangeBadge({ change }: { change: number }) {
 
   const isUp = change > 0
   const abs = Math.abs(change)
-  const display = abs >= 10 ? Math.round(abs) : abs.toFixed(1)
+  const display = abs >= 100 ? Math.round(abs) : abs >= 10 ? Math.round(abs) : abs.toFixed(1)
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium leading-[12px] tabular-nums",
+        "inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[11px] font-medium leading-[14px] tabular-nums",
         isUp ? "bg-[rgba(19,106,34,0.08)] text-[#136A22]" : "bg-[rgba(162,53,68,0.08)] text-[#A23544]",
       )}
     >
@@ -297,18 +326,18 @@ function AnalyticsBarListCard({
         "flex h-full flex-col overflow-hidden rounded-md border border-[rgba(39,37,30,0.08)] bg-[#FEFEFE] shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
       )}
     >
-      <div className="px-3 pb-1 pt-2.5">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center">
-            <span className="pr-2.5 py-0.5 text-[12px] font-medium text-[#27251E]">{title}</span>
-            <span className="pr-2.5 py-0.5 text-[12px] font-normal text-[rgba(39,37,30,0.40)]">{inactiveTitle}</span>
+      <div className="px-4 pb-1.5 pt-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-0">
+            <span className="pr-3 py-1 text-[13px] font-medium text-[#27251E]">{title}</span>
+            <span className="pr-3 py-1 text-[13px] font-normal text-[rgba(39,37,30,0.40)]">{inactiveTitle}</span>
           </div>
-          <div className="hidden items-center sm:flex">
-            {["12H", "1D", "1W", "1M", "3M"].map((range) => (
+          <div className="flex items-center gap-0">
+            {rangeOptions.map((range) => (
               <span
                 key={range}
                 className={cn(
-                  "px-1 py-0.5 text-[10px]",
+                  "px-1.5 py-0.5 text-[11px] transition-colors",
                   range === "1M" ? "font-medium text-[#27251E]" : "font-normal text-[rgba(39,37,30,0.35)]",
                 )}
               >
@@ -324,13 +353,16 @@ function AnalyticsBarListCard({
           const live = values[idx] ?? row.num
           const liveChange = ((live - row.baseline) / row.baseline) * 100
           return (
-            <div key={row.name} className={cn(styles.listRow, "flex cursor-default select-none items-center px-3 py-[3.5px]")}>
-              <span className="min-w-0 flex-1 truncate text-[11.5px] font-normal text-[#27251E]">{row.name}</span>
-              <span className="flex min-w-[72px] shrink-0 items-baseline justify-end text-[11.5px] font-normal tabular-nums text-[#27251E]">
+            <div
+              key={row.name}
+              className={cn(styles.listRow, "flex cursor-default select-none items-center px-4 py-[4.5px]")}
+            >
+              <span className="min-w-0 flex-1 truncate text-[12.5px] font-normal text-[#27251E]">{row.name}</span>
+              <span className="flex min-w-[90px] shrink-0 items-baseline justify-end text-[12.5px] font-normal tabular-nums text-[#27251E]">
                 <AnimatedAmount value={formatAmount(live, row.decimals)} />
                 <span style={{ whiteSpace: "pre" }}>{row.suffix}</span>
               </span>
-              <span className="ml-1.5 min-w-[50px] shrink-0 text-right">
+              <span className="ml-1.5 min-w-[56px] shrink-0 text-right">
                 <AnalyticsChangeBadge change={liveChange} />
               </span>
             </div>
@@ -366,42 +398,67 @@ export function AnalyticsPreview() {
   }, [])
 
   return (
-    <div
-      aria-label="Analytics preview"
-      className="flex h-full max-h-[420px] w-full max-w-[640px] flex-col overflow-hidden rounded-[12px] border border-[rgba(39,37,30,0.10)] bg-[#FEFEFE] px-3.5 pb-3 pt-3 text-[#27251E] shadow-[0_1px_2px_rgba(39,37,30,0.04)]"
-    >
-      <div className="shrink-0 border-b border-[rgba(39,37,30,0.08)]">
-        <div className="flex h-[34px] items-end gap-5">
-          {analyticsTabs.map((tab) => {
-            const active = tab === "All"
-            return (
-              <span
-                key={tab}
-                className={cn(
-                  "relative pb-1.5 text-[12px] leading-none",
-                  active ? "font-medium text-[#27251E]" : "font-normal text-[rgba(39,37,30,0.42)]",
-                )}
-              >
-                {tab}
-                {active ? (
-                  <span className="absolute bottom-0 left-0 h-[2px] w-[15px] rounded-full bg-[#27251E]" aria-hidden="true" />
-                ) : null}
-              </span>
-            )
-          })}
+    <div className="flex w-full justify-center overflow-x-auto px-1">
+      <div
+        aria-label="Analytics preview"
+        className="flex h-[520px] w-[780px] max-w-full shrink-0 flex-col overflow-hidden rounded-md border border-[#E4E4E7] bg-[#FEFEFE] text-[#27251E]"
+        style={{ boxShadow: FEATURE_WINDOW_SHADOW }}
+      >
+        <div className="relative flex h-8 shrink-0 items-center border-b border-[#E4E4E7] bg-[#FBFBFA] px-3">
+          <WindowTrafficLights />
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-[12px] font-medium text-[#A8A4A0]">Ritual</span>
+          </div>
         </div>
-      </div>
 
-      <div className="grid shrink-0 grid-cols-2 gap-1.5 pt-3 sm:grid-cols-4">
-        {sparkCards.map((card, index) => (
-          <SparkMetricCard key={card.title} card={card} index={index} value={sparkValues[index]} />
-        ))}
-      </div>
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-5 pt-4">
+          <div className="shrink-0 border-b border-[rgba(39,37,30,0.08)]">
+            <div className="flex h-[42px] items-end gap-8">
+              {analyticsTabs.map((tab) => {
+                const active = tab === "All"
+                return (
+                  <span
+                    key={tab}
+                    className={cn(
+                      "relative pb-2 text-[13.5px] leading-none",
+                      active ? "font-medium text-[#27251E]" : "font-normal text-[rgba(39,37,30,0.42)]",
+                    )}
+                  >
+                    {tab}
+                    {active ? (
+                      <span
+                        className="absolute bottom-0 left-0 h-[2px] w-[17px] rounded-full bg-[#27251E]"
+                        aria-hidden="true"
+                      />
+                    ) : null}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
 
-      <div className="min-h-0 flex-1 overflow-hidden pt-3">
-        <div className="grid h-full grid-cols-1 gap-1.5 sm:grid-cols-2">
-          <AnalyticsBarListCard title="Habits" inactiveTitle="Streaks" rows={habitMetrics} values={habitValues} />
-          <AnalyticsBarListCard title="Apps" inactiveTitle="Websites" rows={appMetrics} values={appValues} />
+          <div className="grid shrink-0 grid-cols-4 gap-[6px] pt-[18px]">
+            {sparkCards.map((card, index) => (
+              <SparkMetricCard key={card.title} card={card} index={index} value={sparkValues[index]} />
+            ))}
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden pt-6">
+            <div className="grid h-full grid-cols-2 gap-[6px]">
+              <AnalyticsBarListCard
+                title="Habits"
+                inactiveTitle="Streaks"
+                rows={habitMetrics}
+                values={habitValues}
+              />
+              <AnalyticsBarListCard
+                title="Apps"
+                inactiveTitle="Websites"
+                rows={appMetrics}
+                values={appValues}
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
