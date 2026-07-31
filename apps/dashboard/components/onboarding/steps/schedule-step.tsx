@@ -145,7 +145,7 @@ export function ScheduleStep({
           <>
             <span className="block">Extremely fast, unified interface for all your tasks</span>
             <span className="mt-1 block">
-              Timing, completion rate, and stats are calculated and logged
+              Timing and completion rate are calculated and logged
             </span>
           </>
         }
@@ -209,7 +209,7 @@ export function ScheduleStep({
                       initial={{ opacity: 1, height: 30 }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="grid h-[30px] shrink-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
+                      className="grid h-[30px] shrink-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 rounded-full px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
                     >
                       <button
                         type="button"

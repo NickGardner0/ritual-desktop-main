@@ -1,8 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import type { LucideIcon } from "lucide-react"
-import { Check, FolderOpen, HardDrive, MapPin, Mic, Monitor, ScreenShare } from "lucide-react"
+import { FolderOpen } from "lucide-react"
 import { Button } from "@ritual/ui/button"
 
 import {
@@ -34,7 +33,6 @@ type PermissionRow = {
   key: PermissionKey
   label: string
   description: string
-  icon: LucideIcon
 }
 
 const PERMISSION_ROWS: PermissionRow[] = [
@@ -42,31 +40,26 @@ const PERMISSION_ROWS: PermissionRow[] = [
     key: "accessibility",
     label: "Accessibility",
     description: "Active app and window context for desktop tracking.",
-    icon: Monitor,
   },
   {
     key: "microphone",
     label: "Microphone",
     description: "Voice logging and dictation when you ask Ritual to listen.",
-    icon: Mic,
   },
   {
     key: "screen_recording",
     label: "Screen Recording",
     description: "Optional visual context for richer desktop memory.",
-    icon: ScreenShare,
   },
   {
     key: "full_disk_access",
     label: "Full Disk Access",
     description: "Local file access for your private Ritual Vault.",
-    icon: HardDrive,
   },
   {
     key: "location_services",
     label: "Location Services",
     description: "Place context for logs when location is available.",
-    icon: MapPin,
   },
 ]
 
@@ -90,33 +83,47 @@ async function getInvoke() {
   }
 }
 
-function GrantButton({
-  granted,
+function PermissionToggle({
+  checked,
+  label,
   loading,
-  onClick,
   disabled,
+  onChange,
 }: {
-  granted: boolean
+  checked: boolean
+  label: string
   loading?: boolean
-  onClick: () => void
   disabled?: boolean
+  onChange: () => void
 }) {
   return (
-    <Button
+    <button
       type="button"
-      variant="outline"
-      size="sm"
+      role="switch"
+      aria-checked={checked}
+      aria-busy={loading || undefined}
+      aria-label={`${checked ? "Manage" : "Enable"} ${label}`}
       disabled={disabled || loading}
-      onClick={onClick}
+      onClick={(event) => {
+        event.stopPropagation()
+        onChange()
+      }}
       className={cn(
-        "h-8 min-w-[80px] shrink-0 rounded-md px-3 text-[13px] font-medium shadow-none transition-colors duration-100",
-        granted
-          ? "border-[hsl(var(--border))] bg-[var(--px-onboarding-recessed)] text-[var(--text-secondary)] hover:bg-[var(--px-onboarding-recessed)]"
-          : "border-[var(--px-onboarding-border)] bg-white text-[var(--px-onboarding-ink)] hover:bg-[var(--surface-panel)]",
+        "relative inline-flex h-[18px] w-8 shrink-0 items-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:cursor-not-allowed disabled:opacity-60",
       )}
+      style={{
+        backgroundColor: checked
+          ? "var(--ritual-status-success, #34785c)"
+          : "#d4d4d8",
+      }}
     >
-      {loading ? <BrailleSpinner className="text-sm" intervalMs={45} /> : granted ? "Granted" : "Grant"}
-    </Button>
+      <span
+        className={cn(
+          "pointer-events-none inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-150",
+          checked ? "translate-x-4" : "translate-x-0.5",
+        )}
+      />
+    </button>
   )
 }
 
@@ -178,6 +185,28 @@ export function PermissionsStep({
     window.setTimeout(() => void refreshPermissions(), 3000)
   }, [refreshPermissions])
 
+  async function openPermissionSettings(key: PermissionKey) {
+    if (key === "full_disk_access") {
+      await openSettings("open_full_disk_access_settings")
+      return
+    }
+    if (key === "accessibility") {
+      await openSettings("open_accessibility_settings")
+      return
+    }
+    if (key === "microphone") {
+      await openSettings("open_microphone_settings")
+      return
+    }
+    if (key === "screen_recording") {
+      await openSettings("open_screen_recording_settings")
+      return
+    }
+    if (key === "location_services") {
+      await openLocationServicesSettings()
+    }
+  }
+
   async function handleGrant(key: PermissionKey) {
     if (workingKey) return
     setWorkingKey(key)
@@ -227,6 +256,21 @@ export function PermissionsStep({
     }
   }
 
+  async function handleToggle(key: PermissionKey) {
+    if (workingKey || busy) return
+    if (permissions[key]) {
+      setWorkingKey(key)
+      try {
+        await openPermissionSettings(key)
+        schedulePermissionRefresh()
+      } finally {
+        setWorkingKey(null)
+      }
+      return
+    }
+    await handleGrant(key)
+  }
+
   async function handleChooseVaultFolder() {
     if (vaultFolderWorking) return
     if (!getDesktopCapabilities().isDesktop) {
@@ -272,81 +316,70 @@ export function PermissionsStep({
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-5">
-        <div className="overflow-hidden rounded-lg border border-[var(--px-onboarding-border)] bg-white">
-          {PERMISSION_ROWS.map((row) => {
-            const Icon = row.icon
-            const granted = permissions[row.key]
-            return (
-              <div
-                key={row.key}
-                className="grid min-h-[60px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-2.5 last:border-b-0"
-              >
-                <span
-                  className={cn(
-                    "grid h-8 w-8 place-items-center rounded-md border",
-                    granted
-                      ? "border-[#d9e1d7] bg-[#f1f7f0] text-[#167046]"
-                      : "border-[hsl(var(--border))] bg-[var(--px-onboarding-recessed)] text-[var(--icon-muted)]",
-                  )}
-                  aria-hidden="true"
-                >
-                  {granted ? (
-                    <Check className="h-3.5 w-3.5" strokeWidth={2.6} />
-                  ) : (
-                    <Icon className="h-3.5 w-3.5" strokeWidth={2.1} />
-                  )}
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
-                    {row.label}
-                  </p>
-                  <p className="mt-0.5 text-[12px] font-normal leading-[1.35] text-[var(--px-onboarding-muted)]">
-                    {row.description}
-                  </p>
+        <div className="mx-auto w-full max-w-[520px]">
+          <div className="overflow-hidden rounded-xl bg-[var(--px-onboarding-recessed)]">
+            {PERMISSION_ROWS.map((row, index) => {
+              const granted = permissions[row.key]
+              const loading = workingKey === row.key
+              return (
+                <div key={row.key} className="px-4">
+                  {index > 0 ? (
+                    <div className="h-px bg-[var(--border-subtle)]" aria-hidden="true" />
+                  ) : null}
+                  <div className="flex min-h-[64px] items-center justify-between gap-4 py-3.5">
+                    <div className="min-w-0">
+                      <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
+                        {row.label}
+                      </p>
+                      <p className="mt-0.5 text-[12px] font-normal leading-[1.35] text-[var(--px-onboarding-muted)]">
+                        {row.description}
+                      </p>
+                    </div>
+                    <PermissionToggle
+                      checked={granted}
+                      label={row.label}
+                      loading={loading}
+                      disabled={busy}
+                      onChange={() => void handleToggle(row.key)}
+                    />
+                  </div>
                 </div>
-                <GrantButton
-                  granted={granted}
-                  loading={workingKey === row.key}
-                  disabled={busy}
-                  onClick={() => void handleGrant(row.key)}
-                />
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="mt-3 flex min-h-[72px] items-center gap-3 rounded-lg border border-[var(--px-onboarding-border)] bg-[var(--px-onboarding-recessed)] px-4 py-3">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-[hsl(var(--border))] bg-white text-[var(--icon-default)]" aria-hidden="true">
-            <FolderOpen className="h-4 w-4" strokeWidth={1.8} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
-              Ritual Vault folder
-            </p>
-            <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
-              {vaultFolderPath || "Choose where Ritual stores your private local files."}
-            </p>
-            {vaultFolderMessage ? (
-              <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
-                {vaultFolderMessage}
-              </p>
-            ) : null}
+              )
+            })}
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={busy || vaultFolderWorking}
-            onClick={() => void handleChooseVaultFolder()}
-            className="h-8 shrink-0 rounded-md border-[var(--px-onboarding-border)] bg-white px-3 text-[13px] font-medium text-[var(--px-onboarding-ink)] shadow-none hover:bg-[var(--surface-panel)]"
-          >
-            {vaultFolderWorking ? (
-              <BrailleSpinner className="text-sm" intervalMs={45} />
-            ) : (
-              <FolderOpen className="h-4 w-4" />
-            )}
-            <span>Choose</span>
-          </Button>
+
+          <div className="mt-3 overflow-hidden rounded-xl bg-[var(--px-onboarding-recessed)] px-4">
+            <div className="flex min-h-[64px] items-center gap-4 py-3.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">
+                  Ritual Vault folder
+                </p>
+                <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
+                  {vaultFolderPath || "Choose where Ritual stores your private local files."}
+                </p>
+                {vaultFolderMessage ? (
+                  <p className="mt-0.5 truncate text-[12px] leading-[1.35] text-[var(--px-onboarding-muted)]">
+                    {vaultFolderMessage}
+                  </p>
+                ) : null}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={busy || vaultFolderWorking}
+                onClick={() => void handleChooseVaultFolder()}
+                className="h-8 shrink-0 rounded-md border-[var(--px-onboarding-border)] bg-white px-3 text-[13px] font-medium text-[var(--px-onboarding-ink)] shadow-none hover:bg-[var(--surface-panel)]"
+              >
+                {vaultFolderWorking ? (
+                  <BrailleSpinner className="text-sm" intervalMs={45} />
+                ) : (
+                  <FolderOpen className="h-4 w-4" />
+                )}
+                <span>Choose</span>
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
