@@ -1,12 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { animate, scrambleText } from "animejs"
 import { Check } from "lucide-react"
 import { Badge } from "@ritual/ui/badge"
 import { MenuSurface } from "@ritual/ui/menu"
-
-const SCRAMBLE_CHARACTERS =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 const CYCLE_DURATION = 6000
 const SCAN_START = 900
@@ -265,23 +263,14 @@ function smoothStep(progress: number) {
   return clamped * clamped * (3 - 2 * clamped)
 }
 
-function scrambleLine(line: string, lineIndex: number) {
-  return Array.from(line, (character, characterIndex) => {
-    if (!/[A-Za-z0-9]/.test(character)) return character
-
-    const characterIndexInSet =
-      (characterIndex * 13 + lineIndex * 17 + character.charCodeAt(0) * 3) %
-      SCRAMBLE_CHARACTERS.length
-    return SCRAMBLE_CHARACTERS[characterIndexInSet]
-  }).join("")
-}
-
 function DocumentText({
   lines,
   tone,
+  onLineRef,
 }: {
   lines: string[]
   tone: "source" | "parsed" | "processing"
+  onLineRef?: (index: number, node: HTMLDivElement | null) => void
 }) {
   const isSource = tone === "source"
 
@@ -306,6 +295,7 @@ function DocumentText({
       {lines.map((line, index) => (
         <div
           key={`${tone}-${index}`}
+          ref={(node) => onLineRef?.(index, node)}
           className={
             isSource
               ? "h-[9.5px] truncate whitespace-pre"
@@ -328,10 +318,7 @@ function ScannerBody({
 }) {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const bodyRef = useRef<HTMLDivElement | null>(null)
-  const scrambledLines = useMemo(
-    () => content.parsedLines.map(scrambleLine),
-    [content.parsedLines],
-  )
+  const processingLineRefs = useRef<Array<HTMLDivElement | null>>([])
 
   useEffect(() => {
     const root = rootRef.current
@@ -344,6 +331,9 @@ function ScannerBody({
     let animationFrame = 0
     let bodyHeight = body.clientHeight
     let cycleStartedAt = performance.now()
+    let activeCycle = -1
+    let scrambleAnimations: Array<ReturnType<typeof animate>> = []
+    const scrambledLineIndexes = new Set<number>()
 
     const setVariable = (name: string, value: string) => {
       root.style.setProperty(name, value)
@@ -371,8 +361,61 @@ function ScannerBody({
       setVariable("--completion-shift", "0px")
     }
 
+    const stopScrambleAnimations = () => {
+      scrambleAnimations.forEach((animation) => animation.cancel())
+      scrambleAnimations = []
+    }
+
+    const resetProcessingText = () => {
+      processingLineRefs.current.forEach((line, index) => {
+        if (line) line.textContent = content.parsedLines[index] || " "
+      })
+    }
+
+    const startScrambleCycle = () => {
+      stopScrambleAnimations()
+      resetProcessingText()
+      scrambledLineIndexes.clear()
+    }
+
+    const startScramblingLine = (
+      line: HTMLDivElement,
+      index: number,
+    ) => {
+      scrambledLineIndexes.add(index)
+
+      scrambleAnimations.push(
+        animate(line, {
+          innerHTML: scrambleText({
+            from: "auto",
+            reversed: false,
+            ease: "linear",
+            chars: "a-zA-Z0-9!%#_",
+            cursor: "░▒▓█",
+            override: false,
+            perturbation: 0,
+            duration: 500,
+            delay: 0,
+            revealDelay: 0,
+            revealRate: 50,
+            settleDuration: 250,
+            settleRate: 30,
+            seed: index + activeFile.charCodeAt(0) * 100,
+          }),
+        }),
+      )
+    }
+
     const updateFrame = (now: number) => {
-      const elapsed = (now - cycleStartedAt) % CYCLE_DURATION
+      const totalElapsed = now - cycleStartedAt
+      const cycle = Math.floor(totalElapsed / CYCLE_DURATION)
+      const elapsed = totalElapsed % CYCLE_DURATION
+
+      if (cycle !== activeCycle) {
+        activeCycle = cycle
+        startScrambleCycle()
+      }
+
       const isScanning = elapsed >= SCAN_START && elapsed < SCAN_END
       const isSettling = elapsed >= SCAN_END && elapsed < SETTLE_END
       const isResetting = elapsed >= RESET_START && elapsed < RESET_END
@@ -387,6 +430,19 @@ function ScannerBody({
       }
 
       const scanY = bodyHeight * scanProgress
+
+      if (isScanning) {
+        processingLineRefs.current.forEach((line, index) => {
+          if (
+            line &&
+            !scrambledLineIndexes.has(index) &&
+            line.offsetTop + line.offsetHeight / 2 <= scanY
+          ) {
+            startScramblingLine(line, index)
+          }
+        })
+      }
+
       const bandHeight = isScanning
         ? Math.min(PROCESSING_BAND_HEIGHT, scanY)
         : isSettling
@@ -439,7 +495,10 @@ function ScannerBody({
 
     const startMotion = () => {
       window.cancelAnimationFrame(animationFrame)
+      stopScrambleAnimations()
+      resetProcessingText()
       cycleStartedAt = performance.now()
+      activeCycle = -1
       updateBodyHeight()
 
       if (reducedMotionQuery.matches) {
@@ -460,10 +519,11 @@ function ScannerBody({
 
     return () => {
       window.cancelAnimationFrame(animationFrame)
+      stopScrambleAnimations()
       resizeObserver.disconnect()
       reducedMotionQuery.removeEventListener("change", startMotion)
     }
-  }, [activeFile])
+  }, [activeFile, content.parsedLines])
 
   return (
     <div
@@ -486,7 +546,13 @@ function ScannerBody({
         >
           <div className="ritual-scanner-processing-wash absolute inset-0" />
           <div className="ritual-scanner-processing-content absolute inset-x-0 px-4 pb-3 pt-3">
-            <DocumentText lines={scrambledLines} tone="processing" />
+            <DocumentText
+              lines={content.parsedLines}
+              tone="processing"
+              onLineRef={(index, node) => {
+                processingLineRefs.current[index] = node
+              }}
+            />
           </div>
         </div>
 
