@@ -102,15 +102,19 @@ const INITIAL_TASKS: DemoTask[] = [
 ]
 
 const DEMO_COMPLETE_SEQUENCE = [
-  { id: "meditate", delay: 800 },
-  { id: "run", delay: 1600 },
-  { id: "water", delay: 2400 },
-  { id: "stretch", delay: 3200 },
-  { id: "vitamins", delay: 4000 },
+  { id: "meditate", delay: 900 },
+  { id: "run", delay: 2000 },
+  { id: "water", delay: 3100 },
+  { id: "stretch", delay: 4200 },
+  { id: "vitamins", delay: 5300 },
 ] as const
 
-const SHIMMER_DURATION_S = 0.55
-const SHIMMER_MS = Math.round(SHIMMER_DURATION_S * 1000) + 120
+const SHIMMER_DURATION_S = 0.85
+
+function shimmerDurationMs(title: string) {
+  // One full letter wave ≈ duration + stagger across the string.
+  return Math.round(SHIMMER_DURATION_S * 1000 + title.length * 18 + 80)
+}
 
 export function ScheduleStep({
   onBack,
@@ -124,6 +128,7 @@ export function ScheduleStep({
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set())
   const completingRef = useRef(new Set<string>())
   const dismissTimers = useRef<number[]>([])
+  const titlesRef = useRef(new Map(INITIAL_TASKS.map((task) => [task.id, task.title])))
 
   const visibleTasks = useMemo(() => {
     if (category === "All") return tasks
@@ -136,17 +141,27 @@ export function ScheduleStep({
     completingRef.current.add(id)
     setCompletingIds(new Set(completingRef.current))
 
+    const title = titlesRef.current.get(id) ?? ""
     const timer = window.setTimeout(() => {
       setTasks((current) => current.filter((task) => task.id !== id))
       completingRef.current.delete(id)
       setCompletingIds(new Set(completingRef.current))
-    }, SHIMMER_MS)
+    }, shimmerDurationMs(title))
     dismissTimers.current.push(timer)
   }, [])
 
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (reducedMotion) return
+
+    // Drop trailing rows as soon as the demo begins so nothing clips
+    // at the bottom edge of the card.
+    const trimTimer = window.setTimeout(() => {
+      setTasks((current) => (current.length > 2 ? current.slice(0, -2) : current))
+    }, 120)
+
+    if (reducedMotion) {
+      return () => window.clearTimeout(trimTimer)
+    }
 
     const timers = DEMO_COMPLETE_SEQUENCE.map(({ id, delay }) =>
       window.setTimeout(() => {
@@ -155,6 +170,7 @@ export function ScheduleStep({
     )
 
     return () => {
+      window.clearTimeout(trimTimer)
       timers.forEach((timer) => window.clearTimeout(timer))
       dismissTimers.current.forEach((timer) => window.clearTimeout(timer))
       dismissTimers.current = []
@@ -214,7 +230,7 @@ export function ScheduleStep({
             })}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
+          <div className="min-h-0 flex-1 overflow-hidden px-1.5 pb-3">
             {visibleTasks.length ? (
               <AnimatePresence initial={false}>
                 {visibleTasks.map((task) => {
@@ -226,7 +242,7 @@ export function ScheduleStep({
                       initial={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
                       transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="grid min-h-[28px] grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 overflow-hidden rounded-[6px] px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
+                      className="grid min-h-[28px] grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 rounded-[6px] px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
                     >
                       <button
                         type="button"
@@ -248,9 +264,9 @@ export function ScheduleStep({
                         <ShimmeringText
                           text={task.title}
                           duration={SHIMMER_DURATION_S}
-                          color="var(--text-primary, #111111)"
-                          shimmeringColor="#b0b0b5"
-                          className="min-w-0 overflow-hidden whitespace-nowrap text-[13px] font-normal leading-none"
+                          color="#9a9a9f"
+                          shimmeringColor="#111111"
+                          className="text-[13px] font-normal leading-none"
                         />
                       ) : (
                         <span className="truncate text-[13px] font-normal leading-none text-[var(--text-primary)]">

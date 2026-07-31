@@ -1,82 +1,88 @@
 "use client"
 
-import * as React from "react"
-import { motion, type HTMLMotionProps } from "framer-motion"
-
 import { cn } from "@/lib/utils"
+import { motion, type Transition } from "framer-motion"
 
-export type ShimmeringTextProps = Omit<HTMLMotionProps<"span">, "children"> & {
+export type ShimmeringTextProps = {
   text: string
+  className?: string
   duration?: number
-  wave?: boolean
-  color?: string
+  /** Highlight / “lit” letter color */
   shimmeringColor?: string
+  /** Resting letter color */
+  color?: string
+  spread?: number
+  zDistance?: number
+  xDistance?: number
+  yDistance?: number
+  scaleDistance?: number
+  rotateYDistance?: number
+  transition?: Transition
 }
 
+/**
+ * Letter-by-letter shimmer wave (Animate UI / Motion Primitives style).
+ * Uses concrete colors so Framer Motion can interpolate each character.
+ */
 export function ShimmeringText({
   text,
-  duration = 1,
-  transition,
-  wave = false,
-  color = "var(--text-primary, #111111)",
-  shimmeringColor = "#a1a1aa",
   className,
-  ...props
+  duration = 1,
+  color = "#a1a1aa",
+  shimmeringColor = "#111111",
+  spread = 1,
+  zDistance = 8,
+  xDistance = 1.5,
+  yDistance = -1.5,
+  scaleDistance = 1.05,
+  rotateYDistance = 8,
+  transition,
 }: ShimmeringTextProps) {
+  const characters = Array.from(text)
+
   return (
-    <motion.span
-      className={cn("relative inline-block", className)}
-      style={
-        {
-          "--shimmering-color": shimmeringColor,
-          "--color": color,
-          color: "var(--color)",
-          perspective: "500px",
-        } as React.CSSProperties
-      }
-      {...props}
+    <span
+      className={cn(
+        "relative inline-block whitespace-nowrap [perspective:500px]",
+        className,
+      )}
+      style={{ color }}
+      aria-label={text}
     >
-      {text.split("").map((char, index) => (
-        <motion.span
-          key={`${char}-${index}`}
-          style={{
-            display: "inline-block",
-            whiteSpace: "pre",
-            transformStyle: "preserve-3d",
-          }}
-          initial={{
-            ...(wave
-              ? {
-                  scale: 1,
-                  rotateY: 0,
-                }
-              : {}),
-            color: "var(--color)",
-          }}
-          animate={{
-            ...(wave
-              ? {
-                  x: [0, 5, 0],
-                  y: [0, -5, 0],
-                  scale: [1, 1.1, 1],
-                  rotateY: [0, 15, 0],
-                }
-              : {}),
-            color: ["var(--color)", "var(--shimmering-color)", "var(--color)"],
-          }}
-          transition={{
-            duration,
-            repeat: Infinity,
-            repeatType: "loop",
-            repeatDelay: text.length * 0.05,
-            delay: (index * duration) / Math.max(text.length, 1),
-            ease: "easeInOut",
-            ...transition,
-          }}
-        >
-          {char}
-        </motion.span>
-      ))}
-    </motion.span>
+      {characters.map((char, index) => {
+        const delay = (index * duration * (1 / spread)) / Math.max(characters.length, 1)
+
+        return (
+          <motion.span
+            key={`${index}-${char}`}
+            className="inline-block whitespace-pre [transform-style:preserve-3d]"
+            initial={{
+              translateZ: 0,
+              scale: 1,
+              rotateY: 0,
+              color,
+            }}
+            animate={{
+              translateZ: [0, zDistance, 0],
+              translateX: [0, xDistance, 0],
+              translateY: [0, yDistance, 0],
+              scale: [1, scaleDistance, 1],
+              rotateY: [0, rotateYDistance, 0],
+              color: [color, shimmeringColor, color],
+            }}
+            transition={{
+              duration,
+              repeat: Infinity,
+              repeatDelay: (characters.length * 0.04) / spread,
+              delay,
+              ease: "easeInOut",
+              ...transition,
+            }}
+          >
+            {char}
+          </motion.span>
+        )
+      })}
+    </span>
   )
 }
