@@ -23,6 +23,7 @@ type DemoTask = {
   category: Exclude<(typeof CATEGORIES)[number], "All">
 }
 
+/** Keep this list short enough that every row fits inside the card without clipping. */
 const INITIAL_TASKS: DemoTask[] = [
   {
     id: "demo",
@@ -79,42 +80,18 @@ const INITIAL_TASKS: DemoTask[] = [
     title: "Read 30 pages of current book",
     category: "Learning",
   },
-  {
-    id: "deep-work",
-    title: "Deep work: launch checklist review",
-    category: "Productivity",
-  },
-  {
-    id: "weekly",
-    title: "Weekly planning review",
-    category: "Productivity",
-  },
-  {
-    id: "hero",
-    title: "Design landing page hero",
-    category: "Productivity",
-  },
-  {
-    id: "groceries",
-    title: "buy groceries",
-    category: "Productivity",
-  },
 ]
 
 const DEMO_COMPLETE_SEQUENCE = [
   { id: "meditate", delay: 900 },
-  { id: "run", delay: 2000 },
-  { id: "water", delay: 3100 },
-  { id: "stretch", delay: 4200 },
-  { id: "vitamins", delay: 5300 },
+  { id: "run", delay: 2200 },
+  { id: "water", delay: 3500 },
+  { id: "stretch", delay: 4800 },
+  { id: "vitamins", delay: 6100 },
 ] as const
 
-const SHIMMER_DURATION_S = 0.85
-
-function shimmerDurationMs(title: string) {
-  // One full letter wave ≈ duration + stagger across the string.
-  return Math.round(SHIMMER_DURATION_S * 1000 + title.length * 18 + 80)
-}
+const SHIMMER_DURATION_S = 1.35
+const SHIMMER_MS = Math.round(SHIMMER_DURATION_S * 1000) + 180
 
 export function ScheduleStep({
   onBack,
@@ -128,7 +105,6 @@ export function ScheduleStep({
   const [completingIds, setCompletingIds] = useState<Set<string>>(new Set())
   const completingRef = useRef(new Set<string>())
   const dismissTimers = useRef<number[]>([])
-  const titlesRef = useRef(new Map(INITIAL_TASKS.map((task) => [task.id, task.title])))
 
   const visibleTasks = useMemo(() => {
     if (category === "All") return tasks
@@ -141,27 +117,17 @@ export function ScheduleStep({
     completingRef.current.add(id)
     setCompletingIds(new Set(completingRef.current))
 
-    const title = titlesRef.current.get(id) ?? ""
     const timer = window.setTimeout(() => {
       setTasks((current) => current.filter((task) => task.id !== id))
       completingRef.current.delete(id)
       setCompletingIds(new Set(completingRef.current))
-    }, shimmerDurationMs(title))
+    }, SHIMMER_MS)
     dismissTimers.current.push(timer)
   }, [])
 
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-
-    // Drop trailing rows as soon as the demo begins so nothing clips
-    // at the bottom edge of the card.
-    const trimTimer = window.setTimeout(() => {
-      setTasks((current) => (current.length > 2 ? current.slice(0, -2) : current))
-    }, 120)
-
-    if (reducedMotion) {
-      return () => window.clearTimeout(trimTimer)
-    }
+    if (reducedMotion) return
 
     const timers = DEMO_COMPLETE_SEQUENCE.map(({ id, delay }) =>
       window.setTimeout(() => {
@@ -170,7 +136,6 @@ export function ScheduleStep({
     )
 
     return () => {
-      window.clearTimeout(trimTimer)
       timers.forEach((timer) => window.clearTimeout(timer))
       dismissTimers.current.forEach((timer) => window.clearTimeout(timer))
       dismissTimers.current = []
@@ -185,8 +150,8 @@ export function ScheduleStep({
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
-        <MenuSurface className="flex h-[440px] w-full max-w-[380px] flex-col">
-          <div className="flex items-center justify-between gap-3 px-3.5 pb-4 pt-3">
+        <MenuSurface className="flex h-[440px] w-full max-w-[380px] flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between gap-3 px-3.5 pb-4 pt-3">
             <h2 className="text-[18px] font-medium leading-none tracking-[-0.02em] text-[var(--text-primary)]">
               Today
             </h2>
@@ -209,7 +174,7 @@ export function ScheduleStep({
             </div>
           </div>
 
-          <div className="flex flex-nowrap items-center gap-0.5 overflow-hidden px-2.5 pb-2.5">
+          <div className="flex shrink-0 flex-nowrap items-center gap-0.5 overflow-hidden px-2.5 pb-2.5">
             {CATEGORIES.map((option) => {
               const active = category === option
               return (
@@ -230,7 +195,7 @@ export function ScheduleStep({
             })}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-1.5 pb-3">
+          <div className="min-h-0 flex-1 overflow-hidden px-1.5 pb-4">
             {visibleTasks.length ? (
               <AnimatePresence initial={false}>
                 {visibleTasks.map((task) => {
@@ -239,10 +204,10 @@ export function ScheduleStep({
                     <motion.div
                       key={task.id}
                       layout
-                      initial={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0, marginTop: 0, marginBottom: 0 }}
+                      initial={{ opacity: 1, height: 28 }}
+                      exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="grid min-h-[28px] grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 rounded-[6px] px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
+                      className="grid h-7 grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
                     >
                       <button
                         type="button"
@@ -264,8 +229,14 @@ export function ScheduleStep({
                         <ShimmeringText
                           text={task.title}
                           duration={SHIMMER_DURATION_S}
-                          color="#9a9a9f"
-                          shimmeringColor="#111111"
+                          delay={0}
+                          repeat
+                          repeatDelay={0.35}
+                          startOnView={false}
+                          once={false}
+                          spread={2}
+                          color="#7a7a7a"
+                          shimmerColor="#111111"
                           className="text-[13px] font-normal leading-none"
                         />
                       ) : (

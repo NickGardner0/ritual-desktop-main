@@ -1,88 +1,122 @@
 "use client"
 
+import React, { useMemo, useRef, type CSSProperties } from "react"
+import {
+  motion,
+  useInView,
+  useReducedMotion,
+  type UseInViewOptions,
+} from "framer-motion"
+
 import { cn } from "@/lib/utils"
-import { motion, type Transition } from "framer-motion"
 
 export type ShimmeringTextProps = {
+  /** Text to display with shimmer effect */
   text: string
-  className?: string
+  /** Animation duration in seconds */
   duration?: number
-  /** Highlight / “lit” letter color */
-  shimmeringColor?: string
-  /** Resting letter color */
-  color?: string
+  /** Delay before starting animation */
+  delay?: number
+  /** Whether to repeat the animation */
+  repeat?: boolean
+  /** Pause duration between repeats in seconds */
+  repeatDelay?: number
+  /** Custom className */
+  className?: string
+  /** Whether to start animation when component enters viewport */
+  startOnView?: boolean
+  /** Whether to animate only once */
+  once?: boolean
+  /** Margin for in-view detection (rootMargin) */
+  inViewMargin?: UseInViewOptions["margin"]
+  /** Shimmer spread multiplier */
   spread?: number
-  zDistance?: number
-  xDistance?: number
-  yDistance?: number
-  scaleDistance?: number
-  rotateYDistance?: number
-  transition?: Transition
+  /** Base text color */
+  color?: string
+  /** Shimmer gradient color */
+  shimmerColor?: string
 }
 
 /**
- * Letter-by-letter shimmer wave (Animate UI / Motion Primitives style).
- * Uses concrete colors so Framer Motion can interpolate each character.
+ * ElevenLabs UI Shimmering Text — gradient background-clip shimmer via Motion.
+ * @see https://ui.elevenlabs.io/docs/components/shimmering-text
  */
 export function ShimmeringText({
   text,
+  duration = 2,
+  delay = 0,
+  repeat = true,
+  repeatDelay = 0.5,
   className,
-  duration = 1,
-  color = "#a1a1aa",
-  shimmeringColor = "#111111",
-  spread = 1,
-  zDistance = 8,
-  xDistance = 1.5,
-  yDistance = -1.5,
-  scaleDistance = 1.05,
-  rotateYDistance = 8,
-  transition,
+  startOnView = true,
+  once = false,
+  inViewMargin,
+  spread = 2,
+  color,
+  shimmerColor,
 }: ShimmeringTextProps) {
-  const characters = Array.from(text)
+  const ref = useRef<HTMLSpanElement>(null)
+  const isInView = useInView(ref, { once, margin: inViewMargin })
+  const prefersReducedMotion = useReducedMotion()
+
+  const dynamicSpread = useMemo(() => text.length * spread, [text, spread])
+
+  const shouldAnimate = !prefersReducedMotion && (!startOnView || isInView)
 
   return (
-    <span
+    <motion.span
+      ref={ref}
       className={cn(
-        "relative inline-block whitespace-nowrap [perspective:500px]",
+        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
+        "[-webkit-background-clip:text] [-webkit-text-fill-color:transparent]",
+        "[--base-color:var(--text-muted,#7a7a7a)] [--shimmer-color:var(--text-primary,#111111)]",
+        "[background-repeat:no-repeat,padding-box]",
+        "[--shimmer-bg:linear-gradient(90deg,transparent_calc(50%-var(--spread)),var(--shimmer-color),transparent_calc(50%+var(--spread)))]",
         className,
       )}
-      style={{ color }}
-      aria-label={text}
+      style={
+        {
+          "--spread": `${dynamicSpread}px`,
+          ...(color ? { "--base-color": color } : null),
+          ...(shimmerColor ? { "--shimmer-color": shimmerColor } : null),
+          backgroundImage:
+            "var(--shimmer-bg), linear-gradient(var(--base-color), var(--base-color))",
+        } as CSSProperties
+      }
+      initial={
+        prefersReducedMotion
+          ? { opacity: 1, backgroundPosition: "0% center" }
+          : {
+              backgroundPosition: "100% center",
+              // Skip fade-in when mounting for an immediate complete action.
+              opacity: startOnView ? 0 : 1,
+            }
+      }
+      animate={
+        shouldAnimate
+          ? {
+              backgroundPosition: "0% center",
+              opacity: 1,
+            }
+          : prefersReducedMotion
+            ? { opacity: 1, backgroundPosition: "0% center" }
+            : { opacity: startOnView ? 0 : 1 }
+      }
+      transition={{
+        backgroundPosition: {
+          repeat: repeat ? Number.POSITIVE_INFINITY : 0,
+          duration,
+          delay,
+          repeatDelay,
+          ease: "linear",
+        },
+        opacity: {
+          duration: 0.3,
+          delay,
+        },
+      }}
     >
-      {characters.map((char, index) => {
-        const delay = (index * duration * (1 / spread)) / Math.max(characters.length, 1)
-
-        return (
-          <motion.span
-            key={`${index}-${char}`}
-            className="inline-block whitespace-pre [transform-style:preserve-3d]"
-            initial={{
-              translateZ: 0,
-              scale: 1,
-              rotateY: 0,
-              color,
-            }}
-            animate={{
-              translateZ: [0, zDistance, 0],
-              translateX: [0, xDistance, 0],
-              translateY: [0, yDistance, 0],
-              scale: [1, scaleDistance, 1],
-              rotateY: [0, rotateYDistance, 0],
-              color: [color, shimmeringColor, color],
-            }}
-            transition={{
-              duration,
-              repeat: Infinity,
-              repeatDelay: (characters.length * 0.04) / spread,
-              delay,
-              ease: "easeInOut",
-              ...transition,
-            }}
-          >
-            {char}
-          </motion.span>
-        )
-      })}
-    </span>
+      {text}
+    </motion.span>
   )
 }
