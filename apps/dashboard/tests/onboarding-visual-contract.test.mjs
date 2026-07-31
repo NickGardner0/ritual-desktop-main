@@ -149,8 +149,11 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
   assert.match(appsSource, /MenuSurface/)
 
   assert.match(notificationsSource, /title="Analytics"/)
-  assert.match(notificationsSource, /Focus trend/)
-  assert.match(notificationsSource, /Pattern found/)
+  assert.match(notificationsSource, /AnalyticsPreview/)
+  assert.match(notificationsSource, /@\/components\/onboarding\/analytics-preview/)
+  assert.doesNotMatch(notificationsSource, /Focus trend/)
+  assert.doesNotMatch(notificationsSource, /Pattern found/)
+  assert.doesNotMatch(notificationsSource, /bg-\[var\(--px-onboarding-recessed\)\]/)
 
   for (const source of [
     productDemoSource,

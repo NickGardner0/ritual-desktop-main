@@ -317,7 +317,7 @@ export function PermissionsStep({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-8 pt-5">
         <div className="mx-auto w-full max-w-[520px]">
-          <div className="overflow-hidden rounded-xl bg-[var(--px-onboarding-recessed)]">
+          <div className="overflow-hidden rounded-xl border border-[var(--px-onboarding-border)] bg-white">
             {PERMISSION_ROWS.map((row, index) => {
               const granted = permissions[row.key]
               const loading = workingKey === row.key
@@ -348,7 +348,7 @@ export function PermissionsStep({
             })}
           </div>
 
-          <div className="mt-3 overflow-hidden rounded-xl bg-[var(--px-onboarding-recessed)] px-4">
+          <div className="mt-3 overflow-hidden rounded-xl border border-[var(--px-onboarding-border)] bg-white px-4">
             <div className="flex min-h-[64px] items-center gap-4 py-3.5">
               <div className="min-w-0 flex-1">
                 <p className="text-[14px] font-medium leading-[1.3] text-[var(--px-onboarding-ink)]">

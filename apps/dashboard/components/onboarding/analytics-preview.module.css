@@ -1,0 +1,54 @@
+.sparkCard {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.95),
+    0 1px 2px rgba(39, 37, 30, 0.07),
+    0 8px 18px -16px rgba(39, 37, 30, 0.38);
+  transition:
+    border-color 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 520ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sparkCard:hover {
+  border-color: rgba(39, 37, 30, 0.18);
+  background-color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    0 1px 2px rgba(39, 37, 30, 0.08),
+    0 12px 24px -18px rgba(39, 37, 30, 0.52);
+  transform: translateY(-1px);
+}
+
+.listCard {
+  transition:
+    border-color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.listCard:hover {
+  border-color: rgba(39, 37, 30, 0.13);
+  box-shadow:
+    0 1px 2px rgba(39, 37, 30, 0.03),
+    0 8px 22px -20px rgba(39, 37, 30, 0.38);
+}
+
+.listRow {
+  transition:
+    background-color 180ms ease-out,
+    transform 180ms ease-out;
+}
+
+.listRow:hover {
+  background-color: rgba(39, 37, 30, 0.035);
+  transform: translateX(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkCard,
+  .listCard,
+  .listRow {
+    transition: none !important;
+    transform: none !important;
+  }
+}
