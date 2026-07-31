@@ -161,13 +161,23 @@ body[data-voice-hud-window="1"] {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Text shimmer animation adapted from Midday's TextShimmer component. */
+/* Text shimmer animation adapted from Midday / ElevenLabs ShimmeringText. */
 @keyframes text-shimmer {
   0%,
   86% {
     background-position: 100% center, center;
   }
   99%,
+  100% {
+    background-position: 0% center, center;
+  }
+}
+
+/* Continuous sweep used by task completes and similar UI. */
+@keyframes ritual-shimmering-text-sweep {
+  0% {
+    background-position: 100% center, center;
+  }
   100% {
     background-position: 0% center, center;
   }
@@ -199,6 +209,39 @@ body[data-voice-hud-window="1"] {
   animation: text-shimmer 8s linear infinite;
 }
 
+.ritual-shimmering-text {
+  --shimmer-base: #7a7a7a;
+  --shimmer-highlight: #111111;
+  --shimmer-spread: 48px;
+  --shimmer-duration: 1.35s;
+  --shimmer-delay: 0s;
+  --shimmer-cycle: 1.7s;
+  --shimmer-iteration: infinite;
+  display: inline-block;
+  color: transparent;
+  background-image:
+    linear-gradient(
+      90deg,
+      transparent calc(50% - var(--shimmer-spread)),
+      var(--shimmer-highlight),
+      transparent calc(50% + var(--shimmer-spread))
+    ),
+    linear-gradient(var(--shimmer-base), var(--shimmer-base));
+  background-repeat: no-repeat, no-repeat;
+  background-origin: border-box, padding-box;
+  background-size: 250% 100%, auto;
+  background-position: 100% center, center;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation-name: ritual-shimmering-text-sweep;
+  animation-duration: var(--shimmer-duration);
+  animation-delay: var(--shimmer-delay);
+  animation-timing-function: linear;
+  animation-iteration-count: var(--shimmer-iteration);
+  animation-fill-mode: forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ritual-text-shimmer {
     animation: none;
@@ -206,6 +249,11 @@ body[data-voice-hud-window="1"] {
       var(--ritual-text-shimmer-base),
       var(--ritual-text-shimmer-base)
     );
+  }
+
+  .ritual-shimmering-text {
+    animation: none;
+    background-image: linear-gradient(var(--shimmer-base), var(--shimmer-base));
   }
 }
 

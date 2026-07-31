@@ -1,12 +1,7 @@
 "use client"
 
-import React, { useMemo, useRef, type CSSProperties } from "react"
-import {
-  motion,
-  useInView,
-  useReducedMotion,
-  type UseInViewOptions,
-} from "framer-motion"
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
+import { useInView, useReducedMotion, type UseInViewOptions } from "framer-motion"
 
 import { cn } from "@/lib/utils"
 
@@ -38,7 +33,12 @@ export type ShimmeringTextProps = {
 }
 
 /**
- * ElevenLabs UI Shimmering Text — gradient background-clip shimmer via Motion.
+ * ElevenLabs-style shimmering text.
+ *
+ * Uses CSS keyframes for the gradient sweep — Framer Motion cannot reliably
+ * animate multi-layer `background-position` with `background-clip: text`,
+ * which is why Motion-only versions looked like solid grey.
+ *
  * @see https://ui.elevenlabs.io/docs/components/shimmering-text
  */
 export function ShimmeringText({
@@ -52,71 +52,45 @@ export function ShimmeringText({
   once = false,
   inViewMargin,
   spread = 2,
-  color,
-  shimmerColor,
+  color = "#7a7a7a",
+  shimmerColor = "#111111",
 }: ShimmeringTextProps) {
   const ref = useRef<HTMLSpanElement>(null)
   const isInView = useInView(ref, { once, margin: inViewMargin })
   const prefersReducedMotion = useReducedMotion()
+  const [started, setStarted] = useState(!startOnView)
 
-  const dynamicSpread = useMemo(() => text.length * spread, [text, spread])
+  const dynamicSpread = useMemo(() => Math.max(text.length * spread, 24), [text, spread])
+  const cycleDuration = Math.max(duration + (repeat ? repeatDelay : 0), 0.2)
 
-  const shouldAnimate = !prefersReducedMotion && (!startOnView || isInView)
+  useEffect(() => {
+    if (!startOnView) {
+      setStarted(true)
+      return
+    }
+    if (isInView) setStarted(true)
+  }, [isInView, startOnView])
+
+  const shouldAnimate = !prefersReducedMotion && started
 
   return (
-    <motion.span
+    <span
       ref={ref}
-      className={cn(
-        "relative inline-block bg-[length:250%_100%,auto] bg-clip-text text-transparent",
-        "[-webkit-background-clip:text] [-webkit-text-fill-color:transparent]",
-        "[--base-color:var(--text-muted,#7a7a7a)] [--shimmer-color:var(--text-primary,#111111)]",
-        "[background-repeat:no-repeat,padding-box]",
-        "[--shimmer-bg:linear-gradient(90deg,transparent_calc(50%-var(--spread)),var(--shimmer-color),transparent_calc(50%+var(--spread)))]",
-        className,
-      )}
+      className={cn("ritual-shimmering-text", className)}
       style={
         {
-          "--spread": `${dynamicSpread}px`,
-          ...(color ? { "--base-color": color } : null),
-          ...(shimmerColor ? { "--shimmer-color": shimmerColor } : null),
-          backgroundImage:
-            "var(--shimmer-bg), linear-gradient(var(--base-color), var(--base-color))",
+          "--shimmer-base": color,
+          "--shimmer-highlight": shimmerColor,
+          "--shimmer-spread": `${dynamicSpread}px`,
+          "--shimmer-duration": `${duration}s`,
+          "--shimmer-delay": `${delay}s`,
+          "--shimmer-cycle": `${cycleDuration}s`,
+          "--shimmer-iteration": repeat ? "infinite" : "1",
+          animationPlayState: shouldAnimate ? "running" : "paused",
         } as CSSProperties
       }
-      initial={
-        prefersReducedMotion
-          ? { opacity: 1, backgroundPosition: "0% center" }
-          : {
-              backgroundPosition: "100% center",
-              // Skip fade-in when mounting for an immediate complete action.
-              opacity: startOnView ? 0 : 1,
-            }
-      }
-      animate={
-        shouldAnimate
-          ? {
-              backgroundPosition: "0% center",
-              opacity: 1,
-            }
-          : prefersReducedMotion
-            ? { opacity: 1, backgroundPosition: "0% center" }
-            : { opacity: startOnView ? 0 : 1 }
-      }
-      transition={{
-        backgroundPosition: {
-          repeat: repeat ? Number.POSITIVE_INFINITY : 0,
-          duration,
-          delay,
-          repeatDelay,
-          ease: "linear",
-        },
-        opacity: {
-          duration: 0.3,
-          delay,
-        },
-      }}
     >
       {text}
-    </motion.span>
+    </span>
   )
 }

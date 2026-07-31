@@ -75,23 +75,18 @@ const INITIAL_TASKS: DemoTask[] = [
     title: "Take vitamins and supplements",
     category: "Health",
   },
-  {
-    id: "read",
-    title: "Read 30 pages of current book",
-    category: "Learning",
-  },
 ]
 
 const DEMO_COMPLETE_SEQUENCE = [
   { id: "meditate", delay: 900 },
-  { id: "run", delay: 2200 },
-  { id: "water", delay: 3500 },
-  { id: "stretch", delay: 4800 },
-  { id: "vitamins", delay: 6100 },
+  { id: "run", delay: 2400 },
+  { id: "water", delay: 3900 },
+  { id: "stretch", delay: 5400 },
+  { id: "vitamins", delay: 6900 },
 ] as const
 
-const SHIMMER_DURATION_S = 1.35
-const SHIMMER_MS = Math.round(SHIMMER_DURATION_S * 1000) + 180
+const SHIMMER_DURATION_S = 1.5
+const SHIMMER_MS = Math.round(SHIMMER_DURATION_S * 1000) + 250
 
 export function ScheduleStep({
   onBack,
@@ -150,8 +145,8 @@ export function ScheduleStep({
       />
 
       <div className="flex min-h-0 flex-1 items-center justify-center px-8 pb-2 pt-5">
-        <MenuSurface className="flex h-[440px] w-full max-w-[380px] flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center justify-between gap-3 px-3.5 pb-4 pt-3">
+        <MenuSurface className="flex h-[420px] w-full max-w-[380px] flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between gap-3 px-3.5 pb-3 pt-3">
             <h2 className="text-[18px] font-medium leading-none tracking-[-0.02em] text-[var(--text-primary)]">
               Today
             </h2>
@@ -174,7 +169,7 @@ export function ScheduleStep({
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-nowrap items-center gap-0.5 overflow-hidden px-2.5 pb-2.5">
+          <div className="flex shrink-0 flex-nowrap items-center gap-0.5 overflow-hidden px-2.5 pb-2">
             {CATEGORIES.map((option) => {
               const active = category === option
               return (
@@ -195,7 +190,7 @@ export function ScheduleStep({
             })}
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden px-1.5 pb-4">
+          <div className="flex min-h-0 flex-1 flex-col justify-start overflow-hidden px-1.5 pb-3 pt-0.5">
             {visibleTasks.length ? (
               <AnimatePresence initial={false}>
                 {visibleTasks.map((task) => {
@@ -204,10 +199,10 @@ export function ScheduleStep({
                     <motion.div
                       key={task.id}
                       layout
-                      initial={{ opacity: 1, height: 28 }}
+                      initial={{ opacity: 1, height: 30 }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.18, ease: "easeOut" }}
-                      className="grid h-7 grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
+                      className="grid h-[30px] shrink-0 grid-cols-[16px_minmax(0,1fr)] items-center gap-2.5 px-2 transition-colors duration-100 hover:bg-[var(--row-hover)]"
                     >
                       <button
                         type="button"
@@ -231,11 +226,11 @@ export function ScheduleStep({
                           duration={SHIMMER_DURATION_S}
                           delay={0}
                           repeat
-                          repeatDelay={0.35}
+                          repeatDelay={0.2}
                           startOnView={false}
                           once={false}
-                          spread={2}
-                          color="#7a7a7a"
+                          spread={2.4}
+                          color="#8a8a8f"
                           shimmerColor="#111111"
                           className="text-[13px] font-normal leading-none"
                         />
