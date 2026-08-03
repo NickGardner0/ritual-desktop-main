@@ -120,3 +120,72 @@ class TursoSyncApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 409)
         self.assertIn("migration", response.json()["detail"].lower())
+
+    def test_onboarding_completion_waits_for_per_user_turso_provisioning(self):
+        client = self._build_client()
+        bootstrap = {
+            "userExists": True,
+            "profileComplete": True,
+            "firstBehaviorLogged": True,
+            "permissionsSeen": True,
+            "user": {"id": "user-1", "email": "user@example.com", "fullName": "User One"},
+            "activation": {
+                "activationCompleted": True,
+                "checklist": [],
+            },
+            "integrations": {},
+            "nextRoute": "/dashboard",
+        }
+        with patch(
+            "api.core.turso_user_service.is_platform_configured",
+            return_value=True,
+        ), patch(
+            "api.core.turso_user_service.ensure_user_activity_metadata",
+            AsyncMock(return_value=SimpleNamespace(id="user-1")),
+        ) as provision, patch(
+            "api.core.activation_service.mark_permissions_seen",
+            AsyncMock(return_value=bootstrap),
+        ) as mark_permissions:
+            response = client.patch("/api/user/activation/permissions-seen")
+
+        self.assertEqual(response.status_code, 200)
+        provision.assert_awaited_once_with("user-1")
+        mark_permissions.assert_awaited_once_with(user_id="user-1")
+
+    def test_onboarding_completion_fails_closed_when_turso_provisioning_fails(self):
+        client = self._build_client()
+        with patch(
+            "api.core.turso_user_service.is_platform_configured",
+            return_value=True,
+        ), patch(
+            "api.core.turso_user_service.ensure_user_activity_metadata",
+            AsyncMock(side_effect=TursoProvisioningError("platform unavailable")),
+        ), patch(
+            "api.core.activation_service.mark_permissions_seen",
+            AsyncMock(),
+        ) as mark_permissions:
+            response = client.patch("/api/user/activation/permissions-seen")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "account_storage_unavailable")
+        self.assertTrue(response.json()["detail"]["retryable"])
+        mark_permissions.assert_not_awaited()
+
+    def test_onboarding_completion_fails_closed_when_turso_is_not_configured(self):
+        client = self._build_client()
+        with patch(
+            "api.core.turso_user_service.is_platform_configured",
+            return_value=False,
+        ), patch(
+            "api.core.turso_user_service.ensure_user_activity_metadata",
+            AsyncMock(),
+        ) as provision, patch(
+            "api.core.activation_service.mark_permissions_seen",
+            AsyncMock(),
+        ) as mark_permissions:
+            response = client.patch("/api/user/activation/permissions-seen")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()["detail"]["code"], "account_storage_unavailable")
+        provision.assert_not_awaited()
+        mark_permissions.assert_not_awaited()

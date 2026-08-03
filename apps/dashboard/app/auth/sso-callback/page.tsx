@@ -19,6 +19,8 @@ import {
   resolveSsoRedirectRoute,
 } from '@/lib/activation-flow.mjs'
 import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
+import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
+import { initializeDesktopVault } from '@/lib/privacy/vault-client'
 import { restoreDashboardWindowSize } from '@/lib/tauri-utils'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
@@ -205,6 +207,16 @@ export default function SSOCallback() {
         }
 
         const bootstrap = await response.json() as BootstrapResponse
+        if (getDesktopCapabilities().isDesktop) {
+          setStatus('Creating your private local vault...')
+          const vaultStatus = await initializeDesktopVault(user.id)
+          if (!vaultStatus?.initialized) {
+            throw new BootstrapError({
+              code: 'local_vault_unavailable',
+              message: 'Ritual could not create your private local vault. Please try again.',
+            })
+          }
+        }
         setStatus('Taking you to Ritual...')
         const redirectTarget = resolveBootstrapRedirect(bootstrap.nextRoute, readDashboardReturnUrl())
         if (redirectTarget.startsWith('/onboarding')) {

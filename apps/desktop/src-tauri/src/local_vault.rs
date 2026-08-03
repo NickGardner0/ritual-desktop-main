@@ -8,8 +8,10 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod paths;
 mod types;
 
+use paths::resolved_vault_dir;
 pub use types::*;
 
 const VAULT_DB_NAME: &str = "vault.db";
@@ -19,20 +21,6 @@ const VAULT_SCHEMA_VERSION: i64 = 1;
 
 fn redacted_error(context: &str) -> String {
     format!("{context}; see desktop logs for details")
-}
-
-fn ritual_vault_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("RITUAL_VAULT_DIR") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".ritual")
-    } else {
-        PathBuf::from("./.ritual")
-    }
 }
 
 fn storage_id(user_id: &str, collection: &str, record_id: &str) -> String {
@@ -846,31 +834,30 @@ fn latest_deletion_completed_at(
     })
 }
 
-fn open_default_vault() -> Result<LocalVault, String> {
-    LocalVault::open(&ritual_vault_dir())
+fn open_user_vault(user_id: &str) -> Result<LocalVault, String> {
+    LocalVault::open(&resolved_vault_dir(user_id)?)
 }
 
 #[tauri::command]
 pub fn vault_initialize(user_id: String) -> Result<VaultStatus, String> {
-    let vault = open_default_vault()?;
+    let vault = open_user_vault(&user_id)?;
     vault.ensure_manifest(user_id.trim())?;
     vault.status(Some(user_id.trim()))
 }
 
 #[tauri::command]
 pub fn vault_get_status(user_id: Option<String>) -> Result<VaultStatus, String> {
-    let vault = open_default_vault()?;
-    vault.status(
-        user_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    )
+    let user_id = user_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "User ID is required to read local vault status".to_string())?;
+    open_user_vault(user_id)?.status(Some(user_id))
 }
 
 #[tauri::command]
 pub fn vault_put_record(input: VaultRecordInput) -> Result<VaultRecordMetadata, String> {
-    open_default_vault()?.put_record(input)
+    open_user_vault(&input.user_id)?.put_record(input)
 }
 
 #[tauri::command]
@@ -879,7 +866,7 @@ pub fn vault_get_record(
     collection: String,
     record_id: String,
 ) -> Result<Option<VaultRecordOutput>, String> {
-    open_default_vault()?.get_record(user_id.trim(), collection.trim(), record_id.trim())
+    open_user_vault(&user_id)?.get_record(user_id.trim(), collection.trim(), record_id.trim())
 }
 
 #[tauri::command]
@@ -889,7 +876,7 @@ pub fn vault_list_records(
     since: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<VaultRecordOutput>, String> {
-    open_default_vault()?.list_records(user_id.trim(), collection.trim(), since, limit)
+    open_user_vault(&user_id)?.list_records(user_id.trim(), collection.trim(), since, limit)
 }
 
 #[tauri::command]
@@ -899,14 +886,14 @@ pub fn vault_tombstone_record(
     record_id: String,
     record_type: String,
 ) -> Result<VaultRecordMetadata, String> {
-    open_default_vault()?.tombstone_record(user_id, collection, record_id, record_type)
+    open_user_vault(&user_id)?.tombstone_record(user_id, collection, record_id, record_type)
 }
 
 #[tauri::command]
 pub fn vault_put_migration_manifest(
     input: VaultMigrationManifestInput,
 ) -> Result<VaultMigrationManifestOutput, String> {
-    open_default_vault()?.put_migration_manifest(input)
+    open_user_vault(&input.user_id)?.put_migration_manifest(input)
 }
 
 #[tauri::command]
@@ -914,14 +901,14 @@ pub fn vault_list_migration_manifests(
     user_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<VaultMigrationManifestOutput>, String> {
-    open_default_vault()?.list_migration_manifests(user_id.trim(), limit)
+    open_user_vault(&user_id)?.list_migration_manifests(user_id.trim(), limit)
 }
 
 #[tauri::command]
 pub fn vault_put_deletion_receipt(
     input: VaultDeletionReceiptInput,
 ) -> Result<VaultDeletionReceiptOutput, String> {
-    open_default_vault()?.put_deletion_receipt(input)
+    open_user_vault(&input.user_id)?.put_deletion_receipt(input)
 }
 
 #[tauri::command]
@@ -929,7 +916,7 @@ pub fn vault_list_deletion_receipts(
     user_id: String,
     limit: Option<i64>,
 ) -> Result<Vec<VaultDeletionReceiptOutput>, String> {
-    open_default_vault()?.list_deletion_receipts(user_id.trim(), limit)
+    open_user_vault(&user_id)?.list_deletion_receipts(user_id.trim(), limit)
 }
 
 #[cfg(test)]

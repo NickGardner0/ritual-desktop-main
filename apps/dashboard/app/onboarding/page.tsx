@@ -23,6 +23,7 @@ import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
 import { openLocationServicesSettings, submitCurrentLocationPing } from "@/lib/location-ping"
 import { getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities'
+import { initializeDesktopVault } from '@/lib/privacy/vault-client'
 import {
   ONBOARDING_SETUP_WINDOW_WIDTH,
   ONBOARDING_SETUP_WINDOW_HEIGHT,
@@ -362,6 +363,14 @@ export default function OnboardingPage() {
     return response.json()
   }
 
+  async function ensureLocalAccountVault(): Promise<void> {
+    if (!isDesktop || !user?.id) return
+    const status = await initializeDesktopVault(user.id)
+    if (!status?.initialized) {
+      throw new Error("Local account vault was not initialized")
+    }
+  }
+
   async function persistProfileTimezone(): Promise<void> {
     if (!user) return
 
@@ -470,6 +479,7 @@ export default function OnboardingPage() {
       await persistProfileTimezone().catch((profileError) => {
         console.warn("Unable to persist onboarding profile details:", profileError)
       })
+      await ensureLocalAccountVault()
       const bootstrap = await markSetupSeen()
       if (bootstrap?.nextRoute !== "/dashboard") {
         throw new Error("Setup completion did not return the dashboard route")

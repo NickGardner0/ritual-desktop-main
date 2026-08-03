@@ -14,6 +14,18 @@ fn sample_habit_payload() -> Value {
 }
 
 #[test]
+fn account_vault_paths_are_isolated_and_named() {
+    let root = Path::new("/tmp/ritual-vault-test");
+    let first = paths::account_vault_dir(root, "user_one").expect("first vault path");
+    let second = paths::account_vault_dir(root, "user/two").expect("second vault path");
+
+    assert_eq!(first, root.join("user_one").join("Ritual Vault"));
+    assert_eq!(second, root.join("user-two").join("Ritual Vault"));
+    assert_ne!(first, second);
+    assert!(paths::account_vault_dir(root, "  ").is_err());
+}
+
+#[test]
 fn vault_stores_sensitive_payload_as_ciphertext() {
     let temp = TempDir::new().expect("temp dir");
     let vault = LocalVault::open(temp.path()).expect("open vault");

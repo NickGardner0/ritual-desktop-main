@@ -411,9 +411,25 @@ def create_core_router(
                 full_name=current_user.get("name"),
                 phone_number=current_user.get("phone"),
             )
+            # Onboarding is not complete until the account's private activity
+            # database exists and its schema is ready. The earlier bootstrap
+            # task remains a latency optimization; this is the durable gate.
+            if not turso_user_service.is_platform_configured():
+                raise TursoProvisioningError("Per-user Turso platform is not configured")
+            await turso_user_service.ensure_user_activity_metadata(current_user["id"])
             return await activation_service.mark_permissions_seen(user_id=current_user["id"])
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        except TursoProvisioningError as exc:
+            logger.exception("Per-user Turso provisioning failed at onboarding completion")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "account_storage_unavailable",
+                    "message": "Ritual could not finish creating your private account storage. Please try again.",
+                    "retryable": True,
+                },
+            ) from exc
         except Exception:
             logger.exception("Error marking activation setup seen")
             raise HTTPException(status_code=500, detail="Request could not be processed.")
