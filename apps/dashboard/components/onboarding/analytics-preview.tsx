@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { cn } from "@/lib/utils"
 import styles from "@/components/onboarding/analytics-preview.module.css"
@@ -8,6 +8,9 @@ import styles from "@/components/onboarding/analytics-preview.module.css"
 const MUTED_WINDOW_DOT = "#CFCFCD"
 const FEATURE_WINDOW_SHADOW =
   "0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 12px 40px -12px rgba(40, 30, 20, 0.12), 0 2px 8px -2px rgba(40, 30, 20, 0.06)"
+const ANALYTICS_CANVAS_WIDTH = 720
+const ANALYTICS_CANVAS_HEIGHT = 520
+const DEFAULT_ANALYTICS_SCALE = 0.67
 
 const sparkCards = [
   {
@@ -355,7 +358,7 @@ function AnalyticsBarListCard({
           return (
             <div
               key={row.name}
-              className={cn(styles.listRow, "flex cursor-default select-none items-center px-4 py-[4.5px]")}
+              className={cn(styles.listRow, "flex cursor-default select-none items-center px-4 py-[3px]")}
             >
               <span className="min-w-0 flex-1 truncate text-[12.5px] font-normal text-[#27251E]">{row.name}</span>
               <span className="flex min-w-[90px] shrink-0 items-baseline justify-end text-[12.5px] font-normal tabular-nums text-[#27251E]">
@@ -374,9 +377,39 @@ function AnalyticsBarListCard({
 }
 
 export function AnalyticsPreview() {
+  const frameRef = useRef<HTMLDivElement>(null)
+  const [previewScale, setPreviewScale] = useState(DEFAULT_ANALYTICS_SCALE)
   const [sparkValues, setSparkValues] = useState(() => [...sparkBases])
   const [habitValues, setHabitValues] = useState(() => habitMetrics.map((m) => m.num))
   const [appValues, setAppValues] = useState(() => appMetrics.map((m) => m.num))
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current
+    if (!frame) return
+
+    const fitPreview = () => {
+      const { width, height } = frame.getBoundingClientRect()
+      const nextScale = Math.min(
+        1,
+        width / ANALYTICS_CANVAS_WIDTH,
+        height / ANALYTICS_CANVAS_HEIGHT,
+      )
+
+      if (!Number.isFinite(nextScale) || nextScale <= 0) return
+
+      setPreviewScale((currentScale) =>
+        Math.abs(currentScale - nextScale) < 0.001
+          ? currentScale
+          : nextScale,
+      )
+    }
+
+    fitPreview()
+    const resizeObserver = new ResizeObserver(fitPreview)
+    resizeObserver.observe(frame)
+
+    return () => resizeObserver.disconnect()
+  }, [])
 
   useEffect(() => {
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
@@ -398,65 +431,81 @@ export function AnalyticsPreview() {
   }, [])
 
   return (
-    <div className="flex w-full justify-center overflow-x-auto px-1">
+    <div
+      ref={frameRef}
+      className="flex h-full min-h-0 w-full items-center justify-center overflow-hidden"
+      data-testid="analytics-preview-frame"
+    >
       <div
-        aria-label="Analytics preview"
-        className="flex h-[520px] w-[780px] max-w-full shrink-0 flex-col overflow-hidden rounded-md border border-[#E4E4E7] bg-[#FEFEFE] text-[#27251E]"
-        style={{ boxShadow: FEATURE_WINDOW_SHADOW }}
+        className="relative shrink-0"
+        style={{
+          width: ANALYTICS_CANVAS_WIDTH * previewScale,
+          height: ANALYTICS_CANVAS_HEIGHT * previewScale,
+        }}
       >
-        <div className="relative flex h-8 shrink-0 items-center border-b border-[#E4E4E7] bg-[#FBFBFA] px-3">
-          <WindowTrafficLights />
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <span className="text-[12px] font-medium text-[#A8A4A0]">Ritual</span>
-          </div>
-        </div>
-
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-5 pt-4">
-          <div className="shrink-0 border-b border-[rgba(39,37,30,0.08)]">
-            <div className="flex h-[42px] items-end gap-8">
-              {analyticsTabs.map((tab) => {
-                const active = tab === "All"
-                return (
-                  <span
-                    key={tab}
-                    className={cn(
-                      "relative pb-2 text-[13.5px] leading-none",
-                      active ? "font-medium text-[#27251E]" : "font-normal text-[rgba(39,37,30,0.42)]",
-                    )}
-                  >
-                    {tab}
-                    {active ? (
-                      <span
-                        className="absolute bottom-0 left-0 h-[2px] w-[17px] rounded-full bg-[#27251E]"
-                        aria-hidden="true"
-                      />
-                    ) : null}
-                  </span>
-                )
-              })}
+        <div
+          aria-label="Analytics preview"
+          className="absolute left-0 top-0 flex h-[520px] w-[720px] flex-col overflow-hidden rounded-md border border-[#E4E4E7] bg-[#FEFEFE] text-[#27251E]"
+          style={{
+            boxShadow: FEATURE_WINDOW_SHADOW,
+            transform: `scale(${previewScale})`,
+            transformOrigin: "top left",
+          }}
+        >
+          <div className="relative flex h-8 shrink-0 items-center border-b border-[#E4E4E7] bg-[#FBFBFA] px-3">
+            <WindowTrafficLights />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span className="text-[12px] font-medium text-[#A8A4A0]">Ritual</span>
             </div>
           </div>
 
-          <div className="grid shrink-0 grid-cols-4 gap-[6px] pt-[18px]">
-            {sparkCards.map((card, index) => (
-              <SparkMetricCard key={card.title} card={card} index={index} value={sparkValues[index]} />
-            ))}
-          </div>
+          <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden px-5 pb-5 pt-4">
+            <div className="shrink-0 border-b border-[rgba(39,37,30,0.08)]">
+              <div className="flex h-[42px] items-end gap-8">
+                {analyticsTabs.map((tab) => {
+                  const active = tab === "All"
+                  return (
+                    <span
+                      key={tab}
+                      className={cn(
+                        "relative pb-2 text-[13.5px] leading-none",
+                        active ? "font-medium text-[#27251E]" : "font-normal text-[rgba(39,37,30,0.42)]",
+                      )}
+                    >
+                      {tab}
+                      {active ? (
+                        <span
+                          className="absolute bottom-0 left-0 h-[2px] w-[17px] rounded-full bg-[#27251E]"
+                          aria-hidden="true"
+                        />
+                      ) : null}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden pt-6">
-            <div className="grid h-full grid-cols-2 gap-[6px]">
-              <AnalyticsBarListCard
-                title="Habits"
-                inactiveTitle="Streaks"
-                rows={habitMetrics}
-                values={habitValues}
-              />
-              <AnalyticsBarListCard
-                title="Apps"
-                inactiveTitle="Websites"
-                rows={appMetrics}
-                values={appValues}
-              />
+            <div className="grid shrink-0 grid-cols-4 gap-[6px] pt-[18px]">
+              {sparkCards.map((card, index) => (
+                <SparkMetricCard key={card.title} card={card} index={index} value={sparkValues[index]} />
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-hidden pt-6">
+              <div className="grid h-full grid-cols-2 gap-[6px]">
+                <AnalyticsBarListCard
+                  title="Habits"
+                  inactiveTitle="Streaks"
+                  rows={habitMetrics}
+                  values={habitValues}
+                />
+                <AnalyticsBarListCard
+                  title="Apps"
+                  inactiveTitle="Websites"
+                  rows={appMetrics}
+                  values={appValues}
+                />
+              </div>
             </div>
           </div>
         </div>
