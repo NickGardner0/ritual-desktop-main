@@ -1,6 +1,24 @@
 import Foundation
 import Network
 
+struct IngestEnvelopeV1: Codable {
+    let version: Int
+    let added: [NormalizedMetric]
+    let deleted: [String]
+    let modified: [NormalizedMetric]
+
+    init(
+        added: [NormalizedMetric],
+        deleted: [String] = [],
+        modified: [NormalizedMetric] = []
+    ) {
+        version = 1
+        self.added = added
+        self.deleted = deleted
+        self.modified = modified
+    }
+}
+
 /// Manages offline queuing of sync payloads for retry when network is unavailable
 /// Provides persistence, retry logic with exponential backoff, and automatic flushing
 final class OfflineSyncQueue {
@@ -87,8 +105,17 @@ final class OfflineSyncQueue {
     
     // MARK: - Queue Management
     
-    /// Add a payload to the offline queue
-    func enqueue(clientEventId: String, payload: Data, metricCount: Int) -> String {
+    /// Encode and persist the only supported new queue payload shape.
+    func enqueue(envelope: IngestEnvelopeV1, clientEventId: String = UUID().uuidString) -> String? {
+        guard let payload = try? JSONEncoder().encode(envelope) else { return nil }
+        return enqueue(
+            clientEventId: clientEventId,
+            payload: payload,
+            metricCount: envelope.added.count + envelope.deleted.count + envelope.modified.count
+        )
+    }
+
+    private func enqueue(clientEventId: String, payload: Data, metricCount: Int) -> String {
         let id = UUID().uuidString
         
         let queuedPayload = QueuedPayload(

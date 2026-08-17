@@ -10,97 +10,6 @@ final class HealthKitManagerV2: @unchecked Sendable {
     private let healthStore = HKHealthStore()
     private let anchorStorage = AnchorStorage.shared
     
-    /// Source preference policy - defines which sources to prefer for each metric type
-    enum SourcePreference {
-        case appleWatchOnly
-        case appleWatchPreferred  // Apple Watch > iPhone > Third Party
-        case bestAvailable
-    }
-    
-    /// Source preference per metric type
-    private static let sourcePreferences: [MetricType: SourcePreference] = [
-        // Activity - Apple Watch only to avoid double counting from iPhone
-        .steps: .appleWatchOnly,
-        .activeEnergy: .appleWatchOnly,
-        .basalEnergy: .appleWatchOnly,
-        .distance: .appleWatchOnly,
-        .flightsClimbed: .appleWatchOnly,
-        .exerciseTime: .appleWatchOnly,
-        .standTime: .appleWatchOnly,
-        
-        // Heart - Apple Watch preferred (most accurate)
-        .hr: .appleWatchPreferred,
-        .hrv: .appleWatchOnly,  // Only Apple Watch provides reliable HRV
-        .restingHr: .appleWatchPreferred,
-        .walkingHr: .appleWatchOnly,
-        
-        // Respiratory - Apple Watch only
-        .respiratoryRate: .appleWatchOnly,
-        .oxygenSaturation: .appleWatchOnly,
-        
-        // Sleep - Best available (Apple Watch or iPhone or third party)
-        .sleepSession: .bestAvailable,
-        .sleepREM: .bestAvailable,
-        .sleepDeep: .bestAvailable,
-        .sleepCore: .bestAvailable,
-        
-        // Workouts - Best available
-        .workout: .bestAvailable,
-
-        // Mindfulness - Best available
-        .mindfulMinutes: .bestAvailable,
-
-        // Body Measurements - Best available (manual entry or scale)
-        .bodyMass: .bestAvailable,
-        .bodyMassIndex: .bestAvailable,
-        .bodyFatPercentage: .bestAvailable,
-        .leanBodyMass: .bestAvailable,
-        .height: .bestAvailable,
-        .waistCircumference: .bestAvailable,
-
-        // Nutrition - Best available (food tracking apps)
-        .dietaryEnergy: .bestAvailable,
-        .dietaryProtein: .bestAvailable,
-        .dietaryCarbs: .bestAvailable,
-        .dietaryFat: .bestAvailable,
-        .dietaryFiber: .bestAvailable,
-        .dietarySugar: .bestAvailable,
-        .dietaryWater: .bestAvailable,
-        .dietaryCaffeine: .bestAvailable,
-
-        // Vitals - Best available (could be manual or device)
-        .bloodPressureSystolic: .bestAvailable,
-        .bloodPressureDiastolic: .bestAvailable,
-        .bloodGlucose: .bestAvailable,
-        .bodyTemperature: .bestAvailable,
-
-        // Mobility - Apple Watch only
-        .walkingSpeed: .appleWatchOnly,
-        .walkingStepLength: .appleWatchOnly,
-        .walkingAsymmetry: .appleWatchOnly,
-    ]
-
-    private static let bucketedGranularMetricTypes: Set<String> = [
-        MetricType.steps.rawValue,
-        MetricType.activeEnergy.rawValue,
-        MetricType.basalEnergy.rawValue,
-        MetricType.distance.rawValue,
-        MetricType.flightsClimbed.rawValue,
-        MetricType.exerciseTime.rawValue,
-        MetricType.standTime.rawValue,
-    ]
-
-    private static let intervalGranularMetricTypes: Set<String> = [
-        MetricType.sleepSession.rawValue,
-        MetricType.sleepAsleep.rawValue,
-        MetricType.sleepAwake.rawValue,
-        MetricType.sleepREM.rawValue,
-        MetricType.sleepDeep.rawValue,
-        MetricType.sleepCore.rawValue,
-        MetricType.workout.rawValue,
-        MetricType.mindfulMinutes.rawValue,
-    ]
-
     private struct StatisticsValue {
         let value: Double
         let unit: MetricUnit
@@ -109,59 +18,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     /// Types we want to read from HealthKit
-    private let readTypes: Set<HKSampleType> = {
-        var types = Set<HKSampleType>()
-        
-        // Activity
-        [HKQuantityTypeIdentifier.stepCount, .activeEnergyBurned, .basalEnergyBurned,
-         .distanceWalkingRunning, .flightsClimbed, .appleExerciseTime, .appleStandTime].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-        
-        // Heart
-        [HKQuantityTypeIdentifier.heartRate, .heartRateVariabilitySDNN, .restingHeartRate, .walkingHeartRateAverage].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-        
-        // Respiratory
-        [HKQuantityTypeIdentifier.respiratoryRate, .oxygenSaturation].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-        
-        // Sleep & Mindfulness (Category types)
-        if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { types.insert(sleep) }
-        if let mindful = HKCategoryType.categoryType(forIdentifier: .mindfulSession) { types.insert(mindful) }
-
-        // Body Measurements
-        [HKQuantityTypeIdentifier.bodyMass, .bodyMassIndex, .bodyFatPercentage,
-         .leanBodyMass, .height, .waistCircumference].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-
-        // Nutrition
-        [HKQuantityTypeIdentifier.dietaryEnergyConsumed, .dietaryProtein,
-         .dietaryCarbohydrates, .dietaryFatTotal, .dietaryFiber,
-         .dietarySugar, .dietaryWater, .dietaryCaffeine].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-
-        // Vitals (additional)
-        [HKQuantityTypeIdentifier.bloodPressureSystolic, .bloodPressureDiastolic,
-         .bloodGlucose, .bodyTemperature].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-
-        // Mobility
-        [HKQuantityTypeIdentifier.walkingSpeed, .walkingStepLength,
-         .walkingAsymmetryPercentage].forEach {
-            if let type = HKQuantityType.quantityType(forIdentifier: $0) { types.insert(type) }
-        }
-
-        // Workouts
-        types.insert(HKObjectType.workoutType())
-
-        return types
-    }()
+    private let readTypes = Set(HealthMetricDescriptor.catalog.values.compactMap(\.sampleType))
     
     // MARK: - Types
     
@@ -180,10 +37,8 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
 
     private func granularSyncWindowDays(for metricType: String, requestedDaysBack: Int) -> Int {
-        if Self.intervalGranularMetricTypes.contains(metricType) {
-            return min(requestedDaysBack, 365)
-        }
-        return min(requestedDaysBack, 30)
+        let cap = HealthMetricDescriptor.descriptor(for: metricType)?.granularClass.historyCapDays ?? 30
+        return min(requestedDaysBack, cap)
     }
 
     private static func shouldProjectToHabitLogs(
@@ -207,8 +62,12 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     private func readTypes(forMetricTypes metricTypes: [String]) -> Set<HKSampleType> {
-        let requestedTypes = Set(metricTypes.compactMap { healthKitType(for: $0) })
+        let requestedTypes = Set(metricTypes.compactMap { Self.sampleType(for: $0) })
         return requestedTypes.isEmpty ? readTypes : requestedTypes
+    }
+
+    static func sampleType(for metricType: String) -> HKSampleType? {
+        HealthMetricDescriptor.descriptor(for: metricType)?.sampleType
     }
 
     func checkAuthorizationStatus(forMetricTypes metricTypes: [String] = []) async -> HealthAccessStatus {
@@ -275,7 +134,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     
     /// Fetch incremental changes for a metric type since last anchor
     func fetchIncrementalChanges(for metricType: String) async throws -> IncrementalSyncResult {
-        guard let sampleType = healthKitType(for: metricType) else {
+        guard let sampleType = Self.sampleType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
         
@@ -346,7 +205,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     /// yet, bootstrap one at "now" so future observer deliveries can report
     /// true deletes durably.
     func fetchIncrementalDeletions(for metricType: String) async throws -> IncrementalDeletionResult {
-        guard let sampleType = healthKitType(for: metricType) else {
+        guard let sampleType = Self.sampleType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
 
@@ -436,7 +295,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     /// Bootstrap an incremental anchor at "now" without syncing historical samples.
     /// Useful after initial aggregate sync so future runs can use true incremental deletes.
     func captureAnchorBaseline(for metricType: String) async throws -> HKQueryAnchor? {
-        guard let sampleType = healthKitType(for: metricType) else {
+        guard let sampleType = Self.sampleType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
 
@@ -490,8 +349,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     private static func sourcePreference(for metricType: String) -> SourcePreference {
-        guard let type = MetricType(rawValue: metricType) else { return .bestAvailable }
-        return sourcePreferences[type] ?? .bestAvailable
+        HealthMetricDescriptor.descriptor(for: metricType)?.sourcePreference ?? .bestAvailable
     }
 
     private static func filterSamplesBySource(_ samples: [HKSample], preference: SourcePreference) -> [HKSample] {
@@ -645,64 +503,8 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     private static func extractValueAndUnit(from sample: HKQuantitySample, metricType: String) -> (Double, MetricUnit) {
-        switch metricType {
-        case "steps", "flights_climbed":
-            return (sample.quantity.doubleValue(for: .count()), .count)
-        case "active_energy", "basal_energy":
-            return (sample.quantity.doubleValue(for: .kilocalorie()), .kcal)
-        case "distance":
-            return (sample.quantity.doubleValue(for: .meter()), .meters)
-        case "exercise_time", "stand_time":
-            return (sample.quantity.doubleValue(for: .minute()), .minutes)
-        case "hr", "resting_hr", "walking_hr":
-            return (sample.quantity.doubleValue(for: .count().unitDivided(by: .minute())), .bpm)
-        case "hrv":
-            return (sample.quantity.doubleValue(for: .secondUnit(with: .milli)), .ms)
-        case "respiratory_rate":
-            return (sample.quantity.doubleValue(for: .count().unitDivided(by: .minute())), .breathsPerMinute)
-        case "oxygen_saturation":
-            let rawValue = sample.quantity.doubleValue(for: .percent()) * 100
-            let value = min(max(rawValue, 0), 100) // Clamp to valid range
-            return (value, .percent)
-        // Body Measurements
-        case "body_mass":
-            return (sample.quantity.doubleValue(for: .gramUnit(with: .kilo)), .kg)
-        case "body_mass_index":
-            return (sample.quantity.doubleValue(for: .count()), .count)
-        case "body_fat_percentage":
-            return (sample.quantity.doubleValue(for: .percent()) * 100, .percent)
-        case "lean_body_mass":
-            return (sample.quantity.doubleValue(for: .gramUnit(with: .kilo)), .kg)
-        case "height":
-            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
-        case "waist_circumference":
-            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
-        // Nutrition
-        case "dietary_energy":
-            return (sample.quantity.doubleValue(for: .kilocalorie()), .kcal)
-        case "dietary_protein", "dietary_carbs", "dietary_fat", "dietary_fiber", "dietary_sugar":
-            return (sample.quantity.doubleValue(for: .gram()), .grams)
-        case "dietary_water":
-            return (sample.quantity.doubleValue(for: .literUnit(with: .milli)), .ml)
-        case "dietary_caffeine":
-            return (sample.quantity.doubleValue(for: .gramUnit(with: .milli)), .mg)
-        // Vitals
-        case "blood_pressure_systolic", "blood_pressure_diastolic":
-            return (sample.quantity.doubleValue(for: .millimeterOfMercury()), .mmHg)
-        case "blood_glucose":
-            return (sample.quantity.doubleValue(for: HKUnit.moleUnit(with: .milli, molarMass: HKUnitMolarMassBloodGlucose).unitDivided(by: .liter())), .mmolPerL)
-        case "body_temperature":
-            return (sample.quantity.doubleValue(for: .degreeCelsius()), .celsius)
-        // Mobility
-        case "walking_speed":
-            return (sample.quantity.doubleValue(for: HKUnit.meter().unitDivided(by: .second())), .metersPerSecond)
-        case "walking_step_length":
-            return (sample.quantity.doubleValue(for: .meterUnit(with: .centi)), .cm)
-        case "walking_asymmetry":
-            return (sample.quantity.doubleValue(for: .percent()) * 100, .percent)
-        default:
-            return (sample.quantity.doubleValue(for: .count()), .count)
-        }
+        HealthMetricDescriptor.descriptor(for: metricType)?.normalizedValue(from: sample.quantity)
+            ?? (sample.quantity.doubleValue(for: .count()), .count)
     }
 
     private static func convertCategorySample(
@@ -824,96 +626,11 @@ final class HealthKitManagerV2: @unchecked Sendable {
         }
     }
     
-    // MARK: - HealthKit Type Mapping
-    
-    private func healthKitType(for metricType: String) -> HKSampleType? {
-        switch metricType {
-        case "steps": return HKQuantityType.quantityType(forIdentifier: .stepCount)
-        case "active_energy": return HKQuantityType.quantityType(forIdentifier: .activeEnergyBurned)
-        case "basal_energy": return HKQuantityType.quantityType(forIdentifier: .basalEnergyBurned)
-        case "distance": return HKQuantityType.quantityType(forIdentifier: .distanceWalkingRunning)
-        case "flights_climbed": return HKQuantityType.quantityType(forIdentifier: .flightsClimbed)
-        case "exercise_time": return HKQuantityType.quantityType(forIdentifier: .appleExerciseTime)
-        case "stand_time": return HKQuantityType.quantityType(forIdentifier: .appleStandTime)
-        case "hr": return HKQuantityType.quantityType(forIdentifier: .heartRate)
-        case "hrv": return HKQuantityType.quantityType(forIdentifier: .heartRateVariabilitySDNN)
-        case "resting_hr": return HKQuantityType.quantityType(forIdentifier: .restingHeartRate)
-        case "walking_hr": return HKQuantityType.quantityType(forIdentifier: .walkingHeartRateAverage)
-        case "respiratory_rate": return HKQuantityType.quantityType(forIdentifier: .respiratoryRate)
-        case "oxygen_saturation": return HKQuantityType.quantityType(forIdentifier: .oxygenSaturation)
-        case "sleep_session", "sleep_asleep", "sleep_awake", "sleep_rem", "sleep_deep", "sleep_core":
-            return HKCategoryType.categoryType(forIdentifier: .sleepAnalysis)
-        case "mindful_minutes": return HKCategoryType.categoryType(forIdentifier: .mindfulSession)
-        case "workout": return HKObjectType.workoutType()
-        // Body Measurements
-        case "body_mass": return HKQuantityType.quantityType(forIdentifier: .bodyMass)
-        case "body_mass_index": return HKQuantityType.quantityType(forIdentifier: .bodyMassIndex)
-        case "body_fat_percentage": return HKQuantityType.quantityType(forIdentifier: .bodyFatPercentage)
-        case "lean_body_mass": return HKQuantityType.quantityType(forIdentifier: .leanBodyMass)
-        case "height": return HKQuantityType.quantityType(forIdentifier: .height)
-        case "waist_circumference": return HKQuantityType.quantityType(forIdentifier: .waistCircumference)
-        // Nutrition
-        case "dietary_energy": return HKQuantityType.quantityType(forIdentifier: .dietaryEnergyConsumed)
-        case "dietary_protein": return HKQuantityType.quantityType(forIdentifier: .dietaryProtein)
-        case "dietary_carbs": return HKQuantityType.quantityType(forIdentifier: .dietaryCarbohydrates)
-        case "dietary_fat": return HKQuantityType.quantityType(forIdentifier: .dietaryFatTotal)
-        case "dietary_fiber": return HKQuantityType.quantityType(forIdentifier: .dietaryFiber)
-        case "dietary_sugar": return HKQuantityType.quantityType(forIdentifier: .dietarySugar)
-        case "dietary_water": return HKQuantityType.quantityType(forIdentifier: .dietaryWater)
-        case "dietary_caffeine": return HKQuantityType.quantityType(forIdentifier: .dietaryCaffeine)
-        // Vitals
-        case "blood_pressure_systolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureSystolic)
-        case "blood_pressure_diastolic": return HKQuantityType.quantityType(forIdentifier: .bloodPressureDiastolic)
-        case "blood_glucose": return HKQuantityType.quantityType(forIdentifier: .bloodGlucose)
-        case "body_temperature": return HKQuantityType.quantityType(forIdentifier: .bodyTemperature)
-        // Mobility
-        case "walking_speed": return HKQuantityType.quantityType(forIdentifier: .walkingSpeed)
-        case "walking_step_length": return HKQuantityType.quantityType(forIdentifier: .walkingStepLength)
-        case "walking_asymmetry": return HKQuantityType.quantityType(forIdentifier: .walkingAsymmetryPercentage)
-        default: return nil
-        }
-    }
-    
     // MARK: - Daily Aggregated Sync (RECOMMENDED - sends daily totals instead of raw samples)
-    
-    /// Aggregation type for different metrics
-    enum AggregationType {
-        case cumulativeSum    // Steps, calories, distance
-        case discreteAverage  // Heart rate, HRV
-        case discreteMin      // Resting HR
-        case discreteMax      // For peaks
-        case duration         // Sleep, workouts
-    }
-    
+
     /// Get the aggregation type for a metric
     private func aggregationType(for metricType: String) -> AggregationType {
-        switch metricType {
-        case "steps", "active_energy", "basal_energy", "distance", "flights_climbed", "exercise_time", "stand_time":
-            return .cumulativeSum
-        case "hr", "walking_hr", "hrv":
-            return .discreteAverage
-        case "resting_hr":
-            return .discreteMin  // Daily resting HR is typically the minimum
-        // Nutrition — cumulative daily totals
-        case "dietary_energy", "dietary_protein", "dietary_carbs", "dietary_fat",
-             "dietary_fiber", "dietary_sugar", "dietary_water", "dietary_caffeine":
-            return .cumulativeSum
-        // Body measurements — latest/average for the day
-        case "body_mass", "body_mass_index", "body_fat_percentage", "lean_body_mass",
-             "height", "waist_circumference":
-            return .discreteAverage
-        // Respiratory — discrete averages
-        case "oxygen_saturation", "respiratory_rate":
-            return .discreteAverage
-        // Vitals — averages
-        case "blood_pressure_systolic", "blood_pressure_diastolic", "blood_glucose", "body_temperature":
-            return .discreteAverage
-        // Mobility — averages
-        case "walking_speed", "walking_step_length", "walking_asymmetry":
-            return .discreteAverage
-        default:
-            return .discreteAverage  // Safe default — discrete types crash with cumulativeSum
-        }
+        HealthMetricDescriptor.descriptor(for: metricType)?.aggregation ?? .discreteAverage
     }
     
     /// Fetch DAILY AGGREGATED metrics for a type over an exact date range.
@@ -925,7 +642,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         let anchorDate = calendar.startOfDay(for: normalizedEnd)
         let queryEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: normalizedEnd)) ?? normalizedEnd
 
-        guard let quantityType = healthKitType(for: metricType) as? HKQuantityType else {
+        guard let quantityType = Self.sampleType(for: metricType) as? HKQuantityType else {
             // For non-quantity types (sleep, workouts), use raw sample approach with aggregation.
             return try await fetchAndAggregateCategoryMetrics(for: metricType, startDate: normalizedStart, endDate: queryEnd)
         }
@@ -1090,7 +807,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         startDate: Date,
         endDate: Date
     ) async throws -> [NormalizedMetric] {
-        if Self.bucketedGranularMetricTypes.contains(metricType) {
+        if HealthMetricDescriptor.descriptor(for: metricType)?.granularClass == .bucketed {
             return try await fetchBucketedMetrics(
                 for: metricType,
                 startDate: startDate,
@@ -1108,7 +825,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
         endDate: Date,
         windowMinutes: Int
     ) async throws -> [NormalizedMetric] {
-        guard let quantityType = healthKitType(for: metricType) as? HKQuantityType else {
+        guard let quantityType = Self.sampleType(for: metricType) as? HKQuantityType else {
             throw HealthKitError.queryFailed("Bucketed fetch requires quantity type for \(metricType)")
         }
 
@@ -1350,33 +1067,13 @@ final class HealthKitManagerV2: @unchecked Sendable {
     
     /// Extract value and unit from an HKQuantity
     private static func extractValueFromQuantity(_ quantity: HKQuantity, metricType: String) -> (Double, MetricUnit) {
-        switch metricType {
-        case "steps", "flights_climbed":
-            return (quantity.doubleValue(for: .count()), .count)
-        case "active_energy", "basal_energy":
-            return (quantity.doubleValue(for: .kilocalorie()), .kcal)
-        case "distance":
-            return (quantity.doubleValue(for: .meter()), .meters)
-        case "exercise_time", "stand_time":
-            return (quantity.doubleValue(for: .minute()), .minutes)
-        case "hr", "resting_hr", "walking_hr":
-            return (quantity.doubleValue(for: .count().unitDivided(by: .minute())), .bpm)
-        case "hrv":
-            return (quantity.doubleValue(for: .secondUnit(with: .milli)), .ms)
-        case "respiratory_rate":
-            return (quantity.doubleValue(for: .count().unitDivided(by: .minute())), .breathsPerMinute)
-        case "oxygen_saturation":
-            let rawValue = quantity.doubleValue(for: .percent()) * 100
-            let value = min(max(rawValue, 0), 100) // Clamp to valid range
-            return (value, .percent)
-        default:
-            return (quantity.doubleValue(for: .count()), .count)
-        }
+        HealthMetricDescriptor.descriptor(for: metricType)?.normalizedValue(from: quantity)
+            ?? (quantity.doubleValue(for: .count()), .count)
     }
 
     /// Fetch and aggregate category metrics (sleep, mindfulness) by day.
     private func fetchAndAggregateCategoryMetrics(for metricType: String, startDate: Date, endDate: Date) async throws -> [NormalizedMetric] {
-        guard let sampleType = healthKitType(for: metricType) else {
+        guard let sampleType = Self.sampleType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
         let predicate = HKQuery.predicateForSamples(withStart: startDate, end: endDate, options: .strictStartDate)
@@ -1552,7 +1249,7 @@ final class HealthKitManagerV2: @unchecked Sendable {
     }
     
     private func fetchHistoricalMetrics(for metricType: String, from startDate: Date, to endDate: Date) async throws -> [NormalizedMetric] {
-        guard let sampleType = healthKitType(for: metricType) else {
+        guard let sampleType = Self.sampleType(for: metricType) else {
             throw HealthKitError.queryFailed("Unknown metric type: \(metricType)")
         }
         

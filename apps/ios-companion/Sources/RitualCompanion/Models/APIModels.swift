@@ -92,6 +92,12 @@ struct ScreenTimeIngestResponse: Codable {
 
 // MARK: - Metrics Ingestion
 
+enum AppleIngestOutcome: String, Codable {
+    case accepted
+    case duplicate
+    case rejected
+}
+
 /// V1 request format (legacy - sends all metrics)
 struct AppleIngestRequest: Codable {
     let deviceId: String
@@ -252,6 +258,8 @@ struct AppleSyncTelemetryRequest: Codable {
 /// Response for V2 ingest - includes anchor confirmation
 struct AppleIngestResponseV2: Codable {
     let success: Bool
+    let outcome: AppleIngestOutcome?
+    let errorCode: String?
     let addedResults: [AppleIngestResult]
     let deletedResults: [DeleteResult]
     let modifiedResults: [AppleIngestResult]
@@ -262,6 +270,8 @@ struct AppleIngestResponseV2: Codable {
     
     enum CodingKeys: String, CodingKey {
         case success
+        case outcome
+        case errorCode = "error_code"
         case addedResults = "added_results"
         case deletedResults = "deleted_results"
         case modifiedResults = "modified_results"
@@ -300,12 +310,16 @@ struct AppleIngestResult: Codable {
 
 struct AppleIngestResponse: Codable {
     let success: Bool
+    let outcome: AppleIngestOutcome?
+    let errorCode: String?
     let results: [AppleIngestResult]
     let serverTime: String
     let nextPollSeconds: Int?
     
     enum CodingKeys: String, CodingKey {
         case success
+        case outcome
+        case errorCode = "error_code"
         case results
         case serverTime = "server_time"
         case nextPollSeconds = "next_poll_seconds"
