@@ -13,6 +13,7 @@ import {
   isWearableBackedHabit,
 } from '@/lib/wearables-dashboard';
 import { perfError, perfInfo, startPerfTimer } from '@/lib/perf-debug';
+import { analyticsLoader, fetchAnalyticsJsonPair } from '@/lib/analytics-loader';
 import {
   getPayloadRows,
   type MetricsDataEffectsContext,
@@ -68,7 +69,7 @@ export function useMetricsBarListAndPaintEffects(ctx: MetricsDataEffectsContext)
     const fetchFrom = isAllRange ? from : new Date(from.getTime() - windowMs);
     const startDate = format(fetchFrom, 'yyyy-MM-dd');
     const endDate = format(to, 'yyyy-MM-dd');
-    const controller = new AbortController();
+    const loaderScope = `metrics-bar-list:${user.id}`;
     const barListFetchKey = [
       habitsToFetch.join(','),
       barListRange,
@@ -103,25 +104,16 @@ export function useMetricsBarListAndPaintEffects(ctx: MetricsDataEffectsContext)
           end_date: endDate,
         });
 
-        const [dailyRes, summaryRes] = await Promise.all([
-          fetch(`/api/analytics/habits/daily-values?${dailyParams.toString()}`, {
-            signal: controller.signal,
-          }),
-          fetch(`/api/analytics/habits/summary?${summaryParams.toString()}`, {
-            signal: controller.signal,
-          }),
-        ]);
-
-        if (!dailyRes.ok || !summaryRes.ok) {
-          throw new Error(`Bar list analytics failed (daily=${dailyRes.status}, summary=${summaryRes.status})`);
-        }
-
-        const [dailyPayload, summaryPayload] = await Promise.all([
-          dailyRes.json(),
-          summaryRes.json(),
-        ]);
-
-        if (controller.signal.aborted) return;
+        const [dailyPayload, summaryPayload] = await analyticsLoader.load({
+          scope: loaderScope,
+          key: `bar-list:${barListFetchKey}`,
+          freshnessMs: 30_000,
+          request: (signal) => fetchAnalyticsJsonPair(
+            signal,
+            `/api/analytics/habits/daily-values?${dailyParams.toString()}`,
+            `/api/analytics/habits/summary?${summaryParams.toString()}`,
+          ),
+        });
 
         const nextDailyByHabit: MetricsRowsByHabit = {};
         habitsToFetch.forEach((habitId: string) => {
@@ -179,7 +171,7 @@ export function useMetricsBarListAndPaintEffects(ctx: MetricsDataEffectsContext)
           summary_rows: Object.keys(nextSummaryByHabit).length,
         });
       } catch (error) {
-        if (controller.signal.aborted) return;
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         lastBarListFetchKeyRef.current = null;
         perfError('metrics-view', 'fetch-bar-list-analytics-failed', {
           error: error instanceof Error ? error.message : String(error),
@@ -199,7 +191,7 @@ export function useMetricsBarListAndPaintEffects(ctx: MetricsDataEffectsContext)
     fetchBarListAnalytics();
 
     return () => {
-      controller.abort();
+      analyticsLoader.release(loaderScope, `bar-list:${barListFetchKey}`);
     };
   }, [
     barListRange,

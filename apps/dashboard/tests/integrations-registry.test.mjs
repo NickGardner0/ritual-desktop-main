@@ -88,6 +88,33 @@ test("registry.ts lists all plugins with unique ids and detail keys", () => {
   ]);
 });
 
+test("one ordered registry owns wearable and coming-soon card/detail identities", () => {
+  const registrySource = readFileSync(join(pluginsRoot, "registry.ts"), "utf8");
+  const descriptorsSource = readFileSync(join(pluginsRoot, "presentation-descriptors.tsx"), "utf8");
+  const cardsSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/app/(dashboard)/integrations/integrations-client.cards.tsx"),
+    "utf8",
+  );
+  const detailsSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/app/(dashboard)/integrations/integrations-client.details.tsx"),
+    "utf8",
+  );
+
+  assert.match(registrySource, /\.\.\.PRESENTATION_DESCRIPTORS\.slice\(2\)/);
+  for (const [id, detailKey] of [
+    ['imessage', 'imessage'],
+    ['raycast', 'raycast'],
+    ['obsidian', 'obsidian'],
+    ['fitbit', 'fitbit'],
+    ['cal-ai', 'calai'],
+    ['google-calendar', 'googlecalendar'],
+  ]) {
+    assert.match(descriptorsSource, new RegExp(`id: '${id}', detailKey: '${detailKey}'`));
+  }
+  assert.doesNotMatch(cardsSource, /legacyCards|orderedIds/);
+  assert.doesNotMatch(detailsSource, /selectedIntegration ===|titles: Record/);
+});
+
 test("each plugin exposes card and detail panel modules", () => {
   for (const folder of expectedPluginFolders) {
     const folderPath = join(pluginsRoot, folder);

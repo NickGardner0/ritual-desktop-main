@@ -10,7 +10,7 @@ import asyncio
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import case, or_, select, update, delete, func
+from sqlalchemy import and_, case, or_, select, update, delete, func
 from sqlalchemy.exc import SQLAlchemyError
 
 from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
@@ -19,6 +19,7 @@ from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
 from services.realtime import websocket_manager
 from services.tinybird_service import TinybirdService
+from services.habit_daily_policy import daily_policy_v2_enabled, is_sleep_like, log_shadow_mismatch
 from services.secondary_job_runner import secondary_job_runner
 from services.action_receipt_service import action_receipt_service
 
@@ -68,22 +69,7 @@ class HabitsService:
         )
 
     def _is_sleep_like_habit_db(self, habit: HabitDB) -> bool:
-        metric_type = (habit.metric_type or "").strip().lower()
-        habit_name = (habit.name or "").strip().lower()
-        category = (habit.category or "").strip().lower()
-        integration_source = (habit.integration_source or "").strip().lower()
-
-        if metric_type in {"sleep", "sleep_session", "sleep_duration", "sleep_total", "in_bed"}:
-            return True
-        if "sleep" in habit_name:
-            return True
-        return "sleep" in category and integration_source in {
-            "whoop",
-            "oura",
-            "apple_health",
-            "fitbit",
-            "garmin",
-        }
+        return is_sleep_like(habit)
 
     def _overview_daily_value_from_row(
         self,
@@ -99,23 +85,59 @@ class HabitsService:
 
         if "hour" in unit:
             if duration_value > 0:
-                return duration_value / 3600
-            if amount_count > 0:
-                return amount_value
-            return float(row.entry_count or 0)
-
-        if "minute" in unit:
+                legacy_value = duration_value / 3600
+            elif amount_count > 0:
+                legacy_value = amount_value
+            else:
+                legacy_value = float(row.entry_count or 0)
+        elif "minute" in unit:
             if duration_value > 0:
-                return duration_value / 60
-            if amount_count > 0:
-                return amount_value
-            return float(row.entry_count or 0)
+                legacy_value = duration_value / 60
+            elif amount_count > 0:
+                legacy_value = amount_value
+            else:
+                legacy_value = float(row.entry_count or 0)
+        elif amount_count > 0:
+            legacy_value = amount_value
+        elif duration_value > 0:
+            legacy_value = duration_value / 3600
+        else:
+            legacy_value = float(row.entry_count or 0)
 
-        if amount_count > 0:
-            return amount_value
-        if duration_value > 0:
-            return duration_value / 3600
-        return float(row.entry_count or 0)
+        duration_in_unit = duration_value
+        if "hour" in unit:
+            duration_in_unit /= 3600
+        elif "minute" in unit:
+            duration_in_unit /= 60
+        canonical_amount = float(
+            getattr(row, "canonical_max_amount" if use_max_per_day else "canonical_amount", 0) or 0
+        )
+        occurrence_count = float(getattr(row, "occurrence_count", 0) or 0)
+        if use_max_per_day:
+            canonical_candidates = []
+            if duration_in_unit > 0:
+                canonical_candidates.append(duration_in_unit)
+            if int(getattr(row, "canonical_amount_count", 0) or 0) > 0:
+                canonical_candidates.append(canonical_amount)
+            if occurrence_count:
+                canonical_candidates.append(1.0)
+            canonical_value = max(canonical_candidates) if canonical_candidates else 0.0
+        else:
+            canonical_value = duration_in_unit + canonical_amount + occurrence_count
+        if getattr(row, "ambiguous_count", 0) or occurrence_count:
+            logger.info(
+                "habit_daily_policy overview_shapes habit=%s both=%s neither=%s",
+                habit.id,
+                int(getattr(row, "ambiguous_count", 0) or 0),
+                int(occurrence_count),
+            )
+        log_shadow_mismatch(
+            consumer="habits_overview",
+            subject_id=habit.user_id,
+            legacy=legacy_value,
+            canonical=canonical_value,
+        )
+        return canonical_value if daily_policy_v2_enabled(habit.user_id) else legacy_value
 
     def _build_overview_stat(
         self,
@@ -254,6 +276,48 @@ class HabitsService:
                 max_amount = func.coalesce(func.max(func.coalesce(HabitLogDB.amount, 0)), 0).label("max_amount")
                 amount_count = func.count(HabitLogDB.amount).label("amount_count")
                 entry_count = func.count(HabitLogDB.id).label("entry_count")
+                canonical_amount = func.coalesce(
+                    func.sum(
+                        case(
+                            (HabitLogDB.duration > 0, 0),
+                            else_=func.coalesce(HabitLogDB.amount, 0),
+                        )
+                    ),
+                    0,
+                ).label("canonical_amount")
+                canonical_amount_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_not(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("canonical_amount_count")
+                canonical_max_amount = func.max(
+                    case(
+                        (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_not(None)), HabitLogDB.amount),
+                        else_=None,
+                    )
+                ).label("canonical_max_amount")
+                occurrence_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(func.coalesce(HabitLogDB.duration, 0) <= 0, HabitLogDB.amount.is_(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("occurrence_count")
+                ambiguous_count = func.coalesce(
+                    func.sum(
+                        case(
+                            (and_(HabitLogDB.duration > 0, HabitLogDB.amount.is_not(None)), 1),
+                            else_=0,
+                        )
+                    ),
+                    0,
+                ).label("ambiguous_count")
 
                 logs_query = (
                     select(
@@ -265,6 +329,11 @@ class HabitsService:
                         max_amount,
                         amount_count,
                         entry_count,
+                        canonical_amount,
+                        canonical_amount_count,
+                        canonical_max_amount,
+                        occurrence_count,
+                        ambiguous_count,
                     )
                     .where(
                         HabitLogDB.habit_id.in_(habit_ids),

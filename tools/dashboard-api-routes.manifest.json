@@ -107,26 +107,6 @@
       "category": "import-boundary",
       "reason": "Import preview boundary that handles uploaded payloads."
     },
-    "apps/dashboard/app/api/import/runs/[runId]/cancel/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run action boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run status boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/start/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run action boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/[runId]/undo/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run undo boundary retained for upload workflow compatibility."
-    },
-    "apps/dashboard/app/api/import/runs/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import run listing/creation boundary retained for upload workflow compatibility."
-    },
     "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
       "category": "oauth-callback",
       "reason": "Third-party OAuth callback boundary."

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getServerBackendBaseUrl } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
+import { createHash } from 'node:crypto';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,6 +10,17 @@ const TINYBIRD_URL = process.env.TINYBIRD_API_URL || 'https://api.us-east.aws.ti
 
 function metricFactsReadsEnabled(): boolean {
   return ['1', 'true', 'yes', 'on'].includes((process.env.METRIC_FACTS_READS || '').toLowerCase());
+}
+
+function dailyPolicyV2Enabled(userId: string): boolean {
+  const raw = (process.env.RITUAL_DAILY_POLICY_V2 || '0').trim().toLowerCase();
+  if (!raw || ['0', 'false', 'off', 'no'].includes(raw)) return false;
+  const percentage = ['true', 'on', 'yes'].includes(raw)
+    ? 100
+    : Math.max(0, Math.min(100, Number.parseInt(raw.replace('%', ''), 10) || 0));
+  if (percentage >= 100) return true;
+  const bucket = createHash('sha256').update(userId).digest().readUInt32BE(0) % 100;
+  return bucket < percentage;
 }
 
 export async function GET(request: NextRequest) {
@@ -45,6 +57,7 @@ export async function GET(request: NextRequest) {
 
     const params = new URLSearchParams({
       user_id: userId,
+      policy_v2: dailyPolicyV2Enabled(userId) ? '1' : '0',
     });
 
     if (habitId) {

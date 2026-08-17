@@ -19,6 +19,7 @@ import {
   DEFAULT_METRICS_SUMMARY_DAYS,
 } from '../metrics-view.shared';
 import { perfError, startPerfTimer } from '@/lib/perf-debug';
+import { analyticsLoader, fetchAnalyticsJsonPair } from '@/lib/analytics-loader';
 import {
   getPayloadRows,
   getResponseRows,
@@ -70,6 +71,8 @@ export function useMetricsCanonicalEffects(ctx: MetricsDataEffectsContext) {
     }
 
     let cancelled = false;
+    let activeLoaderKey: string | null = null;
+    const loaderScope = `metrics-canonical:${user.id}`;
 
     const fetchCanonicalAnalytics = async () => {
       const useWideRange = !dateRange?.from || !dateRange?.to;
@@ -78,6 +81,7 @@ export function useMetricsCanonicalEffects(ctx: MetricsDataEffectsContext) {
         useWideRange ? `wide:${DEFAULT_METRICS_SPARKLINE_DAYS}:${DEFAULT_METRICS_SUMMARY_DAYS}` : `${dateRange!.from!.toISOString()}:${dateRange!.to!.toISOString()}`,
         realtimeRefreshTick,
       ].join('|');
+      activeLoaderKey = `canonical:${canonicalFetchKey}`;
 
       if (
         lastCanonicalFetchKeyRef.current === canonicalFetchKey &&
@@ -141,20 +145,16 @@ export function useMetricsCanonicalEffects(ctx: MetricsDataEffectsContext) {
       }
 
       try {
-        const [dailyRes, summaryRes] = await Promise.all([
-          fetch(`/api/analytics/habits/daily-values?output=daily&${dailyParams.toString()}`),
-          fetch(`/api/analytics/habits/daily-values?output=summary&${summaryParams.toString()}`),
-        ]);
-        if (cancelled) return;
-
-        if (!dailyRes.ok || !summaryRes.ok) {
-          throw new Error(`Tinybird canonical fetch failed (daily=${dailyRes.status}, summary=${summaryRes.status})`);
-        }
-
-        const [dailyPayload, summaryPayload] = await Promise.all([
-          dailyRes.json(),
-          summaryRes.json(),
-        ]);
+        const [dailyPayload, summaryPayload] = await analyticsLoader.load({
+          scope: loaderScope,
+          key: activeLoaderKey,
+          freshnessMs: 30_000,
+          request: (signal) => fetchAnalyticsJsonPair(
+            signal,
+            `/api/analytics/habits/daily-values?output=daily&${dailyParams.toString()}`,
+            `/api/analytics/habits/daily-values?output=summary&${summaryParams.toString()}`,
+          ),
+        });
         if (cancelled) return;
 
         const dataByHabit: MetricsRowsByHabit = {};
@@ -444,6 +444,7 @@ export function useMetricsCanonicalEffects(ctx: MetricsDataEffectsContext) {
 
     return () => {
       cancelled = true;
+      if (activeLoaderKey) analyticsLoader.release(loaderScope, activeLoaderKey);
     };
   }, [
     visibleMetricHabitIds.join(','),

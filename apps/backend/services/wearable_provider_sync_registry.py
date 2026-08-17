@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from typing import Any, Literal, Optional
 
 from services.wearable_provider_strategies import (
-    PROVIDER_STRATEGIES,
     list_provider_strategies,
     sync_provider_with_strategy,
 )
@@ -61,7 +60,7 @@ async def sync_wearable_provider_account(
             message="Apple Health sync uses the iOS companion background ingest pipeline.",
         )
 
-    if normalized_provider in PROVIDER_STRATEGIES:
+    if normalized_provider in list_provider_strategies():
         provider_result = await sync_provider_with_strategy(
             provider=normalized_provider,
             user_id=user_id,

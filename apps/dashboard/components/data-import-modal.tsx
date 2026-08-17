@@ -31,7 +31,7 @@ export function DataImportModal({
     error: imp.error, file: imp.file, fileInputRef: imp.fileInputRef,
     handleClose: imp.handleClose, handleDragLeave: imp.handleDragLeave, handleDragOver: imp.handleDragOver,
     handleDrop: imp.handleDrop, handleFetchPreview: imp.handleFetchPreview, handleFileSelect: imp.handleFileSelect,
-    isDragging: imp.isDragging, isLoading: imp.isLoading, setFile: imp.setFile,
+    isDragging: imp.isDragging, isLoading: imp.isLoading, handleChooseFile: imp.handleChooseFile,
     sourceConfig: imp.sourceConfig ?? null,
   };
 
@@ -54,17 +54,7 @@ export function DataImportModal({
             {imp.step !== "select_source" && imp.step !== "complete" && imp.step !== "history" && (
               <button
                 onClick={() => {
-                  if (imp.step === "upload_preview") {
-                    imp.setStep("select_source");
-                    imp.setSelectedSource(null);
-                    imp.setFile(null);
-                    imp.setPreviewData(null);
-                  } else if (imp.step === "configure") {
-                    imp.setStep("upload_preview");
-                    imp.setPreviewData(null);
-                  } else if (imp.step === "importing") {
-                    imp.handleCancelImport();
-                  }
+                  imp.handleBack();
                 }}
                 className="p-1 hover:bg-[#F3F3F3] transition-colors"
               >
@@ -73,7 +63,7 @@ export function DataImportModal({
             )}
             {imp.step === "history" && (
               <button
-                onClick={() => imp.setStep("select_source")}
+                onClick={imp.handleBack}
                 className="p-1 hover:bg-[#F3F3F3] transition-colors"
               >
                 <ChevronLeft className="w-4 h-4 text-gray-600" />

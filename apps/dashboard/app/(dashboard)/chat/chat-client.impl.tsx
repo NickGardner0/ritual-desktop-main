@@ -355,6 +355,7 @@ export function ChatClient() {
       headers: { 'Content-Type': 'application/json' },
     });
     if (!response.ok) {
+      if (response.status === 409) await loadQueueItems(conversationId);
       toast.error('Failed to start queued prompt.');
       return;
     }
@@ -366,17 +367,15 @@ export function ChatClient() {
     }
 
     const success = await sendMessage(data.item.prompt_text);
-    await fetch(`/api/conversations/${conversationId}/queue/${itemId}`, {
-      method: 'PATCH',
+    await fetch(`/api/conversations/${conversationId}/queue/${itemId}/${success ? 'complete' : 'fail'}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        status: success ? 'completed' : 'failed',
         error: success ? null : { message: 'Queued prompt failed during execution.' },
-        auto_run: queueAutoRun,
       }),
     });
     await loadQueueItems(conversationId);
-  }, [conversationId, isLoading, loadQueueItems, queueAutoRun, sendMessage]);
+  }, [conversationId, isLoading, loadQueueItems, sendMessage]);
 
   useEffect(() => {
     if (!queueAutoRun || isLoading || !conversationId) return;

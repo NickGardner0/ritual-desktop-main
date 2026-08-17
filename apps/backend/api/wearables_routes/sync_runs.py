@@ -50,6 +50,7 @@ from services.privacy_policy import (
     request_privacy_mode,
 )
 from services.wearable_provider_adapters import get_provider_adapter, list_provider_defs
+from services.wearable_provider_definitions import UnsupportedProviderCapability, require_async_backfill
 from services.wearable_provider_sync_registry import sync_wearable_provider_account
 
 from api.wearables_routes.deps import WearablesRouterDeps
@@ -260,6 +261,20 @@ def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> No
         user_id = body.get("user_id")
         if not isinstance(user_id, str) or not user_id.strip():
             raise HTTPException(status_code=400, detail="user_id is required")
+        try:
+            definition = require_async_backfill(provider)
+        except ValueError as exc:
+            if isinstance(exc, UnsupportedProviderCapability):
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "code": "unsupported_provider_capability",
+                        "provider": exc.definition.provider,
+                        "capability": exc.capability,
+                        "message": str(exc),
+                    },
+                ) from exc
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
         try:
             job = await wearable_ingest_job_service.enqueue_backfill_job(
                 user_id=user_id,

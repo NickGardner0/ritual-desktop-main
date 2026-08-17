@@ -79,20 +79,20 @@ SQL >
             )) = 1,
             max(
                 multiIf(
-                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
-                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
-                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
-                    amount > 0, amount,
+                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount,
                     duration > 0, duration * 1.0,
                     1.0
                 )
             ),
             SUM(
                 multiIf(
-                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(amount > 0, amount, 1.0)),
-                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(amount > 0, amount, 1.0)),
-                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(amount > 0, amount, 1.0)),
-                    amount > 0, amount,
+                    lowerUTF8(ifNull(unit, '')) LIKE '%hour%', if(duration > 0, duration / 3600.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%minute%', if(duration > 0, duration / 60.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    lowerUTF8(ifNull(unit, '')) LIKE '%second%', if(duration > 0, duration * 1.0, if(if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount, 1.0)),
+                    if({{ Int8(policy_v2, 0) }} = 1, isNotNull(amount), amount > 0), amount,
                     duration > 0, duration * 1.0,
                     1.0
                 )
@@ -123,7 +123,11 @@ SQL >
             COUNT(*)
         ) AS completed_count
     FROM deduplicated_logs
-    WHERE status = 'completed'
+    WHERE if(
+        {{ Int8(policy_v2, 0) }} = 1,
+        lowerUTF8(ifNull(status, '')) IN ('', 'completed', 'success'),
+        status = 'completed'
+    )
     GROUP BY habit_id, habit_name, date
 
 NODE current_period_summary

@@ -17,17 +17,22 @@ function sliceBetween(source, start, end) {
 }
 
 test('Apple Screen Time card is active and directly follows Computer Use', () => {
-  const cardsSource = read('app/(dashboard)/integrations/integrations-client.cards.tsx');
+  const registrySource = read('app/(dashboard)/integrations/plugins/registry.ts');
+  const orderedRegistry = sliceBetween(
+    registrySource,
+    'export const INTEGRATION_PLUGINS = [',
+    '] satisfies readonly IntegrationPlugin[];',
+  );
   const iphoneCardSource = read('app/(dashboard)/integrations/plugins/iphone-time/card.tsx');
   const computerCardSource = read('app/(dashboard)/integrations/plugins/computer-tracking/card.tsx');
 
-  const computerIndex = cardsSource.indexOf("'computer'");
-  const screenTimeIndex = cardsSource.indexOf("'apple-screen-time'");
-  const appleWatchIndex = cardsSource.indexOf("'apple-watch'");
+  const computerIndex = orderedRegistry.indexOf('computerTracking');
+  const screenTimeIndex = orderedRegistry.indexOf('iphoneTime');
+  const appleWatchIndex = orderedRegistry.indexOf('appleHealth');
 
-  assert.ok(computerIndex >= 0, 'Computer Use card should exist in orderedIds');
-  assert.ok(screenTimeIndex >= 0, 'Apple Screen Time card should exist in orderedIds');
-  assert.ok(appleWatchIndex >= 0, 'Apple Watch card should exist in orderedIds');
+  assert.ok(computerIndex >= 0, 'Computer Use should exist in the integration registry');
+  assert.ok(screenTimeIndex >= 0, 'Apple Screen Time should exist in the integration registry');
+  assert.ok(appleWatchIndex >= 0, 'Apple Watch should exist in the integration registry');
   assert.ok(computerIndex < screenTimeIndex, 'Apple Screen Time should come after Computer Use');
   assert.ok(screenTimeIndex < appleWatchIndex, 'Apple Screen Time should be in the first row before Apple Watch');
 

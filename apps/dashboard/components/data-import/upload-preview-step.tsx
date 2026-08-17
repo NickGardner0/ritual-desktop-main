@@ -18,7 +18,7 @@ type Props = {
   handleFileSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   isDragging: boolean;
   isLoading: boolean;
-  setFile: (file: File | null) => void;
+  handleChooseFile: (file: File | null) => void;
   sourceConfig: DataSourceConfig | null;
 };
 
@@ -34,7 +34,7 @@ export function UploadPreviewStep({
   handleFileSelect,
   isDragging,
   isLoading,
-  setFile,
+  handleChooseFile,
   sourceConfig,
 }: Props) {
   if (!sourceConfig) return null;
@@ -68,7 +68,7 @@ export function UploadPreviewStep({
               {(file.size / 1024 / 1024).toFixed(1)} MB
             </p>
             <button
-              onClick={(e) => { e.stopPropagation(); setFile(null); }}
+              onClick={(e) => { e.stopPropagation(); handleChooseFile(null); }}
               className="text-xs text-gray-500 hover:text-gray-700 underline mt-1"
             >
               Choose different file

@@ -189,7 +189,7 @@ class WearableProviderAdapterTests(unittest.TestCase):
         providers = {item["provider"]: item for item in list_provider_defs()}
         self.assertEqual(providers["apple_health"]["delivery_modes"], ["client_sdk"])
         self.assertTrue(providers["apple_health"]["supports_anchor_confirmed_ingest"])
-        self.assertTrue(providers["garmin"]["supports_async_backfill"])
+        self.assertFalse(providers["garmin"]["supports_async_backfill"])
 
 
 class WearableCapabilityPlanningTests(unittest.TestCase):

@@ -34,25 +34,6 @@ StrategyStatus = Literal["success", "partial", "retryable_failed", "terminal_fai
 
 
 @dataclass(frozen=True)
-class ProviderRetryPolicy:
-    max_attempts: int = 1
-    retryable_errors: tuple[str, ...] = ("timeout", "rate_limit", "temporary")
-
-
-@dataclass(frozen=True)
-class WearableProviderCapabilities:
-    provider: str
-    auth_type: str
-    supports_pull: bool
-    supports_webhook: bool
-    supports_backfill: bool
-    supported_metrics: tuple[str, ...]
-    checkpoint_type: str
-    retry_policy: ProviderRetryPolicy = ProviderRetryPolicy()
-    supports_raw_replay: bool = True
-
-
-@dataclass(frozen=True)
 class ProviderStrategyContext:
     user_id: str
     services: Any
@@ -73,8 +54,6 @@ class ProviderStrategyResult:
 
 
 class WearableProviderStrategy(Protocol):
-    capabilities: WearableProviderCapabilities
-
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
         ...
 
@@ -168,24 +147,6 @@ def _classify_provider_exception(provider: str, exc: Exception) -> ProviderStrat
 
 
 class WhoopProviderStrategy:
-    capabilities = WearableProviderCapabilities(
-        provider="whoop",
-        auth_type="oauth",
-        supports_pull=True,
-        supports_webhook=True,
-        supports_backfill=True,
-        supported_metrics=(
-            "sleep_total",
-            "workout",
-            "recovery_score",
-            "heart_rate",
-            "steps",
-            "distance",
-        ),
-        checkpoint_type="last_successful_post_ingest",
-        retry_policy=ProviderRetryPolicy(max_attempts=1),
-    )
-
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
         try:
             fetched = await WhoopProviderClient(context.services.whoop_service).fetch(
@@ -221,25 +182,6 @@ class WhoopProviderStrategy:
 
 
 class OuraProviderStrategy:
-    capabilities = WearableProviderCapabilities(
-        provider="oura",
-        auth_type="oauth",
-        supports_pull=True,
-        supports_webhook=False,
-        supports_backfill=True,
-        supported_metrics=(
-            "sleep_total",
-            "sleep_score",
-            "workout",
-            "steps",
-            "heart_rate",
-            "hrv_rmssd",
-            "readiness_score",
-        ),
-        checkpoint_type="connection_last_sync_at",
-        retry_policy=ProviderRetryPolicy(max_attempts=1),
-    )
-
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
         try:
             fetched = await OuraProviderClient(context.services.oura_service).fetch(
@@ -280,18 +222,6 @@ class OuraProviderStrategy:
 
 
 class GarminProviderStrategy:
-    capabilities = WearableProviderCapabilities(
-        provider="garmin",
-        auth_type="oauth",
-        supports_pull=True,
-        supports_webhook=True,
-        supports_backfill=False,
-        supported_metrics=("sleep_total", "workout", "steps", "distance", "heart_rate"),
-        checkpoint_type="webhook_event_time",
-        retry_policy=ProviderRetryPolicy(max_attempts=1),
-        supports_raw_replay=True,
-    )
-
     async def sync(self, context: ProviderStrategyContext) -> ProviderStrategyResult:
         try:
             fetched = await GarminProviderClient(context.services.garmin_service).fetch(
@@ -322,15 +252,10 @@ class GarminProviderStrategy:
             return _classify_provider_exception("garmin", exc)
 
 
-PROVIDER_STRATEGIES: dict[str, WearableProviderStrategy] = {
-    "garmin": GarminProviderStrategy(),
-    "oura": OuraProviderStrategy(),
-    "whoop": WhoopProviderStrategy(),
-}
-
-
 def list_provider_strategies() -> list[str]:
-    return sorted(PROVIDER_STRATEGIES)
+    from services.wearable_provider_definitions import PROVIDER_DEFINITIONS
+
+    return sorted(provider for provider, definition in PROVIDER_DEFINITIONS.items() if definition.strategy is not None)
 
 
 async def sync_provider_with_strategy(
@@ -343,7 +268,9 @@ async def sync_provider_with_strategy(
     full_history: bool = False,
 ) -> ProviderStrategyResult:
     normalized_provider = provider.strip().lower()
-    strategy = PROVIDER_STRATEGIES.get(normalized_provider)
+    from services.wearable_provider_definitions import get_provider_definition
+
+    strategy = get_provider_definition(normalized_provider).strategy
     if strategy is None:
         raise ValueError(f"Unsupported wearable provider strategy: {normalized_provider}")
     return await strategy.sync(

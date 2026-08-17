@@ -418,10 +418,10 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                               type="button"
                               onClick={async () => {
                                 if (!conversationId) return;
-                                await fetch(`/api/conversations/${conversationId}/queue/${item.id}`, {
-                                  method: 'PATCH',
+                                await fetch(`/api/conversations/${conversationId}/queue/${item.id}/cancel`, {
+                                  method: 'POST',
                                   headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ status: 'canceled', auto_run: queueAutoRun }),
+                                  body: JSON.stringify({}),
                                 });
                                 await loadQueueItems(conversationId);
                               }}

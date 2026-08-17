@@ -8,23 +8,37 @@ from types import SimpleNamespace
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from services.wearable_provider_strategies import (  # noqa: E402
-    PROVIDER_STRATEGIES,
     ProviderStrategyContext,
     list_provider_strategies,
     sync_provider_with_strategy,
+)
+from services.wearable_provider_definitions import (  # noqa: E402
+    PROVIDER_DEFINITIONS,
+    UnsupportedProviderCapability,
+    require_async_backfill,
+    serialize_provider_definition,
 )
 
 
 class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
     def test_provider_strategies_advertise_explicit_capabilities(self):
         self.assertEqual(list_provider_strategies(), ["garmin", "oura", "whoop"])
-        self.assertTrue(PROVIDER_STRATEGIES["whoop"].capabilities.supports_backfill)
-        self.assertEqual(PROVIDER_STRATEGIES["oura"].capabilities.auth_type, "oauth")
-        self.assertTrue(PROVIDER_STRATEGIES["garmin"].capabilities.supports_webhook)
+        self.assertTrue(PROVIDER_DEFINITIONS["whoop"].capability.supports_backfill)
+        self.assertEqual(PROVIDER_DEFINITIONS["oura"].capability.auth_method, "oauth")
+        self.assertTrue(PROVIDER_DEFINITIONS["garmin"].capability.supports_webhook)
+        self.assertFalse(PROVIDER_DEFINITIONS["garmin"].capability.supports_async_backfill)
         self.assertIn(
             "sleep_total",
-            PROVIDER_STRATEGIES["whoop"].capabilities.supported_metrics,
+            PROVIDER_DEFINITIONS["whoop"].supported_metrics,
         )
+
+    def test_public_capability_and_job_admission_share_the_definition(self):
+        garmin = PROVIDER_DEFINITIONS["garmin"]
+        self.assertFalse(serialize_provider_definition(garmin)["supports_async_backfill"])
+        with self.assertRaises(UnsupportedProviderCapability) as context:
+            require_async_backfill("garmin")
+        self.assertEqual(context.exception.capability, "async_backfill")
+        self.assertEqual(require_async_backfill("whoop").provider, "whoop")
 
     async def test_whoop_strategy_surfaces_partial_post_ingest_failure(self):
         class FakeWhoop:
@@ -38,7 +52,7 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
                     "canonical_sync_error": "fact rebuild failed",
                 }
 
-        result = await PROVIDER_STRATEGIES["whoop"].sync(
+        result = await PROVIDER_DEFINITIONS["whoop"].strategy.sync(
             ProviderStrategyContext(
                 user_id="user_1",
                 services=SimpleNamespace(whoop_service=FakeWhoop()),
@@ -113,7 +127,7 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
             async def fetch_whoop_sync_payload(self, *_args, **_kwargs):
                 raise TimeoutError("Provider request timed out")
 
-        result = await PROVIDER_STRATEGIES["whoop"].sync(
+        result = await PROVIDER_DEFINITIONS["whoop"].strategy.sync(
             ProviderStrategyContext(
                 user_id="user_1",
                 services=SimpleNamespace(whoop_service=TimeoutWhoop()),
@@ -131,7 +145,7 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
             async def fetch_oura_sync_payload(self, *_args, **_kwargs):
                 raise ValueError("Unauthorized: invalid token")
 
-        result = await PROVIDER_STRATEGIES["oura"].sync(
+        result = await PROVIDER_DEFINITIONS["oura"].strategy.sync(
             ProviderStrategyContext(
                 user_id="user_1",
                 services=SimpleNamespace(oura_service=AuthOura()),
@@ -147,7 +161,7 @@ class WearableProviderStrategyTests(unittest.IsolatedAsyncioTestCase):
             async def fetch_garmin_account_payload(self, *_args, **_kwargs):
                 raise RuntimeError("service unavailable")
 
-        result = await PROVIDER_STRATEGIES["garmin"].sync(
+        result = await PROVIDER_DEFINITIONS["garmin"].strategy.sync(
             ProviderStrategyContext(
                 user_id="user_1",
                 services=SimpleNamespace(garmin_service=UnavailableGarmin()),

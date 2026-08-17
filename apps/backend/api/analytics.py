@@ -8,11 +8,12 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB
 from services.analytics_service import analytics_service
+from services.habit_daily_policy import daily_policy_v2_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -327,12 +328,20 @@ def create_analytics_router(
                 results = []
                 for habit in habits:
                     # Get all log dates for this habit, sorted ascending
+                    completed_filter = HabitLogDB.status == "completed"
+                    if daily_policy_v2_enabled(current_user["id"]):
+                        completed_filter = or_(
+                            HabitLogDB.status.is_(None),
+                            HabitLogDB.status == "",
+                            HabitLogDB.status == "completed",
+                            HabitLogDB.status == "success",
+                        )
                     log_result = await session.execute(
                         select(HabitLogDB.date)
                         .where(
                             and_(
                                 HabitLogDB.habit_id == habit.id,
-                                HabitLogDB.status == "completed",
+                                completed_filter,
                             )
                         )
                         .order_by(HabitLogDB.date.asc())

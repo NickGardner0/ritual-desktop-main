@@ -1,15 +1,18 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import type React from "react";
 import {
   DATA_SOURCES,
   type AggregationPeriod,
   type ConflictPolicy,
   type DataSource,
   type ImportPreviewResponse,
-  type ImportRun,
-  type ImportRunSummary,
 } from "../data-import-modal.config";
+import {
+  importWorkflowReducer,
+  initialImportWorkflowState,
+} from "./import-workflow";
 
 const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
 
@@ -21,63 +24,49 @@ export type ImportStep =
   | "complete"
   | "history";
 
+const stepByState = {
+  selecting: "select_source",
+  uploading: "upload_preview",
+  configuring: "configure",
+  importing: "importing",
+  complete: "complete",
+  history: "history",
+} as const satisfies Record<string, ImportStep>;
+
 export function useDataImport(onClose: () => void, onImportComplete: () => void) {
-  // State
-  const [step, setStep] = useState<ImportStep>("select_source");
-  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [workflow, dispatch] = useReducer(importWorkflowReducer, initialImportWorkflowState);
   const [isDragging, setIsDragging] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  
-  // Preview state
-  const [previewData, setPreviewData] = useState<ImportPreviewResponse | null>(null);
+  const [auxLoading, setAuxLoading] = useState(false);
   const [showAllItems, setShowAllItems] = useState(false);
-  
-  // Import options
   const [conflictPolicy, setConflictPolicy] = useState<ConflictPolicy>("skip_existing");
   const [aggregation, setAggregation] = useState<AggregationPeriod>("daily");
-  const [dateRange, setDateRange] = useState<string>("all");
-  const [customStartDate, setCustomStartDate] = useState<string>("");
-  const [customEndDate, setCustomEndDate] = useState<string>("");
-  
-  // V2: Privacy controls
-  const [deleteFileAfterParsing, setDeleteFileAfterParsing] = useState<boolean>(true);
-  
-  // CSV mapping state
+  const [dateRange, setDateRange] = useState("all");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
+  const [deleteFileAfterParsing, setDeleteFileAfterParsing] = useState(true);
   const [csvMapping, setCsvMapping] = useState<{
     dateColumn: string;
     valueColumns: { column: string; habitName: string; unit: string }[];
   }>({ dateColumn: "", valueColumns: [] });
-  
-  // Import progress state
-  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
-  const [importRunId, setImportRunId] = useState<string | null>(null);
-  const [importResult, setImportResult] = useState<ImportRunSummary | null>(null);
-  
-  // Import history
-  const [importHistory, setImportHistory] = useState<ImportRun[]>([]);
-  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Cleanup polling on unmount (now uses setTimeout instead of setInterval)
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearTimeout(pollIntervalRef.current);
-      }
-    };
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const operationAbortRef = useRef<AbortController | null>(null);
+  const attemptRef = useRef(0);
+
+  const cancelActiveAttempt = useCallback(() => {
+    attemptRef.current += 1;
+    operationAbortRef.current?.abort();
+    operationAbortRef.current = null;
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
   }, []);
 
-  // Reset state
+  useEffect(() => cancelActiveAttempt, [cancelActiveAttempt]);
+
   const resetState = useCallback(() => {
-    setStep("select_source");
-    setSelectedSource(null);
-    setFile(null);
-    setError(null);
-    setPreviewData(null);
+    cancelActiveAttempt();
+    dispatch({ type: "RESET" });
     setShowAllItems(false);
     setConflictPolicy("skip_existing");
     setAggregation("daily");
@@ -85,426 +74,301 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
     setCustomStartDate("");
     setCustomEndDate("");
     setCsvMapping({ dateColumn: "", valueColumns: [] });
-    setImportProgress({ current: 0, total: 0 });
-    setImportRunId(null);
-    setImportResult(null);
-    if (pollIntervalRef.current) {
-      clearTimeout(pollIntervalRef.current);
-    }
-  }, []);
+    setIsDragging(false);
+  }, [cancelActiveAttempt]);
 
   const handleClose = useCallback(() => {
     resetState();
     onClose();
-  }, [resetState, onClose]);
+  }, [onClose, resetState]);
 
-  // Source selection
   const handleSelectSource = useCallback((source: DataSource) => {
-    setSelectedSource(source);
-    setStep("upload_preview");
-    setError(null);
+    dispatch({ type: "SELECT_SOURCE", source });
   }, []);
 
-  // Tauri file drop handling
+  const handleChooseFile = useCallback((file: File | null) => {
+    dispatch({ type: "SET_FILE", file });
+  }, []);
+
+  const step = stepByState[workflow.kind];
+  const selectedSource = "source" in workflow ? workflow.source : null;
+  const file = "file" in workflow ? workflow.file : null;
+  const previewData = "preview" in workflow ? workflow.preview : null;
+  const importRunId = "runId" in workflow ? workflow.runId : null;
+  const importResult = workflow.kind === "complete" ? workflow.result : null;
+  const importProgress = workflow.kind === "importing" ? workflow.progress : { current: 0, total: 0 };
+  const importHistory = workflow.kind === "history" ? workflow.runs : [];
+  const isLoadingHistory = workflow.kind === "history" && workflow.request === "pending";
+  const error = "error" in workflow ? workflow.error : null;
+  const isLoading = auxLoading || ("request" in workflow && workflow.request === "pending");
+
   useEffect(() => {
-    if (!isTauri || step !== "upload_preview") return;
-    
-    let unlisten: (() => void) | undefined;
-    
-    const setupTauriFileDrop = async () => {
+    if (!isTauri || workflow.kind !== "uploading") return;
+    let disposed = false;
+    let cleanup: (() => void) | undefined;
+
+    void (async () => {
       try {
-        // Dynamic import of Tauri APIs
         const { listen } = await import("@tauri-apps/api/event");
-        
-        // Listen for file drop events
-        unlisten = await listen<string[]>("tauri://file-drop", async (event) => {
-          const filePaths = event.payload;
-          
-          if (filePaths && filePaths.length > 0) {
-            const filePath = filePaths[0];
-            
-            // Read the file using Tauri's fs API
-            try {
-              const { readFile } = await import("@tauri-apps/plugin-fs");
-              const fileName = filePath.split("/").pop() || filePath.split("\\").pop() || "file";
-              
-              // Check if it's an acceptable file type
-              const acceptedExtensions = [".csv", ".xlsx", ".xls", ".xml", ".zip", ".json", ".png", ".jpg", ".jpeg"];
-              const hasAcceptedExt = acceptedExtensions.some(ext => fileName.toLowerCase().endsWith(ext));
-              
-              if (!hasAcceptedExt) {
-                setError("Unsupported file type");
-                return;
-              }
-              
-              // Read file content
-              const contents = await readFile(filePath);
-              
-              // Create a File object from the binary data
-              const mimeTypes: Record<string, string> = {
-                ".csv": "text/csv",
-                ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ".xls": "application/vnd.ms-excel",
-                ".xml": "application/xml",
-                ".zip": "application/zip",
-                ".json": "application/json",
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-              };
-              
-              const ext = acceptedExtensions.find(e => fileName.toLowerCase().endsWith(e)) || ".csv";
-              const mimeType = mimeTypes[ext] || "application/octet-stream";
-              
-              // Create File from Uint8Array - spread to regular array for compatibility
-              const droppedFile = new File([new Uint8Array(contents)], fileName, { type: mimeType });
-              setFile(droppedFile);
-              setError(null);
-              setIsDragging(false);
-            } catch (readErr) {
-              console.error("Failed to read file:", readErr);
-              setError("Failed to read dropped file");
+        const unlistenDrop = await listen<string[]>("tauri://file-drop", async (event) => {
+          const filePath = event.payload?.[0];
+          if (!filePath) return;
+          try {
+            const fileName = filePath.split("/").pop() || filePath.split("\\").pop() || "file";
+            const acceptedExtensions = [".csv", ".xlsx", ".xls", ".xml", ".zip", ".json", ".png", ".jpg", ".jpeg"];
+            const ext = acceptedExtensions.find((value) => fileName.toLowerCase().endsWith(value));
+            if (!ext) {
+              dispatch({ type: "REQUEST_FAILED", error: "Unsupported file type" });
+              return;
             }
+            const { readFile } = await import("@tauri-apps/plugin-fs");
+            const contents = await readFile(filePath);
+            const mimeTypes: Record<string, string> = {
+              ".csv": "text/csv",
+              ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              ".xls": "application/vnd.ms-excel",
+              ".xml": "application/xml",
+              ".zip": "application/zip",
+              ".json": "application/json",
+              ".png": "image/png",
+              ".jpg": "image/jpeg",
+              ".jpeg": "image/jpeg",
+            };
+            handleChooseFile(new File([new Uint8Array(contents)], fileName, { type: mimeTypes[ext] }));
+            setIsDragging(false);
+          } catch (error) {
+            console.error("Failed to read dropped file:", error);
+            dispatch({ type: "REQUEST_FAILED", error: "Failed to read dropped file" });
           }
         });
-        
-        // Also listen for hover state
-        const unlistenHover = await listen("tauri://file-drop-hover", () => {
-          setIsDragging(true);
-        });
-        
-        const unlistenCancelled = await listen("tauri://file-drop-cancelled", () => {
-          setIsDragging(false);
-        });
-        
-        // Return combined cleanup
-        const originalUnlisten = unlisten;
-        unlisten = () => {
-          originalUnlisten?.();
-          unlistenHover?.();
-          unlistenCancelled?.();
+        const unlistenHover = await listen("tauri://file-drop-hover", () => setIsDragging(true));
+        const unlistenCancelled = await listen("tauri://file-drop-cancelled", () => setIsDragging(false));
+        cleanup = () => {
+          unlistenDrop();
+          unlistenHover();
+          unlistenCancelled();
         };
-        
+        if (disposed) cleanup();
       } catch {
-        // Tauri file drop not available (running in browser)
+        // Browser builds do not expose Tauri file-drop events.
       }
-    };
-    
-    setupTauriFileDrop();
-    
+    })();
+
     return () => {
-      unlisten?.();
+      disposed = true;
+      cleanup?.();
     };
-  }, [step]);
+  }, [handleChooseFile, workflow.kind]);
 
-  // File handling - fallback for non-Tauri (browser) environments
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isTauri) {
-      setIsDragging(true);
-    }
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isTauri) setIsDragging(true);
   }, []);
-  
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!isTauri) {
-      setIsDragging(false);
-    }
+
+  const handleDragLeave = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isTauri) setIsDragging(false);
   }, []);
-  
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
     setIsDragging(false);
-    
-    // Only handle in non-Tauri mode (browser fallback)
-    if (!isTauri) {
-      const droppedFile = e.dataTransfer.files[0];
-      if (droppedFile) {
-        setFile(droppedFile);
-        setError(null);
-      }
-    }
-  }, []);
+    if (!isTauri) handleChooseFile(event.dataTransfer.files[0] ?? null);
+  }, [handleChooseFile]);
 
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setError(null);
-    }
-  }, []);
+  const handleFileSelect = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    handleChooseFile(event.target.files?.[0] ?? null);
+  }, [handleChooseFile]);
 
-  // Fetch import preview (Parse → Preview)
-  // OPTIMIZED: Options now in FormData body instead of header
   const handleFetchPreview = useCallback(async () => {
-    if (!file || !selectedSource) return;
-    
-    setIsLoading(true);
-    setError(null);
-    
+    if (workflow.kind !== "uploading" || !workflow.file) return;
+    cancelActiveAttempt();
+    const controller = new AbortController();
+    operationAbortRef.current = controller;
+    dispatch({ type: "REQUEST_PREVIEW" });
+
     try {
       const formData = new FormData();
-      formData.append("file", file);
-      formData.append("source", selectedSource);
-      
-      // Build options - now passed in FormData body instead of header
-      const options: Record<string, unknown> = {
-        aggregation,
-        conflict_policy: conflictPolicy,
-      };
-      
+      formData.append("file", workflow.file);
+      formData.append("source", workflow.source);
+      const options: Record<string, unknown> = { aggregation, conflict_policy: conflictPolicy };
       if (dateRange === "custom" && customStartDate && customEndDate) {
         options.date_range_start = customStartDate;
         options.date_range_end = customEndDate;
       }
-      
-      if (selectedSource === "csv" && csvMapping.dateColumn) {
+      if (workflow.source === "csv" && csvMapping.dateColumn) {
         options.date_column = csvMapping.dateColumn;
-        options.column_mappings = csvMapping.valueColumns.map(v => ({
-          source_column: v.column,
-          habit_name: v.habitName,
-          unit_type: v.unit,
+        options.column_mappings = csvMapping.valueColumns.map((value) => ({
+          source_column: value.column,
+          habit_name: value.habitName,
+          unit_type: value.unit,
         }));
       }
-      
-      // OPTIMIZATION: Options now in FormData body (more robust than header)
       formData.append("options", JSON.stringify(options));
-      
-      const response = await fetch(`/api/import/preview?source=${selectedSource}`, {
+      const response = await fetch(`/api/import/preview?source=${workflow.source}`, {
         method: "POST",
         body: formData,
+        signal: controller.signal,
       });
-      
       const result = await response.json();
-      
       if (!response.ok) {
-        // Handle specific error codes
         if (result.detail?.code === "OPENAI_KEY_MISSING") {
           throw new Error("Screenshot import requires an OpenAI API key. Please contact your administrator.");
         }
         throw new Error(result.detail || result.error || "Failed to analyze file");
       }
-      
-      setPreviewData(result);
-      setImportRunId(result.import_run_id);
-      
-      // Show if we resumed an existing run
-      if (result.resumed) {
-        console.log("♻️ Resumed existing import run");
-      }
-      
-      // Auto-detect CSV columns if present
-      if (result.detected_columns && selectedSource === "csv") {
-        const dateCol = result.detected_columns.find((h: string) => 
-          h.toLowerCase().includes("date") || h.toLowerCase().includes("time")
-        );
-        const valueCol = result.detected_columns.find((h: string) => 
-          h.toLowerCase().includes("value") || 
-          h.toLowerCase().includes("amount") || 
-          h.toLowerCase().includes("count") ||
-          h.toLowerCase().includes("steps")
-        );
-        
-        if (dateCol) {
-          setCsvMapping(prev => ({
-            ...prev,
-            dateColumn: dateCol,
-            valueColumns: valueCol ? [{ column: valueCol, habitName: valueCol, unit: "" }] : [],
+
+      const preview = result as ImportPreviewResponse;
+      if (preview.detected_columns && workflow.source === "csv") {
+        const dateColumn = preview.detected_columns.find((heading: string) => /date|time/i.test(heading));
+        const valueColumn = preview.detected_columns.find((heading: string) => /value|amount|count|steps/i.test(heading));
+        if (dateColumn) {
+          setCsvMapping((current) => ({
+            ...current,
+            dateColumn,
+            valueColumns: valueColumn ? [{ column: valueColumn, habitName: valueColumn, unit: "" }] : [],
           }));
         }
       }
-      
-      setStep("configure");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to analyze file");
-    } finally {
-      setIsLoading(false);
+      dispatch({ type: "PREVIEW_SUCCEEDED", preview });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        dispatch({ type: "REQUEST_FAILED", error: error instanceof Error ? error.message : "Failed to analyze file" });
+      }
     }
-  }, [file, selectedSource, aggregation, conflictPolicy, dateRange, customStartDate, customEndDate, csvMapping]);
+  }, [aggregation, cancelActiveAttempt, conflictPolicy, csvMapping, customEndDate, customStartDate, dateRange, workflow]);
 
-  // Start the actual import
-  // OPTIMIZED: Uses exponential backoff for polling instead of fixed 1s
   const handleStartImport = useCallback(async () => {
-    if (!importRunId) {
-      setError("No import run ID. Please try uploading again.");
-      return;
-    }
-    
-    setStep("importing");
-    setIsLoading(true);
-    setError(null);
-    
+    if (workflow.kind !== "configuring") return;
+    cancelActiveAttempt();
+    const attempt = attemptRef.current;
+    const controller = new AbortController();
+    operationAbortRef.current = controller;
+    dispatch({ type: "IMPORT_STARTED", attempt });
+
+    const fail = (message: string) => dispatch({ type: "IMPORT_FAILED", attempt, error: message });
     try {
-      const response = await fetch(`/api/import/runs/${importRunId}/start`, {
+      const response = await fetch(`/api/import/runs/${workflow.runId}/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          import_run_id: importRunId,
-          conflict_policy: conflictPolicy,
-          create_habits: true,
-        }),
+        body: JSON.stringify({ import_run_id: workflow.runId, conflict_policy: conflictPolicy, create_habits: true }),
+        signal: controller.signal,
       });
-      
       const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.detail || result.error || "Import failed");
-      }
-      
-      // Poll for status updates if not immediately complete
+      if (!response.ok) throw new Error(result.detail || result.error || "Import failed");
       if (result.status === "completed") {
-        setImportResult(result.summary);
-        setStep("complete");
+        dispatch({ type: "IMPORT_COMPLETED", attempt, result: result.summary });
         onImportComplete();
-      } else {
-        // OPTIMIZATION: Exponential backoff polling
-        // - 250ms for first 2s (fast feedback)
-        // - 1s for next 10s
-        // - 2s thereafter
-        let pollCount = 0;
-        const maxPolls = 600; // Max ~20 minutes of polling for large background imports
-        
-        const getPollInterval = (count: number): number => {
-          if (count < 8) return 250;   // First 2s: every 250ms
-          if (count < 18) return 1000; // Next 10s: every 1s
-          return 2000;                  // After: every 2s
-        };
-        
-        const pollStatus = async () => {
-          if (pollCount >= maxPolls) {
-            setError("Import is still running in the background. Check Import History for live status.");
-            setStep("configure");
+        return;
+      }
+
+      let pollCount = 0;
+      const interval = (count: number) => (count < 8 ? 250 : count < 18 ? 1000 : 2000);
+      const poll = async (): Promise<void> => {
+        if (controller.signal.aborted || attempt !== attemptRef.current) return;
+        if (pollCount >= 600) {
+          fail("Import is still running in the background. Check Import History for live status.");
+          return;
+        }
+        try {
+          const statusResponse = await fetch(`/api/import/runs/${workflow.runId}`, { signal: controller.signal });
+          const status = await statusResponse.json();
+          if (status.progress_total > 0) {
+            dispatch({
+              type: "IMPORT_PROGRESS",
+              attempt,
+              current: status.progress_current,
+              total: status.progress_total,
+            });
+          }
+          if (status.status === "completed") {
+            dispatch({ type: "IMPORT_COMPLETED", attempt, result: status.summary });
+            onImportComplete();
             return;
           }
-          
-          try {
-            const statusRes = await fetch(`/api/import/runs/${importRunId}`);
-            const statusData = await statusRes.json();
-            
-            if (statusData.progress_total > 0) {
-              setImportProgress({
-                current: statusData.progress_current,
-                total: statusData.progress_total,
-              });
-            }
-            
-            if (statusData.status === "completed") {
-              setImportResult(statusData.summary);
-              setStep("complete");
-              onImportComplete();
-              return; // Stop polling
-            } else if (statusData.status === "failed" || statusData.status === "canceled") {
-              setError(statusData.errors?.[0]?.error || "Import failed");
-              setStep("configure");
-              return; // Stop polling
-            }
-            
-            // Schedule next poll with exponential backoff
-            pollCount++;
-            pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(pollCount));
-          } catch {
-            // On error, retry with backoff
-            pollCount++;
-            pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(pollCount));
+          if (status.status === "failed" || status.status === "canceled") {
+            fail(status.errors?.[0]?.error || "Import failed");
+            return;
           }
-        };
-        
-        // Start polling immediately
-        pollIntervalRef.current = setTimeout(pollStatus, getPollInterval(0));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Import failed");
-      setStep("configure");
-    } finally {
-      setIsLoading(false);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          console.warn("Import status poll failed; retrying", error);
+        }
+        pollCount += 1;
+        pollTimerRef.current = setTimeout(poll, interval(pollCount));
+      };
+      pollTimerRef.current = setTimeout(poll, interval(0));
+    } catch (error) {
+      if (!controller.signal.aborted) fail(error instanceof Error ? error.message : "Import failed");
     }
-  }, [importRunId, conflictPolicy, onImportComplete]);
+  }, [cancelActiveAttempt, conflictPolicy, onImportComplete, workflow]);
 
-  // Cancel import
   const handleCancelImport = useCallback(async () => {
-    if (!importRunId) return;
-    
+    if (workflow.kind !== "importing") return;
+    const { runId, attempt } = workflow;
+    cancelActiveAttempt();
     try {
-      await fetch(`/api/import/runs/${importRunId}/cancel`, { method: "POST" });
-      if (pollIntervalRef.current) {
-        clearTimeout(pollIntervalRef.current);
-      }
-      setStep("configure");
-      setError("Import was canceled");
-    } catch {
-      // Ignore cancel errors
-    }
-  }, [importRunId]);
-
-  // Undo import
-  const handleUndoImport = useCallback(async (runId: string) => {
-    if (!confirm("Are you sure you want to undo this import? All imported data will be deleted.")) {
-      return;
-    }
-    
-    setIsLoading(true);
-    try {
-      const response = await fetch(`/api/import/runs/${runId}/undo`, { method: "POST" });
-      const result = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(result.detail || "Failed to undo import");
-      }
-      
-      // Refresh history if on history page
-      if (step === "history") {
-        fetchImportHistory();
-      }
-      
-      // Notify user
-      alert(`Undo complete: ${result.logs_deleted} logs deleted`);
-      onImportComplete();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to undo import");
+      await fetch(`/api/import/runs/${runId}/cancel`, { method: "POST" });
     } finally {
-      setIsLoading(false);
+      dispatch({ type: "IMPORT_FAILED", attempt, error: "Import was canceled" });
     }
-  }, [step, onImportComplete]);
+  }, [cancelActiveAttempt, workflow]);
 
-  // Fetch import history
   const fetchImportHistory = useCallback(async () => {
-    setIsLoadingHistory(true);
     try {
       const response = await fetch("/api/import/runs?limit=20");
       const data = await response.json();
-      setImportHistory(data.runs || []);
+      dispatch({ type: "HISTORY_LOADED", runs: data.runs || [] });
     } catch {
-      // Ignore history fetch errors
-    } finally {
-      setIsLoadingHistory(false);
+      dispatch({ type: "HISTORY_LOADED", runs: [] });
     }
   }, []);
 
-  // Show history
   const handleShowHistory = useCallback(() => {
-    setStep("history");
-    fetchImportHistory();
-  }, [fetchImportHistory]);
+    cancelActiveAttempt();
+    dispatch({ type: "SHOW_HISTORY" });
+    void fetchImportHistory();
+  }, [cancelActiveAttempt, fetchImportHistory]);
 
-  const sourceConfig = selectedSource ? DATA_SOURCES.find((s) => s.id === selectedSource) : null;
+  const handleUndoImport = useCallback(async (runId: string) => {
+    if (!confirm("Are you sure you want to undo this import? All imported data will be deleted.")) return;
+    setAuxLoading(true);
+    try {
+      const response = await fetch(`/api/import/runs/${runId}/undo`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail || "Failed to undo import");
+      if (workflow.kind === "history") void fetchImportHistory();
+      alert(`Undo complete: ${result.logs_deleted} logs deleted`);
+      onImportComplete();
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : "Failed to undo import");
+    } finally {
+      setAuxLoading(false);
+    }
+  }, [fetchImportHistory, onImportComplete, workflow.kind]);
+
+  const handleBack = useCallback(() => {
+    if (workflow.kind === "importing") {
+      void handleCancelImport();
+      return;
+    }
+    cancelActiveAttempt();
+    dispatch({ type: "BACK" });
+  }, [cancelActiveAttempt, handleCancelImport, workflow.kind]);
+
+  const sourceConfig = selectedSource ? DATA_SOURCES.find((source) => source.id === selectedSource) : null;
 
   return {
     step,
-    setStep,
     selectedSource,
-    setSelectedSource,
     file,
-    setFile,
     isDragging,
-    setIsDragging,
     isLoading,
     error,
-    setError,
     previewData,
-    setPreviewData,
     showAllItems,
     setShowAllItems,
     conflictPolicy,
@@ -529,6 +393,8 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
     fileInputRef,
     isTauri,
     resetState,
+    handleBack,
+    handleChooseFile,
     handleClose,
     handleSelectSource,
     handleDragOver,

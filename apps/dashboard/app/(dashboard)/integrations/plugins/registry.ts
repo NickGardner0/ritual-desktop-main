@@ -6,14 +6,18 @@ import * as iphoneTime from './iphone-time';
 import * as plaid from './plaid';
 import * as tesla from './tesla';
 import * as whoop from './whoop';
+import { PRESENTATION_DESCRIPTORS } from './presentation-descriptors';
 
 export const INTEGRATION_PLUGINS = [
   computerTracking,
   iphoneTime,
   appleHealth,
   whoop,
+  PRESENTATION_DESCRIPTORS[0],
+  PRESENTATION_DESCRIPTORS[1],
   plaid,
   tesla,
+  ...PRESENTATION_DESCRIPTORS.slice(2),
 ] satisfies readonly IntegrationPlugin[];
 
 export const PLUGIN_BY_ID = Object.fromEntries(
@@ -34,20 +38,6 @@ export function buildRegisteredIntegrationCards(ctx: IntegrationCardRuntimeConte
   );
 }
 
-export const EXPECTED_PLUGIN_IDS = [
-  'computer',
-  'apple-screen-time',
-  'apple-watch',
-  'whoop',
-  'plaid',
-  'tesla',
-] as const;
+export const EXPECTED_PLUGIN_IDS = INTEGRATION_PLUGINS.map((plugin) => plugin.id);
 
-export const EXPECTED_PLUGIN_DETAIL_KEYS = [
-  'computer',
-  'screentime',
-  'applewatch',
-  'whoop',
-  'plaid',
-  'tesla',
-] as const;
+export const EXPECTED_PLUGIN_DETAIL_KEYS = INTEGRATION_PLUGINS.map((plugin) => plugin.detailKey);
