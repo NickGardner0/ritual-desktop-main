@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 
-import { apiJsonWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import {
   putLocalVaultTask,
@@ -37,7 +37,7 @@ import {
   sortTasksForDisplay,
   subscribeDemoRoutineGeneration,
 } from '@/lib/tasks/seed-data';
-import type { Task, TaskListResponse, TaskUpdateInput } from '@/lib/tasks/types';
+import type { Task, TaskUpdateInput } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
 import {
@@ -52,14 +52,6 @@ import {
   TasksToolbarActions,
   type ListLayoutMode,
 } from './tasks-ui';
-
-type RoutineGenerateResponse = {
-  queued?: number;
-  generated_tasks?: number;
-  generated_scheduled_blocks?: number;
-  generated_workflow_runs?: number;
-  skipped?: number;
-};
 
 function isTaskInView(task: Task, view: TaskViewId): boolean {
   const now = new Date();
@@ -121,10 +113,13 @@ export function TasksClient() {
       if (category !== 'All') params.set('category', category);
       let backendItems: Task[] | null = null;
       try {
-        const response = await apiJsonWithAuth<TaskListResponse>(`/api/tasks?${params.toString()}`, getToken, {
-          userId: user?.id,
-        });
-        backendItems = response.items;
+        const response = await apiOperationWithAuth(
+          'get_tasks_api_tasks_get',
+          getToken,
+          { query: { view, limit: 300, category: category === 'All' ? null : category } },
+          user?.id,
+        );
+        backendItems = (response.items ?? []) as Task[];
       } catch (error) {
         console.warn('[Tasks] Backend task read failed; using local vault fallback', error);
       }
@@ -147,10 +142,12 @@ export function TasksClient() {
   const generateDueMutation = useMutation({
     mutationFn: async () => {
       try {
-        return await apiJsonWithAuth<RoutineGenerateResponse>('/api/routines/generate-due?horizon_days=7', getToken, {
-          method: 'POST',
-          userId: user?.id,
-        });
+        return await apiOperationWithAuth(
+          'generate_due_routines_api_routines_generate_due_post',
+          getToken,
+          { query: { horizon_days: 7 } },
+          user?.id,
+        );
       } catch (error) {
         console.warn('[Tasks] Backend routine generation failed; using local visual fallback', error);
         return { generated_tasks: 0, generated_workflow_runs: 0, generated_scheduled_blocks: 0, skipped: 0 };
@@ -176,11 +173,12 @@ export function TasksClient() {
     mutationFn: async (input: NewTaskComposerSubmit) => {
       const { createMore: _createMore, ...payload } = input;
       try {
-        return await apiJsonWithAuth<Task>('/api/tasks', getToken, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-          userId: user?.id,
-        });
+        return await apiOperationWithAuth(
+          'create_task_api_tasks_post',
+          getToken,
+          { body: payload },
+          user?.id,
+        ) as Task;
       } catch (error) {
         if (!user?.id) throw error;
         const optimistic = buildOptimisticTask(payload, user.id);
@@ -204,11 +202,12 @@ export function TasksClient() {
   const updateTaskMutation = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: TaskUpdateInput }) => {
       try {
-        return await apiJsonWithAuth<Task>(`/api/tasks/${id}`, getToken, {
-          method: 'PATCH',
-          body: JSON.stringify(patch),
-          userId: user?.id,
-        });
+        return await apiOperationWithAuth(
+          'update_task_api_tasks__task_id__patch',
+          getToken,
+          { pathParams: { task_id: id }, body: patch },
+          user?.id,
+        ) as Task;
       } catch (error) {
         if (!user?.id) throw error;
         const current = (queryClient.getQueryData<Task[]>(queryKey) || []).find((task) => task.id === id);

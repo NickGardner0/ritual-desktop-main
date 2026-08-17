@@ -18,6 +18,44 @@ test('legacy updater payloads remain compatible', () => {
   assert.equal(decodeDesktopUpdateEvent({ status: 'UPTODATE' }).phase, 'up_to_date');
 });
 
+test('new dashboard decodes the complete old-native lifecycle matrix', () => {
+  const legacyMatrix = [
+    ['UPTODATE', 'up_to_date'],
+    ['AVAILABLE', 'available'],
+    ['PENDING', 'downloading'],
+    ['DOWNLOADING', 'downloading'],
+    ['INSTALLING', 'installing'],
+    ['DONE', 'relaunching'],
+    ['ERROR', 'error'],
+  ];
+  for (const [status, phase] of legacyMatrix) {
+    assert.equal(decodeDesktopUpdateEvent({ status })?.phase, phase, status);
+  }
+});
+
+test('new-native V2 events remain authoritative while carrying old-dashboard fields', () => {
+  const v2Matrix = [
+    ['up_to_date', 'UPTODATE'],
+    ['available', 'AVAILABLE'],
+    ['downloading', 'DOWNLOADING'],
+    ['installing', 'INSTALLING'],
+    ['relaunching', 'DONE'],
+    ['error', 'ERROR'],
+  ];
+  for (const [phase, status] of v2Matrix) {
+    const decoded = decodeDesktopUpdateEvent({
+      version: 2,
+      phase,
+      status,
+      message: phase === 'error' ? 'v2 error' : null,
+      error: phase === 'error' ? 'legacy error' : null,
+    });
+    assert.equal(decoded?.phase, phase);
+    if (phase === 'error') assert.equal(decoded?.message, 'v2 error');
+  }
+  assert.equal(decodeDesktopUpdateEvent({ version: 3, phase: 'installing' }), null);
+});
+
 test('reducer clears fields that are invalid for terminal phases', () => {
   const failed = reduceDesktopUpdateEvent(
     { ...initial, percentage: 72, contentLength: 100, downloaded: 72 },

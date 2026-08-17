@@ -53,6 +53,7 @@ export function useRitualVoiceInput({
   const [isListening, setIsListening] = useState(false);
   const [isProcessingVoice, setIsProcessingVoice] = useState(false);
   const [audioStream, setAudioStream] = useState<MediaStream | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const [partialTranscript, setPartialTranscript] = useState<string | null>(null);
   const partialTranscriptRef = useRef<string | null>(null);
   const nativeVoicePollRef = useRef<number | null>(null);
@@ -133,13 +134,8 @@ export function useRitualVoiceInput({
   }, [clearNativeVoiceTimers]);
 
   useEffect(() => {
-    return () => {
-      clearNativeVoiceTimers();
-      if (voiceInputModeRef.current === 'native') {
-        void stopNativeDesktopSpeechRecognition().catch(() => undefined);
-      }
-    };
-  }, [clearNativeVoiceTimers]);
+    audioStreamRef.current = audioStream;
+  }, [audioStream]);
 
   const startNativeVoiceRecognition = useCallback(async () => {
     reportError(null);
@@ -498,11 +494,17 @@ export function useRitualVoiceInput({
       try {
         await startNativeVoiceRecognition();
         return;
-      } catch {
+      } catch (error: any) {
         await resetNativeVoiceSession().catch(() => undefined);
         setIsListening(false);
         setIsProcessingVoice(false);
         voiceInputModeRef.current = null;
+        reportError(
+          error?.message === 'microphone-permission-denied'
+            ? 'Microphone access denied. Enable it in System Settings > Privacy & Security > Microphone.'
+            : formatNativeSpeechError(getNativeSpeechErrorMessage(error)),
+        );
+        return;
       }
     }
 
@@ -657,6 +659,26 @@ export function useRitualVoiceInput({
   useEffect(() => {
     stopVoiceRecordingRef.current = stopVoiceRecording;
   }, [stopVoiceRecording]);
+
+  useEffect(() => {
+    return () => {
+      clearNativeVoiceTimers();
+      const autoStopTimer = (window as any).__autoStopTimer;
+      if (autoStopTimer) clearTimeout(autoStopTimer);
+      const vadCleanup = (window as any).__vadCleanup;
+      if (typeof vadCleanup === 'function') vadCleanup();
+      const mediaRecorder = (window as any).__mediaRecorder;
+      if (mediaRecorder?.state === 'recording') mediaRecorder.stop();
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      audioStreamRef.current = null;
+      if (voiceInputModeRef.current === 'native') {
+        void stopNativeDesktopSpeechRecognition().catch(() => undefined);
+      } else if (voiceInputModeRef.current === 'deepgram') {
+        stopDeepgramDictation();
+      }
+      voiceInputModeRef.current = null;
+    };
+  }, [clearNativeVoiceTimers, stopDeepgramDictation]);
 
   return {
     audioStream,

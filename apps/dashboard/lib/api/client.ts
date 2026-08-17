@@ -2,6 +2,13 @@
 
 import { getReadConsistencyHeaders } from '@/lib/read-consistency';
 import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
+import {
+  BackendClientError,
+  createBackendClient,
+  type BackendOperationId,
+  type BackendOperationRequest,
+  type BackendOperationResponse,
+} from '@/lib/api/generated/backend-client';
 
 export class ApiError extends Error {
   status: number;
@@ -92,4 +99,46 @@ export async function apiJsonWithAuth<T>(
     throw new ApiError(response.status, text || `Request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
+}
+
+function dashboardBaseUrl(): string {
+  if (typeof window !== 'undefined') return window.location.origin;
+  return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost';
+}
+
+/**
+ * Typed operation-ID boundary for generated FastAPI contracts.
+ *
+ * Authentication remains compatible with the existing dashboard helper:
+ * one cached token is attempted, then a single fresh-token retry is allowed
+ * for 401/403 responses.
+ */
+export async function apiOperationWithAuth<TOperation extends BackendOperationId>(
+  operationId: TOperation,
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  request: BackendOperationRequest<TOperation> = {},
+  userId?: string | null,
+): Promise<BackendOperationResponse<TOperation>> {
+  const execute = async (skipCache: boolean) => {
+    const token = await getToken(skipCache ? { skipCache: true } : undefined);
+    if (!token) throw new Error('No auth token available');
+    const client = createBackendClient({
+      baseUrl: dashboardBaseUrl(),
+      getAuthHeaders: () => ({
+        Authorization: `Bearer ${token}`,
+        ...getReadConsistencyHeaders(userId),
+        ...privacySettingsHeaders(),
+      }),
+    });
+    return client.requestOperation(operationId, request);
+  };
+
+  try {
+    return await execute(false);
+  } catch (error) {
+    if (error instanceof BackendClientError && (error.status === 401 || error.status === 403)) {
+      return execute(true);
+    }
+    throw error;
+  }
 }

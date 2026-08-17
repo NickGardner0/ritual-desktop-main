@@ -34,7 +34,6 @@ test("overview empty state uses the current compact command group", () => {
     "CONFIGURE",
     "Customize Appearance",
     "Explore Integrations",
-    "Welcome to Ritual",
   ]) {
     assert.equal(
       source.includes(legacyText),
@@ -44,6 +43,7 @@ test("overview empty state uses the current compact command group", () => {
   }
 
   for (const currentText of [
+    "Welcome to Ritual",
     "New Tracker",
     "Import Data",
     "Connect Devices",

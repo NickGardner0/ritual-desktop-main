@@ -10,7 +10,7 @@ import { Plus, Repeat2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
-import { apiJsonWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   putLocalVaultRoutine,
   readLocalVaultRoutines,
@@ -31,11 +31,10 @@ import { sendRoutineNotification } from '@/lib/routines/notifications';
 import { buildRunViews } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
 import { templateById } from '@/lib/routines/templates';
-import type { Routine, RoutineListResponse, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
+import type { Routine, RoutineRun, RoutineTaskTemplate, RoutineUpdateInput } from '@/lib/tasks/types';
 import type {
-  WorkflowDefinitionListResponse,
+  WorkflowDefinition,
   WorkflowRun,
-  WorkflowRunListResponse,
 } from '@/lib/workflows/types';
 
 import {
@@ -130,7 +129,13 @@ export function RoutinesClient() {
     queryFn: async () => {
       let backendItems: Routine[] | null = null;
       try {
-        backendItems = (await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, { userId: user?.id })).items;
+        const response = await apiOperationWithAuth(
+          'get_routines_api_routines_get',
+          getToken,
+          {},
+          user?.id,
+        );
+        backendItems = (response.items ?? []) as Routine[];
       } catch (error) {
         console.warn('[Routines] Backend routine read failed; using local vault fallback', error);
       }
@@ -148,7 +153,15 @@ export function RoutinesClient() {
 
   const definitionsQuery = useQuery({
     queryKey: ['workflow-definitions', 'routines-page'],
-    queryFn: async () => (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items,
+    queryFn: async () => {
+      const response = await apiOperationWithAuth(
+        'get_workflow_definitions_api_workflows_definitions_get',
+        getToken,
+        {},
+        user?.id,
+      );
+      return (response.items ?? []) as WorkflowDefinition[];
+    },
     enabled: Boolean(user?.id),
     staleTime: 60_000,
   });
@@ -158,7 +171,15 @@ export function RoutinesClient() {
 
   const workflowRunsQuery = useQuery({
     queryKey: ['workflow-runs', 'routines-page', user?.id],
-    queryFn: async () => (await apiJsonWithAuth<WorkflowRunListResponse>('/api/workflows/runs?limit=100', getToken, { userId: user?.id })).items,
+    queryFn: async () => {
+      const response = await apiOperationWithAuth(
+        'get_workflow_runs_api_workflows_runs_get',
+        getToken,
+        { query: { limit: 100 } },
+        user?.id,
+      );
+      return (response.items ?? []) as WorkflowRun[];
+    },
     enabled: Boolean(user?.id),
     refetchInterval: (query) => {
       const items = (query.state.data || []) as WorkflowRun[];
@@ -168,7 +189,12 @@ export function RoutinesClient() {
 
   const routineRunsQuery = useQuery({
     queryKey: ['routine-runs', 'routines-page', user?.id],
-    queryFn: () => apiJsonWithAuth<RoutineRun[]>('/api/routines/runs?limit=100', getToken, { userId: user?.id }),
+    queryFn: () => apiOperationWithAuth(
+      'get_routine_runs_api_routines_runs_get',
+      getToken,
+      { query: { limit: 100 } },
+      user?.id,
+    ) as Promise<RoutineRun[]>,
     enabled: Boolean(user?.id),
     staleTime: 15_000,
   });
@@ -232,7 +258,13 @@ export function RoutinesClient() {
   const resolveDefinitionId = useCallback(async (templateKey?: string | null) => {
     const template = templateById(templateKey || null);
     const cached = definitionsQuery.data
-      || (await apiJsonWithAuth<WorkflowDefinitionListResponse>('/api/workflows/definitions', getToken, { userId: user?.id })).items;
+      || (await apiOperationWithAuth(
+        'get_workflow_definitions_api_workflows_definitions_get',
+        getToken,
+        {},
+        user?.id,
+      )).items as WorkflowDefinition[] | undefined
+      || [];
     return sharedDefinitionId(cached, template?.workflowKind || 'daily_narrative');
   }, [definitionsQuery.data, getToken, user?.id]);
 
@@ -263,12 +295,13 @@ export function RoutinesClient() {
           task_template: taskTemplate,
           ai_workflow_definition_id: definitionId,
         };
-        const response = await apiJsonWithAuth<RoutineListResponse>(`/api/routines/${editing.routine.id}`, getToken, {
-          method: 'PATCH',
-          body: JSON.stringify(patch),
-          userId: user?.id,
-        });
-        return { routine: response.items[0] || null, created: false };
+        const response = await apiOperationWithAuth(
+          'update_routine_api_routines__routine_id__patch',
+          getToken,
+          { pathParams: { routine_id: editing.routine.id }, body: patch },
+          user?.id,
+        );
+        return { routine: (response.items?.[0] as Routine | undefined) || null, created: false };
       }
 
       const payload = {
@@ -284,12 +317,13 @@ export function RoutinesClient() {
         priority: state.priority,
         task_template: taskTemplate,
       };
-      const response = await apiJsonWithAuth<RoutineListResponse>('/api/routines', getToken, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-        userId: user?.id,
-      });
-      return { routine: response.items[0] || null, created: true };
+      const response = await apiOperationWithAuth(
+        'create_routine_api_routines_post',
+        getToken,
+        { body: payload },
+        user?.id,
+      );
+      return { routine: (response.items?.[0] as Routine | undefined) || null, created: true };
     },
     onSuccess: ({ routine, created }) => {
       invalidateAll();
