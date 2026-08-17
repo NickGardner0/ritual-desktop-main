@@ -53,6 +53,45 @@ final class IngestEnvelopeTests: XCTestCase {
         XCTAssertEqual(range.upperBound, calendar.startOfDay(for: later))
     }
 
+    func testAnchorsAdvanceOnlyAfterEveryBatchIsAcceptedAndConfirmed() {
+        let pending = ["steps": "steps-token", "hr": "hr-token"]
+        XCTAssertEqual(
+            AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: true,
+                pendingTokens: pending,
+                serverConfirmedTokens: pending
+            ),
+            pending
+        )
+        XCTAssertTrue(
+            AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: false,
+                pendingTokens: pending,
+                serverConfirmedTokens: pending
+            ).isEmpty,
+            "Partial, queued, or rejected batches must retain the previous anchors"
+        )
+    }
+
+    func testMissingOrMismatchedServerConfirmationCannotAdvanceAnAnchor() {
+        let pending = ["steps": "new-token", "hr": "hr-token"]
+        XCTAssertTrue(
+            AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: true,
+                pendingTokens: pending,
+                serverConfirmedTokens: nil
+            ).isEmpty
+        )
+        XCTAssertEqual(
+            AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: true,
+                pendingTokens: pending,
+                serverConfirmedTokens: ["steps": "stale-token", "hr": "hr-token"]
+            ),
+            ["hr": "hr-token"]
+        )
+    }
+
     private func metric(_ type: MetricType, externalId: String) -> NormalizedMetric {
         NormalizedMetric(
             metricType: type,

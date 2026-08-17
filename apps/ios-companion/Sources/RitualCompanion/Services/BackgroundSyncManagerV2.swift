@@ -4,6 +4,23 @@ import BackgroundTasks
 import UIKit
 import UserNotifications
 
+enum AnchorCommitPolicy {
+    static func confirmedTokensForCommit(
+        allBatchesAccepted: Bool,
+        pendingTokens: [String: String],
+        serverConfirmedTokens: [String: String]?
+    ) -> [String: String] {
+        guard allBatchesAccepted,
+              !pendingTokens.isEmpty,
+              let serverConfirmedTokens else {
+            return [:]
+        }
+        return serverConfirmedTokens.filter { metricType, confirmedToken in
+            pendingTokens[metricType] == confirmedToken
+        }
+    }
+}
+
 enum RetryScope {
     case dayKeys(Set<String>)
     case dateRange(ClosedRange<Date>)
@@ -1040,9 +1057,14 @@ final class BackgroundSyncManagerV2: @unchecked Sendable {
             lastError = nil
             syncCount += 1
 
-            if allBatchesSucceeded && !pendingAnchors.isEmpty {
+            let committableAnchorTokens = AnchorCommitPolicy.confirmedTokensForCommit(
+                allBatchesAccepted: allBatchesSucceeded,
+                pendingTokens: pendingAnchorTokens,
+                serverConfirmedTokens: confirmedAnchorTokens
+            )
+            if !committableAnchorTokens.isEmpty && !pendingAnchors.isEmpty {
                 healthKitManager.confirmAnchorsFromServer(
-                    confirmedAnchorTokens: confirmedAnchorTokens,
+                    confirmedAnchorTokens: committableAnchorTokens,
                     pendingAnchors: pendingAnchors
                 )
             }
