@@ -1,39 +1,22 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 const root = process.cwd();
-const manualCallSearch = spawnSync(
-  'rg',
-  [
-    '-l',
-    'apiJson(?:WithAuth)?<',
-    'apps/dashboard',
-    '--glob',
-    '*.{ts,tsx}',
-    '--glob',
-    '!apps/dashboard/lib/api/client.ts',
-  ],
-  { cwd: root, encoding: 'utf8' },
+const dashboardSources = execFileSync('git', ['ls-files', 'apps/dashboard'], {
+  cwd: root,
+  encoding: 'utf8',
+})
+  .trim()
+  .split('\n')
+  .filter((file) => /\.tsx?$/.test(file) && file !== 'apps/dashboard/lib/api/client.ts')
+  .map((file) => ({ file, source: readFileSync(file, 'utf8') }));
+const files = dashboardSources
+  .filter(({ source }) => /apiJson(?:WithAuth)?</.test(source))
+  .map(({ file }) => file);
+const missingGeneratedConsumer = !dashboardSources.some(({ source }) =>
+  /apiOperationWithAuth\(/.test(source),
 );
-if (manualCallSearch.status !== 0 && manualCallSearch.status !== 1) {
-  throw new Error(manualCallSearch.stderr || 'failed to scan dashboard API calls');
-}
-const output = manualCallSearch.stdout.trim();
-const files = output ? output.split('\n').filter(Boolean) : [];
-const missingGeneratedConsumer = !execFileSync(
-  'rg',
-  [
-    '-l',
-    'apiOperationWithAuth\\(',
-    'apps/dashboard',
-    '--glob',
-    '*.{ts,tsx}',
-    '--glob',
-    '!apps/dashboard/lib/api/client.ts',
-  ],
-  { cwd: root, encoding: 'utf8' },
-).trim();
 
 const generatedClient = readFileSync(
   'apps/dashboard/lib/api/generated/backend-client.ts',
