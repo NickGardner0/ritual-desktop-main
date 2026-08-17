@@ -1,6 +1,6 @@
 "use client";
 
-import { nextRoutineDates, summarizeRecurrence } from "./recurrence";
+import { describeSchedule, nextOccurrences } from "@/lib/routines/schedule-engine.mjs";
 import type { Routine, RoutineRun, Task } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -224,16 +224,17 @@ export function buildSeedTasks(userId: string): Task[] {
 function routinePreview(
   routine: Pick<Routine, "trigger_type" | "trigger_config" | "first_run_at" | "ends_at" | "last_run_at">,
 ) {
-  const dates = nextRoutineDates({
+  const dates = nextOccurrences({
     triggerType: routine.trigger_type,
     config: routine.trigger_config,
+    from: new Date(),
     firstRunAt: routine.first_run_at ? new Date(routine.first_run_at) : null,
     endsAt: routine.ends_at ? new Date(routine.ends_at) : null,
     lastCompletedAt: routine.last_run_at ? new Date(routine.last_run_at) : null,
     count: 6,
   });
   return {
-    cadence_summary: summarizeRecurrence(routine.trigger_type, routine.trigger_config),
+    cadence_summary: describeSchedule(routine.trigger_type, routine.trigger_config),
     next_preview: dates.map((date) => date.toISOString()),
   };
 }

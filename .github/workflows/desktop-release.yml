@@ -5,9 +5,14 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing v-prefixed tag to build and publish (for example, v0.1.98)
+        required: true
+        type: string
 
 concurrency:
-  group: desktop-release-${{ github.ref_name }}
+  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -19,10 +24,21 @@ jobs:
     env:
       RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
       MACOSX_DEPLOYMENT_TARGET: "14.0"
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate release tag
+        shell: bash
+        run: |
+          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag must be an existing v-prefixed semantic version; got '${RELEASE_TAG}'." >&2
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -55,14 +71,14 @@ jobs:
 
       - name: Verify release tag matches desktop version
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           DESKTOP_VERSION="$(node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('apps/desktop/src-tauri/tauri.conf.json','utf8')); process.stdout.write(String(cfg.version || ''))")"
           if [[ -z "${DESKTOP_VERSION}" ]]; then
             echo "Could not read desktop version from tauri.conf.json" >&2
             exit 1
           fi
           if [[ "${DESKTOP_VERSION}" != "${TAG_VERSION}" ]]; then
-            echo "Git tag ${GITHUB_REF_NAME} does not match desktop version ${DESKTOP_VERSION}" >&2
+            echo "Git tag ${RELEASE_TAG} does not match desktop version ${DESKTOP_VERSION}" >&2
             exit 1
           fi
 
@@ -155,7 +171,7 @@ jobs:
       - name: Upload local release artifacts to workflow run
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-release-${{ github.ref_name }}
+          name: desktop-release-${{ env.RELEASE_TAG }}
           if-no-files-found: error
           path: |
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
@@ -167,7 +183,7 @@ jobs:
       - name: Publish assets to public desktop releases repo
         env:
           GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
-        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
+        run: bash scripts/publish-desktop-release-assets.sh "${RELEASE_TAG}"
 
       - name: Cleanup temporary signing keychain
         if: always()

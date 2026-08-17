@@ -5,16 +5,15 @@
   "scripts": {
     "build": "tb build",
     "deploy:local": "tb deploy",
-    "deploy:cloud": "tb --cloud deploy",
+    "check:cloud": "tb --cloud deployment create --check",
+    "stage:cloud": "tb --cloud deployment create --wait",
+    "promote:cloud": "tb --cloud deployment promote --wait",
     "dev": "tb dev",
     "local:start": "tb local start",
     "local:stop": "tb local stop",
-    "migrate:local": "cd python-service && python migrate_data.py --env local --table all",
-    "migrate:cloud": "cd python-service && python migrate_data.py --env cloud --table all",
     "test:query": "tb pipe query user_habits_summary --param user_id=test --param days_back=30"
   },
   "keywords": ["tinybird", "analytics", "clickhouse"],
   "author": "Ritual Team",
   "license": "MIT"
 }
-

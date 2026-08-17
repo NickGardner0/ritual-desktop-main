@@ -39,6 +39,9 @@
       ],
       "@ritual/shared-contracts/*": [
         "../../packages/shared-contracts/src/*"
+      ],
+      "@ritual/chat-runtime/*": [
+        "../../packages/chat-runtime/src/*"
       ]
     }
   },

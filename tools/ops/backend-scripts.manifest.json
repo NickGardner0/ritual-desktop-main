@@ -50,20 +50,6 @@
       "smoke_test": "python3 -m py_compile apps/backend/scripts/cleanup_excessive_apple_health_data.py",
       "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
     },
-    "fix_screen_time_icon.py": {
-      "owner": "backend",
-      "status": "archive_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/fix_screen_time_icon.py",
-      "review_action": "Archive or delete after confirming no current operational runbook references it."
-    },
-    "fix_sleep_duration_category.py": {
-      "owner": "backend",
-      "status": "archive_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/fix_sleep_duration_category.py",
-      "review_action": "Archive or delete after confirming no current operational runbook references it."
-    },
     "init_turso_tables.py": {
       "owner": "backend",
       "status": "migration_candidate",
@@ -217,20 +203,6 @@
       "runtime": "python",
       "smoke_test": "python3 -m py_compile apps/backend/scripts/resync_heart_rate_rollups_to_tinybird.py",
       "review_action": "Keep as a documented operational command; smoke-test syntax in CI before use."
-    },
-    "seed_demo_logs.py": {
-      "owner": "backend",
-      "status": "archive_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/seed_demo_logs.py",
-      "review_action": "Archive or delete after confirming no current operational runbook references it."
-    },
-    "seed_fake_habit_logs.py": {
-      "owner": "backend",
-      "status": "archive_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/seed_fake_habit_logs.py",
-      "review_action": "Archive or delete after confirming no current operational runbook references it."
     },
     "verify_per_user_turso_endpoints.py": {
       "owner": "backend",

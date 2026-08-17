@@ -1,0 +1,8 @@
+{
+  "dev_mode": "manual",
+  "folder": ".",
+  "include": [
+    "datasources",
+    "pipes"
+  ]
+}

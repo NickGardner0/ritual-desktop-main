@@ -4,7 +4,7 @@ import {
   invokeDetailedActivityWithInitRetry,
 } from '@/lib/computerActivity/tauri-activity';
 import { normalizeComputerDailySummaryRow } from '@/lib/computerActivity/normalize';
-import { getStrictThisWeekRange } from '@/lib/ai/overview-activity/weekly-overview-utils.mjs';
+import { getStrictThisWeekRange } from '@ritual/chat-runtime/weekly-overview-utils';
 import { isDesktopRuntime } from '@/lib/desktop-capabilities';
 
 export type LocalOverviewActivityBundle = {

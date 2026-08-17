@@ -88,7 +88,7 @@ const requiredPatterns = [
   },
   {
     file: "apps/dashboard/components/privacy-settings-panel.tsx",
-    patterns: ["executeLocalVaultMigration", "executeCloudBehavioralDeletion", "PrivacyPrivateSyncSection", "PrivacyVaultExportSection", "PrivacyExternalErasureSection"],
+    patterns: ["PrivacySettingsPanel", "vaultSync", "private_sync", "cloud_intelligence", "provider_sync", "plaintext_sync"],
   },
   {
     file: "apps/dashboard/components/privacy-private-sync-section.tsx",
@@ -99,7 +99,7 @@ const requiredPatterns = [
     patterns: ["saveRitualVaultArchive", "openAndImportRitualVaultArchive", "chooseRitualVaultFolder", "writeRitualVaultFolderMirror", "Include sensitive", "Encrypted archive", "Mirror"],
   },
   {
-    file: "apps/dashboard/components/onboarding/onboarding-setup-step.tsx",
+    file: "apps/dashboard/components/onboarding/steps/permissions-step.tsx",
     patterns: ["Ritual Vault folder", "chooseRitualVaultFolder", "writeRitualVaultFolderMirror"],
   },
   {
