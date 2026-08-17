@@ -46,6 +46,17 @@ export type DesktopVaultRecordMetadata = {
   algorithm: string;
 };
 
+export type DesktopVaultRecordsPage<T = unknown> = {
+  records: Array<DesktopVaultRecord<T>>;
+  nextCursor?: string | null;
+};
+
+export type DesktopVaultCompareAndSwapResult<T = unknown> = {
+  applied: boolean;
+  record?: DesktopVaultRecordMetadata | null;
+  current?: DesktopVaultRecord<T> | null;
+};
+
 export type DesktopVaultMigrationManifestInput = {
   userId: string;
   migrationId: string;
@@ -142,11 +153,42 @@ export async function listDesktopVaultRecords<T>(
   options: { since?: string; limit?: number } = {},
 ): Promise<Array<DesktopVaultRecord<T>> | null> {
   if (!canUseDesktopVault()) return null;
-  return invokeDesktopCommand<Array<DesktopVaultRecord<T>>>("vault_list_records", {
-    userId,
-    collection,
-    since: options.since || null,
-    limit: options.limit || null,
+  const requestedPageSize = Math.min(Math.max(options.limit || 2_000, 1), 5_000);
+  const records: Array<DesktopVaultRecord<T>> = [];
+  let cursor: string | null = null;
+  try {
+    do {
+      const page: DesktopVaultRecordsPage<T> = await invokeDesktopCommand<DesktopVaultRecordsPage<T>>("vault_list_records_page", {
+        userId,
+        collection,
+        cursor,
+        limit: requestedPageSize,
+      });
+      records.push(...page.records);
+      cursor = page.nextCursor || null;
+    } while (cursor);
+    return options.since
+      ? records.filter((record) => record.updatedAt > options.since!)
+      : records;
+  } catch (error) {
+    if (records.length > 0) throw error;
+    // Compatibility with native clients released before cursor pagination.
+    return invokeDesktopCommand<Array<DesktopVaultRecord<T>>>("vault_list_records", {
+      userId,
+      collection,
+      since: options.since || null,
+      limit: options.limit || null,
+    });
+  }
+}
+
+export async function compareAndSwapDesktopVaultRecord<T>(
+  record: DesktopVaultPutInput<T>,
+  expectedUpdatedAt: string | null,
+): Promise<DesktopVaultCompareAndSwapResult<T> | null> {
+  if (!canUseDesktopVault()) return null;
+  return invokeDesktopCommand<DesktopVaultCompareAndSwapResult<T>>("vault_compare_and_swap", {
+    input: { record, expectedUpdatedAt },
   });
 }
 

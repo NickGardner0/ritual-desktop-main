@@ -1,4 +1,16 @@
 use super::*;
+use ritual_db::DeliveryOutboxKind;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static LOCATION_DRAIN_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+struct LocationDrainGuard;
+
+impl Drop for LocationDrainGuard {
+    fn drop(&mut self) {
+        LOCATION_DRAIN_IN_FLIGHT.store(false, Ordering::Release);
+    }
+}
 
 fn location_outbox_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| {
@@ -7,14 +19,6 @@ fn location_outbox_path() -> Option<PathBuf> {
             .join("Ritual")
             .join("location_outbox.json")
     })
-}
-
-fn write_location_outbox(path: &PathBuf, pings: &[DesktopLocationPing]) -> Result<(), String> {
-    let json = serde_json::to_string(pings)
-        .map_err(|error| format!("Failed to encode location outbox: {error}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|error| format!("Failed to write location outbox: {error}"))?;
-    fs::rename(&tmp, path).map_err(|error| format!("Failed to replace location outbox: {error}"))
 }
 
 pub(crate) fn quarantine_text(path: &PathBuf, suffix: &str, body: &str) -> Result<(), String> {
@@ -101,35 +105,13 @@ fn classify_location_ack(
     Ok((processed_ids, rejected_records))
 }
 
-fn drain_location_outbox_blocking(
+fn submit_location_outbox_blocking(
     auth_token: String,
     backend_base: String,
-) -> Result<usize, String> {
-    let Some(path) = location_outbox_path() else {
-        return Ok(0);
-    };
-    if !path.exists() {
-        return Ok(0);
-    }
-
-    let raw = fs::read_to_string(&path)
-        .map_err(|error| format!("Failed to read location outbox: {error}"))?;
-    if raw.trim().is_empty() {
-        return Ok(0);
-    }
-
-    let pings: Vec<DesktopLocationPing> = match serde_json::from_str(&raw) {
-        Ok(value) => value,
-        Err(error) => {
-            quarantine_text(&path, "malformed", &raw)?;
-            write_location_outbox(&path, &[])?;
-            return Err(format!(
-                "Failed to parse location outbox; quarantined malformed file: {error}"
-            ));
-        }
-    };
+    pings: Vec<DesktopLocationPing>,
+) -> Result<(HashSet<String>, Vec<DesktopLocationPing>), String> {
     if pings.is_empty() {
-        return Ok(0);
+        return Ok((HashSet::new(), Vec::new()));
     }
 
     let client = reqwest::blocking::Client::builder()
@@ -138,6 +120,7 @@ fn drain_location_outbox_blocking(
         .map_err(|error| format!("Failed to create location outbox client: {error}"))?;
     let url = format!("{backend_base}/api/user/location-pings");
     let mut processed_ids: HashSet<String> = HashSet::new();
+    let mut rejected_records_all = Vec::new();
 
     for chunk in pings.chunks(LOCATION_OUTBOX_BATCH_SIZE) {
         let body = serde_json::to_string(&serde_json::json!({ "pings": chunk }))
@@ -169,25 +152,19 @@ fn drain_location_outbox_blocking(
         );
 
         let (chunk_processed_ids, rejected_records) = classify_location_ack(&parsed, chunk)?;
-        append_quarantine_records(&path, "rejected", "backend_rejected", &rejected_records)?;
+        rejected_records_all.extend(rejected_records);
         processed_ids.extend(chunk_processed_ids);
     }
-
-    if processed_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let remaining: Vec<DesktopLocationPing> = pings
-        .into_iter()
-        .filter(|ping| !processed_ids.contains(&ping.client_event_id))
-        .collect();
-    write_location_outbox(&path, &remaining)?;
-    Ok(processed_ids.len())
+    Ok((processed_ids, rejected_records_all))
 }
 
 async fn drain_location_outbox_once<R: Runtime + 'static>(
     app: AppHandle<R>,
 ) -> Result<usize, String> {
+    if LOCATION_DRAIN_IN_FLIGHT.swap(true, Ordering::AcqRel) {
+        return Ok(0);
+    }
+    let _guard = LocationDrainGuard;
     let auth_state = read_auth_state(&app);
     let auth_token = auth_state
         .token
@@ -198,11 +175,121 @@ async fn drain_location_outbox_once<R: Runtime + 'static>(
         .filter(|base| !base.trim().is_empty())
         .ok_or_else(|| "Backend base URL is unavailable for location outbox drain".to_string())?;
 
-    tauri::async_runtime::spawn_blocking(move || {
-        drain_location_outbox_blocking(auth_token, backend_base)
+    let lease_owner = format!(
+        "tauri-location-{}-{}",
+        std::process::id(),
+        Utc::now().timestamp_millis()
+    );
+    let db_guard =
+        crate::ritual_database::get_or_initialize_activity_db("location_outbox:claim").await?;
+    let db = db_guard
+        .as_ref()
+        .ok_or_else(|| "Activity database is unavailable for location outbox".to_string())?;
+    let claimed = db
+        .claim_delivery_outbox(
+            DeliveryOutboxKind::Location,
+            &lease_owner,
+            LOCATION_OUTBOX_BATCH_SIZE as i64,
+            60_000,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    drop(db_guard);
+    if claimed.is_empty() {
+        return Ok(0);
+    }
+    let mut pings = Vec::new();
+    let mut malformed_ids = Vec::new();
+    for item in &claimed {
+        match serde_json::from_str::<DesktopLocationPing>(&item.payload_json) {
+            Ok(ping) => pings.push(ping),
+            Err(_) => malformed_ids.push(item.event_id.clone()),
+        }
+    }
+    if !malformed_ids.is_empty() {
+        if let Some(path) = location_outbox_path() {
+            let malformed_payloads: Vec<String> = claimed
+                .iter()
+                .filter(|item| malformed_ids.contains(&item.event_id))
+                .map(|item| item.payload_json.clone())
+                .collect();
+            append_quarantine_records(
+                &path,
+                "malformed",
+                "invalid_sqlite_payload",
+                &malformed_payloads,
+            )?;
+        }
+        let db_guard =
+            crate::ritual_database::get_or_initialize_activity_db("location_outbox:malformed")
+                .await?;
+        if let Some(db) = db_guard.as_ref() {
+            db.acknowledge_delivery_outbox(
+                DeliveryOutboxKind::Location,
+                &lease_owner,
+                &malformed_ids,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+    }
+    let submit = tauri::async_runtime::spawn_blocking(move || {
+        submit_location_outbox_blocking(auth_token, backend_base, pings)
     })
     .await
-    .map_err(|error| format!("Location outbox drain task failed: {error}"))?
+    .map_err(|error| format!("Location outbox drain task failed: {error}"))?;
+    let all_ids: Vec<String> = claimed.iter().map(|item| item.event_id.clone()).collect();
+    let db_guard =
+        crate::ritual_database::get_or_initialize_activity_db("location_outbox:commit").await?;
+    let db = db_guard
+        .as_ref()
+        .ok_or_else(|| "Activity database is unavailable for location outbox".to_string())?;
+    match submit {
+        Ok((processed, rejected)) => {
+            if let Some(path) = location_outbox_path() {
+                append_quarantine_records(&path, "rejected", "backend_rejected", &rejected)?;
+            }
+            let processed_ids: Vec<String> = processed.into_iter().collect();
+            let acknowledged = db
+                .acknowledge_delivery_outbox(
+                    DeliveryOutboxKind::Location,
+                    &lease_owner,
+                    &processed_ids,
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            let remaining: Vec<String> = all_ids
+                .into_iter()
+                .filter(|event_id| {
+                    !processed_ids.contains(event_id) && !malformed_ids.contains(event_id)
+                })
+                .collect();
+            if !remaining.is_empty() {
+                db.requeue_delivery_outbox(
+                    DeliveryOutboxKind::Location,
+                    &lease_owner,
+                    &remaining,
+                    Utc::now().timestamp_millis() + 30_000,
+                    "unacknowledged",
+                )
+                .await
+                .map_err(|error| error.to_string())?;
+            }
+            Ok(acknowledged as usize)
+        }
+        Err(error) => {
+            db.requeue_delivery_outbox(
+                DeliveryOutboxKind::Location,
+                &lease_owner,
+                &all_ids,
+                Utc::now().timestamp_millis() + 30_000,
+                &error,
+            )
+            .await
+            .map_err(|db_error| db_error.to_string())?;
+            Err(error)
+        }
+    }
 }
 
 pub fn trigger_location_outbox_drain<R: Runtime + 'static>(app: AppHandle<R>) {
@@ -250,21 +337,6 @@ pub fn register_location_outbox_drain_worker<R: Runtime + 'static>(app: AppHandl
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static TEST_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
-    fn temp_file(name: &str) -> PathBuf {
-        let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = env::temp_dir().join(format!(
-            "ritual-desktop-runtime-test-{}-{}",
-            std::process::id(),
-            n
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("create test directory");
-        dir.join(name)
-    }
 
     fn location_ping(id: &str) -> DesktopLocationPing {
         DesktopLocationPing {

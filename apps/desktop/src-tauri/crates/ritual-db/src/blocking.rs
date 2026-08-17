@@ -23,8 +23,8 @@ use std::sync::Arc;
 
 use crate::{
     ActivityContext, ActivityEvent, AppSummary, ContextSnapshot, DailySummary, DatabaseConfig,
-    DatabaseError, DomainSummary, FocusMetrics, LastEvent, OcrFrame, QueuedSyncItem, RecorderStats,
-    Result, RitualDatabase, VideoChunk,
+    DatabaseError, DeliveryOutboxKind, DomainSummary, FocusMetrics, LastEvent, OcrFrame,
+    QueuedSyncItem, RecorderStats, Result, RitualDatabase, VideoChunk,
 };
 
 /// A blocking (synchronous) database handle
@@ -99,6 +99,33 @@ impl BlockingDatabase {
     /// Insert a new activity event
     pub fn insert_activity_event(&self, event: &ActivityEvent) -> Result<i64> {
         self.rt.block_on(self.db.insert_activity_event(event))
+    }
+
+    pub fn enqueue_delivery_outbox(
+        &self,
+        kind: DeliveryOutboxKind,
+        event_id: &str,
+        payload_json: &str,
+    ) -> Result<bool> {
+        self.rt.block_on(
+            self.db
+                .enqueue_delivery_outbox(kind, event_id, payload_json),
+        )
+    }
+
+    pub fn delivery_outbox_count(&self, kind: DeliveryOutboxKind) -> Result<i64> {
+        self.rt.block_on(self.db.delivery_outbox_count(kind))
+    }
+
+    pub fn biome_delivery_cursors(&self) -> Result<std::collections::HashMap<String, i64>> {
+        self.rt.block_on(self.db.biome_delivery_cursors())
+    }
+
+    pub fn advance_biome_delivery_cursor(&self, source_key: &str, committed_ts: i64) -> Result<()> {
+        self.rt.block_on(
+            self.db
+                .advance_biome_delivery_cursor(source_key, committed_ts),
+        )
     }
 
     /// Update the end time of an activity event

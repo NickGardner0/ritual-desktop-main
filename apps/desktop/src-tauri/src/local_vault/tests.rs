@@ -118,6 +118,84 @@ fn vault_lists_and_tombstones_records() {
 }
 
 #[test]
+fn vault_page_cursor_is_stable_across_timestamp_ties() {
+    let temp = TempDir::new().expect("temp dir");
+    let vault = LocalVault::open(temp.path()).expect("open vault");
+    for index in 0..7 {
+        vault
+            .put_record(VaultRecordInput {
+                user_id: "user-1".to_string(),
+                collection: "habit_logs".to_string(),
+                record_id: format!("log-{index}"),
+                record_type: "habit_log".to_string(),
+                payload: json!({"index": index}),
+                updated_at: Some("2026-06-23T00:00:00Z".to_string()),
+                tombstone: Some(index == 3),
+            })
+            .expect("put record");
+    }
+
+    let first = vault
+        .list_records_page("user-1", "habit_logs", None, Some(3))
+        .expect("first page");
+    let second = vault
+        .list_records_page("user-1", "habit_logs", first.next_cursor, Some(3))
+        .expect("second page");
+    let third = vault
+        .list_records_page("user-1", "habit_logs", second.next_cursor, Some(3))
+        .expect("third page");
+    let ids = first
+        .records
+        .into_iter()
+        .chain(second.records)
+        .chain(third.records)
+        .map(|record| record.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(ids.len(), 7);
+}
+
+#[test]
+fn vault_compare_and_swap_rejects_stale_writers() {
+    let temp = TempDir::new().expect("temp dir");
+    let vault = LocalVault::open(temp.path()).expect("open vault");
+    let initial = vault
+        .compare_and_swap_record(VaultCompareAndSwapInput {
+            expected_updated_at: None,
+            record: VaultRecordInput {
+                user_id: "user-1".to_string(),
+                collection: "private_sync_state".to_string(),
+                record_id: "state-v2".to_string(),
+                record_type: "private_sync_state".to_string(),
+                payload: json!({"revision": 1}),
+                updated_at: Some("2026-06-23T00:00:00Z".to_string()),
+                tombstone: Some(false),
+            },
+        })
+        .expect("initial cas");
+    assert!(initial.applied);
+
+    let stale = vault
+        .compare_and_swap_record(VaultCompareAndSwapInput {
+            expected_updated_at: Some("2026-06-22T00:00:00Z".to_string()),
+            record: VaultRecordInput {
+                user_id: "user-1".to_string(),
+                collection: "private_sync_state".to_string(),
+                record_id: "state-v2".to_string(),
+                record_type: "private_sync_state".to_string(),
+                payload: json!({"revision": 2}),
+                updated_at: Some("2026-06-24T00:00:00Z".to_string()),
+                tombstone: Some(false),
+            },
+        })
+        .expect("stale cas");
+    assert!(!stale.applied);
+    assert_eq!(
+        stale.current.expect("current record").payload["revision"],
+        1
+    );
+}
+
+#[test]
 fn vault_records_migration_manifests_without_payloads() {
     let temp = TempDir::new().expect("temp dir");
     let vault = LocalVault::open(temp.path()).expect("open vault");

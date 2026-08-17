@@ -2351,6 +2351,8 @@ fn main() {
             local_vault::vault_put_record,
             local_vault::vault_get_record,
             local_vault::vault_list_records,
+            local_vault::vault_list_records_page,
+            local_vault::vault_compare_and_swap,
             local_vault::vault_tombstone_record,
             local_vault::vault_put_migration_manifest,
             local_vault::vault_list_migration_manifests,

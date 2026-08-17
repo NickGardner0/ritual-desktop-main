@@ -1,6 +1,6 @@
 fn process_browser_db_commands(
     db: &WatcherDatabase,
-    sync_queue: &Option<SyncQueue>,
+    _sync_queue: &Option<SyncQueue>,
     browser_db_rx: &Receiver<BrowserDbCommand>,
 ) {
     loop {
@@ -36,11 +36,7 @@ fn process_browser_db_commands(
                 );
                 match result {
                     Ok(event_id) => {
-                        if let Some(ref sq) = sync_queue {
-                            if let Err(e) = sq.queue_activity_sync(event_id) {
-                                debug!("Failed to queue browser insert for sync: {}", e);
-                            }
-                        }
+                        // The activity_events insert trigger is the sole enqueue authority.
                         let _ = response.send(Ok(event_id));
                     }
                     Err(err) => {
@@ -58,11 +54,7 @@ fn process_browser_db_commands(
             }) => {
                 match db.update_event_end_time(event_id, ts_end) {
                     Ok(()) => {
-                        if let Some(ref sq) = sync_queue {
-                            if let Err(e) = sq.queue_activity_update(event_id, ts_end) {
-                                debug!("Failed to queue browser update for sync: {}", e);
-                            }
-                        }
+                        // The activity_events update trigger is the sole enqueue authority.
                         let _ = response.send(Ok(()));
                     }
                     Err(err) => {

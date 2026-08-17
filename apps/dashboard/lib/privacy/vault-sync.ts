@@ -8,6 +8,7 @@ import type {
   DesktopVaultPutInput,
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
+  DesktopVaultCompareAndSwapResult,
   DesktopVaultStatus,
 } from "./vault-client";
 import {
@@ -26,6 +27,7 @@ export type {
   DesktopVaultPutInput,
   DesktopVaultRecord,
   DesktopVaultRecordMetadata,
+  DesktopVaultCompareAndSwapResult,
   DesktopVaultStatus,
 } from "./vault-client";
 
@@ -56,6 +58,10 @@ export interface VaultSyncAdapter {
     options?: VaultSyncListOptions,
   ): Promise<Array<DesktopVaultRecord<T>> | null>;
   putRecord<T>(input: DesktopVaultPutInput<T>): Promise<DesktopVaultRecordMetadata | null>;
+  compareAndSwapRecord<T>(
+    input: DesktopVaultPutInput<T>,
+    expectedUpdatedAt: string | null,
+  ): Promise<DesktopVaultCompareAndSwapResult<T> | null>;
   tombstoneRecord(
     userId: string,
     collection: string,
@@ -93,6 +99,10 @@ export class VaultSync {
 
   putRecord<T>(input: DesktopVaultPutInput<T>) {
     return this.adapter.putRecord(input);
+  }
+
+  compareAndSwapRecord<T>(input: DesktopVaultPutInput<T>, expectedUpdatedAt: string | null) {
+    return this.adapter.compareAndSwapRecord(input, expectedUpdatedAt);
   }
 
   tombstoneRecord(userId: string, collection: string, recordId: string, recordType: string) {
@@ -142,6 +152,11 @@ export class TauriVaultAdapter implements VaultSyncAdapter {
   async putRecord<T>(input: DesktopVaultPutInput<T>) {
     const { putDesktopVaultRecord } = await import("./vault-client");
     return putDesktopVaultRecord(input);
+  }
+
+  async compareAndSwapRecord<T>(input: DesktopVaultPutInput<T>, expectedUpdatedAt: string | null) {
+    const { compareAndSwapDesktopVaultRecord } = await import("./vault-client");
+    return compareAndSwapDesktopVaultRecord(input, expectedUpdatedAt);
   }
 
   async tombstoneRecord(userId: string, collection: string, recordId: string, recordType: string) {
@@ -230,6 +245,17 @@ export class WebCryptoVaultAdapter implements VaultSyncAdapter {
       tombstone: input.tombstone === true,
     });
     return this.metadata(input.collection, input.recordId, input.recordType, updatedAt, input.tombstone === true);
+  }
+
+  async compareAndSwapRecord<T>(
+    input: DesktopVaultPutInput<T>,
+    expectedUpdatedAt: string | null,
+  ): Promise<DesktopVaultCompareAndSwapResult<T>> {
+    const current = await this.getRecord<T>(input.userId, input.collection, input.recordId);
+    if ((current?.updatedAt ?? null) !== expectedUpdatedAt) {
+      return { applied: false, current };
+    }
+    return { applied: true, record: await this.putRecord(input), current: null };
   }
 
   tombstoneRecord(
@@ -354,6 +380,17 @@ export class InMemoryVaultAdapter implements VaultSyncAdapter {
     };
     this.records.set(this.key(input.collection, input.recordId), record as DesktopVaultRecord);
     return this.metadata(input.collection, input.recordId, input.recordType, updatedAt, input.tombstone === true);
+  }
+
+  async compareAndSwapRecord<T>(
+    input: DesktopVaultPutInput<T>,
+    expectedUpdatedAt: string | null,
+  ): Promise<DesktopVaultCompareAndSwapResult<T>> {
+    const current = await this.getRecord<T>(input.userId, input.collection, input.recordId);
+    if ((current?.updatedAt ?? null) !== expectedUpdatedAt) {
+      return { applied: false, current };
+    }
+    return { applied: true, record: await this.putRecord(input), current: null };
   }
 
   tombstoneRecord(

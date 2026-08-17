@@ -2,17 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::config::{
     default_browser_heartbeat_port, load_saved_watcher_config,
     EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS, WATCHER_HEARTBEAT_ENDPOINTS,
 };
-use super::internal::{
-    WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS, WATCHER_LAST_RESTART_REASON, WATCHER_LAST_STARTED_AT,
-    WATCHER_PROCESS, WATCHER_RESTART_COUNT,
-};
+use super::internal::{WatcherControllerState, WATCHER_CONTROLLER};
 use super::lifecycle::{read_local_watcher_freshness, start_watcher_sync, stop_watcher};
 use super::permissions::check_accessibility_permission;
 use crate::ritual_database::ACTIVITY_DB;
@@ -120,10 +116,10 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
         .and_then(|status| status.status.listener_port)
         .or_else(|| preferred_status.map(|status| status.port));
     let managed_watcher_pid = {
-        let mut guard = WATCHER_PROCESS
+        let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.as_mut().and_then(|child| {
+        controller.process.as_mut().and_then(|child| {
             child
                 .try_wait()
                 .ok()
@@ -429,9 +425,10 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
     let context_stale = !context_fresh;
     let heartbeat_stale = !heartbeat_fresh;
     let has_fresh_local_activity = heartbeat_fresh || context_fresh || activity_fresh_from_sqlite;
-    let startup_grace_active = WATCHER_LAST_STARTED_AT
+    let startup_grace_active = WATCHER_CONTROLLER
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .last_started_at
         .map(|started_at| {
             started_at.elapsed() < Duration::from_secs((max_stale_seconds.max(60) * 2) as u64)
         })
@@ -444,11 +441,21 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         || (status.is_running && !has_fresh_local_activity);
 
     if !should_restart {
-        WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.store(0, Ordering::Relaxed);
+        WATCHER_CONTROLLER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .consecutive_unhealthy_checks = 0;
         return Ok(false);
     }
 
-    let unhealthy_checks = WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.fetch_add(1, Ordering::Relaxed) + 1;
+    let unhealthy_checks = {
+        let mut controller = WATCHER_CONTROLLER
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        controller.consecutive_unhealthy_checks =
+            controller.consecutive_unhealthy_checks.saturating_add(1);
+        controller.consecutive_unhealthy_checks
+    };
     if unhealthy_checks < 3 {
         watcher_info!(
             "⚠️ Watcher health check degraded (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={}, fresh_local_activity={}, startup_grace_active={}, unhealthy_checks={}); waiting for confirmation before restart",
@@ -464,7 +471,13 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
     }
 
     if should_restart {
-        WATCHER_CONSECUTIVE_UNHEALTHY_CHECKS.store(0, Ordering::Relaxed);
+        {
+            let mut controller = WATCHER_CONTROLLER
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            controller.consecutive_unhealthy_checks = 0;
+            controller.state = WatcherControllerState::Backoff;
+        }
         watcher_info!(
             "⚠️ Watcher unhealthy or missing (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={}, fresh_local_activity={}, startup_grace_active={}, unhealthy_checks={})",
             status.is_running,
@@ -486,9 +499,12 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
                 "heartbeat_stale={} context_stale={} watcher_reachable={}",
                 heartbeat_stale, context_stale, watcher_reachable
             );
-            WATCHER_RESTART_COUNT.fetch_add(1, Ordering::Relaxed);
-            if let Ok(mut guard) = WATCHER_LAST_RESTART_REASON.lock() {
-                *guard = Some(restart_reason);
+            {
+                let mut controller = WATCHER_CONTROLLER
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                controller.restart_count = controller.restart_count.saturating_add(1);
+                controller.last_restart_reason = Some(restart_reason);
             }
             match start_watcher_sync(config) {
                 Ok(_) => {

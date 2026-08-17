@@ -15,6 +15,8 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
+use ritual_db::{blocking::BlockingDatabase, DeliveryOutboxKind};
+
 /// Mirrors `services/location/models.LocationPing` on the backend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocationPing {
@@ -40,12 +42,46 @@ const MAX_OUTBOX_PINGS: usize = 2_000;
 pub struct PingOutbox {
     path: PathBuf,
     inner: Mutex<Vec<LocationPing>>,
+    database: Option<BlockingDatabase>,
 }
 
 impl PingOutbox {
     /// Open (or create) the outbox at the standard path.
     pub fn load() -> io::Result<Self> {
-        Self::load_from(outbox_path())
+        let path = outbox_path();
+        let database_path =
+            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
+                .join(".ritual")
+                .join("activity.db");
+        let database = BlockingDatabase::open_activity_db_with_env(database_path)
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+        if path.exists() {
+            let raw = fs::read_to_string(&path)?;
+            match serde_json::from_str::<Vec<LocationPing>>(&raw) {
+                Ok(pings) => {
+                    for ping in pings {
+                        let payload = serde_json::to_string(&ping)
+                            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+                        database
+                            .enqueue_delivery_outbox(
+                                DeliveryOutboxKind::Location,
+                                &ping.client_event_id,
+                                &payload,
+                            )
+                            .map_err(|error| {
+                                io::Error::new(io::ErrorKind::Other, error.to_string())
+                            })?;
+                    }
+                    fs::rename(&path, path.with_extension("json.migrated"))?;
+                }
+                Err(_) => fs::rename(&path, path.with_extension("json.malformed"))?,
+            }
+        }
+        Ok(Self {
+            path,
+            inner: Mutex::new(Vec::new()),
+            database: Some(database),
+        })
     }
 
     /// Open (or create) the outbox at an explicit path. Test-friendly.
@@ -66,25 +102,41 @@ impl PingOutbox {
         Ok(Self {
             path,
             inner: Mutex::new(pings),
+            database: None,
         })
     }
 
     /// Append a single ping. Persists to disk immediately.
     pub fn enqueue(&self, ping: LocationPing) -> io::Result<()> {
+        if let Some(database) = &self.database {
+            let payload = serde_json::to_string(&ping)
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            database
+                .enqueue_delivery_outbox(
+                    DeliveryOutboxKind::Location,
+                    &ping.client_event_id,
+                    &payload,
+                )
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+            return Ok(());
+        }
         let mut guard = self.inner.lock().expect("ping outbox mutex poisoned");
         guard.push(ping);
         if guard.len() > MAX_OUTBOX_PINGS {
             let overflow = guard.len() - MAX_OUTBOX_PINGS;
             guard.drain(0..overflow); // drop oldest
         }
-        let json = serde_json::to_string(&*guard)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let json =
+            serde_json::to_string(&*guard).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         write_atomic(&self.path, &json)
     }
 
     /// Read a snapshot of pending pings (used by a follow-up drainer process).
     pub fn snapshot(&self) -> Vec<LocationPing> {
-        self.inner.lock().expect("ping outbox mutex poisoned").clone()
+        self.inner
+            .lock()
+            .expect("ping outbox mutex poisoned")
+            .clone()
     }
 
     /// Remove specified pings by client_event_id. Called after successful POST.
@@ -93,12 +145,18 @@ impl PingOutbox {
         let submitted: std::collections::HashSet<&str> =
             submitted_event_ids.iter().map(String::as_str).collect();
         guard.retain(|p| !submitted.contains(p.client_event_id.as_str()));
-        let json = serde_json::to_string(&*guard)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        let json =
+            serde_json::to_string(&*guard).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         write_atomic(&self.path, &json)
     }
 
     pub fn count(&self) -> usize {
+        if let Some(database) = &self.database {
+            return database
+                .delivery_outbox_count(DeliveryOutboxKind::Location)
+                .unwrap_or(0)
+                .max(0) as usize;
+        }
         self.inner.lock().expect("ping outbox mutex poisoned").len()
     }
 
@@ -138,14 +196,14 @@ mod tests {
     /// with an explicit path.
     fn isolated_outbox() -> PingOutbox {
         let n = TEST_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let tmp = env::temp_dir()
-            .join(format!("ritual-loc-test-{}-{}", std::process::id(), n));
+        let tmp = env::temp_dir().join(format!("ritual-loc-test-{}-{}", std::process::id(), n));
         let _ = fs::remove_dir_all(&tmp);
         fs::create_dir_all(&tmp).expect("create test dir");
         let path = tmp.join("location_outbox.json");
         PingOutbox {
             path,
             inner: Mutex::new(Vec::new()),
+            database: None,
         }
     }
 
@@ -196,7 +254,9 @@ mod tests {
         let outbox = isolated_outbox();
         // Push more than MAX_OUTBOX_PINGS to force eviction (use a small loop)
         for i in 0..(MAX_OUTBOX_PINGS + 10) {
-            outbox.enqueue(make_ping(&format!("e{}", i), i as i64)).unwrap();
+            outbox
+                .enqueue(make_ping(&format!("e{}", i), i as i64))
+                .unwrap();
         }
         assert_eq!(outbox.count(), MAX_OUTBOX_PINGS);
         // Oldest (e0) should be gone

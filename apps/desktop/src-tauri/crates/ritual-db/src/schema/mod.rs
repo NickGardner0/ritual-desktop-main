@@ -16,7 +16,7 @@ use tracing::{debug, info};
 
 use crate::error::Result;
 
-pub const SCHEMA_VERSION: i32 = 9;
+pub const SCHEMA_VERSION: i32 = 10;
 
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     info!("Initializing Ritual database schema v{}", SCHEMA_VERSION);
@@ -31,7 +31,10 @@ pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     if schema_needs_update {
         migrations::apply_migrations(conn).await?;
     } else {
-        debug!("Schema v{} already recorded; skipping migration backfills", SCHEMA_VERSION);
+        debug!(
+            "Schema v{} already recorded; skipping migration backfills",
+            SCHEMA_VERSION
+        );
     }
 
     sync::create_indexes(conn).await?;

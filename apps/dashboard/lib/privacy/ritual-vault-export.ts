@@ -35,7 +35,6 @@ export const RITUAL_VAULT_ROOT = "Ritual Vault";
 export const RITUAL_VAULT_SCHEMA_PATH = "schema/ritual-vault.schema.json";
 export const RITUAL_VAULT_MANIFEST_PATH = "manifest.json";
 export const RITUAL_VAULT_CHECKSUMS_PATH = "checksums.sha256";
-const MAX_EXPORT_RECORDS_PER_CATEGORY = 100_000;
 const RITUAL_VAULT_KDF = "PBKDF2-SHA256";
 const RITUAL_VAULT_KDF_ITERATIONS = 250_000;
 
@@ -440,7 +439,7 @@ export async function createRitualVaultFileSet({
   let recordCount = 0;
 
   for (const category of selected) {
-    const records = await client.listRecords(userId, category, { limit: MAX_EXPORT_RECORDS_PER_CATEGORY });
+    const records = await client.listRecords(userId, category);
     if (!records) {
       throw new Error("Local vault records could not be read for Ritual Vault export.");
     }

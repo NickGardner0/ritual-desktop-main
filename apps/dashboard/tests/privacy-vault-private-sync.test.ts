@@ -102,6 +102,16 @@ function createVaultClient(initialRecords: StoredRecord[] = []) {
         algorithm: "AES-256-GCM",
       };
     },
+    async compareAndSwapRecord<T>(input: DesktopVaultPutInput<T>, expectedUpdatedAt: string | null) {
+      const current = store.get(recordKey(input.collection, input.recordId)) as
+        | DesktopVaultRecord<T>
+        | undefined;
+      if ((current?.updatedAt ?? null) !== expectedUpdatedAt) {
+        return { applied: false, current: current ?? null };
+      }
+      const record = await client.putRecord(input);
+      return { applied: true, record, current: null };
+    },
     async listRecords<T>(
       _userId: string,
       collection: string,
@@ -231,7 +241,7 @@ describe("private sync envelopes", () => {
     assert.equal(result.appliedCount, 1);
     const restored = target.store.get(recordKey("habit_logs", "log-private"));
     assert.deepEqual(restored?.payload, sensitiveRecords[1].payload);
-    const state = target.store.get(recordKey("private_sync_state", "state-v1"));
+    const state = target.store.get(recordKey("private_sync_state", "state-v2"));
     assert.equal((state?.payload as { lastPulledServerRevision: number }).lastPulledServerRevision, 1);
   });
 

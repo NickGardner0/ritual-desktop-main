@@ -17,6 +17,21 @@ import {
   shouldSuppressDesktopUpdate,
   skipDesktopUpdateVersion,
 } from '@/lib/desktop-update-preferences';
+import {
+  decodeDesktopUpdateEvent,
+  reduceDesktopUpdateEvent,
+} from '@/lib/desktop-updater-state.mjs';
+
+type NativeUpdateStatusPayload = {
+  version?: number;
+  phase?: string;
+  contentLength?: number | null;
+  downloaded?: number | null;
+  percentage?: number | null;
+  message?: string | null;
+  status?: string | null;
+  error?: string | null;
+};
 
 export type DesktopUpdatePhase =
   | 'idle'
@@ -36,14 +51,6 @@ export type DesktopUpdaterSnapshot = {
   percentage: number;
   phase: DesktopUpdatePhase;
   runtimeInfo: DesktopRuntimeInfo | null;
-};
-
-type UpdateStatusPayload = {
-  contentLength?: number | null;
-  downloaded?: number | null;
-  error?: string | null;
-  percentage?: number | null;
-  status?: string | null;
 };
 
 const DESKTOP_ENV_QUERY_PARAM = 'ritual_desktop_env';
@@ -273,54 +280,18 @@ export function DesktopUpdater() {
           });
         });
 
-        disposeStatus = await listen<UpdateStatusPayload>(UPDATE_STATUS_EVENT, (event) => {
+        disposeStatus = await listen<NativeUpdateStatusPayload>(UPDATE_STATUS_EVENT, (event) => {
           if (cancelled) return;
 
           const payload = event.payload || {};
-          const status = (payload.status || '').toUpperCase();
-
-          if (status === 'AVAILABLE') {
+          const decoded = decodeDesktopUpdateEvent(payload);
+          if (!decoded) return;
+          if (decoded.phase === 'available') {
             dismissedVersion = null;
             void refreshRuntimeInfo();
-            return;
           }
-
-          if (status === 'PENDING' || status === 'DOWNLOADING') {
-            publish({
-              phase: 'downloading',
-              contentLength: payload.contentLength ?? snapshot.contentLength,
-              downloaded: payload.downloaded ?? snapshot.downloaded,
-              percentage: Math.max(0, Math.min(100, payload.percentage ?? 0)),
-              error: null,
-            });
-            return;
-          }
-
-          if (status === 'INSTALLING') {
-            publish({ phase: 'installing', percentage: 100, error: null });
-            return;
-          }
-
-          if (status === 'DONE') {
-            publish({ phase: 'relaunching', percentage: 100, error: null });
-            return;
-          }
-
-          if (status === 'UPTODATE') {
-            publish({
-              manifest: null,
-              phase: 'idle',
-              percentage: 0,
-              contentLength: 0,
-              downloaded: 0,
-              error: null,
-            });
-            return;
-          }
-
-          if (status === 'ERROR') {
-            publish({ phase: 'error', error: payload.error || 'Update failed. Please try again.' });
-          }
+          snapshot = reduceDesktopUpdateEvent(snapshot, payload);
+          subscribers.forEach((subscriber) => subscriber());
         });
       })
       .catch((error) => {

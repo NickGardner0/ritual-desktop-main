@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod paths;
+mod record_concurrency;
 mod types;
 
 use paths::resolved_vault_dir;
@@ -877,6 +878,23 @@ pub fn vault_list_records(
     limit: Option<i64>,
 ) -> Result<Vec<VaultRecordOutput>, String> {
     open_user_vault(&user_id)?.list_records(user_id.trim(), collection.trim(), since, limit)
+}
+
+#[tauri::command]
+pub fn vault_list_records_page(
+    user_id: String,
+    collection: String,
+    cursor: Option<String>,
+    limit: Option<i64>,
+) -> Result<VaultRecordsPage, String> {
+    open_user_vault(&user_id)?.list_records_page(user_id.trim(), collection.trim(), cursor, limit)
+}
+
+#[tauri::command]
+pub fn vault_compare_and_swap(
+    input: VaultCompareAndSwapInput,
+) -> Result<VaultCompareAndSwapResult, String> {
+    open_user_vault(&input.record.user_id)?.compare_and_swap_record(input)
 }
 
 #[tauri::command]

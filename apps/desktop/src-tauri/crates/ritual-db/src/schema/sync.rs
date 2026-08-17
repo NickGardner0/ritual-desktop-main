@@ -36,6 +36,36 @@ pub(super) async fn create_sync_tables(conn: &Connection) -> Result<()> {
             updated_at INTEGER NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS location_delivery_outbox (
+            event_id TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at INTEGER NOT NULL DEFAULT 0,
+            lease_owner TEXT,
+            lease_expires_at INTEGER,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS biome_delivery_outbox (
+            event_id TEXT PRIMARY KEY,
+            payload_json TEXT NOT NULL,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at INTEGER NOT NULL DEFAULT 0,
+            lease_owner TEXT,
+            lease_expires_at INTEGER,
+            last_error TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS biome_delivery_cursors (
+            source_key TEXT PRIMARY KEY,
+            committed_ts INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
         -- Daily rollup cache for efficient summaries
         CREATE TABLE IF NOT EXISTS daily_rollup_cache (
             date TEXT NOT NULL,
@@ -168,6 +198,12 @@ pub(super) async fn create_indexes(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status_created
             ON cloud_sync_outbox(status, created_at, id);
+
+        CREATE INDEX IF NOT EXISTS idx_location_delivery_outbox_claim
+            ON location_delivery_outbox(next_attempt_at, lease_expires_at, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_biome_delivery_outbox_claim
+            ON biome_delivery_outbox(next_attempt_at, lease_expires_at, created_at);
 
         CREATE INDEX IF NOT EXISTS idx_context_snapshots_ts
             ON context_snapshots(ts);

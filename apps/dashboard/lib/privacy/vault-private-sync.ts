@@ -13,7 +13,6 @@ import {
   type SupportedLocalMigrationCategory,
 } from "./vault-migration";
 import {
-  PRIVATE_SYNC_STATE_COLLECTION,
   activePrivateSyncKey,
   privateSyncKeyForVersion,
   privateSyncKeyringStatus,
@@ -35,6 +34,10 @@ import {
   PRIVATE_SYNC_DEVICE_HEADER,
   registerPrivateSyncDevice,
 } from "./vault-private-sync-devices";
+import {
+  readPrivateSyncState as readState,
+  writePrivateSyncState as writeState,
+} from "./vault-private-sync-state";
 
 export const SUPPORTED_PRIVATE_SYNC_CATEGORIES = SUPPORTED_LOCAL_MIGRATION_CATEGORIES;
 
@@ -42,23 +45,10 @@ export type SupportedPrivateSyncCategory = SupportedLocalMigrationCategory;
 
 export const PRIVATE_SYNC_CATEGORY_LABELS = LOCAL_MIGRATION_CATEGORY_LABELS;
 
-const PRIVATE_SYNC_STATE_RECORD_ID = "state-v1";
 const PRIVATE_SYNC_CONFLICTS_COLLECTION = "private_sync_conflicts";
 const PRIVATE_SYNC_ALGORITHM = "AES-256-GCM";
 const MAX_PRIVATE_SYNC_BATCH = 500;
-const MAX_LOCAL_LIST_RECORDS = 100_000;
 
-type PrivateSyncPushedRecord = {
-  revision: number;
-  plaintextSha256: string;
-  ciphertextSha256: string;
-  pushedAt: string;
-};
-
-type PrivateSyncStatePayload = {
-  lastPulledServerRevision: number;
-  pushed: Record<string, PrivateSyncPushedRecord>;
-};
 
 export type PrivateSyncKeyStatus = {
   keyVersion: number;
@@ -125,6 +115,14 @@ export type VaultPrivateSyncClient = {
     collection: string,
     options?: { since?: string; limit?: number },
   ): Promise<Array<DesktopVaultRecord<T>> | null>;
+  compareAndSwapRecord?<T>(
+    input: DesktopVaultPutInput<T>,
+    expectedUpdatedAt: string | null,
+  ): Promise<{
+    applied: boolean;
+    record?: DesktopVaultRecordMetadata | null;
+    current?: DesktopVaultRecord<T> | null;
+  } | null>;
 };
 
 const defaultVaultPrivateSyncClient: VaultPrivateSyncClient = {
@@ -139,6 +137,9 @@ const defaultVaultPrivateSyncClient: VaultPrivateSyncClient = {
   },
   async listRecords(userId, collection, options) {
     return vaultSync.listRecords(userId, collection, options);
+  },
+  async compareAndSwapRecord(input, expectedUpdatedAt) {
+    return vaultSync.compareAndSwapRecord(input, expectedUpdatedAt);
   },
 };
 
@@ -207,51 +208,6 @@ function createRevision(record: DesktopVaultRecord): number {
 
 function createEnvelopeId(collection: string, recordId: string): string {
   return `${collection}:${recordId}`;
-}
-
-function defaultState(): PrivateSyncStatePayload {
-  return {
-    lastPulledServerRevision: 0,
-    pushed: {},
-  };
-}
-
-function normalizeState(value: PrivateSyncStatePayload | null | undefined): PrivateSyncStatePayload {
-  return {
-    lastPulledServerRevision:
-      typeof value?.lastPulledServerRevision === "number" && value.lastPulledServerRevision >= 0
-        ? value.lastPulledServerRevision
-        : 0,
-    pushed: value?.pushed && typeof value.pushed === "object" ? value.pushed : {},
-  };
-}
-
-async function readState(
-  userId: string,
-  client: VaultPrivateSyncClient,
-): Promise<PrivateSyncStatePayload> {
-  const record = await client.getRecord<PrivateSyncStatePayload>(
-    userId,
-    PRIVATE_SYNC_STATE_COLLECTION,
-    PRIVATE_SYNC_STATE_RECORD_ID,
-  );
-  return normalizeState(record?.payload);
-}
-
-async function writeState(
-  userId: string,
-  client: VaultPrivateSyncClient,
-  state: PrivateSyncStatePayload,
-  now: Date,
-) {
-  await client.putRecord({
-    userId,
-    collection: PRIVATE_SYNC_STATE_COLLECTION,
-    recordId: PRIVATE_SYNC_STATE_RECORD_ID,
-    recordType: "private_sync_state",
-    payload: state,
-    updatedAt: now.toISOString(),
-  });
 }
 
 async function ensureInitialized(userId: string, client: VaultPrivateSyncClient) {
@@ -487,7 +443,8 @@ export async function pushPrivateSyncEnvelopes({
     client,
     now,
   });
-  const state = await readState(userId, client);
+  const stateRecord = await readState(userId, client);
+  const state = stateRecord.state;
   const envelopes: PrivateSyncEnvelope[] = [];
   const pushedUpdates: Array<{
     envelopeId: string;
@@ -499,7 +456,7 @@ export async function pushPrivateSyncEnvelopes({
   let skippedUnchangedCount = 0;
 
   for (const category of selected) {
-    const records = await client.listRecords(userId, category, { limit: MAX_LOCAL_LIST_RECORDS });
+    const records = await client.listRecords(userId, category);
     if (!records) {
       throw new Error("Local vault records could not be read for Private Sync.");
     }
@@ -565,7 +522,7 @@ export async function pushPrivateSyncEnvelopes({
       pushedAt,
     };
   }
-  await writeState(userId, client, state, new Date(pushedAt));
+  await writeState(userId, client, state, new Date(pushedAt), stateRecord.updatedAt);
 
   return {
     selectedCategories: selected,
@@ -594,7 +551,8 @@ export async function pullPrivateSyncEnvelopes({
     client,
     now,
   });
-  const state = await readState(userId, client);
+  const stateRecord = await readState(userId, client);
+  const state = stateRecord.state;
   let sinceServerRevision = state.lastPulledServerRevision;
   let pulledCount = 0;
   let appliedCount = 0;
@@ -668,7 +626,7 @@ export async function pullPrivateSyncEnvelopes({
   }
 
   state.lastPulledServerRevision = sinceServerRevision;
-  await writeState(userId, client, state, now());
+  await writeState(userId, client, state, now(), stateRecord.updatedAt);
 
   return {
     pulledCount,
@@ -689,7 +647,7 @@ export async function listPrivateSyncConflicts({
   const records = await client.listRecords<PrivateSyncConflictPayload>(
     userId,
     PRIVATE_SYNC_CONFLICTS_COLLECTION,
-    { limit: MAX_LOCAL_LIST_RECORDS },
+    {},
   );
   if (!records) {
     throw new Error("Local vault conflicts could not be read.");
@@ -732,14 +690,15 @@ export async function resolvePrivateSyncConflict({
       updatedAt: remote.updated_at,
       tombstone: remote.tombstone,
     });
-    const state = await readState(userId, client);
+    const stateRecord = await readState(userId, client);
+    const state = stateRecord.state;
     state.pushed[conflict.payload.envelopeId] = {
       revision: conflict.payload.serverRevision,
       plaintextSha256: conflict.payload.remotePlaintextSha256,
       ciphertextSha256: "",
       pushedAt: resolvedAt.toISOString(),
     };
-    await writeState(userId, client, state, resolvedAt);
+    await writeState(userId, client, state, resolvedAt, stateRecord.updatedAt);
   }
 
   await client.putRecord({

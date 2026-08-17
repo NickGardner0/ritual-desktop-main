@@ -16,7 +16,7 @@ use crate::desktop_observability::redact_sensitive_url_for_log;
 use crate::desktop_runtime_types::{
     BiomeDeviceDiagnostics, BiomeDrainSnapshot, BiomeIngestResponse, BiomeIphoneDiagnostics,
     BiomeOutboxDiagnostics, DesktopBiomeActivityEvent, DesktopLocationPing, LocationIngestResponse,
-    TursoSyncConfigResponse, UpdateStatusPayload,
+    TursoSyncConfigResponse, UpdateStatusPayload, UpdateStatusPhaseV2,
 };
 
 pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
@@ -29,6 +29,10 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-auth-clear-v1",
     "desktop-auth-deep-link-opened-v1",
     "desktop-runtime-events-v1",
+    "vault-pagination-v1",
+    "vault-cas-v1",
+    "updater-status-v2",
+    "sqlite-delivery-outbox-v1",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
 pub(crate) const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
