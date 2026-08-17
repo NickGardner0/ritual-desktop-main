@@ -159,7 +159,11 @@ async def get_persisted_account(
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Ritual Backend API", version="1.0.0")
+    app = FastAPI(
+        title="Ritual Backend API",
+        version="1.0.0",
+        separate_input_output_schemas=False,
+    )
 
     @app.middleware("http")
     async def sentry_request_context_middleware(request: Request, call_next):

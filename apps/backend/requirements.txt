@@ -1,5 +1,5 @@
 # Core FastAPI and server
-fastapi>=0.104.0
+fastapi==0.119.0
 uvicorn[standard]>=0.24.0
 
 # Rate limiting
@@ -16,7 +16,7 @@ libsql-experimental==0.0.55  # For direct Turso embedded replica access (activit
 sqlalchemy-libsql==0.2.0  # SQLAlchemy dialect for libSQL/Turso
 
 # Data validation
-pydantic>=2.8.0
+pydantic==2.12.2
 
 # Authentication - using PyJWT with cryptography for JWKS support
 PyJWT[crypto]>=2.8.0
