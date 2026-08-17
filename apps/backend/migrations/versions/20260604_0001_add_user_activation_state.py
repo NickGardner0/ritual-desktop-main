@@ -25,6 +25,14 @@ def _table_exists(connection, table_name: str) -> bool:
     return result.fetchone() is not None
 
 
+def _index_exists(connection, index_name: str) -> bool:
+    result = connection.exec_driver_sql(
+        "SELECT name FROM sqlite_master WHERE type='index' AND name=?",
+        (index_name,),
+    )
+    return result.fetchone() is not None
+
+
 def upgrade() -> None:
     bind = op.get_bind()
 
@@ -62,7 +70,9 @@ def upgrade() -> None:
             unique=True,
         )
 
-    if _table_exists(bind, "habit_logs"):
+    if _table_exists(bind, "habit_logs") and not _index_exists(
+        bind, "idx_habit_logs_first_run_client_event"
+    ):
         op.create_index(
             "idx_habit_logs_first_run_client_event",
             "habit_logs",

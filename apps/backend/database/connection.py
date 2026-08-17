@@ -213,7 +213,7 @@ async def force_local_replica_sync(*, timeout_seconds: float = 2.5) -> bool:
 async def init_database(*, fast_startup: bool = False):
     """
     Initialize database - verifies connection and waits for sync.
-    Schema is managed by migration scripts, not create_all().
+    Schema is managed by the Alembic runner, not create_all().
     """
     from sqlalchemy import text
     import asyncio
@@ -234,7 +234,7 @@ async def init_database(*, fast_startup: bool = False):
     for attempt in range(max_retries):
         try:
             # Just verify we can query the database - don't try to create tables
-            # Schema is managed by migration scripts (migrate_add_import_tables.py)
+            # Schema is managed by apps/backend/scripts/run_database_migrations.py.
             async with async_session_factory() as session:
                 result = await session.execute(text("SELECT COUNT(*) FROM users"))
                 count = result.scalar()
@@ -294,10 +294,7 @@ async def init_database(*, fast_startup: bool = False):
                 DATABASE_RUNTIME_STATE["db_ready"] = False
                 if "no such table" in error_msg.lower():
                     logger.error(f"❌ Database tables missing: {error_msg}")
-                    if "wearable_events" in error_msg:
-                        logger.info("💡 Run: cd backend && python scripts/repair_wearable_events_schema.py")
-                    else:
-                        logger.info("💡 Run: cd backend && python scripts/migrate_add_import_tables.py")
+                    logger.info("💡 Run: python apps/backend/scripts/run_database_migrations.py")
                 else:
                     logger.warning(f"⚠️  Database check failed after {max_retries} attempts: {error_msg}")
 

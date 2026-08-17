@@ -99,6 +99,14 @@ def upgrade() -> None:
     bind = op.get_bind()
 
     if _table_exists(bind, "habit_logs"):
+        # Legacy standalone scripts could create habit_logs without the
+        # idempotency columns. Add the index precondition here so the linear
+        # Alembic upgrade remains valid.
+        if not _column_exists(bind, "habit_logs", "client_event_id"):
+            op.add_column(
+                "habit_logs",
+                sa.Column("client_event_id", sa.String(), nullable=True),
+            )
         if not _column_exists(bind, "habit_logs", "actor_type"):
             op.add_column("habit_logs", sa.Column("actor_type", sa.String(), nullable=True))
         if not _column_exists(bind, "habit_logs", "actor_ref"):

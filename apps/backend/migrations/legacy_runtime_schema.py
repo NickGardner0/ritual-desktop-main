@@ -6,7 +6,13 @@ statements; new schema changes should be added as normal Alembic revisions.
 
 from __future__ import annotations
 
-COLUMN_MIGRATIONS = [('watcher_state',
+COLUMN_MIGRATIONS = [('habit_logs', 'habit_name', 'ALTER TABLE habit_logs ADD COLUMN habit_name TEXT'),
+ ('habit_logs', 'client_event_id', 'ALTER TABLE habit_logs ADD COLUMN client_event_id TEXT'),
+ ('habit_logs', 'source', 'ALTER TABLE habit_logs ADD COLUMN source TEXT'),
+ ('habit_logs', 'import_run_id', 'ALTER TABLE habit_logs ADD COLUMN import_run_id TEXT'),
+ ('habit_logs', 'source_id', 'ALTER TABLE habit_logs ADD COLUMN source_id TEXT'),
+ ('habit_logs', 'dedupe_key', 'ALTER TABLE habit_logs ADD COLUMN dedupe_key TEXT'),
+ ('watcher_state',
   'afk_timeout_seconds',
   'ALTER TABLE watcher_state ADD COLUMN afk_timeout_seconds INTEGER DEFAULT 900'),
  ('import_runs', 'undo_expires_at', 'ALTER TABLE import_runs ADD COLUMN undo_expires_at DATETIME'),

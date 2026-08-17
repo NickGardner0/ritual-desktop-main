@@ -4,24 +4,9 @@
   "statuses": {
     "supported": "Documented operational command that may remain runnable.",
     "manual_repair": "Break-glass repair or recovery script; keep until replaced by a tested command.",
-    "migration_candidate": "Schema mutation script that should move into Alembic/versioned migrations.",
     "archive_candidate": "Demo, seed, or stale one-off script that should be archived/deleted after owner review."
   },
   "scripts": {
-    "add_habit_log_columns.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/add_habit_log_columns.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "add_habit_name_column.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/add_habit_name_column.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
     "backfill_activity_events_to_per_user_turso.py": {
       "owner": "backend",
       "status": "manual_repair",
@@ -49,83 +34,6 @@
       "runtime": "python",
       "smoke_test": "python3 -m py_compile apps/backend/scripts/cleanup_excessive_apple_health_data.py",
       "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
-    },
-    "init_turso_tables.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/init_turso_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_ai_tables.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_ai_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_financial_tables.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_financial_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_heart_rate_tables.py": {
-      "owner": "wearables",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_heart_rate_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_import_tables.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_import_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_screen_time_tables.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_screen_time_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_ui_preferences.py": {
-      "owner": "dashboard",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_ui_preferences.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_watcher_tables.py": {
-      "owner": "desktop",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_watcher_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_add_wearables_tables.py": {
-      "owner": "wearables",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_add_wearables_tables.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_import_indexes.py": {
-      "owner": "backend",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_import_indexes.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
-    },
-    "migrate_watcher_v2.py": {
-      "owner": "desktop",
-      "status": "migration_candidate",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/migrate_watcher_v2.py",
-      "review_action": "Replace with Alembic or desktop versioned migration coverage, then archive this script."
     },
     "project_time_cloud_memory_migration.py": {
       "owner": "desktop",
@@ -160,13 +68,6 @@
       "status": "manual_repair",
       "runtime": "python",
       "smoke_test": "python3 -m py_compile apps/backend/scripts/repair_computer_time_facts_from_local_watcher.py",
-      "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
-    },
-    "repair_wearable_events_schema.py": {
-      "owner": "wearables",
-      "status": "manual_repair",
-      "runtime": "python",
-      "smoke_test": "python3 -m py_compile apps/backend/scripts/repair_wearable_events_schema.py",
       "review_action": "Retain as break-glass only until it has an owner-reviewed runbook and fixture-backed smoke test."
     },
     "reset_tinybird_habit_logs.sh": {
