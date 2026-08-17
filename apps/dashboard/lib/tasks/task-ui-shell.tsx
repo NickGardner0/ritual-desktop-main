@@ -10,7 +10,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@ritual/ui/select';
 import { cn } from '@/lib/utils';
 import type { TaskPriority } from './types';
 
@@ -23,7 +23,6 @@ export function TaskPageShell({ children, className }: { children: ReactNode; cl
     </div>
   );
 }
-
 export function TaskPageHeader({
   title,
   actions,

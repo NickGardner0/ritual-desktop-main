@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import type { AgentRoutine } from '@/lib/routines/model';
 import type { RoutineRunView } from '@/lib/routines/runs';
 import { describeSchedule } from '@/lib/routines/schedule-engine.mjs';
@@ -49,7 +49,6 @@ function LastRunDot({ lastRun, now }: { lastRun: RoutineRunView | undefined; now
     />
   );
 }
-
 function RoutineRow({
   item,
   selected,

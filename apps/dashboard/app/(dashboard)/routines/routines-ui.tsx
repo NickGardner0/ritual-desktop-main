@@ -24,7 +24,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@ritual/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 import { dateFromInput, dateInputValue } from "@/lib/tasks/date-format";
 import { WEEKDAYS } from "@/lib/tasks/routine-editor";
@@ -146,7 +146,6 @@ export function RoutinePanelMenu() {
     </DropdownMenu>
   );
 }
-
 export function RoutineListItem({
   title,
   cadence,

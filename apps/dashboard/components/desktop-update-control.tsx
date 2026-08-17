@@ -17,7 +17,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import styles from './desktop-update-control.module.css';
 
 const LOADING_GRID_CELLS = Array.from({ length: 15 }, (_, index) => index);

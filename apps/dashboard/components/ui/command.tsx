@@ -7,7 +7,7 @@ import { Search } from "lucide-react"
 import { menuRowVariants } from "@ritual/ui/menu"
 
 import { cn } from "@/lib/utils"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogContent } from "@ritual/ui/dialog"
 
 const Command = React.forwardRef<
   React.ElementRef<typeof CommandPrimitive>,

@@ -90,7 +90,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@ritual/ui/select';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 
 export const DateRangePicker = dynamic(

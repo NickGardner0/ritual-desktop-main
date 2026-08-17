@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { ArrowDown, ArrowUp, ChevronDown, Check } from 'lucide-react';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+} from '@ritual/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
 import { cn } from '@/lib/utils';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { DateCell, SourceCell } from '../columns';
@@ -60,7 +60,6 @@ export function SortableHeaderCell({
     </div>
   );
 }
-
 export function SortButton({
   column,
   sortColumn,

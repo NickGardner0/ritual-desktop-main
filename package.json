@@ -11,6 +11,8 @@
     "packages/*"
   ],
   "scripts": {
+    "tokens:generate": "node scripts/generate-ui-tokens.mjs",
+    "tokens:check": "node scripts/generate-ui-tokens.mjs --check",
     "typecheck:ui": "npm run --workspace @ritual/ui typecheck",
     "build:chat-runtime": "npm run --workspace @ritual/chat-runtime build",
     "dev": "npm run build:chat-runtime && cd apps/dashboard && next dev -p 3000 --turbo",
@@ -48,7 +50,7 @@
     "trigger:dev": "cd apps/dashboard && npx trigger.dev@latest dev",
     "trigger:deploy": "npm run typecheck && cd apps/dashboard && npx trigger.dev@latest deploy",
     "trigger:deploy:prod": "npm run typecheck && cd apps/dashboard && npx trigger.dev@latest deploy --env prod",
-    "repo:check": "bash scripts/check-repo-structure.sh && node scripts/check-ui-boundary.mjs && node scripts/check-dead-code.mjs && bash scripts/check-removed-recorder.sh && node scripts/check-dashboard-api-budget.mjs && node scripts/check-dashboard-api-manifest.mjs && node scripts/check-runtime-schema-budget.mjs && node scripts/check-backend-ops-manifest.mjs && node scripts/check-backend-ops-smoke.mjs && node scripts/check-migration-boundary.mjs && node scripts/check-generated-backend-client.mjs && node scripts/check-import-cycles.mjs && node scripts/check-no-direct-backend-fetch.mjs && node scripts/check-desktop-capabilities-boundary.mjs && node scripts/check-dashboard-line-budget.mjs && node scripts/check-rust-line-budget.mjs && node scripts/check-performance-budgets.mjs",
+    "repo:check": "npm run tokens:check && bash scripts/check-repo-structure.sh && node scripts/check-ui-boundary.mjs && node scripts/check-dead-code.mjs && bash scripts/check-removed-recorder.sh && node scripts/check-dashboard-api-budget.mjs && node scripts/check-dashboard-api-manifest.mjs && node scripts/check-runtime-schema-budget.mjs && node scripts/check-backend-ops-manifest.mjs && node scripts/check-backend-ops-smoke.mjs && node scripts/check-migration-boundary.mjs && node scripts/check-generated-backend-client.mjs && node scripts/check-import-cycles.mjs && node scripts/check-no-direct-backend-fetch.mjs && node scripts/check-desktop-capabilities-boundary.mjs && node scripts/check-dashboard-line-budget.mjs && node scripts/check-rust-line-budget.mjs && node scripts/check-performance-budgets.mjs",
     "repo:check:rust-line-budget": "node scripts/check-rust-line-budget.mjs",
     "repo:check:api-client-boundary": "node scripts/check-no-direct-backend-fetch.mjs",
     "repo:check:desktop-capabilities": "node scripts/check-desktop-capabilities-boundary.mjs",

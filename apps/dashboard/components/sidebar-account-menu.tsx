@@ -12,7 +12,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@ritual/ui/dropdown-menu";
 import { NavRowSurface } from "@/components/ui/ritual-system";
 import { signOutOfRitual } from "@/lib/desktop-auth-session";
 import { cn } from "@/lib/utils";

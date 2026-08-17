@@ -23,7 +23,7 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
 import type { ViewMode } from './view-mode-toggle';
 import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter-context';
@@ -121,7 +121,6 @@ function ViewLoadingFallback() {
     </div>
   );
 }
-
 // Compact loading fallback for controls
 function ControlLoadingFallback() {
   return <div className="h-8 w-28 bg-gray-100 animate-pulse" />;

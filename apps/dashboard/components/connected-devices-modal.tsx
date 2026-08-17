@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-} from '@/components/ui/dialog';
+} from '@ritual/ui/dialog';
 import { cn } from '@/lib/utils';
 
 // ── Device / Integration catalog ──────────────────────────
@@ -182,7 +182,6 @@ export function ConnectedDevicesBar() {
     </>
   );
 }
-
 // ── Modal ─────────────────────────────────────────────────
 
 function ConnectedDevicesModal({

@@ -8,7 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@ritual/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import {
@@ -138,7 +138,6 @@ export function renderIntegrationAutoSyncDetails(
     </div>
   );
 }
-
 export function renderWhoopSyncDetailsPanel(ctx: IntegrationRuntimeContext) {
   const {
     handleWearableSyncSettingsUpdate,

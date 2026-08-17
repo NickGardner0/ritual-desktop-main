@@ -15,7 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from '@ritual/ui/dropdown-menu';
 import { Checkbox } from '@/components/ui/checkbox';
 import type { TableDensity } from '@/components/habit-logs/types';
 

@@ -23,7 +23,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from '@ritual/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import { cn } from '@/lib/utils';
@@ -111,7 +111,6 @@ export function formatErrorMessage(error: unknown, fallbackMessage: string): str
 
   return fallbackMessage;
 }
-
 export function formatRecordCount(count: number, singular: string, plural = `${singular}s`): string | null {
   if (!Number.isFinite(count) || count <= 0) {
     return null;

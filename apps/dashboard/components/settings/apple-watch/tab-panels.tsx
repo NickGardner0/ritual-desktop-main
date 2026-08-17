@@ -7,7 +7,7 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { Input } from '@/components/ui/input';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
+} from '@ritual/ui/select';
 import {
   getWearableMetricType,
   humanizeWearableMetric,

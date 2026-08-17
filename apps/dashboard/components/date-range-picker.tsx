@@ -8,8 +8,8 @@ import { DateRange } from "react-day-picker"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Popover, PopoverContent, PopoverTrigger } from "@ritual/ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select"
 
 interface DateRangePickerProps {
   className?: string

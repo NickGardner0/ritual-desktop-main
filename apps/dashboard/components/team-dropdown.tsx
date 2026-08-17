@@ -11,7 +11,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@ritual/ui/dropdown-menu";
 import { createPortal } from "react-dom";
 import { useState, useRef, useEffect } from "react";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";

@@ -16,7 +16,7 @@ import {
     Popover,
     PopoverContent,
     PopoverTrigger,
-} from "@/components/ui/popover"
+} from "@ritual/ui/popover"
 
 interface MultiSelectProps {
     options: string[]

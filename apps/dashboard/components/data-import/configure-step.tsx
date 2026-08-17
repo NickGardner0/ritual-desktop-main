@@ -4,7 +4,7 @@ import React from "react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select";
 import { AlertCircle, AlertTriangle, ChevronDown, Check } from "lucide-react";
 import { AGGREGATION_OPTIONS, CONFLICT_POLICIES, type AggregationPeriod, type ConflictPolicy } from "../data-import-modal.config";
 import type { DataImportController } from "./use-data-import";

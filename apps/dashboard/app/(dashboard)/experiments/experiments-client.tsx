@@ -16,7 +16,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@ritual/ui/dialog";
 import { createExperiment, listExperiments } from "@/lib/experiments";
 
 export function ExperimentsClient() {

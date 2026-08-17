@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+} from '@ritual/ui/alert-dialog';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { LogDetailPanel } from '@/components/tables/habit-logs/log-detail-panel';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';

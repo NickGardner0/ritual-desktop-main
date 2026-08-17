@@ -15,7 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "@ritual/ui/dialog";
 import {
   createExperimentEntry,
   createExperimentThread,

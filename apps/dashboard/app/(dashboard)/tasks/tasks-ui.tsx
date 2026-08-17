@@ -17,8 +17,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+} from '@ritual/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
 import { dateInputValue } from '@/lib/tasks/date-format';
 import {
   CATEGORY_FILTERS,
@@ -75,7 +75,6 @@ export function TasksFilterBar({
     </div>
   );
 }
-
 export function TasksToolbarActions({
   layoutMode,
   onLayoutModeChange,
