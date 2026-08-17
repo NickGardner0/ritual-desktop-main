@@ -588,9 +588,7 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
         let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.device_id = Some(config.device_id.clone());
-        controller.last_started_at = Some(Instant::now());
-        controller.state = WatcherControllerState::Starting;
+        controller.begin_start(config.device_id.clone());
     }
 
     // Clear our stored handle
@@ -634,7 +632,7 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
         WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .state = WatcherControllerState::Backoff;
+            .fail_start();
         format!("Failed to start watcher: {}", e)
     })?;
 
@@ -646,8 +644,7 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
         let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.process = Some(child);
-        controller.state = WatcherControllerState::Running;
+        controller.finish_start(child);
     }
 
     watcher_info!(
@@ -683,9 +680,7 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
         let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.device_id = Some(config.device_id.clone());
-        controller.last_started_at = Some(Instant::now());
-        controller.state = WatcherControllerState::Starting;
+        controller.begin_start(config.device_id.clone());
     }
 
     // Clear our stored handle
@@ -728,7 +723,7 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
         WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .state = WatcherControllerState::Backoff;
+            .fail_start();
         format!("Failed to start watcher: {}", e)
     })?;
 
@@ -740,8 +735,7 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
         let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.process = Some(child);
-        controller.state = WatcherControllerState::Running;
+        controller.finish_start(child);
     }
 
     watcher_info!(
@@ -787,11 +781,7 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
             cleanup_existing_watcher_processes(&device_id, "stop fallback");
         }
     }
-    controller.state = if super::config::load_saved_watcher_config().is_some() {
-        WatcherControllerState::Stopped
-    } else {
-        WatcherControllerState::Disabled
-    };
+    controller.finish_stop(super::config::load_saved_watcher_config().is_some());
 
     Ok(WatcherStatus {
         is_running: false,

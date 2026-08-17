@@ -673,6 +673,17 @@ impl RitualDatabase {
             .await
     }
 
+    pub async fn enqueue_delivery_outbox_batch(
+        &self,
+        kind: DeliveryOutboxKind,
+        items: &[(String, String)],
+    ) -> Result<u64> {
+        let conn = self.conn.read().await;
+        delivery_outbox::DeliveryOutboxOps::new(&conn)
+            .enqueue_many(kind, items)
+            .await
+    }
+
     pub async fn claim_delivery_outbox(
         &self,
         kind: DeliveryOutboxKind,

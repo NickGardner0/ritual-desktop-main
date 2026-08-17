@@ -144,14 +144,81 @@ fn vault_page_cursor_is_stable_across_timestamp_ties() {
     let third = vault
         .list_records_page("user-1", "habit_logs", second.next_cursor, Some(3))
         .expect("third page");
-    let ids = first
+    let records = first
         .records
         .into_iter()
         .chain(second.records)
         .chain(third.records)
-        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    let ids = records
+        .iter()
+        .map(|record| &record.id)
         .collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), 7);
+    assert!(records.iter().any(|record| record.tombstone));
+}
+
+#[test]
+fn vault_page_cursor_handles_mutations_between_pages_without_duplicates() {
+    let temp = TempDir::new().expect("temp dir");
+    let vault = LocalVault::open(temp.path()).expect("open vault");
+    for (id, updated_at) in [
+        ("newest", "2026-06-23T03:00:00Z"),
+        ("middle", "2026-06-23T02:00:00Z"),
+        ("oldest", "2026-06-23T01:00:00Z"),
+    ] {
+        vault
+            .put_record(VaultRecordInput {
+                user_id: "user-1".to_string(),
+                collection: "habit_logs".to_string(),
+                record_id: id.to_string(),
+                record_type: "habit_log".to_string(),
+                payload: json!({"id": id}),
+                updated_at: Some(updated_at.to_string()),
+                tombstone: Some(false),
+            })
+            .expect("put fixture");
+    }
+    let first = vault
+        .list_records_page("user-1", "habit_logs", None, Some(2))
+        .expect("first page");
+    vault
+        .put_record(VaultRecordInput {
+            user_id: "user-1".to_string(),
+            collection: "habit_logs".to_string(),
+            record_id: "arrived-newer".to_string(),
+            record_type: "habit_log".to_string(),
+            payload: json!({}),
+            updated_at: Some("2026-06-23T04:00:00Z".to_string()),
+            tombstone: Some(false),
+        })
+        .expect("insert newer mutation");
+    vault
+        .put_record(VaultRecordInput {
+            user_id: "user-1".to_string(),
+            collection: "habit_logs".to_string(),
+            record_id: "arrived-older".to_string(),
+            record_type: "habit_log".to_string(),
+            payload: json!({}),
+            updated_at: Some("2026-06-23T00:00:00Z".to_string()),
+            tombstone: Some(false),
+        })
+        .expect("insert older mutation");
+    let second = vault
+        .list_records_page("user-1", "habit_logs", first.next_cursor, Some(5))
+        .expect("second page");
+    let ids = first
+        .records
+        .into_iter()
+        .chain(second.records)
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        ids.iter().collect::<std::collections::HashSet<_>>().len(),
+        ids.len()
+    );
+    assert!(ids.iter().any(|id| id == "arrived-older"));
+    assert!(!ids.iter().any(|id| id == "arrived-newer"));
 }
 
 #[test]

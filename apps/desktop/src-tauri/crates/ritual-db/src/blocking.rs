@@ -113,6 +113,15 @@ impl BlockingDatabase {
         )
     }
 
+    pub fn enqueue_delivery_outbox_batch(
+        &self,
+        kind: DeliveryOutboxKind,
+        items: &[(String, String)],
+    ) -> Result<u64> {
+        self.rt
+            .block_on(self.db.enqueue_delivery_outbox_batch(kind, items))
+    }
+
     pub fn delivery_outbox_count(&self, kind: DeliveryOutboxKind) -> Result<i64> {
         self.rt.block_on(self.db.delivery_outbox_count(kind))
     }

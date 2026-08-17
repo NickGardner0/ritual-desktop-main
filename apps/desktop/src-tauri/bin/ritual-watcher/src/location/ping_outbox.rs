@@ -1,13 +1,8 @@
-//! Disk-backed outbox of LocationPing JSON objects.
+//! SQLite-backed outbox of LocationPing JSON objects.
 //!
-//! Writes to `~/Library/Application Support/Ritual/location_outbox.json`.
-//! Uses a simple JSON-array format that can be appended to atomically by
-//! reading-modifying-writing the whole file (good enough for a few hundred
-//! pings per day; we're not log-shipping at TB scale).
-//!
-//! Drainage is the responsibility of a separate process (the main Tauri
-//! app), which reads the file, batches the contents to
-//! POST /api/user/location-pings, and truncates on success.
+//! New production writes append to the shared activity database. On first
+//! load, the watcher transactionally copies the legacy JSON-array outbox into
+//! SQLite and archives the source only after every valid row is durable.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -45,6 +40,51 @@ pub struct PingOutbox {
     database: Option<BlockingDatabase>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum LegacyLocationMigration {
+    NotPresent,
+    Imported { records: usize, archive: PathBuf },
+    Quarantined { quarantine: PathBuf },
+}
+
+fn migrate_legacy_location_file(
+    path: &PathBuf,
+    database: &BlockingDatabase,
+) -> io::Result<LegacyLocationMigration> {
+    if !path.exists() {
+        return Ok(LegacyLocationMigration::NotPresent);
+    }
+    let raw = fs::read_to_string(path)?;
+    let pings = match serde_json::from_str::<Vec<LocationPing>>(&raw) {
+        Ok(pings) => pings,
+        Err(_) => {
+            let quarantine = path.with_extension("json.malformed");
+            fs::rename(path, &quarantine)?;
+            return Ok(LegacyLocationMigration::Quarantined { quarantine });
+        }
+    };
+
+    // INSERT OR IGNORE makes a retry after commit-but-before-rename safe, while
+    // the batch transaction prevents a partially copied legacy file.
+    let records = pings
+        .iter()
+        .map(|ping| {
+            serde_json::to_string(ping)
+                .map(|payload| (ping.client_event_id.clone(), payload))
+                .map_err(|error| io::Error::new(io::ErrorKind::Other, error))
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    database
+        .enqueue_delivery_outbox_batch(DeliveryOutboxKind::Location, &records)
+        .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+    let archive = path.with_extension("json.migrated");
+    fs::rename(path, &archive)?;
+    Ok(LegacyLocationMigration::Imported {
+        records: pings.len(),
+        archive,
+    })
+}
+
 impl PingOutbox {
     /// Open (or create) the outbox at the standard path.
     pub fn load() -> io::Result<Self> {
@@ -55,28 +95,7 @@ impl PingOutbox {
                 .join("activity.db");
         let database = BlockingDatabase::open_activity_db_with_env(database_path)
             .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
-        if path.exists() {
-            let raw = fs::read_to_string(&path)?;
-            match serde_json::from_str::<Vec<LocationPing>>(&raw) {
-                Ok(pings) => {
-                    for ping in pings {
-                        let payload = serde_json::to_string(&ping)
-                            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
-                        database
-                            .enqueue_delivery_outbox(
-                                DeliveryOutboxKind::Location,
-                                &ping.client_event_id,
-                                &payload,
-                            )
-                            .map_err(|error| {
-                                io::Error::new(io::ErrorKind::Other, error.to_string())
-                            })?;
-                    }
-                    fs::rename(&path, path.with_extension("json.migrated"))?;
-                }
-                Err(_) => fs::rename(&path, path.with_extension("json.malformed"))?,
-            }
-        }
+        migrate_legacy_location_file(&path, &database)?;
         Ok(Self {
             path,
             inner: Mutex::new(Vec::new()),
@@ -262,5 +281,60 @@ mod tests {
         // Oldest (e0) should be gone
         let snap = outbox.snapshot();
         assert!(snap.iter().all(|p| p.client_event_id != "e0"));
+    }
+
+    #[test]
+    fn legacy_file_is_copied_to_sqlite_before_it_is_archived() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("location_outbox.json");
+        let pings = vec![make_ping("legacy-a", 1), make_ping("legacy-b", 2)];
+        fs::write(&path, serde_json::to_vec(&pings).unwrap()).expect("write legacy file");
+        let database = BlockingDatabase::open_activity_db_with_env(temp.path().join("activity.db"))
+            .expect("open activity database");
+
+        let result = migrate_legacy_location_file(&path, &database).expect("migrate legacy file");
+        let archive = path.with_extension("json.migrated");
+        assert_eq!(
+            result,
+            LegacyLocationMigration::Imported {
+                records: 2,
+                archive: archive.clone(),
+            }
+        );
+        assert!(!path.exists());
+        assert!(archive.exists());
+        assert_eq!(
+            database
+                .delivery_outbox_count(DeliveryOutboxKind::Location)
+                .unwrap(),
+            2
+        );
+    }
+
+    #[test]
+    fn malformed_legacy_file_is_quarantined_without_inserting_rows() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let path = temp.path().join("location_outbox.json");
+        fs::write(&path, "[{not-json]").expect("write malformed legacy file");
+        let database = BlockingDatabase::open_activity_db_with_env(temp.path().join("activity.db"))
+            .expect("open activity database");
+
+        let result =
+            migrate_legacy_location_file(&path, &database).expect("quarantine legacy file");
+        let quarantine = path.with_extension("json.malformed");
+        assert_eq!(
+            result,
+            LegacyLocationMigration::Quarantined {
+                quarantine: quarantine.clone(),
+            }
+        );
+        assert!(!path.exists());
+        assert!(quarantine.exists());
+        assert_eq!(
+            database
+                .delivery_outbox_count(DeliveryOutboxKind::Location)
+                .unwrap(),
+            0
+        );
     }
 }

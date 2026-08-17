@@ -2,6 +2,7 @@
 
 import { invokeDesktopCommand } from "../desktop-bridge/commands";
 import { isDesktopTauriRuntime } from "../desktop-bridge/environment";
+import { collectVaultRecordPages } from "./vault-pagination.mjs";
 
 export type DesktopVaultStatus = {
   initialized: boolean;
@@ -154,25 +155,25 @@ export async function listDesktopVaultRecords<T>(
 ): Promise<Array<DesktopVaultRecord<T>> | null> {
   if (!canUseDesktopVault()) return null;
   const requestedPageSize = Math.min(Math.max(options.limit || 2_000, 1), 5_000);
-  const records: Array<DesktopVaultRecord<T>> = [];
-  let cursor: string | null = null;
   try {
-    do {
-      const page: DesktopVaultRecordsPage<T> = await invokeDesktopCommand<DesktopVaultRecordsPage<T>>("vault_list_records_page", {
+    const records = await collectVaultRecordPages((cursor: string | null) =>
+      invokeDesktopCommand<DesktopVaultRecordsPage<T>>("vault_list_records_page", {
         userId,
         collection,
         cursor,
         limit: requestedPageSize,
-      });
-      records.push(...page.records);
-      cursor = page.nextCursor || null;
-    } while (cursor);
+      }),
+    ) as Array<DesktopVaultRecord<T>>;
     return options.since
       ? records.filter((record) => record.updatedAt > options.since!)
       : records;
   } catch (error) {
-    if (records.length > 0) throw error;
     // Compatibility with native clients released before cursor pagination.
+    // The collector throws on a repeated cursor or a later-page failure; those
+    // errors must not fall back to a capped legacy read after partial results.
+    if (error instanceof Error && !/unknown command|not found|not registered/i.test(error.message)) {
+      throw error;
+    }
     return invokeDesktopCommand<Array<DesktopVaultRecord<T>>>("vault_list_records", {
       userId,
       collection,

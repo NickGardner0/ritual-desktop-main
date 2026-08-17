@@ -8,7 +8,7 @@ use super::config::{
     default_browser_heartbeat_port, load_saved_watcher_config,
     EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS, WATCHER_HEARTBEAT_ENDPOINTS,
 };
-use super::internal::{WatcherControllerState, WATCHER_CONTROLLER};
+use super::internal::WATCHER_CONTROLLER;
 use super::lifecycle::{read_local_watcher_freshness, start_watcher_sync, stop_watcher};
 use super::permissions::check_accessibility_permission;
 use crate::ritual_database::ACTIVITY_DB;
@@ -452,9 +452,7 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         let mut controller = WATCHER_CONTROLLER
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.consecutive_unhealthy_checks =
-            controller.consecutive_unhealthy_checks.saturating_add(1);
-        controller.consecutive_unhealthy_checks
+        controller.record_unhealthy_check()
     };
     if unhealthy_checks < 3 {
         watcher_info!(
@@ -471,13 +469,6 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
     }
 
     if should_restart {
-        {
-            let mut controller = WATCHER_CONTROLLER
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            controller.consecutive_unhealthy_checks = 0;
-            controller.state = WatcherControllerState::Backoff;
-        }
         watcher_info!(
             "⚠️ Watcher unhealthy or missing (is_running={}, watcher_reachable={}, heartbeat_stale={}, context_stale={}, fresh_local_activity={}, startup_grace_active={}, unhealthy_checks={})",
             status.is_running,
@@ -503,8 +494,7 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
                 let mut controller = WATCHER_CONTROLLER
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner());
-                controller.restart_count = controller.restart_count.saturating_add(1);
-                controller.last_restart_reason = Some(restart_reason);
+                controller.enter_backoff_for_restart(restart_reason);
             }
             match start_watcher_sync(config) {
                 Ok(_) => {
