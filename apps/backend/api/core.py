@@ -24,10 +24,7 @@ from models.user_models import (
     UserBootstrapResponse,
     UserProfile,
 )
-from services.account_deletion_service import (
-    clerk_identity_exists,
-    process_account_deletion,
-)
+from services.account_context import ensure_current_user_record
 from services.activation_service import activation_service
 from services.privacy_policy import (
     can_send_to_cloud,
@@ -40,45 +37,6 @@ from services.user_service import AccountIdentityConflictError
 logger = logging.getLogger(__name__)
 
 _bootstrap_setup_inflight: set[str] = set()
-
-
-async def ensure_current_user_record(
-    user_service: Any,
-    current_user: Dict[str, Any],
-    *,
-    send_welcome_sms: bool = True,
-):
-    try:
-        return await user_service.ensure_user_exists(
-            user_id=current_user["id"],
-            email=current_user.get("email") or "",
-            full_name=current_user.get("name"),
-            phone_number=current_user.get("phone"),
-            send_welcome_sms=send_welcome_sms,
-        )
-    except AccountIdentityConflictError as conflict:
-        if await clerk_identity_exists(conflict.existing_user_id):
-            raise
-
-        logger.warning(
-            "Recovering stale Ritual account row %s after Clerk confirmed deletion",
-            conflict.existing_user_id,
-        )
-        await process_account_deletion(
-            conflict.existing_user_id,
-            source="identity_conflict_recovery",
-            event_id=(
-                f"identity-conflict:{conflict.existing_user_id}:"
-                f"{conflict.requested_user_id}"
-            ),
-        )
-        return await user_service.ensure_user_exists(
-            user_id=current_user["id"],
-            email=current_user.get("email") or "",
-            full_name=current_user.get("name"),
-            phone_number=current_user.get("phone"),
-            send_welcome_sms=send_welcome_sms,
-        )
 
 
 def _env_flag(name: str) -> bool:
@@ -226,12 +184,14 @@ def create_core_router(
     user_service: Any,
     habits_service: Any,
     tinybird_service: Any,
+    get_auth_user: Optional[Callable[..., Any]] = None,
 ) -> APIRouter:
     """Build core router with injected app dependencies."""
     router = APIRouter(tags=["core"])
+    get_auth_user = get_auth_user or get_current_user
 
     @router.get("/api/user/profile", response_model=UserProfile)
-    async def get_user_profile(current_user=Depends(get_current_user)):
+    async def get_user_profile(current_user=Depends(get_auth_user)):
         try:
             logger.info("Fetching profile for user %s", current_user["id"])
             user = await ensure_current_user_record(user_service, current_user)
@@ -266,7 +226,7 @@ def create_core_router(
         request: Request,
         response: Response,
         background_tasks: BackgroundTasks,
-        current_user=Depends(get_current_user),
+        current_user=Depends(get_auth_user),
     ):
         started_at = time.perf_counter()
         try:
@@ -338,12 +298,6 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             return await activation_service.update_profile(
                 user_id=current_user["id"],
                 full_name=profile_data.fullName,
@@ -363,12 +317,6 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             return await activation_service.create_first_behavior(
                 user_id=current_user["id"],
                 request=activation_data,
@@ -386,12 +334,6 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             return await activation_service.update_checklist(
                 user_id=current_user["id"],
                 request=checklist_data,
@@ -405,12 +347,6 @@ def create_core_router(
     @router.patch("/api/user/activation/permissions-seen", response_model=UserBootstrapResponse)
     async def mark_activation_permissions_seen(current_user=Depends(get_current_user)):
         try:
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             # Onboarding is not complete until the account's private activity
             # database exists and its schema is ready. The earlier bootstrap
             # task remains a latency optimization; this is the durable gate.
@@ -457,12 +393,6 @@ def create_core_router(
                         "required_consent": "plaintext_sync",
                     },
                 )
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             config = await turso_user_service.get_desktop_sync_config(current_user["id"])
             logger.info("Providing Turso sync config to user %s", current_user["id"])
             return TursoSyncConfigResponse(
@@ -488,11 +418,6 @@ def create_core_router(
     ):
         try:
             logger.info("Updating onboarding for user %s", current_user["id"])
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user["email"],
-                full_name=current_user.get("name"),
-            )
             user = await user_service.update_onboarding(
                 user_id=current_user["id"],
                 name=onboarding_data.name,
@@ -518,14 +443,6 @@ def create_core_router(
         current_user=Depends(get_current_user),
     ):
         try:
-            # Habits reference users.id — Clerk JWT alone does not insert the row; without this,
-            # first habit create fails FK and surfaces as opaque 400s in dev.
-            await user_service.ensure_user_exists(
-                user_id=current_user["id"],
-                email=current_user.get("email") or "",
-                full_name=current_user.get("name"),
-                phone_number=current_user.get("phone"),
-            )
             habit = await habits_service.create_habit(habit_data, current_user["id"])
             if tinybird_service:
                 try:

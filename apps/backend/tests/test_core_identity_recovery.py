@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from api.core import ensure_current_user_record
+from services.account_context import ensure_current_user_record
 from services.user_service import AccountIdentityConflictError
 
 
@@ -31,9 +31,9 @@ class CoreIdentityRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_old_clerk_identity_is_erased_then_provisioning_retries(self):
         service = FakeUserService()
         with (
-            patch("api.core.clerk_identity_exists", new=AsyncMock(return_value=False)),
+            patch("services.account_context.clerk_identity_exists", new=AsyncMock(return_value=False)),
             patch(
-                "api.core.process_account_deletion",
+                "services.account_context.process_account_deletion",
                 new=AsyncMock(return_value={"status": "completed"}),
             ) as erase,
         ):
@@ -53,8 +53,8 @@ class CoreIdentityRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_old_clerk_identity_fails_closed_without_erasure(self):
         service = FakeUserService()
         with (
-            patch("api.core.clerk_identity_exists", new=AsyncMock(return_value=True)),
-            patch("api.core.process_account_deletion", new=AsyncMock()) as erase,
+            patch("services.account_context.clerk_identity_exists", new=AsyncMock(return_value=True)),
+            patch("services.account_context.process_account_deletion", new=AsyncMock()) as erase,
         ):
             with self.assertRaises(AccountIdentityConflictError):
                 await ensure_current_user_record(

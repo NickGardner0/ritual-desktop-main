@@ -25,7 +25,7 @@ def create_imports_router(
     # ROBUST IMPORT SYSTEM ENDPOINTS
     # ================================
     
-    from services.import_service import import_service
+    from services.import_service import ImportRunTransitionConflict, import_service
     from models.import_models import (
         ImportSource, ImportStatus, ConflictPolicy, AggregationPeriod,
         ImportOptions, ImportRunCreate, ImportRunSummary, ImportRun,
@@ -516,9 +516,10 @@ def create_imports_router(
             low_conf = sum(1 for item in items if item.confidence and item.confidence.score < 0.7)
             
             # Update run status with accurate counts
-            await import_service.update_import_run_status(
+            await import_service.transition_import_run(
                 run.id,
-                ImportStatus.READY,
+                expected_statuses={ImportStatus.CREATED, ImportStatus.PARSING},
+                status=ImportStatus.READY,
                 summary=ImportRunSummary(
                     total_rows=total_rows_in_file or len(items),
                     parsed=len(items),
@@ -616,7 +617,18 @@ def create_imports_router(
                 )
     
             if run.status == ImportStatus.READY:
-                await import_service.update_import_run_status(run_id, ImportStatus.IMPORTING)
+                try:
+                    await import_service.transition_import_run(
+                        run_id,
+                        expected_statuses={ImportStatus.READY},
+                        status=ImportStatus.IMPORTING,
+                    )
+                except ImportRunTransitionConflict as exc:
+                    if exc.current_status != ImportStatus.IMPORTING.value:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"Import run transition lost. Current status: {exc.current_status}",
+                        ) from exc
     
             async with _import_tasks_lock:
                 existing = _import_tasks.get(run_id)
@@ -672,10 +684,13 @@ def create_imports_router(
             total_items = len(items)
     
             if total_items == 0:
-                await import_service.update_import_run_status(
+                await import_service.transition_import_run(
                     run_id,
-                    ImportStatus.COMPLETED,
-                    summary=ImportRunSummary()
+                    expected_statuses={ImportStatus.IMPORTING},
+                    status=ImportStatus.COMPLETED,
+                    summary=ImportRunSummary(),
+                    progress_current=0,
+                    progress_total=0,
                 )
                 return
     
@@ -931,21 +946,36 @@ def create_imports_router(
                 await import_service.update_import_progress(run_id, processed, total_items)
     
             summary.created_habit_ids = created_habit_ids
-            await import_service.update_import_run_status(
+            await import_service.transition_import_run(
                 run_id,
-                ImportStatus.COMPLETED,
-                summary=summary
+                expected_statuses={ImportStatus.IMPORTING},
+                status=ImportStatus.COMPLETED,
+                summary=summary,
+                progress_current=total_items,
+                progress_total=total_items,
             )
     
         except asyncio.CancelledError:
-            await import_service.update_import_run_status(run_id, ImportStatus.CANCELED)
+            try:
+                await import_service.transition_import_run(
+                    run_id,
+                    expected_statuses={ImportStatus.IMPORTING},
+                    status=ImportStatus.CANCELED,
+                )
+            except ImportRunTransitionConflict as exc:
+                if exc.current_status != ImportStatus.CANCELED.value:
+                    raise
             raise
         except Exception as e:
-            await import_service.update_import_run_status(
-                run_id,
-                ImportStatus.FAILED,
-                errors=[{"error": str(e)}]
-            )
+            try:
+                await import_service.transition_import_run(
+                    run_id,
+                    expected_statuses={ImportStatus.IMPORTING},
+                    status=ImportStatus.FAILED,
+                    errors=[{"error": str(e)}],
+                )
+            except ImportRunTransitionConflict:
+                pass
             logger.error(f"❌ Import background job failed ({run_id}): {str(e)}")
         finally:
             async with _import_tasks_lock:
@@ -978,7 +1008,23 @@ def create_imports_router(
                     task.cancel()
                     task_canceled = True
             
-            await import_service.update_import_run_status(run_id, ImportStatus.CANCELED)
+            try:
+                await import_service.transition_import_run(
+                    run_id,
+                    expected_statuses={
+                        ImportStatus.CREATED,
+                        ImportStatus.PARSING,
+                        ImportStatus.READY,
+                        ImportStatus.IMPORTING,
+                    },
+                    status=ImportStatus.CANCELED,
+                )
+            except ImportRunTransitionConflict as exc:
+                if exc.current_status != ImportStatus.CANCELED.value:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=f"Import run transition lost. Current status: {exc.current_status}",
+                    ) from exc
             
             return {
                 "status": "canceled",

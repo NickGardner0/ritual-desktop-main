@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import and_, desc, func, select
@@ -52,6 +51,7 @@ from schemas.workflows import (
 from services.action_policy_service import action_policy_service
 from services.artifact_service import artifact_service
 from services.fact_service import fact_service
+from services.recurrence import localize_reference, next_workflow_run_at, normalize_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -164,51 +164,8 @@ class WorkflowService:
         except Exception:
             return fallback
 
-    def _normalize_timezone(self, timezone_name: Optional[str]) -> str:
-        candidate = (timezone_name or "").strip() or DEFAULT_WORKFLOWS_TIMEZONE
-        try:
-            ZoneInfo(candidate)
-            return candidate
-        except Exception:
-            return DEFAULT_WORKFLOWS_TIMEZONE
-
-    def _localize_reference(self, timezone_name: str, reference_utc: Optional[datetime] = None) -> datetime:
-        utc_now = reference_utc or datetime.now(timezone.utc)
-        if utc_now.tzinfo is None:
-            utc_now = utc_now.replace(tzinfo=timezone.utc)
-        return utc_now.astimezone(ZoneInfo(self._normalize_timezone(timezone_name)))
-
-    def _compute_next_run(
-        self,
-        *,
-        cadence: str,
-        timezone_name: str,
-        send_hour_local: int,
-        send_minute_local: int,
-        send_weekdays: List[int],
-        reference_utc: Optional[datetime] = None,
-    ) -> datetime:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
-        tzinfo = local_reference.tzinfo
-
-        def build_local_candidate(candidate_date: date) -> datetime:
-            return datetime.combine(
-                candidate_date,
-                time(hour=send_hour_local, minute=send_minute_local),
-                tzinfo=tzinfo,
-            )
-
-        weekdays = send_weekdays or [0, 1, 2, 3, 4, 5, 6]
-        candidate_date = local_reference.date()
-        for _ in range(14):
-            candidate = build_local_candidate(candidate_date)
-            if candidate > local_reference and candidate_date.weekday() in weekdays:
-                return candidate.astimezone(timezone.utc).replace(tzinfo=None)
-            candidate_date = candidate_date + timedelta(days=1)
-        return build_local_candidate(candidate_date).astimezone(timezone.utc).replace(tzinfo=None)
-
     def _resolve_window(self, *, timezone_name: str, reference_utc: Optional[datetime] = None) -> _WorkflowWindow:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
+        local_reference = localize_reference(timezone_name, reference_utc)
         start_local = datetime.combine(local_reference.date(), time.min, tzinfo=local_reference.tzinfo)
         end_local = datetime.combine(local_reference.date(), time.max, tzinfo=local_reference.tzinfo)
         return _WorkflowWindow(
@@ -219,7 +176,7 @@ class WorkflowService:
         )
 
     def _build_idempotency_key(self, definition: WorkflowDefinitionDB, next_run_at: datetime) -> str:
-        local_dt = self._localize_reference(definition.timezone, next_run_at.replace(tzinfo=timezone.utc))
+        local_dt = localize_reference(definition.timezone, next_run_at.replace(tzinfo=timezone.utc))
         slot = f"{local_dt.date().isoformat()}-{int(definition.send_hour_local or 0):02d}:{int(definition.send_minute_local or 0):02d}"
         return f"{definition.id}:{slot}"
 
@@ -391,7 +348,7 @@ class WorkflowService:
         if draft_profile is None:
             raise RuntimeError("Draft action profile was not created")
 
-        normalized_timezone = self._normalize_timezone(timezone_name)
+        normalized_timezone = normalize_timezone(timezone_name)
         result = await session.execute(
             select(WorkflowDefinitionDB)
             .where(WorkflowDefinitionDB.user_id == user_id)
@@ -544,7 +501,7 @@ class WorkflowService:
                 cooldown_minutes=max(0, int(payload.cooldown_minutes or 0)),
                 quiet_hours_json=json.dumps(payload.quiet_hours),
                 status=payload.status,
-                timezone=self._normalize_timezone(payload.schedule.timezone or timezone_name),
+                timezone=normalize_timezone(payload.schedule.timezone or timezone_name),
                 cadence=payload.schedule.cadence,
                 send_hour_local=payload.schedule.send_hour_local,
                 send_minute_local=payload.schedule.send_minute_local,
@@ -559,7 +516,7 @@ class WorkflowService:
                 updated_at=_utc_now(),
             )
             if definition.status == "scheduled" and definition.trigger_type == "schedule":
-                definition.next_run_at = self._compute_next_run(
+                definition.next_run_at = next_workflow_run_at(
                     cadence=definition.cadence,
                     timezone_name=definition.timezone,
                     send_hour_local=int(definition.send_hour_local or 0),
@@ -596,7 +553,7 @@ class WorkflowService:
                     raise WorkflowValidationError("Action profile not found")
 
             if payload.schedule is not None:
-                definition.timezone = self._normalize_timezone(payload.schedule.timezone)
+                definition.timezone = normalize_timezone(payload.schedule.timezone)
                 definition.cadence = payload.schedule.cadence
                 definition.send_hour_local = payload.schedule.send_hour_local
                 definition.send_minute_local = payload.schedule.send_minute_local
@@ -638,7 +595,7 @@ class WorkflowService:
                 raise WorkflowValidationError("Scheduled workflows require Draft, Organize, or Act profiles")
 
             if definition.status == "scheduled" and definition.trigger_type == "schedule":
-                definition.next_run_at = self._compute_next_run(
+                definition.next_run_at = next_workflow_run_at(
                     cadence=definition.cadence,
                     timezone_name=definition.timezone,
                     send_hour_local=int(definition.send_hour_local or 0),
@@ -759,7 +716,7 @@ class WorkflowService:
                         )
                     )
                     queued += 1
-                definition.next_run_at = self._compute_next_run(
+                definition.next_run_at = next_workflow_run_at(
                     cadence=definition.cadence,
                     timezone_name=definition.timezone,
                     send_hour_local=int(definition.send_hour_local or 0),
@@ -815,7 +772,7 @@ class WorkflowService:
         if not start or not end:
             return False
         try:
-            local_now = self._localize_reference(timezone_name, now_utc)
+            local_now = localize_reference(timezone_name, now_utc)
             start_hour, start_minute = [int(part) for part in start.split(":", 1)]
             end_hour, end_minute = [int(part) for part in end.split(":", 1)]
             current_minutes = local_now.hour * 60 + local_now.minute

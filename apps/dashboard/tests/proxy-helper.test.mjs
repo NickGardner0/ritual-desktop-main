@@ -27,6 +27,7 @@ let realImport = false;
 // Import the real buildBackendAuthHeaders to verify header construction
 let buildBackendAuthHeaders;
 let matchBackendOpenApiPath;
+let matchBackendOpenApiOperation;
 let resolveBackendProxyPath;
 let getBackendProxyCompatibilityFallback;
 try {
@@ -36,6 +37,7 @@ try {
   const proxyRoutingMod = await import("../lib/server/backend-proxy-routing.ts");
   buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
+  matchBackendOpenApiOperation = generatedClientMod.matchBackendOpenApiOperation;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
   getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
   realImport = true;
@@ -53,6 +55,12 @@ try {
     if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
+    return null;
+  };
+  matchBackendOpenApiOperation = (method, path) => {
+    if (method === "GET" && /^\/api\/artifacts\/[^/]+$/.test(path)) {
+      return "get_artifact_api_artifacts__artifact_id__get";
+    }
     return null;
   };
   resolveBackendProxyPath = (path) => {
@@ -197,6 +205,14 @@ describe("Generated backend route allowlist", () => {
 
   test("routes deleted watcher proxies through the OpenAPI catch-all", () => {
     assert.equal(matchBackendOpenApiPath("/api/watcher/stats/summary"), "/api/watcher/stats/summary");
+  });
+
+  test("matches runtime routes to generated operation IDs", () => {
+    assert.equal(
+      matchBackendOpenApiOperation("GET", "/api/artifacts/artifact_123"),
+      "get_artifact_api_artifacts__artifact_id__get",
+    );
+    assert.equal(matchBackendOpenApiOperation("DELETE", "/api/not-a-real-route"), null);
   });
 });
 

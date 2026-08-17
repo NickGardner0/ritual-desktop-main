@@ -258,7 +258,9 @@ class AppleIngestResult(BaseModel):
 
 class AppleIngestResponse(BaseModel):
     """Response from the ingest endpoint (V1)"""
-    success: bool = Field(..., description="True if at least one metric was stored")
+    success: bool = Field(..., description="True when the request was accepted or already processed")
+    outcome: Literal["accepted", "duplicate", "rejected"] = "accepted"
+    error_code: Optional[str] = None
     results: List[AppleIngestResult]
     server_time: str = Field(..., description="ISO8601 server time when request was processed")
     next_poll_seconds: Optional[int] = Field(None, ge=0, description="Suggested seconds until next poll")
@@ -273,7 +275,9 @@ class DeleteResult(BaseModel):
 
 class AppleIngestResponseV2(BaseModel):
     """Response from the V2 ingest endpoint with incremental sync support"""
-    success: bool = Field(..., description="True if at least one operation succeeded")
+    success: bool = Field(..., description="True when the request was accepted or already processed")
+    outcome: Literal["accepted", "duplicate", "rejected"] = "accepted"
+    error_code: Optional[str] = None
     added_results: List[AppleIngestResult] = Field(default=[], description="Results for added metrics")
     deleted_results: List[DeleteResult] = Field(default=[], description="Results for deleted metrics")
     modified_results: List[AppleIngestResult] = Field(default=[], description="Results for modified metrics")

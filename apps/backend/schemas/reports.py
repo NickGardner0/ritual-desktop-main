@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 ReportCadence = Literal["daily", "weekly", "monthly"]
@@ -24,6 +24,17 @@ ReportSection = Literal[
 ]
 ReportRunStatus = Literal["queued", "processing", "sent", "failed"]
 ReportNotificationStatus = Literal["queued", "sent", "failed"]
+
+
+def validate_report_cadence_fields(
+    cadence: ReportCadence,
+    send_weekday: Optional[int],
+    send_day_of_month: Optional[int],
+) -> None:
+    if cadence == "weekly" and send_weekday is None:
+        raise ValueError("weekly reports require send_weekday")
+    if cadence == "monthly" and send_day_of_month is None:
+        raise ValueError("monthly reports require send_day_of_month")
 
 
 class HabitReportRecipient(BaseModel):
@@ -44,6 +55,15 @@ class HabitReportScheduleBase(BaseModel):
     send_day_of_month: Optional[int] = Field(default=None, ge=1, le=31)
     recipients: List[HabitReportRecipient] = Field(default_factory=list)
     sections: List[ReportSection] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_cadence_fields(self) -> "HabitReportScheduleBase":
+        validate_report_cadence_fields(
+            self.cadence,
+            self.send_weekday,
+            self.send_day_of_month,
+        )
+        return self
 
 
 class HabitReportScheduleCreate(HabitReportScheduleBase):

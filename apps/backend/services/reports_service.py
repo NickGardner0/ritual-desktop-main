@@ -14,12 +14,10 @@ from __future__ import annotations
 import json
 import logging
 import os
-from calendar import monthrange
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import httpx
 from sqlalchemy import and_, desc, select
@@ -44,9 +42,11 @@ from schemas.reports import (
     HabitReportScheduleCreate,
     HabitReportScheduleRead,
     HabitReportScheduleUpdate,
+    validate_report_cadence_fields,
 )
 from services.analytics_service import analytics_service
 from services.artifact_service import artifact_service
+from services.recurrence import localize_reference, next_report_run_at, normalize_timezone
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,10 @@ class _ReportWindow:
     day_count: int
 
 
+class ReportScheduleValidationError(ValueError):
+    pass
+
+
 class ReportsService:
     def _completed_log_filter(self):
         return analytics_service._completed_log_filter()
@@ -81,77 +85,13 @@ class ReportsService:
         except Exception:
             return fallback
 
-    def _normalize_timezone(self, timezone_name: Optional[str]) -> str:
-        candidate = (timezone_name or "").strip() or DEFAULT_REPORTS_TIMEZONE
-        try:
-            ZoneInfo(candidate)
-            return candidate
-        except Exception:
-            logger.warning("Invalid report timezone '%s'; falling back to %s", candidate, DEFAULT_REPORTS_TIMEZONE)
-            return DEFAULT_REPORTS_TIMEZONE
-
-    def _localize_reference(self, timezone_name: str, reference_utc: Optional[datetime] = None) -> datetime:
-        utc_now = reference_utc or datetime.now(timezone.utc)
-        if utc_now.tzinfo is None:
-            utc_now = utc_now.replace(tzinfo=timezone.utc)
-        return utc_now.astimezone(ZoneInfo(self._normalize_timezone(timezone_name)))
-
-    def _compute_next_run(
-        self,
-        *,
-        cadence: str,
-        timezone_name: str,
-        send_hour_local: int,
-        send_minute_local: int,
-        send_weekday: Optional[int],
-        send_day_of_month: Optional[int],
-        reference_utc: Optional[datetime] = None,
-    ) -> datetime:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
-        tzinfo = local_reference.tzinfo
-
-        def build_local_candidate(candidate_date: date) -> datetime:
-            return datetime.combine(
-                candidate_date,
-                time(hour=send_hour_local, minute=send_minute_local),
-                tzinfo=tzinfo,
-            )
-
-        if cadence == "daily":
-            candidate = build_local_candidate(local_reference.date())
-            if candidate <= local_reference:
-                candidate = build_local_candidate(local_reference.date() + timedelta(days=1))
-        elif cadence == "weekly":
-            target_weekday = 0 if send_weekday is None else int(send_weekday)
-            days_ahead = (target_weekday - local_reference.weekday()) % 7
-            candidate_date = local_reference.date() + timedelta(days=days_ahead)
-            candidate = build_local_candidate(candidate_date)
-            if candidate <= local_reference:
-                candidate = build_local_candidate(candidate_date + timedelta(days=7))
-        else:
-            target_day = max(1, min(int(send_day_of_month or 1), 31))
-            year = local_reference.year
-            month = local_reference.month
-            capped_day = min(target_day, monthrange(year, month)[1])
-            candidate = build_local_candidate(date(year, month, capped_day))
-            if candidate <= local_reference:
-                if month == 12:
-                    year += 1
-                    month = 1
-                else:
-                    month += 1
-                capped_day = min(target_day, monthrange(year, month)[1])
-                candidate = build_local_candidate(date(year, month, capped_day))
-
-        return candidate.astimezone(timezone.utc).replace(tzinfo=None)
-
     def _resolve_window(
         self,
         cadence: str,
         timezone_name: str,
         reference_utc: Optional[datetime] = None,
     ) -> _ReportWindow:
-        local_reference = self._localize_reference(timezone_name, reference_utc)
+        local_reference = localize_reference(timezone_name, reference_utc)
         end_date = local_reference.date()
 
         if cadence == "daily":
@@ -280,11 +220,11 @@ class ReportsService:
         if existing.first():
             return
 
-        tz_name = self._normalize_timezone(timezone_name)
+        tz_name = normalize_timezone(timezone_name)
         for definition in self._default_schedule_definitions(user_id, email, tz_name):
             next_run_at = None
             if definition["status"] == "scheduled":
-                next_run_at = self._compute_next_run(
+                next_run_at = next_report_run_at(
                     cadence=definition["cadence"],
                     timezone_name=tz_name,
                     send_hour_local=definition["send_hour_local"],
@@ -325,7 +265,7 @@ class ReportsService:
             name=schedule.name,
             cadence=schedule.cadence,  # type: ignore[arg-type]
             status=schedule.status,  # type: ignore[arg-type]
-            timezone=self._normalize_timezone(schedule.timezone),
+            timezone=normalize_timezone(schedule.timezone),
             delivery_channel=schedule.delivery_channel,  # type: ignore[arg-type]
             delivery_label=schedule.delivery_label,
             send_hour_local=int(schedule.send_hour_local or 0),
@@ -418,10 +358,10 @@ class ReportsService:
                 email=email or getattr(user, "email", None),
                 timezone_name=timezone_name or getattr(user, "timezone", None),
             )
-            normalized_timezone = self._normalize_timezone(payload.timezone)
+            normalized_timezone = normalize_timezone(payload.timezone)
             next_run_at = None
             if payload.status == "scheduled":
-                next_run_at = self._compute_next_run(
+                next_run_at = next_report_run_at(
                     cadence=payload.cadence,
                     timezone_name=normalized_timezone,
                     send_hour_local=payload.send_hour_local,
@@ -482,13 +422,22 @@ class ReportsService:
                     setattr(schedule, field, updates[field])
 
             if "timezone" in updates:
-                schedule.timezone = self._normalize_timezone(updates["timezone"])
+                schedule.timezone = normalize_timezone(updates["timezone"])
             if "delivery_label" in updates and updates["delivery_label"]:
                 schedule.delivery_label = updates["delivery_label"]
             if "recipients" in updates and updates["recipients"] is not None:
                 schedule.recipients_json = json.dumps([item.model_dump() for item in payload.recipients or []])
             if "sections" in updates and updates["sections"] is not None:
                 schedule.sections_json = json.dumps(payload.sections or [])
+
+            try:
+                validate_report_cadence_fields(
+                    schedule.cadence,
+                    schedule.send_weekday,
+                    schedule.send_day_of_month,
+                )
+            except ValueError as exc:
+                raise ReportScheduleValidationError(str(exc)) from exc
 
             if "delivery_label" not in updates:
                 schedule.delivery_label = self._build_delivery_label(
@@ -500,7 +449,7 @@ class ReportsService:
                 )
 
             if schedule.status == "scheduled":
-                schedule.next_run_at = self._compute_next_run(
+                schedule.next_run_at = next_report_run_at(
                     cadence=schedule.cadence,
                     timezone_name=schedule.timezone,
                     send_hour_local=int(schedule.send_hour_local or 0),
@@ -827,7 +776,7 @@ class ReportsService:
             )
             session.add(run)
             schedule.next_run_at = (
-                self._compute_next_run(
+                next_report_run_at(
                     cadence=schedule.cadence,
                     timezone_name=schedule.timezone,
                     send_hour_local=int(schedule.send_hour_local or 0),
@@ -869,7 +818,7 @@ class ReportsService:
                     )
                 )
                 if existing_result.first():
-                    schedule.next_run_at = self._compute_next_run(
+                    schedule.next_run_at = next_report_run_at(
                         cadence=schedule.cadence,
                         timezone_name=schedule.timezone,
                         send_hour_local=int(schedule.send_hour_local or 0),
@@ -890,7 +839,7 @@ class ReportsService:
                     period_end=window.end_date.isoformat(),
                 )
                 session.add(run)
-                schedule.next_run_at = self._compute_next_run(
+                schedule.next_run_at = next_report_run_at(
                     cadence=schedule.cadence,
                     timezone_name=schedule.timezone,
                     send_hour_local=int(schedule.send_hour_local or 0),

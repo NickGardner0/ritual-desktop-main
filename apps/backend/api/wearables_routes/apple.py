@@ -74,6 +74,14 @@ from api.wearables_helpers import (
 logger = logging.getLogger(__name__)
 
 
+def _apple_rejection_status(error_code: Optional[str]) -> int:
+    return {
+        "device_not_found": 404,
+        "device_user_mismatch": 403,
+        "invalid_signature": 401,
+    }.get(error_code or "", 400)
+
+
 def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
 
     limiter = deps.limiter
@@ -717,43 +725,33 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
         try:
             logger.info(f"📊 Ingesting {len(ingest_request.metrics)} metrics from device {ingest_request.device_id}")
             
-            success, results, error = await wearable_apple_ingest_service.process_ingest_request(
+            ingest_result = await wearable_apple_ingest_service.process_ingest_request(
                 user_id=current_user["id"],
                 request=ingest_request
             )
-            
-            if error and not success:
-                # If there's an error and no success, return appropriate status
-                if error == "Device not found":
-                    raise HTTPException(status_code=404, detail=error)
-                elif error == "Device does not belong to this user":
-                    raise HTTPException(status_code=403, detail=error)
-                elif error == "Invalid signature":
-                    raise HTTPException(status_code=401, detail=error)
-                elif error == "Already processed (idempotency)":
-                    # Return success for idempotent requests
-                    return AppleIngestResponse(
-                        success=True,
-                        results=[],
-                        server_time=datetime.utcnow().isoformat() + "Z",
-                        next_poll_seconds=60
-                    )
-                else:
-                    raise HTTPException(status_code=400, detail=error)
-            
-            if success:
+
+            response = AppleIngestResponse(
+                success=ingest_result.success,
+                outcome=ingest_result.outcome,
+                error_code=ingest_result.error_code,
+                results=ingest_result.results,
+                server_time=datetime.utcnow().isoformat() + "Z",
+                next_poll_seconds=60 if ingest_result.success else 300,
+            )
+            if ingest_result.outcome == "rejected":
+                return JSONResponse(
+                    status_code=_apple_rejection_status(ingest_result.error_code),
+                    content=response.model_dump(),
+                )
+
+            if ingest_result.outcome == "accepted":
                 await _mark_activation_completed(
                     current_user["id"],
                     "apple_health",
                     {"source": "apple_ingest_v1"},
                 )
 
-            return AppleIngestResponse(
-                success=success,
-                results=results,
-                server_time=datetime.utcnow().isoformat() + "Z",
-                next_poll_seconds=60 if success else 300  # Back off on failure
-            )
+            return response
             
         except HTTPException:
             raise
@@ -793,47 +791,40 @@ def register_apple_routes(router: APIRouter, deps: WearablesRouterDeps) -> None:
             total_ops = len(ingest_request.added) + len(ingest_request.deleted) + len(ingest_request.modified)
             logger.info(f"📊 V2 Ingest: {len(ingest_request.added)} added, {len(ingest_request.deleted)} deleted, {len(ingest_request.modified)} modified")
             
-            success, added_results, deleted_results, modified_results, error = await wearable_apple_ingest_service.process_ingest_request_v2(
+            ingest_result = await wearable_apple_ingest_service.process_ingest_request_v2(
                 user_id=current_user["id"],
                 request=ingest_request
             )
-            
-            if error and not success:
-                if error == "Device not found":
-                    raise HTTPException(status_code=404, detail=error)
-                elif error == "Device does not belong to this user":
-                    raise HTTPException(status_code=403, detail=error)
-                elif error == "Invalid signature":
-                    raise HTTPException(status_code=401, detail=error)
-                elif error == "Already processed (idempotency)":
-                    return AppleIngestResponseV2(
-                        success=True,
-                        added_results=[],
-                        deleted_results=[],
-                        modified_results=[],
-                        server_time=datetime.utcnow().isoformat() + "Z",
-                        next_poll_seconds=60,
-                        confirmed_anchors=ingest_request.anchors
-                    )
-                else:
-                    raise HTTPException(status_code=400, detail=error)
-            
-            if success:
+
+            response = AppleIngestResponseV2(
+                success=ingest_result.success,
+                outcome=ingest_result.outcome,
+                error_code=ingest_result.error_code,
+                added_results=ingest_result.added_results,
+                deleted_results=ingest_result.deleted_results,
+                modified_results=ingest_result.modified_results,
+                server_time=datetime.utcnow().isoformat() + "Z",
+                next_poll_seconds=60 if ingest_result.success else 300,
+                confirmed_anchors=(
+                    ingest_request.anchors
+                    if ingest_result.outcome in {"accepted", "duplicate"}
+                    else None
+                ),
+            )
+            if ingest_result.outcome == "rejected":
+                return JSONResponse(
+                    status_code=_apple_rejection_status(ingest_result.error_code),
+                    content=response.model_dump(),
+                )
+
+            if ingest_result.outcome == "accepted":
                 await _mark_activation_completed(
                     current_user["id"],
                     "apple_health",
                     {"source": "apple_ingest_v2"},
                 )
 
-            return AppleIngestResponseV2(
-                success=success,
-                added_results=added_results,
-                deleted_results=deleted_results,
-                modified_results=modified_results,
-                server_time=datetime.utcnow().isoformat() + "Z",
-                next_poll_seconds=60 if success else 300,
-                confirmed_anchors=ingest_request.anchors if success else None
-            )
+            return response
             
         except HTTPException:
             raise

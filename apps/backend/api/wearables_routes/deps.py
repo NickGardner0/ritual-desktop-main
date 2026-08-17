@@ -3,20 +3,38 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Mapping, Optional, Protocol
+from typing import Awaitable, Callable, Literal, Mapping, Optional, Protocol
 
 
 class RouteLimiter(Protocol):
     def limit(self, limit_value: str) -> Callable[[Callable[..., object]], Callable[..., object]]: ...
 
 
+class AppleIngestResultLike(Protocol):
+    outcome: Literal["accepted", "duplicate", "rejected"]
+    success: bool
+    error: Optional[str]
+    error_code: Optional[str]
+    results: list[object]
+
+
+class AppleIngestResultV2Like(Protocol):
+    outcome: Literal["accepted", "duplicate", "rejected"]
+    success: bool
+    error: Optional[str]
+    error_code: Optional[str]
+    added_results: list[object]
+    deleted_results: list[object]
+    modified_results: list[object]
+
+
 class WearableAppleIngest(Protocol):
-    async def process_ingest_request(self, user_id: str, request: object) -> tuple[bool, list[object], Optional[str]]: ...
+    async def process_ingest_request(self, user_id: str, request: object) -> AppleIngestResultLike: ...
     async def process_ingest_request_v2(
         self,
         user_id: str,
         request: object,
-    ) -> tuple[bool, list[object], list[object], list[object], Optional[str]]: ...
+    ) -> AppleIngestResultV2Like: ...
 
 
 class WearableDeviceSecurity(Protocol):

@@ -4,7 +4,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from services.privacy_policy import (
+    PRIVACY_CATEGORY_SPECS,
     can_send_to_cloud,
+    category_allows_analytics,
+    category_is_deletable,
+    category_is_exportable,
+    category_retention_days,
     data_class_for_tinybird_datasource,
     data_class_for_typesense_collection,
     request_cloud_consents,
@@ -78,3 +83,27 @@ def test_destination_classification_and_redaction():
     assert data_class_for_typesense_collection("ai_messages") == "ai_content"
     assert should_redact_observability_key("habit_id") is True
     assert should_redact_observability_key("duration_ms") is False
+
+
+def test_category_registry_owns_lifecycle_and_analytics_policy():
+    assert category_retention_days("location") == 30
+    assert category_is_exportable("provider_secret") is False
+    assert category_is_deletable("habit_log") is True
+    assert category_allows_analytics("habit_log") is True
+    assert category_allows_analytics("financial") is False
+    assert set(PRIVACY_CATEGORY_SPECS) >= {
+        "habit_log",
+        "health_metric",
+        "location",
+        "financial",
+        "provider_secret",
+    }
+
+    decision = can_send_to_cloud(
+        data_class="financial",
+        destination="tinybird",
+        purpose="analytics",
+        mode="cloud_intelligence",
+        consents={"analytics"},
+    )
+    assert decision.allowed is False

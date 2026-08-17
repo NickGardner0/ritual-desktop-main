@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from schemas.artifacts import ArtifactKind, ArtifactListItem
 
@@ -19,6 +19,7 @@ WorkflowRunStatus = Literal["queued", "processing", "completed", "failed", "canc
 WorkflowTriggerSource = Literal["manual", "scheduled", "backfill", "signal"]
 WorkflowDefinitionFamily = Literal["routine", "ambient"]
 WorkflowTriggerType = Literal["schedule", "signal"]
+WorkflowCadence = Literal["daily", "weekly"]
 ApprovalStatus = Literal["pending", "approved", "rejected", "expired"]
 
 
@@ -54,10 +55,20 @@ class ActionProfileListResponse(BaseModel):
 
 class WorkflowSchedule(BaseModel):
     timezone: str = "America/New_York"
-    cadence: str = "daily"
+    cadence: WorkflowCadence = "daily"
     send_hour_local: int = Field(default=8, ge=0, le=23)
     send_minute_local: int = Field(default=0, ge=0, le=59)
     send_weekdays: List[int] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "WorkflowSchedule":
+        weekdays = sorted(set(self.send_weekdays))
+        if any(day < 0 or day > 6 for day in weekdays):
+            raise ValueError("send_weekdays values must be between 0 and 6")
+        if self.cadence == "weekly" and not weekdays:
+            raise ValueError("weekly workflows require at least one send_weekday")
+        self.send_weekdays = weekdays or list(range(7))
+        return self
 
 
 class WorkflowDelivery(BaseModel):

@@ -43,8 +43,12 @@ if (dashboardApiRoutes.length > budgets.dashboardApiRoutesMax) {
 const dashboardSources = walkSourceFiles("apps/dashboard", new Set([".ts", ".tsx"]));
 for (const file of dashboardSources) {
   const lines = lineCount(file);
-  if (lines > budgets.dashboardTsxFileMaxLines) {
-    errors.push(`Dashboard source file exceeds line budget: ${file} ${lines}/${budgets.dashboardTsxFileMaxLines}`);
+  const isGenerated = file.startsWith("apps/dashboard/lib/api/generated/");
+  const maxLines = isGenerated
+    ? budgets.dashboardGeneratedFileMaxLines
+    : budgets.dashboardTsxFileMaxLines;
+  if (lines > maxLines) {
+    errors.push(`Dashboard source file exceeds line budget: ${file} ${lines}/${maxLines}`);
   }
 }
 

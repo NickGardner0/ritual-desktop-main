@@ -51,6 +51,7 @@ from api.workflows import create_workflows_router
 from database.connection import get_database_runtime_health, get_db_session
 from lifespan import register_lifecycle
 from services.auth_service import AuthService
+from services.account_context import build_persisted_account_context
 from services.habits_service import HabitsService
 from services.realtime import websocket_manager
 from services.sentry_observability import set_domain_tags, set_request_context, set_user_context
@@ -133,6 +134,30 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail=f"Authentication failed: {exc}")
 
 
+async def get_persisted_account(
+    current_user=Depends(get_current_user),
+):
+    """Authenticate and guarantee the user row required by product data routes."""
+    try:
+        return await build_persisted_account_context(user_service, current_user)
+    except Exception as exc:
+        from services.user_service import AccountIdentityConflictError
+
+        if isinstance(exc, AccountIdentityConflictError):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "account_identity_conflict",
+                    "message": (
+                        "This email is still attached to a previous Ritual account. "
+                        "Account cleanup is still required before setup can finish."
+                    ),
+                    "retryable": True,
+                },
+            ) from exc
+        raise
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Ritual Backend API", version="1.0.0")
 
@@ -171,79 +196,80 @@ def create_app() -> FastAPI:
     app.include_router(
         create_analytics_router(
             limiter=limiter,
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
             require_tinybird=require_tinybird,
             habits_service=habits_service,
         )
     )
     app.include_router(
-        create_account_deletion_router(get_current_user=get_current_user)
+        create_account_deletion_router(get_current_user=get_persisted_account)
     )
-    app.include_router(create_biometrics_router(get_current_user=get_current_user))
+    app.include_router(create_biometrics_router(get_current_user=get_persisted_account))
     app.include_router(
         create_whoop_router(
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
             whoop_service=whoop_service,
         )
     )
     app.include_router(
         create_tesla_router(
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
             tesla_service=tesla_service,
         )
     )
     app.include_router(
         create_core_router(
             limiter=limiter,
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
+            get_auth_user=get_current_user,
             user_service=user_service,
             habits_service=habits_service,
             tinybird_service=tinybird_service,
         )
     )
-    app.include_router(create_conversations_router(get_current_user=get_current_user))
-    app.include_router(create_experiments_router(get_current_user=get_current_user))
-    app.include_router(create_search_router(get_current_user=get_current_user))
-    app.include_router(create_reports_router(get_current_user=get_current_user))
-    app.include_router(create_artifacts_router(get_current_user=get_current_user))
-    app.include_router(create_tasks_router(get_current_user=get_current_user))
-    app.include_router(create_workflows_router(get_current_user=get_current_user))
-    app.include_router(create_action_profiles_router(get_current_user=get_current_user))
-    app.include_router(create_action_receipts_router(get_current_user=get_current_user))
-    app.include_router(create_approvals_router(get_current_user=get_current_user))
-    app.include_router(create_facts_router(get_current_user=get_current_user))
-    app.include_router(create_metric_facts_router(get_current_user=get_current_user))
+    app.include_router(create_conversations_router(get_current_user=get_persisted_account))
+    app.include_router(create_experiments_router(get_current_user=get_persisted_account))
+    app.include_router(create_search_router(get_current_user=get_persisted_account))
+    app.include_router(create_reports_router(get_current_user=get_persisted_account))
+    app.include_router(create_artifacts_router(get_current_user=get_persisted_account))
+    app.include_router(create_tasks_router(get_current_user=get_persisted_account))
+    app.include_router(create_workflows_router(get_current_user=get_persisted_account))
+    app.include_router(create_action_profiles_router(get_current_user=get_persisted_account))
+    app.include_router(create_action_receipts_router(get_current_user=get_persisted_account))
+    app.include_router(create_approvals_router(get_current_user=get_persisted_account))
+    app.include_router(create_facts_router(get_current_user=get_persisted_account))
+    app.include_router(create_metric_facts_router(get_current_user=get_persisted_account))
     app.include_router(create_observability_router(get_current_user=get_current_user))
-    app.include_router(create_privacy_router(get_current_user=get_current_user))
+    app.include_router(create_privacy_router(get_current_user=get_persisted_account))
     app.include_router(
         create_screenshot_router(
             limiter=limiter,
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
             habits_service=habits_service,
         )
     )
     app.include_router(
         create_wearables_router(
             limiter=limiter,
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
         )
     )
-    app.include_router(create_screen_time_router(get_current_user=get_current_user))
+    app.include_router(create_screen_time_router(get_current_user=get_persisted_account))
     app.include_router(
         create_imports_router(
             limiter=limiter,
-            get_current_user=get_current_user,
+            get_current_user=get_persisted_account,
             habits_service=habits_service,
             tinybird_service=tinybird_service,
         )
     )
-    app.include_router(create_financial_router(get_current_user=get_current_user))
-    app.include_router(create_location_router(get_current_user=get_current_user))
+    app.include_router(create_financial_router(get_current_user=get_persisted_account))
+    app.include_router(create_location_router(get_current_user=get_persisted_account))
     include_watcher_router(app, get_current_user=get_current_user)
     app.include_router(sendblue_router)
     app.include_router(proactive_sms_router)
-    app.include_router(create_sms_preferences_router(get_current_user=get_current_user))
-    app.include_router(create_ui_preferences_router(get_current_user=get_current_user))
+    app.include_router(create_sms_preferences_router(get_current_user=get_persisted_account))
+    app.include_router(create_ui_preferences_router(get_current_user=get_persisted_account))
     app.include_router(create_sms_copilot_router())
     app.include_router(vcard_router)
 

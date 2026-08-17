@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional
 
 from sqlalchemy import select
 
@@ -19,6 +20,42 @@ from schemas.wearables_apple import (
 
 logger = logging.getLogger(__name__)
 
+AppleIngestOutcome = Literal["accepted", "duplicate", "rejected"]
+
+
+def _validation_error_code(error: Optional[str]) -> str:
+    return {
+        "Device not found": "device_not_found",
+        "Device does not belong to this user": "device_user_mismatch",
+        "Invalid signature": "invalid_signature",
+    }.get(error or "", "request_rejected")
+
+
+@dataclass(frozen=True)
+class AppleIngestServiceResult:
+    outcome: AppleIngestOutcome
+    results: List[AppleIngestResult] = field(default_factory=list)
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+
+    @property
+    def success(self) -> bool:
+        return self.outcome != "rejected"
+
+
+@dataclass(frozen=True)
+class AppleIngestServiceResultV2:
+    outcome: AppleIngestOutcome
+    added_results: List[AppleIngestResult] = field(default_factory=list)
+    deleted_results: List[DeleteResult] = field(default_factory=list)
+    modified_results: List[AppleIngestResult] = field(default_factory=list)
+    error: Optional[str] = None
+    error_code: Optional[str] = None
+
+    @property
+    def success(self) -> bool:
+        return self.outcome != "rejected"
+
 
 class WearableAppleIngestService:
     provider = "apple_health"
@@ -31,7 +68,7 @@ class WearableAppleIngestService:
         self,
         user_id: str,
         request: AppleIngestRequest,
-    ) -> Tuple[bool, List[AppleIngestResult], Optional[str]]:
+    ) -> AppleIngestServiceResult:
         validation = await self.device_security_service.validate_signed_device_request(
             user_id=user_id,
             provider=self.provider,
@@ -41,7 +78,11 @@ class WearableAppleIngestService:
             signature=request.signature,
         )
         if not validation.success:
-            return False, [], validation.error
+            return AppleIngestServiceResult(
+                outcome="rejected",
+                error=validation.error,
+                error_code=_validation_error_code(validation.error),
+            )
 
         existing_event = await self.device_security_service.check_idempotency(
             request.device_id,
@@ -49,7 +90,7 @@ class WearableAppleIngestService:
         )
         if existing_event:
             logger.warning("⚠️ Duplicate Apple Health client_event_id: %s", request.client_event_id)
-            return True, [], "Already processed (idempotency)"
+            return AppleIngestServiceResult(outcome="duplicate")
 
         try:
             await self.sync_service.backfill_legacy_apple_metrics(user_id)
@@ -80,13 +121,20 @@ class WearableAppleIngestService:
         )
 
         logger.info("✅ Ingested %s/%s Apple Health metrics for device %s", success_count, len(request.metrics), request.device_id)
-        return success_count > 0, results, None
+        if success_count == 0:
+            return AppleIngestServiceResult(
+                outcome="rejected",
+                results=results,
+                error="No Apple Health metrics were accepted",
+                error_code="no_records_accepted",
+            )
+        return AppleIngestServiceResult(outcome="accepted", results=results)
 
     async def process_ingest_request_v2(
         self,
         user_id: str,
         request: AppleIngestRequestV2,
-    ) -> Tuple[bool, List[AppleIngestResult], List[DeleteResult], List[AppleIngestResult], Optional[str]]:
+    ) -> AppleIngestServiceResultV2:
         validation = await self.device_security_service.validate_signed_device_request(
             user_id=user_id,
             provider=self.provider,
@@ -96,7 +144,11 @@ class WearableAppleIngestService:
             signature=request.signature,
         )
         if not validation.success:
-            return False, [], [], [], validation.error
+            return AppleIngestServiceResultV2(
+                outcome="rejected",
+                error=validation.error,
+                error_code=_validation_error_code(validation.error),
+            )
 
         existing_event = await self.device_security_service.check_idempotency(
             request.device_id,
@@ -104,7 +156,7 @@ class WearableAppleIngestService:
         )
         if existing_event:
             logger.warning("⚠️ Duplicate Apple Health client_event_id: %s", request.client_event_id)
-            return True, [], [], [], "Already processed (idempotency)"
+            return AppleIngestServiceResultV2(outcome="duplicate")
 
         added_results: List[AppleIngestResult] = []
         if request.added:
@@ -162,7 +214,21 @@ class WearableAppleIngestService:
             deleted_success,
             modified_success,
         )
-        return total_success > 0, added_results, deleted_results, modified_results, None
+        if total_success == 0:
+            return AppleIngestServiceResultV2(
+                outcome="rejected",
+                added_results=added_results,
+                deleted_results=deleted_results,
+                modified_results=modified_results,
+                error="No Apple Health operations were accepted",
+                error_code="no_records_accepted",
+            )
+        return AppleIngestServiceResultV2(
+            outcome="accepted",
+            added_results=added_results,
+            deleted_results=deleted_results,
+            modified_results=modified_results,
+        )
 
     async def delete_metrics_by_external_ids(self, user_id: str, external_ids: List[str]) -> List[DeleteResult]:
         results: List[DeleteResult] = []

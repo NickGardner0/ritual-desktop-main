@@ -1092,6 +1092,17 @@
       "AppleIngestResponse": {
         "description": "Response from the ingest endpoint (V1)",
         "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "next_poll_seconds": {
             "anyOf": [
               {
@@ -1104,6 +1115,16 @@
             ],
             "description": "Suggested seconds until next poll",
             "title": "Next Poll Seconds"
+          },
+          "outcome": {
+            "default": "accepted",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "rejected"
+            ],
+            "title": "Outcome",
+            "type": "string"
           },
           "results": {
             "items": {
@@ -1118,7 +1139,7 @@
             "type": "string"
           },
           "success": {
-            "description": "True if at least one metric was stored",
+            "description": "True when the request was accepted or already processed",
             "title": "Success",
             "type": "boolean"
           }
@@ -1167,6 +1188,17 @@
             "title": "Deleted Results",
             "type": "array"
           },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "modified_results": {
             "default": [],
             "description": "Results for modified metrics",
@@ -1189,13 +1221,23 @@
             "description": "Suggested seconds until next poll",
             "title": "Next Poll Seconds"
           },
+          "outcome": {
+            "default": "accepted",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "rejected"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
           "server_time": {
             "description": "ISO8601 server time when request was processed",
             "title": "Server Time",
             "type": "string"
           },
           "success": {
-            "description": "True if at least one operation succeeded",
+            "description": "True when the request was accepted or already processed",
             "title": "Success",
             "type": "boolean"
           }
@@ -2818,7 +2860,7 @@
       "Body_analyze_and_log_screenshot_api_screenshot_analyze_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -2832,7 +2874,7 @@
       "Body_preview_import_api_import_preview_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           },
@@ -2854,7 +2896,7 @@
       "Body_preview_screenshot_analysis_api_screenshot_preview_post": {
         "properties": {
           "file": {
-            "format": "binary",
+            "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
           }
@@ -13569,6 +13611,10 @@
         "properties": {
           "cadence": {
             "default": "daily",
+            "enum": [
+              "daily",
+              "weekly"
+            ],
             "title": "Cadence",
             "type": "string"
           },

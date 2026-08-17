@@ -39,6 +39,15 @@ def to_local(value: datetime, timezone_name: str) -> datetime:
     return value.astimezone(ZoneInfo(normalize_timezone(timezone_name)))
 
 
+def localize_reference(
+    timezone_name: str,
+    reference_utc: Optional[datetime] = None,
+) -> datetime:
+    """Return an aware local reference using the shared timezone fallback."""
+
+    return to_local(reference_utc or datetime.now(timezone.utc), timezone_name)
+
+
 def from_local(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise ValueError("Local datetime must include tzinfo")
@@ -238,6 +247,91 @@ def next_run_at(
     candidate = from_local(candidate_local)
     if end is not None and candidate > end:
         return None
+    return candidate
+
+
+def next_workflow_run_at(
+    *,
+    cadence: str,
+    timezone_name: str,
+    send_hour_local: int,
+    send_minute_local: int,
+    send_weekdays: Iterable[Any],
+    reference_utc: Optional[datetime] = None,
+) -> datetime:
+    """Adapt the existing workflow schedule fields to the routine engine."""
+
+    normalized_cadence = str(cadence or "daily").strip().lower()
+    # New writes are constrained by WorkflowSchedule. Existing rows predate that
+    # validator and the legacy calculator ignored cadence entirely, so preserve
+    # their effective weekday behavior until they are edited.
+    if normalized_cadence not in {"daily", "weekly"}:
+        normalized_cadence = "daily"
+    raw_weekdays = list(send_weekdays)
+    weekdays = normalize_weekdays(raw_weekdays or range(7))
+    trigger_type = (
+        "daily"
+        if normalized_cadence == "daily" and weekdays == list(range(7))
+        else "weekly"
+    )
+    candidate = next_run_at(
+        trigger_type=trigger_type,
+        trigger_config={
+            "interval": 1,
+            "hour": send_hour_local,
+            "minute": send_minute_local,
+            "weekdays": weekdays,
+        },
+        timezone_name=timezone_name,
+        reference_utc=reference_utc,
+    )
+    if candidate is None:  # No end bound is supplied, so this is defensive.
+        raise ValueError("Workflow schedule did not produce a next run")
+    return candidate
+
+
+def next_report_run_at(
+    *,
+    cadence: str,
+    timezone_name: str,
+    send_hour_local: int,
+    send_minute_local: int,
+    send_weekday: Optional[int],
+    send_day_of_month: Optional[int],
+    reference_utc: Optional[datetime] = None,
+) -> datetime:
+    """Adapt report schedule fields to the routine recurrence engine."""
+
+    normalized_cadence = str(cadence or "").strip().lower()
+    if normalized_cadence == "daily":
+        trigger_type = "daily"
+        config: Dict[str, Any] = {}
+    elif normalized_cadence == "weekly":
+        trigger_type = "weekly"
+        config = {"weekdays": [0 if send_weekday is None else int(send_weekday)]}
+    elif normalized_cadence == "monthly":
+        trigger_type = "monthly"
+        config = {"day": 1 if send_day_of_month is None else int(send_day_of_month)}
+    else:
+        # The retired report calculator treated every non-daily/non-weekly
+        # persisted value as monthly. Schemas reject new unknown values.
+        trigger_type = "monthly"
+        config = {"day": 1 if send_day_of_month is None else int(send_day_of_month)}
+    config.update(
+        {
+            "interval": 1,
+            "hour": send_hour_local,
+            "minute": send_minute_local,
+        }
+    )
+    candidate = next_run_at(
+        trigger_type=trigger_type,
+        trigger_config=config,
+        timezone_name=timezone_name,
+        reference_utc=reference_utc,
+    )
+    if candidate is None:
+        raise ValueError("Report schedule did not produce a next run")
     return candidate
 
 

@@ -15,41 +15,112 @@ from typing import Mapping, Optional
 
 PRIVACY_MODES = {"local_only", "private_sync", "cloud_intelligence"}
 
-SENSITIVE_DATA_CLASSES = {
-    "habit_definition",
-    "habit_log",
-    "daily_note",
-    "computer_activity",
-    "browser_activity",
-    "ocr_text",
-    "screenshot",
-    "health_metric",
-    "location",
-    "ai_content",
-    "ai_memory",
-    "financial",
-    "provider_secret",
+@dataclass(frozen=True)
+class PrivacyCategorySpec:
+    category: str
+    sensitive: bool
+    storage: tuple[str, ...]
+    retention_days: int | None
+    exportable: bool
+    deletable: bool
+    analytics_allowed: bool
+    tinybird_datasources: tuple[str, ...] = ()
+    typesense_collections: tuple[str, ...] = ()
+
+
+def _sensitive(
+    category: str,
+    *,
+    storage: tuple[str, ...] = ("local_vault", "backend_turso"),
+    retention_days: int | None = None,
+    exportable: bool = True,
+    analytics_allowed: bool = False,
+    tinybird_datasources: tuple[str, ...] = (),
+    typesense_collections: tuple[str, ...] = (),
+) -> PrivacyCategorySpec:
+    return PrivacyCategorySpec(
+        category=category,
+        sensitive=True,
+        storage=storage,
+        retention_days=retention_days,
+        exportable=exportable,
+        deletable=True,
+        analytics_allowed=analytics_allowed,
+        tinybird_datasources=tinybird_datasources,
+        typesense_collections=typesense_collections,
+    )
+
+
+PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
+    "habit_definition": _sensitive("habit_definition", analytics_allowed=True, typesense_collections=("habits",)),
+    "habit_log": _sensitive(
+        "habit_log",
+        analytics_allowed=True,
+        tinybird_datasources=("habit_logs",),
+        typesense_collections=("habit_logs", "log_phrases"),
+    ),
+    "daily_note": _sensitive("daily_note"),
+    "computer_activity": _sensitive(
+        "computer_activity",
+        retention_days=365,
+        analytics_allowed=True,
+        tinybird_datasources=("computer_activity_daily",),
+        typesense_collections=("computer_activity",),
+    ),
+    "browser_activity": _sensitive("browser_activity", retention_days=365),
+    "ocr_text": _sensitive("ocr_text", retention_days=30),
+    "screenshot": _sensitive("screenshot", retention_days=30),
+    "health_metric": _sensitive(
+        "health_metric",
+        analytics_allowed=True,
+        tinybird_datasources=(
+            "heart_rate_1m_rollups",
+            "whoop_sleep_data",
+            "whoop_recovery_data",
+            "whoop_workout_data",
+        ),
+    ),
+    "location": _sensitive(
+        "location",
+        retention_days=30,
+        analytics_allowed=True,
+        tinybird_datasources=("weather_observations",),
+    ),
+    "ai_content": _sensitive(
+        "ai_content",
+        typesense_collections=("ai_messages", "artifacts", "workflows"),
+    ),
+    "ai_memory": _sensitive("ai_memory", typesense_collections=("ai_facts",)),
+    "financial": _sensitive("financial"),
+    "provider_secret": _sensitive("provider_secret", storage=("backend_secret_store",), exportable=False),
+    "account_metadata": PrivacyCategorySpec(
+        "account_metadata", False, ("backend_turso",), None, True, True, False
+    ),
+    "app_preferences": PrivacyCategorySpec(
+        "app_preferences", False, ("local_vault", "backend_turso"), None, True, True, False
+    ),
+    "product_telemetry": PrivacyCategorySpec(
+        "product_telemetry", False, ("telemetry",), 90, False, True, True
+    ),
+    "crash_diagnostics": PrivacyCategorySpec(
+        "crash_diagnostics", False, ("telemetry",), 30, False, True, False
+    ),
 }
 
+SENSITIVE_DATA_CLASSES = {
+    name for name, spec in PRIVACY_CATEGORY_SPECS.items() if spec.sensitive
+}
 ACCOUNT_REQUIRED_CLASSES = {"account_metadata", "app_preferences"}
 MINIMAL_TELEMETRY_CLASSES = {"product_telemetry", "crash_diagnostics"}
-
 SENSITIVE_TINYBIRD_DATASOURCES = {
-    "habit_logs": "habit_log",
-    "computer_activity_daily": "computer_activity",
-    "heart_rate_1m_rollups": "health_metric",
-    "weather_observations": "location",
+    datasource: name
+    for name, spec in PRIVACY_CATEGORY_SPECS.items()
+    for datasource in spec.tinybird_datasources
 }
-
 SENSITIVE_TYPESENSE_COLLECTIONS = {
-    "habits": "habit_definition",
-    "habit_logs": "habit_log",
-    "ai_messages": "ai_content",
-    "computer_activity": "computer_activity",
-    "artifacts": "ai_content",
-    "workflows": "ai_content",
-    "ai_facts": "ai_memory",
-    "log_phrases": "habit_log",
+    collection: name
+    for name, spec in PRIVACY_CATEGORY_SPECS.items()
+    for collection in spec.typesense_collections
 }
 
 
@@ -57,6 +128,10 @@ SENSITIVE_TYPESENSE_COLLECTIONS = {
 class PrivacyDecision:
     allowed: bool
     reason: str
+
+
+def privacy_category_spec(category: str) -> PrivacyCategorySpec:
+    return PRIVACY_CATEGORY_SPECS.get(category, PRIVACY_CATEGORY_SPECS["product_telemetry"])
 
 
 def current_privacy_mode() -> str:
@@ -91,7 +166,23 @@ def request_cloud_consents(headers: Optional[Mapping[str, str]] = None) -> set[s
 
 
 def is_sensitive_data_class(data_class: str) -> bool:
-    return data_class in SENSITIVE_DATA_CLASSES
+    return privacy_category_spec(data_class).sensitive
+
+
+def category_retention_days(data_class: str) -> int | None:
+    return privacy_category_spec(data_class).retention_days
+
+
+def category_is_exportable(data_class: str) -> bool:
+    return privacy_category_spec(data_class).exportable
+
+
+def category_is_deletable(data_class: str) -> bool:
+    return privacy_category_spec(data_class).deletable
+
+
+def category_allows_analytics(data_class: str) -> bool:
+    return privacy_category_spec(data_class).analytics_allowed
 
 
 def consent_enabled(consents: set[str], consent: str) -> bool:
@@ -108,6 +199,9 @@ def can_send_to_cloud(
 ) -> PrivacyDecision:
     normalized_mode = mode if mode in PRIVACY_MODES else current_privacy_mode()
     normalized_consents = consents if consents is not None else parse_cloud_consents()
+
+    if purpose == "analytics" and not category_allows_analytics(data_class):
+        return PrivacyDecision(False, f"analytics is not allowed for {data_class}")
 
     if destination == "backend" and purpose == "account" and data_class in ACCOUNT_REQUIRED_CLASSES:
         return PrivacyDecision(True, "account-required metadata")

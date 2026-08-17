@@ -12,6 +12,7 @@ from services.privacy_external_erasure import (
     build_external_erasure_plan,
     execute_external_erasure,
 )
+from services.privacy_policy import SENSITIVE_TINYBIRD_DATASOURCES
 
 
 class FakeTinybird:
@@ -81,9 +82,15 @@ class PrivacyExternalErasureTests(unittest.TestCase):
                 search_service=fake_search,
             ))
 
-        self.assertEqual(result["deleted_count"], 19)
+        self.assertEqual(
+            result["deleted_count"],
+            2 + (3 * len(SENSITIVE_TINYBIRD_DATASOURCES)) + 5,
+        )
         self.assertEqual(result["manual_required_count"], 1)
-        self.assertEqual(len(fake_tinybird.calls), 4)
+        self.assertEqual(
+            {call[0] for call in fake_tinybird.calls},
+            set(SENSITIVE_TINYBIRD_DATASOURCES),
+        )
         self.assertEqual(fake_search.calls[0][0], "user-external")
         receipt_statuses = {item["target"]: item["status"] for item in result["targets"]}
         self.assertEqual(receipt_statuses["private_sync_envelopes"], "deleted")
