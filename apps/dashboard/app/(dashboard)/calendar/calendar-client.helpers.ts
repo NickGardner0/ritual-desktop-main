@@ -9,6 +9,8 @@ export type ScheduledBlockApi = {
   day: string;
   start_minutes: number;
   end_minutes: number;
+  task_id?: string | null;
+  task_status?: string | null;
 };
 
 export type ScheduledBlockPayload = {
@@ -288,6 +290,8 @@ export function mapScheduledBlockFromApi(item: ScheduledBlockApi): WeekScheduled
     day: item.day,
     startMinutes: item.start_minutes,
     endMinutes: item.end_minutes,
+    taskId: item.task_id ?? null,
+    taskStatus: item.task_status ?? null,
   };
 }
 

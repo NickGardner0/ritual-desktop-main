@@ -3606,6 +3606,348 @@
         "title": "DeviceResponse",
         "type": "object"
       },
+      "EntityRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "habit",
+              "habit_log",
+              "task",
+              "routine",
+              "artifact",
+              "conversation",
+              "experiment",
+              "calendar_block",
+              "day",
+              "time_window"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "title": "EntityRef",
+        "type": "object"
+      },
+      "EntityReferenceCreate": {
+        "properties": {
+          "anchor_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Json"
+          },
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
+          "provenance": {
+            "default": "user",
+            "enum": [
+              "user",
+              "assistant",
+              "workflow"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "relationship": {
+            "default": "references",
+            "enum": [
+              "references",
+              "mentions",
+              "supports",
+              "contradicts",
+              "evidence_for"
+            ],
+            "title": "Relationship",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EntityRef"
+          }
+        },
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "EntityReferenceCreate",
+        "type": "object"
+      },
+      "EntityReferenceListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityReferenceRead"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "EntityReferenceListResponse",
+        "type": "object"
+      },
+      "EntityReferenceRead": {
+        "properties": {
+          "anchor_json": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor Json"
+          },
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "provenance": {
+            "title": "Provenance",
+            "type": "string"
+          },
+          "relationship": {
+            "title": "Relationship",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "target": {
+            "$ref": "#/components/schemas/EntityRef"
+          }
+        },
+        "required": [
+          "id",
+          "source",
+          "target",
+          "relationship",
+          "provenance"
+        ],
+        "title": "EntityReferenceRead",
+        "type": "object"
+      },
+      "EntityReferenceSyncRequest": {
+        "properties": {
+          "provenance": {
+            "default": "user",
+            "enum": [
+              "user",
+              "assistant",
+              "workflow"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/EntityRef"
+            },
+            "title": "Targets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "EntityReferenceSyncRequest",
+        "type": "object"
+      },
+      "EntityRelatedResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RelatedEntityItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "EntityRelatedResponse",
+        "type": "object"
+      },
+      "EntityResolveRequest": {
+        "properties": {
+          "refs": {
+            "items": {
+              "$ref": "#/components/schemas/EntityRef"
+            },
+            "title": "Refs",
+            "type": "array"
+          }
+        },
+        "title": "EntityResolveRequest",
+        "type": "object"
+      },
+      "EntityResolveResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntitySummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "title": "EntityResolveResponse",
+        "type": "object"
+      },
+      "EntitySearchResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntitySummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "privacy_blocked": {
+            "default": false,
+            "title": "Privacy Blocked",
+            "type": "boolean"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "EntitySearchResponse",
+        "type": "object"
+      },
+      "EntitySummary": {
+        "properties": {
+          "availability": {
+            "default": "ok",
+            "enum": [
+              "ok",
+              "unknown",
+              "deleted",
+              "forbidden"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "privacyClass": {
+            "title": "Privacyclass",
+            "type": "string"
+          },
+          "ref": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "route": {
+            "title": "Route",
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "subtitle": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtitle"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updatedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updatedat"
+          }
+        },
+        "required": [
+          "ref",
+          "title",
+          "route",
+          "privacyClass"
+        ],
+        "title": "EntitySummary",
+        "type": "object"
+      },
       "ExperimentCreate": {
         "properties": {
           "description": {
@@ -8289,6 +8631,49 @@
         "title": "ProposedAction",
         "type": "object"
       },
+      "RelatedEntity": {
+        "properties": {
+          "ref": {
+            "$ref": "#/components/schemas/EntityRef"
+          },
+          "relationship": {
+            "title": "Relationship",
+            "type": "string"
+          },
+          "source": {
+            "default": "fk",
+            "enum": [
+              "fk",
+              "artifact_link",
+              "authored"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "relationship"
+        ],
+        "title": "RelatedEntity",
+        "type": "object"
+      },
+      "RelatedEntityItem": {
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/RelatedEntity"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EntitySummary"
+          }
+        },
+        "required": [
+          "edge",
+          "summary"
+        ],
+        "title": "RelatedEntityItem",
+        "type": "object"
+      },
       "ResponseModeUpdate": {
         "properties": {
           "response_mode": {
@@ -9222,6 +9607,28 @@
             "title": "Start Minutes",
             "type": "integer"
           },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "task_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Status"
+          },
           "title": {
             "title": "Title",
             "type": "string"
@@ -9251,6 +9658,17 @@
       },
       "ScheduledBlockCreate": {
         "properties": {
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
           "day": {
             "title": "Day",
             "type": "string"
@@ -9273,6 +9691,17 @@
           "start_minutes": {
             "title": "Start Minutes",
             "type": "integer"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
           },
           "title": {
             "title": "Title",
@@ -9333,6 +9762,17 @@
               }
             ],
             "title": "Start Minutes"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
           },
           "title": {
             "anyOf": [
@@ -10211,6 +10651,17 @@
             ],
             "title": "Client Event Id"
           },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
           "due_at": {
             "anyOf": [
               {
@@ -10485,6 +10936,17 @@
             ],
             "title": "Project"
           },
+          "receipt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Receipt Id"
+          },
           "routine_id": {
             "anyOf": [
               {
@@ -10567,6 +11029,17 @@
           "user_id": {
             "title": "User Id",
             "type": "string"
+          },
+          "was_inserted": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Was Inserted"
           }
         },
         "required": [
@@ -11031,6 +11504,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -16770,6 +17250,555 @@
         "summary": "Get Dashboard Overview Snapshot",
         "tags": [
           "core"
+        ]
+      }
+    },
+    "/api/entities/references": {
+      "post": {
+        "operationId": "create_entity_reference_api_entities_references_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityReferenceCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityReferenceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Entity Reference",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/references/sync": {
+      "post": {
+        "operationId": "sync_entity_mentions_api_entities_references_sync_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityReferenceSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityReferenceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync Entity Mentions",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/references/{reference_id}": {
+      "delete": {
+        "operationId": "delete_entity_reference_api_entities_references__reference_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reference_id",
+            "required": true,
+            "schema": {
+              "title": "Reference Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Entity Reference",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/related": {
+      "get": {
+        "operationId": "get_entity_related_query_api_entities_related_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "entity_type",
+            "required": true,
+            "schema": {
+              "title": "Entity Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityRelatedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entity Related Query",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/resolve": {
+      "post": {
+        "operationId": "resolve_entities_api_entities_resolve_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EntityResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityResolveResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resolve Entities",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/search": {
+      "get": {
+        "operationId": "search_entities_api_entities_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "types",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Types"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 40,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitySearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Entities",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/summary": {
+      "get": {
+        "operationId": "get_entity_summary_query_api_entities_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "entity_type",
+            "required": true,
+            "schema": {
+              "title": "Entity Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitySummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entity Summary Query",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/{entity_type}/{entity_id}": {
+      "get": {
+        "operationId": "get_entity_summary_api_entities__entity_type___entity_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_type",
+            "required": true,
+            "schema": {
+              "title": "Entity Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntitySummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entity Summary",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/{entity_type}/{entity_id}/references": {
+      "get": {
+        "operationId": "get_entity_references_api_entities__entity_type___entity_id__references_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_type",
+            "required": true,
+            "schema": {
+              "title": "Entity Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": false,
+            "schema": {
+              "default": "both",
+              "title": "Direction",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityReferenceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entity References",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/entities/{entity_type}/{entity_id}/related": {
+      "get": {
+        "operationId": "get_entity_related_api_entities__entity_type___entity_id__related_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "entity_type",
+            "required": true,
+            "schema": {
+              "title": "Entity Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entity_id",
+            "required": true,
+            "schema": {
+              "title": "Entity Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EntityRelatedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Entity Related",
+        "tags": [
+          "entities"
         ]
       }
     },

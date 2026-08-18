@@ -25,6 +25,7 @@ from schemas.tasks import (
     TaskRead,
     TaskUpdate,
 )
+from services.scheduled_block_tasks import sync_linked_blocks_from_task
 from services.recurrence import (
     ensure_utc_naive,
     humanize_recurrence,
@@ -428,6 +429,8 @@ class TasksService:
                     routine.next_run_at = _compute_routine_next(routine, reference_utc=routine.last_run_at)
                     routine.updated_at = now
 
+            await sync_linked_blocks_from_task(session, task, fields=set(fields))
+
             await session.commit()
             await session.refresh(task)
             return _task_to_schema(task)
@@ -726,6 +729,7 @@ class TasksService:
                 if not isinstance(routine_tags, list):
                     routine_tags = []
 
+                task = None
                 if routine.kind in {"task", "habit_prompt", "mixed"}:
                     task_source = "habit" if routine.kind == "habit_prompt" else "routine"
                     task = TaskDB(
@@ -775,6 +779,7 @@ class TasksService:
                         day=day,
                         start_minutes=start_minutes,
                         end_minutes=end_minutes,
+                        task_id=task.id if task is not None else None,
                         created_at=_utcnow_naive(),
                         updated_at=_utcnow_naive(),
                     )

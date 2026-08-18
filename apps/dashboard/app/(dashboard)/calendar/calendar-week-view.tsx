@@ -34,6 +34,8 @@ export type WeekScheduledItem = {
   day: string;
   startMinutes: number;
   endMinutes: number;
+  taskId?: string | null;
+  taskStatus?: string | null;
 };
 
 export type WeekSelectionPayload = {
@@ -191,14 +193,18 @@ const DayColumn = memo(function DayColumn({
                 onItemClick(item);
               }
             }}
-            className="group absolute inset-x-0 z-20 box-border overflow-hidden border border-[#111827]/20 bg-[#111827] px-2 py-1 text-left text-[11px] text-white shadow-sm cursor-move select-none"
+            className={cn(
+              "group absolute inset-x-0 z-20 box-border overflow-hidden border border-[#111827]/20 bg-[#111827] px-2 py-1 text-left text-[11px] text-white shadow-sm cursor-move select-none",
+              item.taskStatus === "completed" && "opacity-60",
+              item.taskStatus === "skipped" && "opacity-50",
+            )}
             style={{
               top: `${top}px`,
               height: `${height}px`,
             }}
           >
             <div className="pointer-events-none">
-              <p className="truncate font-medium">{item.title}</p>
+              <p className={cn("truncate font-medium", item.taskStatus === "completed" && "line-through")}>{item.title}</p>
               <p className="truncate text-[10px] text-white/70">
                 {formatClockMinutes(safeStart)} - {formatClockMinutes(safeEnd)}
               </p>

@@ -3,6 +3,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
+import { forgetEntitySummary } from '@/lib/entities/resolve';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 import type { WeekScheduledItem, WeekScheduledItemUpdate, WeekSelectionPayload } from './calendar-week-view';
 import type { TaskComposerState } from './task-composer-modal';
@@ -24,6 +25,7 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
       endMinutes: selection.endMinutes,
       title: '',
       notes: '',
+      taskId: null,
     });
   }, []);
 
@@ -31,6 +33,7 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
     setTaskComposerError(null);
     setTaskComposer({
       id: item.id,
+      taskId: item.taskId ?? null,
       dayKey: item.day,
       startMinutes: item.startMinutes,
       endMinutes: item.endMinutes,
@@ -63,6 +66,7 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
       setTaskComposerError(null);
       setTaskComposer({
         id: null,
+        taskId: null,
         dayKey,
         startMinutes,
         endMinutes,
@@ -72,6 +76,16 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
     },
     [scheduledBlocksByDay]
   );
+
+  const invalidateTaskSurfaces = useCallback(async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ['calendar-scheduled-blocks', user?.id],
+    });
+    await queryClient.invalidateQueries({
+      queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
+    });
+    await queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+  }, [queryClient, user?.id]);
 
   const handleScheduledItemUpdate = useCallback(
     async (item: WeekScheduledItem, update: WeekScheduledItemUpdate) => {
@@ -123,7 +137,7 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
           const errorData = await response.json().catch(() => ({}));
           const detail = typeof errorData?.detail === 'string'
             ? errorData.detail
-            : 'Failed to update block';
+            : 'Failed to update task';
           throw new Error(detail);
         }
 
@@ -137,23 +151,14 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
           };
         });
 
-        await queryClient.invalidateQueries({
-          queryKey: ['calendar-scheduled-blocks', user?.id],
-        });
-        await queryClient.invalidateQueries({
-          queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
-        });
+        await invalidateTaskSurfaces();
+        if (item.taskId) forgetEntitySummary({ type: 'task', id: item.taskId });
       } catch (error) {
-        setTaskComposerError(error instanceof Error ? error.message : 'Failed to update block');
-        await queryClient.invalidateQueries({
-          queryKey: ['calendar-scheduled-blocks', user?.id],
-        });
-        await queryClient.invalidateQueries({
-          queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
-        });
+        setTaskComposerError(error instanceof Error ? error.message : 'Failed to update task');
+        await invalidateTaskSurfaces();
       }
     },
-    [getToken, queryClient, user?.id]
+    [getToken, invalidateTaskSurfaces, queryClient, user?.id]
   );
 
   const closeTaskComposer = useCallback(() => {
@@ -164,14 +169,17 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
   const saveTaskComposer = useCallback(async () => {
     if (!taskComposer) return false;
 
-    const normalizedTitle = taskComposer.title.trim() || 'Untitled block';
-    const payload = {
+    const normalizedTitle = taskComposer.title.trim() || 'Untitled task';
+    const payload: Record<string, unknown> = {
       title: normalizedTitle,
       notes: taskComposer.notes.trim() || null,
       day: taskComposer.dayKey,
       start_minutes: Math.max(0, Math.min(taskComposer.startMinutes, 24 * 60)),
       end_minutes: Math.max(taskComposer.startMinutes + 30, Math.min(taskComposer.endMinutes, 24 * 60)),
     };
+    if (!taskComposer.id) {
+      payload.client_event_id = crypto.randomUUID();
+    }
 
     setIsSavingTaskComposer(true);
     setTaskComposerError(null);
@@ -198,35 +206,41 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
         const errorData = await response.json().catch(() => ({}));
         const detail = typeof errorData?.detail === 'string'
           ? errorData.detail
-          : 'Failed to save block';
+          : 'Failed to save task';
         throw new Error(detail);
       }
 
-      await queryClient.invalidateQueries({
-        queryKey: ['calendar-scheduled-blocks', user?.id],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
-      });
-      const saved = await response.json().catch(() => null) as { id?: string } | null;
+      await invalidateTaskSurfaces();
+      const saved = await response.json().catch(() => null) as { id?: string; task_id?: string | null } | null;
       const sourceId = saved?.id || taskComposer.id;
+      const taskId = saved?.task_id || taskComposer.taskId;
+      const notes = typeof payload.notes === 'string' ? payload.notes : null;
       if (sourceId) {
         void syncEntityMentions({
           source: { type: 'calendar_block', id: sourceId },
-          text: payload.notes,
+          text: notes,
+          getToken,
+          userId: user?.id,
+        });
+      }
+      if (taskId) {
+        forgetEntitySummary({ type: 'task', id: taskId });
+        void syncEntityMentions({
+          source: { type: 'task', id: taskId },
+          text: notes,
           getToken,
           userId: user?.id,
         });
       }
       setTaskComposer(null);
     } catch (error) {
-      setTaskComposerError(error instanceof Error ? error.message : 'Failed to save block');
+      setTaskComposerError(error instanceof Error ? error.message : 'Failed to save task');
       return false;
     } finally {
       setIsSavingTaskComposer(false);
     }
     return true;
-  }, [getToken, queryClient, taskComposer, user?.id]);
+  }, [getToken, invalidateTaskSurfaces, taskComposer, user?.id]);
 
   const deleteTaskComposer = useCallback(async () => {
     if (!taskComposer?.id) return false;
@@ -252,25 +266,21 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
         const errorData = await response.json().catch(() => ({}));
         const detail = typeof errorData?.detail === 'string'
           ? errorData.detail
-          : 'Failed to delete block';
+          : 'Failed to delete task';
         throw new Error(detail);
       }
 
-      await queryClient.invalidateQueries({
-        queryKey: ['calendar-scheduled-blocks', user?.id],
-      });
-      await queryClient.invalidateQueries({
-        queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
-      });
+      if (taskComposer.taskId) forgetEntitySummary({ type: 'task', id: taskComposer.taskId });
+      await invalidateTaskSurfaces();
       setTaskComposer(null);
     } catch (error) {
-      setTaskComposerError(error instanceof Error ? error.message : 'Failed to delete block');
+      setTaskComposerError(error instanceof Error ? error.message : 'Failed to delete task');
       return false;
     } finally {
       setIsSavingTaskComposer(false);
     }
     return true;
-  }, [getToken, queryClient, taskComposer, user?.id]);
+  }, [getToken, invalidateTaskSurfaces, taskComposer, user?.id]);
 
   return {
     taskComposer,

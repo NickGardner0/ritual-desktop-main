@@ -583,6 +583,14 @@ class EntityService:
                     edges.append(RelatedEntity(ref=EntityRef(type="habit", id=task.linked_habit_id), relationship="linked_habit", source="fk"))
                 if task.linked_artifact_id:
                     edges.append(RelatedEntity(ref=EntityRef(type="artifact", id=task.linked_artifact_id), relationship="linked", source="fk"))
+                blocks = await session.execute(
+                    select(ScheduledBlockDB).where(
+                        ScheduledBlockDB.user_id == user_id,
+                        ScheduledBlockDB.task_id == entity_id,
+                    )
+                )
+                for block in blocks.scalars().all():
+                    edges.append(RelatedEntity(ref=EntityRef(type="calendar_block", id=block.id), relationship="scheduled_as", source="fk"))
             elif entity_type == "habit_log":
                 result = await session.execute(
                     select(HabitLogDB, HabitDB)
@@ -644,8 +652,11 @@ class EntityService:
                         ScheduledBlockDB.user_id == user_id,
                     )
                 )
-                if result.scalar_one_or_none() is None:
+                block = result.scalar_one_or_none()
+                if block is None:
                     return []
+                if getattr(block, "task_id", None):
+                    edges.append(RelatedEntity(ref=EntityRef(type="task", id=block.task_id), relationship="scheduled_as", source="fk"))
                 runs = await session.execute(
                     select(RoutineRunDB)
                     .where(

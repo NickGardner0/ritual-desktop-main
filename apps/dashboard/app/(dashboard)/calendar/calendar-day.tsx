@@ -143,7 +143,11 @@ export const CalendarDay = memo(function CalendarDay({
                   event.stopPropagation();
                   onScheduledItemClick?.(item);
                 }}
-                className="w-full truncate rounded-sm border border-[#111827]/20 bg-[#111827] px-1.5 py-0.5 text-left text-[10px] font-medium text-white"
+                className={cn(
+                  "w-full truncate rounded-sm border border-[#111827]/20 bg-[#111827] px-1.5 py-0.5 text-left text-[10px] font-medium text-white",
+                  item.taskStatus === "completed" && "opacity-60 line-through",
+                  item.taskStatus === "skipped" && "opacity-50",
+                )}
                 title={item.title}
               >
                 {item.title}

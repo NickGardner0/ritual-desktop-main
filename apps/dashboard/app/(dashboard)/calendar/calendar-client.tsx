@@ -439,9 +439,13 @@ export function CalendarClient() {
   }, [router, searchParams]);
 
   const onScheduledItemClick = useCallback((item: WeekScheduledItem) => {
+    if (item.taskId) {
+      router.push(`/tasks?task=${encodeURIComponent(item.taskId)}`);
+      return;
+    }
     replaceBlockParam(item.id);
     handleScheduledItemClick(item);
-  }, [handleScheduledItemClick, replaceBlockParam]);
+  }, [handleScheduledItemClick, replaceBlockParam, router]);
 
   const onCreateSelection = useCallback((selection: WeekSelectionPayload) => {
     replaceBlockParam(null);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -29,6 +29,9 @@ import {
 } from '@/lib/tasks/new-task-composer';
 import { applyTaskOptimisticPatch } from '@/lib/tasks/optimistic';
 import { TaskPageShell, taskContentMaxClass } from '@/lib/tasks/task-ui-shell';
+import { TaskDetailSheet } from '@/lib/tasks/task-detail-sheet';
+import { rememberEntitySummary, summaryFromTask } from '@/lib/entities/resolve';
+import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import {
   appendDemoRoutineGeneration,
   buildSeedRoutines,
@@ -92,6 +95,7 @@ export function TasksClient() {
 
   const viewParam = searchParams.get('view');
   const view: TaskViewId = isTaskViewId(viewParam) ? viewParam : 'today';
+  const selectedTaskId = searchParams.get('task');
 
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [layoutMode, setLayoutMode] = useState<ListLayoutMode>('list');
@@ -110,6 +114,14 @@ export function TasksClient() {
   }, [router, searchParams]);
 
   const queryKey = ['tasks', user?.id, view, category];
+
+  const invalidateTaskSurfaces = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks', user?.id] });
+    void queryClient.invalidateQueries({
+      queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
+    });
+  }, [queryClient, user?.id]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -176,7 +188,7 @@ export function TasksClient() {
       } else {
         toast.success('Due routines generated.');
       }
-      void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+      invalidateTaskSurfaces();
       void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
     },
   });
@@ -204,8 +216,9 @@ export function TasksClient() {
       }
     },
     onSuccess: (_task, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+      invalidateTaskSurfaces();
       if (user?.id && _task) void putLocalVaultTask(user.id, _task).catch(() => undefined);
+      if (_task) rememberEntitySummary(summaryFromTask(_task));
       if (_task?.id) {
         void syncEntityMentions({
           source: { type: 'task', id: _task.id },
@@ -254,9 +267,18 @@ export function TasksClient() {
       if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
       toast.error(error instanceof Error ? error.message : 'Failed to update task.');
     },
-    onSuccess: (task) => {
-      void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+    onSuccess: (task, variables) => {
+      invalidateTaskSurfaces();
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
+      if (task) rememberEntitySummary(summaryFromTask(task));
+      if (task && 'notes' in variables.patch) {
+        void syncEntityMentions({
+          source: { type: 'task', id: task.id },
+          text: task.notes,
+          getToken,
+          userId: user?.id,
+        });
+      }
     },
   });
 
@@ -265,6 +287,37 @@ export function TasksClient() {
     return sortTasksForDisplay(dedupeById([...(tasksQuery.data || []), ...demoTasks]));
   }, [category, demoGeneratedTasks, tasksQuery.data, view]);
   const groups = useMemo(() => groupTasksByProject(tasks), [tasks]);
+  const selectedTask = useMemo(
+    () => (selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null),
+    [selectedTaskId, tasks],
+  );
+
+  const selectedTaskQuery = useQuery({
+    queryKey: ['tasks', user?.id, 'detail', selectedTaskId],
+    enabled: Boolean(user?.id && selectedTaskId && !selectedTask),
+    queryFn: async () => {
+      const response = await apiOperationWithAuth(
+        'get_tasks_api_tasks_get',
+        getToken,
+        { query: { limit: 500 } },
+        user?.id,
+      );
+      return ((response.items ?? []) as Task[]).find((task) => task.id === selectedTaskId) ?? null;
+    },
+  });
+  const sheetTask = selectedTask || selectedTaskQuery.data || null;
+
+  useEffect(() => {
+    for (const task of tasks) rememberEntitySummary(summaryFromTask(task));
+    if (sheetTask) rememberEntitySummary(summaryFromTask(sheetTask));
+  }, [sheetTask, tasks]);
+
+  const closeTask = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('task');
+    const query = params.toString();
+    router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+  };
 
   const handleComposerSubmit = (values: NewTaskComposerSubmit) => {
     createTaskMutation.mutate(values);
@@ -325,6 +378,12 @@ export function TasksClient() {
         onSubmit={handleComposerSubmit}
         pending={createTaskMutation.isPending}
         defaultSchedule={defaultScheduleForView(view)}
+      />
+      <TaskDetailSheet
+        taskId={selectedTaskId}
+        task={sheetTask}
+        onClose={closeTask}
+        onUpdate={(id, patch) => updateTaskMutation.mutate({ id, patch })}
       />
     </TaskPageShell>
   );

@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { format } from 'date-fns';
+import Link from 'next/link';
 import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
 import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
 import { EntityNoteField } from '@/components/entities/entity-note-field';
@@ -10,6 +11,7 @@ import { formatMinutesDisplay, formatMinutesInput, parseMinutes } from './calend
 
 export type TaskComposerState = {
   id: string | null;
+  taskId?: string | null;
   dayKey: string;
   startMinutes: number;
   endMinutes: number;
@@ -42,7 +44,7 @@ export function TaskComposerModal({
     <div className="absolute inset-0 z-40 flex items-center justify-center px-4 py-6">
       <button
         type="button"
-        aria-label="Close block editor"
+        aria-label="Close task editor"
         onClick={closeTaskComposer}
         className="absolute inset-0 rounded-sm"
       />
@@ -50,7 +52,7 @@ export function TaskComposerModal({
       <div className="relative w-full max-w-[500px] rounded-sm border border-gray-300 bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)] selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]">
         <div className="border-b border-gray-200 px-3 py-2.5">
           <p className="text-sm font-medium text-gray-900">
-            {taskComposer.id ? 'Edit block' : 'New block'}
+            {taskComposer.id ? 'Edit task' : 'New task'}
           </p>
           <p className="mt-0.5 text-xs text-gray-500">
             {format(new Date(taskComposer.dayKey), 'EEE, MMM d')} · {formatMinutesDisplay(taskComposer.startMinutes)} - {formatMinutesDisplay(taskComposer.endMinutes)}
@@ -139,14 +141,30 @@ export function TaskComposerModal({
             />
           </div>
 
-          {entityProtocolEnabled() && taskComposer.id ? (
+          {entityProtocolEnabled() && (taskComposer.taskId || taskComposer.id) ? (
             <div className="space-y-2">
+              {taskComposer.taskId ? (
+                <Link
+                  href={`/tasks?task=${encodeURIComponent(taskComposer.taskId)}`}
+                  className="text-xs text-[var(--ritual-text-secondary)] underline-offset-2 hover:underline"
+                >
+                  Open in Tasks
+                </Link>
+              ) : null}
               <EntityRelatedPanel
-                entityRef={{ type: 'calendar_block', id: taskComposer.id }}
+                entityRef={
+                  taskComposer.taskId
+                    ? { type: 'task', id: taskComposer.taskId }
+                    : { type: 'calendar_block', id: taskComposer.id as string }
+                }
                 refreshKey={relatedRefreshKey}
               />
               <EntityLinkPicker
-                source={{ type: 'calendar_block', id: taskComposer.id }}
+                source={
+                  taskComposer.taskId
+                    ? { type: 'task', id: taskComposer.taskId }
+                    : { type: 'calendar_block', id: taskComposer.id as string }
+                }
                 onLinked={() => setRelatedRefreshKey((value) => value + 1)}
               />
             </div>
@@ -189,8 +207,8 @@ export function TaskComposerModal({
               {isSavingTaskComposer
                 ? 'Saving...'
                 : taskComposer.id
-                  ? 'Update block'
-                  : 'Save block'}
+                  ? 'Update task'
+                  : 'Save task'}
             </button>
           </div>
         </div>

@@ -14,6 +14,13 @@ from sqlalchemy import and_, delete, select
 
 from database.connection import force_local_replica_sync, get_db_session
 from database.models import ScheduledBlockDB
+from services.scheduled_block_tasks import (
+    find_block_for_task,
+    get_or_create_calendar_task,
+    load_task_status_map,
+    scheduled_block_payload,
+    sync_task_from_block,
+)
 from database.helpers import user_db_to_profile
 from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitUpdate
 from models.user_models import (
@@ -52,7 +59,8 @@ class ScheduledBlockBase(BaseModel):
 
 
 class ScheduledBlockCreate(ScheduledBlockBase):
-    pass
+    task_id: Optional[str] = None
+    client_event_id: Optional[str] = None
 
 
 class ScheduledBlockUpdate(BaseModel):
@@ -61,11 +69,14 @@ class ScheduledBlockUpdate(BaseModel):
     day: Optional[str] = None
     start_minutes: Optional[int] = None
     end_minutes: Optional[int] = None
+    task_id: Optional[str] = None
 
 
 class ScheduledBlock(ScheduledBlockBase):
     id: str
     user_id: str
+    task_id: Optional[str] = None
+    task_status: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -785,7 +796,17 @@ def create_core_router(
                     query = query.where(ScheduledBlockDB.day <= end_date)
                 query = query.order_by(ScheduledBlockDB.day.asc(), ScheduledBlockDB.start_minutes.asc())
                 result = await session.execute(query)
-                return result.scalars().all()
+                blocks = result.scalars().all()
+                status_by_id = await load_task_status_map(
+                    session,
+                    [getattr(block, "task_id", None) for block in blocks],
+                )
+                return [
+                    ScheduledBlock.model_validate(
+                        scheduled_block_payload(block, status_by_id.get(getattr(block, "task_id", None)))
+                    )
+                    for block in blocks
+                ]
         except ValueError:
             raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
         except HTTPException:
@@ -809,24 +830,48 @@ def create_core_router(
                 end_minutes=block_data.end_minutes,
             )
 
-            now = datetime.utcnow()
-            block = ScheduledBlockDB(
-                id=str(uuid.uuid4()),
-                user_id=current_user["id"],
-                title=title,
-                notes=block_data.notes.strip() if block_data.notes else None,
-                day=block_data.day,
-                start_minutes=block_data.start_minutes,
-                end_minutes=block_data.end_minutes,
-                created_at=now,
-                updated_at=now,
-            )
+            notes = block_data.notes.strip() if block_data.notes else None
+            user_id = current_user["id"]
 
             async with get_db_session() as session:
+                try:
+                    task = await get_or_create_calendar_task(
+                        session,
+                        user_id=user_id,
+                        title=title,
+                        notes=notes,
+                        day=block_data.day,
+                        start_minutes=block_data.start_minutes,
+                        client_event_id=block_data.client_event_id,
+                        existing_task_id=block_data.task_id,
+                    )
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+                existing_block = await find_block_for_task(session, user_id, task.id)
+                if existing_block:
+                    status_by_id = await load_task_status_map(session, [task.id])
+                    return ScheduledBlock.model_validate(
+                        scheduled_block_payload(existing_block, status_by_id.get(task.id))
+                    )
+
+                now = datetime.utcnow()
+                block = ScheduledBlockDB(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    title=title,
+                    notes=notes,
+                    day=block_data.day,
+                    start_minutes=block_data.start_minutes,
+                    end_minutes=block_data.end_minutes,
+                    task_id=task.id,
+                    created_at=now,
+                    updated_at=now,
+                )
                 session.add(block)
                 await session.commit()
                 await session.refresh(block)
-                return block
+                return ScheduledBlock.model_validate(scheduled_block_payload(block, task.status))
         except HTTPException:
             raise
         except Exception:
@@ -872,9 +917,39 @@ def create_core_router(
                 block.end_minutes = next_end
                 block.updated_at = datetime.utcnow()
 
+                if block_data.task_id and not getattr(block, "task_id", None):
+                    try:
+                        task = await get_or_create_calendar_task(
+                            session,
+                            user_id=current_user["id"],
+                            title=block.title,
+                            notes=block.notes,
+                            day=block.day,
+                            start_minutes=block.start_minutes,
+                            existing_task_id=block_data.task_id,
+                        )
+                    except ValueError as exc:
+                        raise HTTPException(status_code=400, detail=str(exc)) from exc
+                    block.task_id = task.id
+                elif not getattr(block, "task_id", None):
+                    task = await get_or_create_calendar_task(
+                        session,
+                        user_id=current_user["id"],
+                        title=block.title,
+                        notes=block.notes,
+                        day=block.day,
+                        start_minutes=block.start_minutes,
+                    )
+                    block.task_id = task.id
+                else:
+                    await sync_task_from_block(session, block)
+
                 await session.commit()
                 await session.refresh(block)
-                return block
+                status_by_id = await load_task_status_map(session, [getattr(block, "task_id", None)])
+                return ScheduledBlock.model_validate(
+                    scheduled_block_payload(block, status_by_id.get(getattr(block, "task_id", None)))
+                )
         except HTTPException:
             raise
         except Exception:

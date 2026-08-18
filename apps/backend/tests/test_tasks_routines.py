@@ -483,6 +483,7 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                     task = await session.get(TaskDB, generated_run["generated_task_id"])
                     block = await session.get(ScheduledBlockDB, generated_run["generated_scheduled_block_id"])
                     self.assertEqual(task.linked_habit_id, "habit-api")
+                    self.assertEqual(block.task_id, task.id)
                     self.assertEqual(block.day, "2026-06-29")
                     self.assertEqual(block.start_minutes, 540)
                     self.assertEqual(block.end_minutes, 600)

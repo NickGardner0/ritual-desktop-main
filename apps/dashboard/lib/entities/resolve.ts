@@ -28,6 +28,11 @@ import type { Habit, HabitLog } from "@/contexts/habits-context.types";
 import type { Routine, Task } from "@/lib/tasks/types";
 
 const summaryCache = new Map<string, EntitySummary>();
+const entitySummaryListeners = new Set<() => void>();
+
+function bumpEntitySummaryEpoch() {
+  for (const listener of entitySummaryListeners) listener();
+}
 
 const VAULT_COLLECTIONS: Partial<Record<EntityType, string>> = {
   habit: HABIT_DEFINITIONS_COLLECTION,
@@ -107,7 +112,7 @@ function summaryFromLog(log: HabitLog): EntitySummary | null {
   };
 }
 
-function summaryFromTask(task: Task): EntitySummary {
+export function summaryFromTask(task: Task): EntitySummary {
   return {
     ref: { type: "task", id: task.id },
     title: task.title,
@@ -360,9 +365,34 @@ export async function searchLocalEntities(
 }
 
 export function rememberEntitySummary(summary: EntitySummary) {
-  summaryCache.set(entityRefKey(summary.ref), summary);
+  const key = entityRefKey(summary.ref);
+  const previous = summaryCache.get(key);
+  summaryCache.set(key, summary);
+  if (
+    previous
+    && previous.title === summary.title
+    && previous.status === summary.status
+    && previous.subtitle === summary.subtitle
+    && previous.availability === summary.availability
+  ) {
+    return;
+  }
+  bumpEntitySummaryEpoch();
+}
+
+export function forgetEntitySummary(ref: EntityRef) {
+  summaryCache.delete(entityRefKey(ref));
+  bumpEntitySummaryEpoch();
+}
+
+export function subscribeEntitySummaries(listener: () => void) {
+  entitySummaryListeners.add(listener);
+  return () => {
+    entitySummaryListeners.delete(listener);
+  };
 }
 
 export function clearEntitySummaryCache() {
   summaryCache.clear();
+  bumpEntitySummaryEpoch();
 }

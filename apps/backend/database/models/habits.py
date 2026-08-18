@@ -104,10 +104,15 @@ class ScheduledBlockDB(Base):
     day = Column(String, nullable=False)  # YYYY-MM-DD (user local date)
     start_minutes = Column(Integer, nullable=False)  # Minutes from midnight (0..1439)
     end_minutes = Column(Integer, nullable=False)  # Minutes from midnight (1..1440)
+    task_id = Column(String, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=_utcnow_naive)
     updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 
     user = orm_relationship("UserDB", backref="scheduled_blocks")
+
+    __table_args__ = (
+        Index("idx_scheduled_blocks_user_task", "user_id", "task_id"),
+    )
 
 
 # ================================
