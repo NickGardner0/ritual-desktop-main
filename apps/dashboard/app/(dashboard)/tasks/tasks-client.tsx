@@ -56,6 +56,21 @@ import {
   type ListLayoutMode,
 } from './tasks-ui';
 
+const TASK_CREATE_TIMEOUT_MS = 10_000;
+
+async function withTaskCreateTimeout<T>(request: Promise<T>): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('Task creation timed out')), TASK_CREATE_TIMEOUT_MS);
+  });
+
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
 function isTaskInView(task: Task, view: TaskViewId): boolean {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -166,12 +181,14 @@ export function TasksClient() {
     mutationFn: async (input: NewTaskComposerSubmit) => {
       const { createMore: _createMore, ...payload } = input;
       try {
-        return await apiOperationWithAuth(
-          'create_task_api_tasks_post',
-          getToken,
-          { body: payload },
-          user?.id,
-        ) as Task;
+        return await withTaskCreateTimeout(
+          apiOperationWithAuth(
+            'create_task_api_tasks_post',
+            getToken,
+            { body: payload },
+            user?.id,
+          ) as Promise<Task>,
+        );
       } catch (error) {
         if (!user?.id) throw error;
         const optimistic = buildOptimisticTask(payload, user.id);
@@ -293,7 +310,40 @@ export function TasksClient() {
   };
 
   const handleComposerSubmit = (values: NewTaskComposerSubmit) => {
-    createTaskMutation.mutate(values);
+    if (!user?.id) {
+      createTaskMutation.mutate(values);
+      return;
+    }
+
+    const { createMore: _createMore, ...payload } = values;
+    const optimisticTask = buildOptimisticTask(payload, user.id);
+    const previousTasks = queryClient.getQueryData<Task[]>(queryKey);
+    const belongsInCurrentView = isTaskInView(optimisticTask, view)
+      && (category === 'All' || optimisticTask.category === category);
+
+    if (belongsInCurrentView) {
+      queryClient.setQueryData<Task[]>(queryKey, (current = []) => (
+        sortTasksForDisplay(dedupeById([optimisticTask, ...current]))
+      ));
+    }
+    if (!values.createMore) setComposerOpen(false);
+
+    createTaskMutation.mutate(values, {
+      onSuccess: (createdTask) => {
+        if (!belongsInCurrentView) return;
+        queryClient.setQueryData<Task[]>(queryKey, (current = []) => {
+          const withoutOptimistic = current.filter((task) => (
+            task.id !== optimisticTask.id
+            && task.client_event_id !== optimisticTask.client_event_id
+          ));
+          return sortTasksForDisplay(dedupeById([createdTask, ...withoutOptimistic]));
+        });
+      },
+      onError: () => {
+        if (belongsInCurrentView) queryClient.setQueryData(queryKey, previousTasks);
+        if (!values.createMore) setComposerOpen(true);
+      },
+    });
   };
 
   const viewTitle = TASK_VIEWS.find((item) => item.id === view)?.label || 'Tasks';

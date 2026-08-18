@@ -226,7 +226,7 @@ export function NewTaskComposer({
   const modalContent = (
     <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden" data-tauri-drag-region="false">
       <div
-        className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
+        className="absolute inset-0 bg-transparent"
         onClick={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
@@ -394,7 +394,7 @@ export function NewTaskComposer({
             className="rounded-full px-3.5"
             data-cuelume-press="press"
           >
-            Create task
+            {pending ? 'Creating…' : 'Create task'}
             <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
               ⌘↵
             </kbd>
