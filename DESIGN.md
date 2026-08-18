@@ -173,11 +173,13 @@ Radix Dropdown, Popover, Select, Dialog, and command-menu wrappers must consume 
 
 ## Motion
 
-- Fast feedback: 100ms.
-- Normal state transition: 160ms.
-- Deliberate entrance/exit: 240ms maximum.
+- Hover and selection fills: 0ms (`--ritual-duration-instant`).
+- Fast spatial feedback: 100ms (`--ritual-duration-fast`).
+- Normal state transition: 160ms (`--ritual-duration-normal`).
+- Deliberate entrance/exit: 240ms maximum (`--ritual-duration-slow`).
 - Standard easing: `cubic-bezier(0.2, 0, 0, 1)`.
-- Never animate routine row hover, table selection, or frequently repeated navigation feedback.
+- Never animate routine row hover, table selection, button hover fills, or frequently repeated navigation feedback.
+- Keep 100–160ms motion for expand/collapse, progress, and entrance/exit only.
 - Respect `prefers-reduced-motion` and remove nonessential animation.
 
 ## Verified shared components

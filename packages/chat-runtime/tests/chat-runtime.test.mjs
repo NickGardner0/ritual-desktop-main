@@ -13,6 +13,7 @@ import {
 } from '../dist/index.js';
 import {
   createChatStreamResponse,
+  parsePhaseLine,
 } from '../dist/stream-response.js';
 
 test('handleChatStreamRequest rejects empty token', async () => {
@@ -84,6 +85,28 @@ test('createChatStreamResponse preserves Ritual wire format', async () => {
   assert.match(text, /__CONVERSATION_ID__conv_123__END_CONVERSATION_ID__/);
   assert.match(text, /__TOOL_DATA__/);
   assert.match(text, /0:"hello world from ritual"/);
+});
+
+test('createChatStreamResponse emits phase events before text', async () => {
+  const response = createChatStreamResponse({
+    conversationId: 'conv_phase',
+    source: {
+      type: 'events',
+      events: (async function* () {
+        yield { type: 'phase', phase: 'context' };
+        yield { type: 'phase', phase: 'searching' };
+        yield { type: 'text', text: 'token-one' };
+      })(),
+    },
+    canvasToolPayload: null,
+    prefaceLine: '__STREAM_OPEN__',
+  });
+
+  const text = await response.text();
+  assert.match(text, /__STREAM_OPEN__/);
+  assert.match(text, /__PHASE__/);
+  assert.equal(parsePhaseLine('__PHASE__{"phase":"context","label":null}__END_PHASE__')?.phase, 'context');
+  assert.match(text, /0:"token-one"/);
 });
 
 test('createChatStreamResponse supports deferred conversation and tool payloads', async () => {

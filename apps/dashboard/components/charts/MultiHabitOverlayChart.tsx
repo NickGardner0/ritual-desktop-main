@@ -270,7 +270,7 @@ export function MultiHabitOverlayChart({ habits, height = 300 }: MultiHabitOverl
               type="button"
               onClick={() => setRange(opt.value)}
               className={cn(
-                'h-[25px] min-w-[32px] rounded-md px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] transition-all duration-150',
+                'h-[25px] min-w-[32px] rounded-md px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] ritual-snappy-row',
                 range === opt.value
                   ? 'bg-[rgba(39,37,30,0.06)] text-[#27251E]'
                   : 'text-[rgba(39,37,30,0.5)] hover:text-[#27251E]'

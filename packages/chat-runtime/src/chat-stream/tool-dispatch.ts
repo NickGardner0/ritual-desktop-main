@@ -2,6 +2,9 @@ import type OpenAI from 'openai';
 import { dispatchToolCall, withToolErrorHandling } from '../runtime-tools.js';
 import { toolSchemas } from '../tool-registry.js';
 import type { ActionReceiptSummary, ChatEntityRef, ChatToolResults } from '../types.js';
+import { streamWeeklyOverviewNarrative, type WeeklyOverviewPayload } from '../narrative/index.js';
+import type { ChatStreamEvent } from '../stream-response.js';
+import { applyVoiceMode } from './narrative-router.js';
 import { elapsed, getOpenAIClient } from './shared.js';
 
 export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef): void {
@@ -198,182 +201,249 @@ export function mergeDailyBreakdowns(toolResults: ChatToolResults): void {
   console.log('📦 Merged breakdown data from', toolResults.allBreakdowns.length, 'calls:', mergedData.length, 'entries');
 }
 
-export type ToolLoopResult = {
-  assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage;
-  streamedSynthesisTokens: AsyncIterable<string> | null;
+export type StreamingToolLoopOptions = {
+  t0: number;
+  apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  toolResults: ChatToolResults;
+  dispatchContext: ToolDispatchContext;
+  isVoiceMode: boolean;
+  initialToolChoice: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming['tool_choice'];
 };
 
-export async function runToolLoop(
-  t0: number,
-  apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  initialAssistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
-  toolResults: ChatToolResults,
-  dispatchContext: ToolDispatchContext,
-  isVoiceMode: boolean,
-): Promise<ToolLoopResult> {
-  let assistantMessage = initialAssistantMessage;
-  let streamedSynthesisTokens: AsyncIterable<string> | null = null;
-  let iterations = 0;
+type ToolCallAccumulator = Map<number, { id: string; name: string; arguments: string }>;
 
-  while (assistantMessage.tool_calls && iterations < 5) {
-    iterations++;
-    console.log(
-      `⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`,
-      assistantMessage.tool_calls.map(t => t.function.name),
-    );
-
-    apiMessages.push(assistantMessage);
-
-    const tTools = performance.now();
-    const toolCallResults = await Promise.all(
-      assistantMessage.tool_calls.map(async (toolCall) => {
-        const tTool = performance.now();
-        const args = JSON.parse(toolCall.function.arguments || '{}');
-        const result = await withToolErrorHandling(
-          toolCall.function.name,
-          () => dispatchToolCall(
-            toolCall.function.name,
-            dispatchContext.token,
-            args,
-            {
-              timezone: dispatchContext.timezone,
-              localOverviewActivity: dispatchContext.localOverviewActivity,
-              latestUserContent: dispatchContext.latestUserContent,
-              weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
-              strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
-              conversationId: dispatchContext.conversationId,
-              conversationIdPromise: dispatchContext.conversationIdPromise,
-            },
-          ),
-        );
-
-        console.log(
-          `⏱️ [${elapsed(t0)}] 📊 ${toolCall.function.name} done (${(performance.now() - tTool).toFixed(0)}ms, ${result.length} chars)`,
-        );
-        return { toolCall, result };
-      }),
-    );
-    console.log(`⏱️ [${elapsed(t0)}] All tools done (parallel: ${(performance.now() - tTools).toFixed(0)}ms)`);
-
-    for (const { toolCall, result } of toolCallResults) {
-      collectToolResult(toolResults, toolCall.function.name, result);
-      apiMessages.push({
-        role: 'tool',
-        tool_call_id: toolCall.id,
-        content: result,
+function applyToolCallDeltas(
+  toolCallsMap: ToolCallAccumulator,
+  deltas: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta['tool_calls'],
+): void {
+  for (const tc of deltas || []) {
+    const existing = toolCallsMap.get(tc.index);
+    if (existing) {
+      if (tc.id) existing.id = tc.id;
+      if (tc.function?.name) existing.name += tc.function.name;
+      if (tc.function?.arguments) existing.arguments += tc.function.arguments;
+    } else {
+      toolCallsMap.set(tc.index, {
+        id: tc.id || '',
+        name: tc.function?.name || '',
+        arguments: tc.function?.arguments || '',
       });
     }
+  }
+}
 
-    const hasNarrativeOverride =
-      toolResults.dailyOverview?.success
-      || toolResults.monthlyOverview?.success
-      || toolResults.weeklyOverview?.success;
-    const canStreamSynthesis = !isVoiceMode && !hasNarrativeOverride;
+function assistantMessageFromToolCalls(
+  toolCallsMap: ToolCallAccumulator,
+): OpenAI.Chat.Completions.ChatCompletionMessage {
+  return {
+    role: 'assistant',
+    content: null,
+    refusal: null,
+    tool_calls: Array.from(toolCallsMap.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([, tc]) => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: { name: tc.name, arguments: tc.arguments },
+      })),
+  };
+}
 
-    console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} start (stream=${canStreamSynthesis})`);
+type ConsumedAssistantStream =
+  | { kind: 'empty' }
+  | { kind: 'tool_calls'; message: OpenAI.Chat.Completions.ChatCompletionMessage }
+  | { kind: 'text'; firstText: string; rest: AsyncGenerator<string> };
 
-    if (canStreamSynthesis) {
-      const streamingResponse = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: apiMessages,
-        tools: toolSchemas,
-        tool_choice: 'auto',
-        temperature: iterations < 4 ? 0.3 : 0.7,
-        stream: true,
-      });
+async function consumeStreamedAssistant(
+  stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
+  t0: number,
+): Promise<ConsumedAssistantStream> {
+  const iterator = stream[Symbol.asyncIterator]();
+  const firstResult = await iterator.next();
 
-      const iterator = streamingResponse[Symbol.asyncIterator]();
-      const firstResult = await iterator.next();
+  if (firstResult.done) {
+    return { kind: 'empty' };
+  }
 
-      if (firstResult.done) {
-        console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} empty stream`);
-        assistantMessage = { role: 'assistant', content: 'I was unable to process your request.', refusal: null };
-        break;
+  console.log(`⏱️ [${elapsed(t0)}] first_provider_token`);
+  const firstChunk = firstResult.value;
+  const isToolCallResponse = !!(firstChunk.choices[0]?.delta?.tool_calls);
+
+  if (isToolCallResponse) {
+    const toolCallsMap: ToolCallAccumulator = new Map();
+    applyToolCallDeltas(toolCallsMap, firstChunk.choices[0]?.delta?.tool_calls);
+
+    let done = false;
+    while (!done) {
+      const next = await iterator.next();
+      done = next.done || false;
+      if (!done) {
+        applyToolCallDeltas(toolCallsMap, next.value.choices[0]?.delta?.tool_calls);
       }
+    }
 
-      const firstChunk = firstResult.value;
-      const isToolCallResponse = !!(firstChunk.choices[0]?.delta?.tool_calls);
+    return {
+      kind: 'tool_calls',
+      message: assistantMessageFromToolCalls(toolCallsMap),
+    };
+  }
 
-      if (isToolCallResponse) {
-        const toolCallsMap = new Map<number, { id: string; name: string; arguments: string }>();
-
-        for (const tc of firstChunk.choices[0]?.delta?.tool_calls || []) {
-          toolCallsMap.set(tc.index, {
-            id: tc.id || '',
-            name: tc.function?.name || '',
-            arguments: tc.function?.arguments || '',
-          });
-        }
-
-        let done = false;
-        while (!done) {
-          const next = await iterator.next();
-          done = next.done || false;
-          if (!done) {
-            for (const tc of next.value.choices[0]?.delta?.tool_calls || []) {
-              const existing = toolCallsMap.get(tc.index);
-              if (existing) {
-                if (tc.id) existing.id = tc.id;
-                if (tc.function?.name) existing.name += tc.function.name;
-                if (tc.function?.arguments) existing.arguments += tc.function.arguments;
-              } else {
-                toolCallsMap.set(tc.index, {
-                  id: tc.id || '',
-                  name: tc.function?.name || '',
-                  arguments: tc.function?.arguments || '',
-                });
-              }
-            }
-          }
-        }
-
-        assistantMessage = {
-          role: 'assistant',
-          content: null,
-          refusal: null,
-          tool_calls: Array.from(toolCallsMap.entries())
-            .sort(([a], [b]) => a - b)
-            .map(([, tc]) => ({
-              id: tc.id,
-              type: 'function' as const,
-              function: { name: tc.name, arguments: tc.arguments },
-            })),
-        };
-        console.log(
-          `⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} done (tool_calls: ${assistantMessage.tool_calls!.map(t => t.function.name).join(', ')})`,
-        );
-      } else {
-        async function* yieldSynthesisTokens(): AsyncGenerator<string> {
-          const firstContent = firstChunk.choices[0]?.delta?.content;
-          if (firstContent) yield firstContent;
-
-          let chunkDone = false;
-          while (!chunkDone) {
-            const next = await iterator.next();
-            chunkDone = next.done || false;
-            if (!chunkDone) {
-              const content = next.value.choices[0]?.delta?.content;
-              if (content) yield content;
-            }
-          }
-        }
-
-        streamedSynthesisTokens = yieldSynthesisTokens();
-        console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} streaming text → client`);
-        break;
+  async function* restOfText(): AsyncGenerator<string> {
+    let chunkDone = false;
+    while (!chunkDone) {
+      const next = await iterator.next();
+      chunkDone = next.done || false;
+      if (!chunkDone) {
+        const content = next.value.choices[0]?.delta?.content;
+        if (content) yield content;
       }
-    } else {
-      const response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: apiMessages,
-        tools: toolSchemas,
-        tool_choice: 'auto',
-        temperature: iterations < 4 ? 0.3 : 0.7,
-      });
-      assistantMessage = response.choices[0].message;
-      console.log(`⏱️ [${elapsed(t0)}] OpenAI follow-up #${iterations} done (non-streaming)`);
     }
   }
 
-  return { assistantMessage, streamedSynthesisTokens };
+  return {
+    kind: 'text',
+    firstText: firstChunk.choices[0]?.delta?.content || '',
+    rest: restOfText(),
+  };
+}
+
+async function* yieldTextTokens(firstText: string, rest: AsyncGenerator<string>): AsyncGenerator<ChatStreamEvent> {
+  if (firstText) yield { type: 'text', text: firstText };
+  for await (const token of rest) {
+    if (token) yield { type: 'text', text: token };
+  }
+}
+
+function overviewNarrativeSource(toolResults: ChatToolResults): { payload: WeeklyOverviewPayload; title: string } | null {
+  if (toolResults.dailyOverview?.success) {
+    return { payload: toolResults.dailyOverview as WeeklyOverviewPayload, title: 'Daily Activity Overview' };
+  }
+  if (toolResults.monthlyOverview?.success) {
+    return { payload: toolResults.monthlyOverview as WeeklyOverviewPayload, title: 'Monthly Activity Overview' };
+  }
+  if (toolResults.weeklyOverview?.success) {
+    return { payload: toolResults.weeklyOverview as WeeklyOverviewPayload, title: 'Weekly Activity Overview' };
+  }
+  return null;
+}
+
+async function executeAssistantToolCalls(
+  t0: number,
+  apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+  assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
+  toolResults: ChatToolResults,
+  dispatchContext: ToolDispatchContext,
+): Promise<void> {
+  const toolCalls = assistantMessage.tool_calls;
+  if (!toolCalls?.length) return;
+
+  apiMessages.push(assistantMessage);
+  const tTools = performance.now();
+  const toolCallResults = await Promise.all(
+    toolCalls.map(async (toolCall) => {
+      const tTool = performance.now();
+      const args = JSON.parse(toolCall.function.arguments || '{}');
+      const result = await withToolErrorHandling(
+        toolCall.function.name,
+        () => dispatchToolCall(
+          toolCall.function.name,
+          dispatchContext.token,
+          args,
+          {
+            timezone: dispatchContext.timezone,
+            localOverviewActivity: dispatchContext.localOverviewActivity,
+            latestUserContent: dispatchContext.latestUserContent,
+            weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
+            strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
+            conversationId: dispatchContext.conversationId,
+            conversationIdPromise: dispatchContext.conversationIdPromise,
+          },
+        ),
+      );
+
+      console.log(
+        `⏱️ [${elapsed(t0)}] 📊 ${toolCall.function.name} done (${(performance.now() - tTool).toFixed(0)}ms, ${result.length} chars)`,
+      );
+      return { toolCall, result };
+    }),
+  );
+  console.log(`⏱️ [${elapsed(t0)}] tools_done (parallel: ${(performance.now() - tTools).toFixed(0)}ms)`);
+
+  for (const { toolCall, result } of toolCallResults) {
+    collectToolResult(toolResults, toolCall.function.name, result);
+    apiMessages.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: result,
+    });
+  }
+}
+
+export async function* runStreamingToolLoop(
+  options: StreamingToolLoopOptions,
+): AsyncGenerator<ChatStreamEvent> {
+  const {
+    t0,
+    apiMessages,
+    toolResults,
+    dispatchContext,
+    isVoiceMode,
+    initialToolChoice,
+  } = options;
+
+  for (let iterations = 1; iterations <= 6; iterations++) {
+    const toolChoice = iterations === 1 ? initialToolChoice : 'auto';
+    yield { type: 'phase', phase: iterations === 1 ? 'searching' : 'answering' };
+    console.log(`⏱️ [${elapsed(t0)}] model_start iteration=${iterations} stream=true`);
+
+    const streamingResponse = await getOpenAIClient().chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: apiMessages,
+      tools: toolSchemas,
+      tool_choice: toolChoice,
+      temperature: iterations < 5 ? 0.3 : 0.7,
+      stream: true,
+    });
+
+    const consumed = await consumeStreamedAssistant(streamingResponse, t0);
+
+    if (consumed.kind === 'empty') {
+      console.log(`⏱️ [${elapsed(t0)}] OpenAI stream empty`);
+      yield { type: 'text', text: 'I was unable to process your request.' };
+      return;
+    }
+
+    if (consumed.kind === 'tool_calls') {
+      const toolNames = consumed.message.tool_calls?.map((toolCall) => toolCall.function.name).join(', ') || 'tool';
+      yield { type: 'phase', phase: 'tool', label: `Using ${toolNames}...` };
+      console.log(`⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`, toolNames);
+      await executeAssistantToolCalls(t0, apiMessages, consumed.message, toolResults, dispatchContext);
+
+      const narrative = !isVoiceMode ? overviewNarrativeSource(toolResults) : null;
+      if (narrative) {
+        yield { type: 'phase', phase: 'answering' };
+        for await (const token of streamWeeklyOverviewNarrative(narrative.payload, narrative.title)) {
+          if (token) yield { type: 'text', text: token };
+        }
+        return;
+      }
+      continue;
+    }
+
+    yield { type: 'phase', phase: 'answering' };
+    if (isVoiceMode) {
+      let fullText = consumed.firstText;
+      for await (const token of consumed.rest) fullText += token;
+      yield {
+        type: 'text',
+        text: applyVoiceMode(fullText || 'I was unable to process your request.', toolResults, true),
+      };
+      return;
+    }
+
+    yield* yieldTextTokens(consumed.firstText, consumed.rest);
+    return;
+  }
+
+  yield { type: 'text', text: 'I was unable to process your request.' };
 }

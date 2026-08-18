@@ -59,7 +59,7 @@
       .mark::after { content: ""; position: absolute; inset: 7px; border-radius: 50%; background: var(--ritual-text-primary); }
       .version { margin-left: auto; color: var(--ritual-text-muted); font: 11px/1 var(--ritual-font-mono); }
       .nav-label { margin: 17px 8px 5px; color: var(--ritual-text-muted); font-size: 10px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
-      .nav a { display: flex; align-items: center; height: 30px; padding: 0 9px; border-radius: var(--ritual-radius-row); color: var(--ritual-text-secondary); text-decoration: none; font-size: 13px; }
+      .nav a { display: flex; align-items: center; height: 30px; padding: 0 9px; border-radius: var(--ritual-radius-row); color: var(--ritual-text-secondary); text-decoration: none; font-size: 13px; transition: none; }
       .nav a:hover { color: var(--ritual-text-primary); background: var(--ritual-interactive-hover); }
       .sidebar-note { margin: 22px 8px 0; padding-top: 15px; border-top: 1px solid var(--ritual-border-subtle); color: var(--ritual-text-muted); font-size: 11px; line-height: 1.45; }
 
@@ -69,7 +69,7 @@
         padding: 0 28px; border-bottom: 1px solid var(--ritual-border-subtle);
         background: color-mix(in srgb, var(--ritual-surface-canvas) 84%, transparent); backdrop-filter: blur(18px) saturate(1.1);
       }
-      .theme-button { display: inline-flex; align-items: center; gap: 7px; height: 28px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-row); padding: 0 9px; background: var(--ritual-surface-control); color: var(--ritual-text-secondary); cursor: pointer; font-size: 12px; }
+      .theme-button { display: inline-flex; align-items: center; gap: 7px; height: 28px; border: 1px solid var(--ritual-border-subtle); border-radius: var(--ritual-radius-row); padding: 0 9px; background: var(--ritual-surface-control); color: var(--ritual-text-secondary); cursor: pointer; font-size: 12px; transition: none; }
       .theme-button:hover { background: var(--ritual-surface-control-hover); color: var(--ritual-text-primary); }
       .theme-button svg { width: 14px; height: 14px; }
 
@@ -124,10 +124,10 @@
       .radius-sample { aspect-ratio: 1.35; border: 1px solid var(--ritual-border-default); background: var(--ritual-surface-panel); border-radius: var(--radius); display: grid; place-items: center; color: var(--ritual-text-muted); font: 10px/1 var(--ritual-font-mono); }
 
       .component-stack { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
-      .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--ritual-radius-row); padding: 0 13px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 500; transition: background var(--ritual-duration-fast) var(--ritual-ease-standard), border-color var(--ritual-duration-fast) var(--ritual-ease-standard); }
+      .button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border-radius: var(--ritual-radius-row); padding: 0 13px; border: 1px solid transparent; cursor: pointer; font-size: 13px; font-weight: 500; transition: background var(--ritual-duration-instant) var(--ritual-ease-standard), border-color var(--ritual-duration-instant) var(--ritual-ease-standard); }
       .button.primary { background: var(--ritual-interactive-primary); color: var(--ritual-interactive-primary-foreground); }
       .button.primary:hover { background: color-mix(in srgb, var(--ritual-interactive-primary) 88%, var(--ritual-surface-canvas)); }
-      .button.brand { border-color: var(--ritual-brand-action); background: var(--ritual-brand-action); color: var(--ritual-brand-action-foreground); transition-duration: 200ms; }
+      .button.brand { border-color: var(--ritual-brand-action); background: var(--ritual-brand-action); color: var(--ritual-brand-action-foreground); }
       .button.brand:hover { background: var(--ritual-brand-action-hover); }
       .button.secondary { background: var(--ritual-surface-panel); color: var(--ritual-text-primary); border-color: var(--ritual-border-subtle); }
       .button.secondary:hover, .button.ghost:hover { background: var(--ritual-interactive-hover); }
@@ -171,7 +171,7 @@
       .menu-demo { width: min(100%, 300px); overflow: hidden; border: 1px solid var(--ritual-border-floating); border-radius: var(--ritual-radius-floating); background: var(--ritual-surface-floating); box-shadow: var(--ritual-shadow-popover); }
       .menu-search { height: 42px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--ritual-divider-subtle); color: var(--ritual-text-muted); font-size: 13px; }
       .menu-list { padding: var(--ritual-menu-content-padding); }
-      .menu-row { min-height: var(--ritual-menu-row-height); display: flex; align-items: center; gap: 8px; border-radius: var(--ritual-radius-row); padding: 4px var(--ritual-menu-row-padding-x); color: var(--ritual-text-primary); font-size: 13px; line-height: 1.35; }
+      .menu-row { min-height: var(--ritual-menu-row-height); display: flex; align-items: center; gap: 8px; border-radius: var(--ritual-radius-row); padding: 4px var(--ritual-menu-row-padding-x); color: var(--ritual-text-primary); font-size: 13px; line-height: 1.35; transition: none; }
       .menu-row.active { background: var(--ritual-interactive-hover); }
       .menu-row .muted { color: var(--ritual-text-muted); }
       .menu-row .trailing { margin-left: auto; color: var(--ritual-text-secondary); }
@@ -186,7 +186,7 @@
       .window-body { min-height: 300px; display: grid; grid-template-columns: 170px 1fr; }
       .window-side { padding: 12px 8px; border-right: 1px solid var(--ritual-border-subtle); background: var(--ritual-surface-sidebar); }
       .window-side-label { padding: 3px 8px 7px; color: var(--ritual-text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: .07em; }
-      .window-row { height: 30px; display: flex; align-items: center; gap: 8px; border-radius: var(--ritual-radius-row); padding: 0 8px; color: var(--ritual-text-secondary); font-size: 12px; }
+      .window-row { height: 30px; display: flex; align-items: center; gap: 8px; border-radius: var(--ritual-radius-row); padding: 0 8px; color: var(--ritual-text-secondary); font-size: 12px; transition: none; }
       .window-row.active { background: var(--ritual-interactive-selected); color: var(--ritual-text-primary); }
       .window-row svg { width: 14px; height: 14px; color: var(--ritual-icon-default); }
       .window-content { padding: 26px; }
@@ -246,7 +246,7 @@
         <div class="brand"><span class="mark" aria-hidden="true"></span>Ritual <span class="version">0.1</span></div>
         <nav class="nav" aria-label="Design system sections">
           <div class="nav-label">Foundation</div>
-          <a href="#character">Character</a><a href="#color">Color</a><a href="#typography">Typography</a><a href="#spacing">Spacing &amp; shape</a>
+          <a href="#character">Character</a><a href="#color">Color</a><a href="#typography">Typography</a><a href="#spacing">Spacing &amp; shape</a><a href="#motion">Motion</a>
           <div class="nav-label">System</div>
           <a href="#components">Components</a><a href="#patterns">Desktop pattern</a><a href="#tokens">Agent handoff</a>
         </nav>
@@ -315,6 +315,16 @@
                 <div class="spacing-row"><span>1</span><i class="spacing-bar" style="--space:4px"></i><span>4px</span></div><div class="spacing-row"><span>2</span><i class="spacing-bar" style="--space:8px"></i><span>8px</span></div><div class="spacing-row"><span>3</span><i class="spacing-bar" style="--space:12px"></i><span>12px</span></div><div class="spacing-row"><span>4</span><i class="spacing-bar" style="--space:16px"></i><span>16px</span></div><div class="spacing-row"><span>6</span><i class="spacing-bar" style="--space:24px"></i><span>24px</span></div><div class="spacing-row"><span>8</span><i class="spacing-bar" style="--space:32px"></i><span>32px</span></div><div class="spacing-row"><span>12</span><i class="spacing-bar" style="--space:48px"></i><span>48px</span></div><div class="spacing-row"><span>16</span><i class="spacing-bar" style="--space:64px"></i><span>64px</span></div>
               </div></div>
               <div class="specimen"><p class="specimen-label">Radius scale</p><div class="radius-grid"><div class="radius-sample" style="--radius:0">0</div><div class="radius-sample" style="--radius:4px">4</div><div class="radius-sample" style="--radius:8px">8</div><div class="radius-sample" style="--radius:12px">12</div><div class="radius-sample" style="--radius:14px">14</div><div class="radius-sample" style="--radius:18px">18</div></div><p class="section-description" style="margin-top:18px">Rows and controls use 8px; cards 12px; floating menus 14px; dialogs 18px.</p></div>
+            </div>
+          </section>
+
+          <section id="motion">
+            <div class="section-head"><h2>Motion</h2><p class="section-description">Hover and selection fills change on the same frame. Timed motion is reserved for spatial state changes such as expand, collapse, progress, and entrance.</p></div>
+            <div class="grid four">
+              <article class="specimen"><p class="specimen-label">instant / 0ms</p><h3>Hover &amp; selection</h3><p class="section-description">Row fills, nav highlight, and button background/border use <code>--ritual-duration-instant</code>. Do not animate routine hover or table selection.</p></article>
+              <article class="specimen"><p class="specimen-label">fast / 100ms</p><h3>Spatial feedback</h3><p class="section-description">Use <code>--ritual-duration-fast</code> for small expand/collapse and pointer-driven spatial changes.</p></article>
+              <article class="specimen"><p class="specimen-label">normal / 160ms</p><h3>State change</h3><p class="section-description">Use <code>--ritual-duration-normal</code> for panel open/close and other layout-affecting transitions.</p></article>
+              <article class="specimen"><p class="specimen-label">slow / 240ms</p><h3>Entrance</h3><p class="section-description">Cap deliberate entrance/exit at <code>--ritual-duration-slow</code>. Respect <code>prefers-reduced-motion</code>.</p></article>
             </div>
           </section>
 

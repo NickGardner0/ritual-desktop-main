@@ -19,6 +19,10 @@ export function getOpenAIClient(): OpenAI {
   return _openaiClient;
 }
 
+export function setOpenAIClientForTests(client: OpenAI | null): void {
+  _openaiClient = client;
+}
+
 export function buildCanvasToolPayload(toolResults: ChatToolResults): Record<string, unknown> | null {
   const payload: Record<string, unknown> = {
     stats: toolResults.stats,
@@ -114,16 +118,85 @@ export type PreparedChatTurn = {
   deferredConversationIdPromise: Promise<string | null> | undefined;
   isVoiceMode: boolean;
   latestUserContent: string;
-  fullSystemPrompt: string;
+  baseSystemPrompt: string;
+  factsPromise: Promise<Array<Record<string, unknown>>>;
 };
 
-export async function prepareChatTurnContext(
+const FACTS_CACHE_TTL_MS = 60_000;
+const FACTS_TIMEOUT_MS = 1_200;
+
+type FactsCacheEntry = {
+  facts?: Array<Record<string, unknown>>;
+  promise?: Promise<Array<Record<string, unknown>>>;
+  expiresAt: number;
+};
+
+const promptFactsCache = new Map<string, FactsCacheEntry>();
+
+export function startPromptFactsFetch(token: string): Promise<Array<Record<string, unknown>>> {
+  const cached = promptFactsCache.get(token);
+  if (cached?.facts && cached.expiresAt > Date.now()) {
+    return Promise.resolve(cached.facts);
+  }
+  if (cached?.promise && cached.expiresAt > Date.now()) {
+    return cached.promise;
+  }
+
+  const promise = getPromptFacts(token)
+    .then((facts) => {
+      promptFactsCache.set(token, {
+        facts,
+        expiresAt: Date.now() + FACTS_CACHE_TTL_MS,
+      });
+      return facts;
+    })
+    .catch((error) => {
+      console.error('❌ Error loading prompt facts:', error);
+      promptFactsCache.delete(token);
+      return [] as Array<Record<string, unknown>>;
+    });
+
+  promptFactsCache.set(token, {
+    promise,
+    expiresAt: Date.now() + FACTS_CACHE_TTL_MS,
+  });
+  return promise;
+}
+
+export async function awaitPromptFacts(
+  factsPromise: Promise<Array<Record<string, unknown>>>,
+  timeoutMs = FACTS_TIMEOUT_MS,
+): Promise<Array<Record<string, unknown>>> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<Array<Record<string, unknown>>>((resolve) => {
+    timeoutId = setTimeout(() => resolve([]), timeoutMs);
+  });
+  try {
+    return await Promise.race([factsPromise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+export function composeSystemPrompt(
+  baseSystemPrompt: string,
+  promptFacts: Array<Record<string, unknown>>,
+): string {
+  const factPromptBlock = promptFacts.length > 0
+    ? `\n\n[APPROVED USER FACTS]\n${promptFacts
+      .map((fact) => `- ${String(fact.predicate || 'fact')}: ${JSON.stringify(fact.value || {})}`)
+      .join('\n')}`
+    : '';
+  return `${baseSystemPrompt}${factPromptBlock}`;
+}
+
+export function prepareChatTurnContext(
   token: string,
   messages: Array<{ role: string; content: string }>,
   timezone: string | undefined,
   providedConversationId: string | null | undefined,
   responseMode: 'text' | 'voice',
-): Promise<PreparedChatTurn> {
+): PreparedChatTurn {
   const conversationIdPromise: Promise<string | null> = providedConversationId
     ? Promise.resolve(providedConversationId)
     : createConversation(token);
@@ -147,7 +220,7 @@ export async function prepareChatTurnContext(
   const month = now.getMonth() + 1;
   const day = now.getDate();
   const today = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-  const promptFacts = await getPromptFacts(token);
+  const factsPromise = startPromptFactsFetch(token);
   const factSuggestions = deriveFactSuggestionsFromMessage(latestUserMessage?.content || '');
   if (factSuggestions.length > 0) void createFactSuggestions(token, factSuggestions);
 
@@ -157,11 +230,6 @@ export async function prepareChatTurnContext(
     currentYear: year,
     isVoiceMode,
   });
-  const factPromptBlock = promptFacts.length > 0
-    ? `\n\n[APPROVED USER FACTS]\n${promptFacts
-      .map((fact) => `- ${String(fact.predicate || 'fact')}: ${JSON.stringify(fact.value || {})}`)
-      .join('\n')}`
-    : '';
 
   return {
     conversationIdPromise,
@@ -169,7 +237,8 @@ export async function prepareChatTurnContext(
     deferredConversationIdPromise,
     isVoiceMode,
     latestUserContent: latestUserMessage?.content || '',
-    fullSystemPrompt: `${baseSystemPrompt}${factPromptBlock}`,
+    baseSystemPrompt,
+    factsPromise,
   };
 }
 

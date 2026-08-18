@@ -39,7 +39,45 @@ export interface RealTokenSource {
   tokens: AsyncIterable<string>;
 }
 
-export type StreamSource = CompleteTextSource | RealTokenSource;
+export type ChatStreamPhase = 'context' | 'searching' | 'tool' | 'answering';
+
+export type ChatStreamEvent =
+  | { type: 'phase'; phase: ChatStreamPhase; label?: string }
+  | { type: 'text'; text: string };
+
+/** Mixed phase + token stream so the HTTP body can open before model work finishes. */
+export interface EventStreamSource {
+  type: 'events';
+  events: AsyncIterable<ChatStreamEvent>;
+}
+
+export type StreamSource = CompleteTextSource | RealTokenSource | EventStreamSource;
+
+export function formatPhaseLine(phase: ChatStreamPhase, label?: string | null): string {
+  return `__PHASE__${JSON.stringify({ phase, label: label ?? null })}__END_PHASE__`;
+}
+
+export function parsePhaseLine(line: string): { phase: ChatStreamPhase; label: string | null } | null {
+  const match = line.match(/__PHASE__(.+?)__END_PHASE__/);
+  if (!match) return null;
+  try {
+    const parsed = JSON.parse(match[1]) as { phase?: unknown; label?: unknown };
+    if (
+      parsed?.phase === 'context'
+      || parsed?.phase === 'searching'
+      || parsed?.phase === 'tool'
+      || parsed?.phase === 'answering'
+    ) {
+      return {
+        phase: parsed.phase,
+        label: typeof parsed.label === 'string' ? parsed.label : null,
+      };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Options for creating a chat stream response
@@ -74,6 +112,8 @@ export interface ChatStreamResponseOptions {
  *
  * Wire format (line-based, newline-delimited):
  *   __CONVERSATION_ID__<id>__END_CONVERSATION_ID__   (first line, optional)
+ *   __STREAM_OPEN__                                   (optional flush preface)
+ *   __PHASE__{"phase":"context"}__END_PHASE__         (optional progress)
  *   0:"text chunk"                                    (JSON-encoded text deltas)
  *   __TOOL_DATA__<json>__END_TOOL_DATA__              (last line, optional)
  */
@@ -135,6 +175,17 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
           const chunk = (i === 0 ? '' : ' ') + chunkWords.join(' ');
           controller.enqueue(encoder.encode(`0:${JSON.stringify(chunk)}\n`));
           await new Promise((resolve) => setTimeout(resolve, FAKE_STREAM_DELAY_MS));
+        }
+      } else if (options.source.type === 'events') {
+        fullText = '';
+        for await (const event of options.source.events) {
+          if (event.type === 'phase') {
+            enqueueLine(formatPhaseLine(event.phase, event.label));
+            continue;
+          }
+          if (!event.text) continue;
+          fullText += event.text;
+          enqueueLine(`0:${JSON.stringify(event.text)}`);
         }
       } else {
         // Real-stream: forward tokens from an async iterable as they arrive

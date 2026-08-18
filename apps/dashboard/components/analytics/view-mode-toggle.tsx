@@ -49,7 +49,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
           aria-controls={`${tab.value}-panel`}
           onClick={() => onViewChange(tab.value)}
           className={cn(
-            "h-6 rounded-sm px-3 text-[12.5px] transition-all duration-200",
+            "h-6 rounded-sm px-3 text-[12.5px] transition-none",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1",
             currentView === tab.value
               ? "bg-white text-[#27251E] font-medium shadow-[0_1px_3px_rgba(15,23,42,0.08)]"

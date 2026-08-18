@@ -78,6 +78,16 @@ body[data-voice-hud-window="1"] {
   transition: none !important;
 }
 
+.ritual-nav-row-surface,
+.sidebar-nav-row,
+table tbody tr,
+[role="menuitem"],
+[role="option"],
+[role="tab"],
+[role="row"] {
+  transition-duration: 0ms !important;
+}
+
 .ritual-snappy-row:hover,
 .ritual-snappy-row:focus-visible,
 .ritual-snappy-row[data-highlighted],

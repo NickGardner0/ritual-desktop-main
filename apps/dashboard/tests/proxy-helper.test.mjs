@@ -250,3 +250,25 @@ describe("Backend proxy routing compatibility", () => {
     );
   });
 });
+
+describe("Proxied success responses", () => {
+  test("pipe upstream bodies without a JSON clone", async () => {
+    const { createProxiedSuccessInit } = await import("../lib/server/proxy-response.mjs");
+    const payload = { habits: [{ id: "h1" }], count: 1 };
+    const body = JSON.stringify(payload);
+    const upstream = new Response(body, {
+      status: 200,
+      headers: {
+        "content-type": "application/json; charset=utf-8",
+        "server-timing": "app;dur=12",
+      },
+    });
+    const init = createProxiedSuccessInit(upstream);
+    const proxied = new Response(init.body, init);
+    assert.equal(proxied.status, 200);
+    assert.equal(proxied.headers.get("cache-control"), "no-store, max-age=0");
+    assert.match(proxied.headers.get("content-type") || "", /application\/json/);
+    assert.equal(proxied.headers.get("server-timing"), "app;dur=12");
+    assert.deepEqual(await proxied.json(), payload);
+  });
+});

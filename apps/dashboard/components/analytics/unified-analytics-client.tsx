@@ -35,6 +35,8 @@ import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query'
 import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
 import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
+import { DateRangePicker } from '@/components/date-range-picker';
+import { OverviewView } from './overview-view';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 // Import from separate file to avoid pulling in recharts (~500KB)
@@ -81,18 +83,8 @@ async function playHabitSuccessSound() {
   }
 }
 
-// Dynamic imports with ssr:false — Turbopack skips these modules during
-// server-side compilation, cutting the initial /dashboard compile from ~70s.
-const DateRangePicker = dynamic(
-  () => import('@/components/date-range-picker').then(m => ({ default: m.DateRangePicker })),
-  { loading: () => <ControlLoadingFallback /> }
-);
-
-const OverviewView = dynamic(
-  () => import('./overview-view').then(m => ({ default: m.OverviewView })),
-  { loading: () => <ViewLoadingFallback /> }
-);
-
+// Keep heavy views lazy. Overview and the titlebar date picker load with the page
+// so the default dashboard does not hit a post-navigation Loading... boundary.
 const MetricsView = dynamic(
   () => import('./metrics-view').then(m => ({ default: m.MetricsView })),
   { loading: () => <ViewLoadingFallback /> }
@@ -120,10 +112,6 @@ function ViewLoadingFallback() {
       <div className="animate-pulse text-gray-400">Loading...</div>
     </div>
   );
-}
-// Compact loading fallback for controls
-function ControlLoadingFallback() {
-  return <div className="h-8 w-28 bg-gray-100 animate-pulse" />;
 }
 
 // Inner component that uses the filter context
@@ -451,7 +439,7 @@ function UnifiedAnalyticsContent({
 
       {/* Content Area with smooth view switching */}
       <div className="relative h-full min-h-0 pt-1">
-        {/* Overview View - Lazy loaded */}
+        {/* Overview View */}
         <div 
           role="tabpanel"
           id="overview-panel"

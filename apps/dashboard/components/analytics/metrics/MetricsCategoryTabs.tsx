@@ -20,7 +20,7 @@ export function MetricsCategoryTabs({ activeCategoryTab, onTabChange }: MetricsC
               onClick={() => {
                 onTabChange(tab.id === 'all' ? null : (isActive ? null : tab.id));
               }}
-              className={`relative px-3.5 py-2 text-[13px] font-medium tracking-[-0.1px] transition-all duration-200 ${
+              className={`relative px-3.5 py-2 text-[13px] font-medium tracking-[-0.1px] ${
                 isActive
                   ? 'text-[#27251E]'
                   : 'text-[rgba(39,37,30,0.4)] hover:text-[rgba(39,37,30,0.7)]'
@@ -28,7 +28,7 @@ export function MetricsCategoryTabs({ activeCategoryTab, onTabChange }: MetricsC
             >
               {tab.label}
               <span
-                className={`absolute bottom-0 left-3 right-3 h-[1.5px] rounded-full transition-all duration-200 ${
+                className={`absolute bottom-0 left-3 right-3 h-[1.5px] rounded-full ${
                   isActive ? 'bg-[#27251E] opacity-100' : 'bg-transparent opacity-0'
                 }`}
               />

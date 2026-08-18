@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
+import { createProxiedSuccessResponse } from "@/lib/server/proxy-response";
 
 const FORCE_FRESH_COOKIE = "ritual_force_fresh_until";
 const FORCE_FRESH_WINDOW_MS = 10_000;
@@ -98,26 +99,9 @@ export async function forwardProxyRequest(
       );
     }
 
-    const data = await response.json();
+    const nextResponse = createProxiedSuccessResponse(response);
     console.info(`[Ritual][${tag}-proxy] success`, {
       duration_ms: Date.now() - startedAt,
-      count: Array.isArray(data) ? data.length : undefined,
-    });
-    const responseHeaders = new Headers({
-      "Cache-Control": "no-store, max-age=0",
-    });
-    for (const headerName of [
-      "server-timing",
-      "x-ritual-bootstrap-duration-ms",
-      "x-ritual-bootstrap-mode",
-    ]) {
-      const headerValue = response.headers.get(headerName);
-      if (headerValue) {
-        responseHeaders.set(headerName, headerValue);
-      }
-    }
-    const nextResponse = NextResponse.json(data, {
-      headers: responseHeaders,
     });
     if (shouldSetForceFreshCookie(method, backendPath)) {
       nextResponse.cookies.set(FORCE_FRESH_COOKIE, String(Date.now() + FORCE_FRESH_WINDOW_MS), {

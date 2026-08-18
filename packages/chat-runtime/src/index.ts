@@ -21,3 +21,9 @@ export * from './chat-turn-engine.js';
 export { tools } from './tools.js';
 export * from './tool-registry.js';
 export * from './weekly-overview-utils.js';
+export {
+  createChatStreamResponse,
+  formatPhaseLine,
+  parsePhaseLine,
+} from './stream-response.js';
+export { setOpenAIClientForTests } from './chat-stream/shared.js';

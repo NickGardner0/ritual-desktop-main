@@ -24,6 +24,8 @@ import {
 } from './chat-stream-buffer';
 import type { Message } from './chat-client.shared';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
+import { perfInfo } from '@/lib/perf-debug';
+import { parsePhaseLine, labelForChatPhase } from './chat-stream-protocol';
 import { canonicalEntityType, parseEntityMentionTokens } from '@ritual/shared-contracts';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
@@ -97,6 +99,9 @@ export function useChatSendMessage({
     setStreamingContent('');
     setCurrentQuestion(text);
     setToolStatus({ label: getToolLabel(text), done: false });
+    const clickAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    perfInfo('chat', 'send_click');
+    const tokenPromise = getToken();
     
     const tokenRefs = parseEntityMentionTokens(text).map((ref) => ({ type: ref.type, id: ref.id }));
     const attachedRefs = [...tokenRefs, ...(options?.entityRefs || [])].filter((ref) => {
@@ -120,51 +125,46 @@ export function useChatSendMessage({
     let localOverviewActivity: LocalOverviewActivityBundle[] | null = null;
 
     if (isDesktop && userId && overviewRangeKeys.length > 0) {
-      const resolvedOverviewBundles = await Promise.all(
-        overviewRangeKeys.map(async (rangeKey) => {
-          const queryKey = overviewActivityKeys.detail(userId, timezone, rangeKey);
-          const cached = queryClient.getQueryData<LocalOverviewActivityBundle | null>(queryKey);
+      const cachedBundles: LocalOverviewActivityBundle[] = [];
 
-          if (hasMeaningfulOverviewActivity(cached)) {
-            return cached;
-          }
+      for (const rangeKey of overviewRangeKeys) {
+        const queryKey = overviewActivityKeys.detail(userId, timezone, rangeKey);
+        const cached = queryClient.getQueryData<LocalOverviewActivityBundle | null>(queryKey);
 
-          try {
-            return await queryClient.fetchQuery({
-              queryKey,
-              queryFn: () => getOverviewActivityBundle(rangeKey, timezone),
-              staleTime: 1000 * 60 * 5,
-            });
-          } catch (error) {
-            console.warn('Failed to resolve overview activity bundle for chat request', {
-              rangeKey,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            return null;
-          }
-        }),
-      );
+        if (hasMeaningfulOverviewActivity(cached)) {
+          cachedBundles.push(cached);
+          continue;
+        }
 
-      const meaningfulOverviewBundles = resolvedOverviewBundles.filter(
-        (bundle): bundle is LocalOverviewActivityBundle => hasMeaningfulOverviewActivity(bundle),
-      );
+        void queryClient.fetchQuery({
+          queryKey,
+          queryFn: () => getOverviewActivityBundle(rangeKey, timezone),
+          staleTime: 1000 * 60 * 5,
+        }).catch((error) => {
+          console.warn('Failed to prefetch overview activity bundle for chat request', {
+            rangeKey,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
 
-      localOverviewActivity = meaningfulOverviewBundles.length > 0
-        ? meaningfulOverviewBundles
-        : null;
+      localOverviewActivity = cachedBundles.length > 0 ? cachedBundles : null;
     }
     
     let cancelStreamingFlushTimer: (() => void) | null = null;
 
     try {
-      const token = await getToken();
+      const token = await tokenPromise;
       if (shouldPreflightLocationForChat(text)) {
-        await submitCurrentLocationPing({
+        void submitCurrentLocationPing({
           authToken: token,
           reason: 'chat_stream_preflight',
         });
       }
-      
+
+      perfInfo('chat', 'request_start', {
+        duration_ms: Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - clickAt).toFixed(2)),
+      });
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
         headers: {
@@ -184,6 +184,11 @@ export function useChatSendMessage({
       
       if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
       if (!response.body) throw new Error('No response body');
+
+      const durationFromClick = () => Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - clickAt).toFixed(2));
+      let sawFirstByte = false;
+      let sawFirstPhase = false;
+      let sawFirstText = false;
       
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -264,6 +269,27 @@ export function useChatSendMessage({
           return;
         }
 
+        if (line === '__STREAM_OPEN__') {
+          return;
+        }
+
+        const phaseEvent = parsePhaseLine(line);
+        if (phaseEvent) {
+          if (!sawFirstPhase) {
+            sawFirstPhase = true;
+            perfInfo('chat', 'first_phase', { duration_ms: durationFromClick(), phase: phaseEvent.phase });
+          }
+          if (phaseEvent.phase === 'answering') {
+            setToolStatus((prev) => prev ? { ...prev, done: true } : { label: labelForChatPhase(phaseEvent.phase, phaseEvent.label), done: true });
+          } else {
+            setToolStatus({
+              label: labelForChatPhase(phaseEvent.phase, phaseEvent.label),
+              done: false,
+            });
+          }
+          return;
+        }
+
         // Check for tool data
         if (line.includes('__TOOL_DATA__')) {
           const match = line.match(/__TOOL_DATA__(.+?)__END_TOOL_DATA__/);
@@ -279,6 +305,10 @@ export function useChatSendMessage({
         }
 
         if (line.startsWith('0:')) {
+          if (!sawFirstText) {
+            sawFirstText = true;
+            perfInfo('chat', 'first_text', { duration_ms: durationFromClick() });
+          }
           if (!toolMarkedDone) {
             toolMarkedDone = true;
             setToolStatus((prev) => prev ? { ...prev, done: true } : null);
@@ -307,6 +337,10 @@ export function useChatSendMessage({
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (!sawFirstByte) {
+          sawFirstByte = true;
+          perfInfo('chat', 'first_byte', { duration_ms: durationFromClick() });
+        }
 
         streamBuffer += decoder.decode(value, { stream: true });
         const lines = streamBuffer.split('\n');
@@ -325,6 +359,7 @@ export function useChatSendMessage({
       }
 
       flushStreamingContent(true);
+      perfInfo('chat', 'stream_complete', { duration_ms: durationFromClick() });
       
       // Build canvas data - prefer tool data, then optional text extraction fallback.
       let extractedCanvas = buildCanvasFromToolData(toolData, text);

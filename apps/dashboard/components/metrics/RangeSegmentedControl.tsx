@@ -41,7 +41,7 @@ export function RangeSegmentedControl({
             aria-selected={selected}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              'h-[25px] min-w-[32px] shrink-0 whitespace-nowrap rounded-md px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] transition-all duration-150 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset',
+              'h-[25px] min-w-[32px] shrink-0 whitespace-nowrap rounded-md px-2 text-[11.5px] font-medium leading-[16px] tracking-[-0.4px] ritual-snappy-row focus-visible:z-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400 focus-visible:ring-inset',
               selected
                 ? 'bg-[rgba(39,37,30,0.06)] text-[#27251E]'
                 : 'text-[rgba(39,37,30,0.5)] hover:bg-[rgba(39,37,30,0.02)] hover:text-[#27251E]'

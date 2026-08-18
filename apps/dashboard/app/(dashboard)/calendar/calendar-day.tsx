@@ -96,7 +96,7 @@ export const CalendarDay = memo(function CalendarDay({
       onMouseUp={handleMouseUp}
       onDoubleClick={() => onDayBlockEditorOpen?.(date)}
       className={cn(
-        'group aspect-square md:aspect-[4/2.25] pt-2 pb-2 px-3 text-lg relative transition-all duration-100 text-left flex space-x-2 select-none cursor-pointer bg-background overflow-hidden',
+        'group aspect-square md:aspect-[4/2.25] pt-2 pb-2 px-3 text-lg relative ritual-snappy-row text-left flex space-x-2 select-none cursor-pointer bg-background overflow-hidden',
         // Today styling - subtle gray background
         isCurrentMonth && isDayToday && 'bg-[#f5f5f5] dark:bg-[#1a1a1a]',
         // Non-current month - just muted text, no pattern

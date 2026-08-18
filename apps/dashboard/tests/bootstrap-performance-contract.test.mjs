@@ -6,6 +6,7 @@ const callbackSourceUrl = new URL('../app/auth/sso-callback/page.tsx', import.me
 const dashboardLayoutSourceUrl = new URL('../app/(dashboard)/layout.tsx', import.meta.url)
 const onboardingSourceUrl = new URL('../app/onboarding/page.tsx', import.meta.url)
 const proxySourceUrl = new URL('../lib/server/proxy-helper.ts', import.meta.url)
+const proxyResponseSourceUrl = new URL('../lib/server/proxy-response.mjs', import.meta.url)
 const railwayConfigUrl = new URL('../../backend/railway.json', import.meta.url)
 
 test('account callback performs one bootstrap request without automatic retries', async () => {
@@ -26,8 +27,11 @@ test('callback hands bootstrap routing state to onboarding instead of refetching
 })
 
 test('backend timing headers are forwarded to the browser', async () => {
-  const source = await readFile(proxySourceUrl, 'utf8')
+  const proxySource = await readFile(proxySourceUrl, 'utf8')
+  const proxyResponseSource = await readFile(proxyResponseSourceUrl, 'utf8')
+  const source = `${proxySource}\n${proxyResponseSource}`
 
+  assert.match(source, /createProxiedSuccessResponse/)
   assert.match(source, /server-timing/)
   assert.match(source, /x-ritual-bootstrap-duration-ms/)
   assert.match(source, /x-ritual-bootstrap-mode/)

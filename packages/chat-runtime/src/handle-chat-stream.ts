@@ -1,22 +1,19 @@
 import type OpenAI from 'openai';
-import { toolSchemas } from './tool-registry.js';
 import { createChatStreamResponse } from './stream-response.js';
+import type { ChatStreamEvent } from './stream-response.js';
 import type { ChatToolResults } from './types.js';
 import { classifyChatRoute } from './chat-stream/classifier-router.js';
+import { handleDeterministicFastPath } from './chat-stream/narrative-router.js';
 import {
-  applyVoiceMode,
-  handleDeterministicFastPath,
-  resolveFinalStreamSource,
-} from './chat-stream/narrative-router.js';
-import {
+  awaitPromptFacts,
   buildCanvasToolPayload,
+  composeSystemPrompt,
   elapsed,
-  getOpenAIClient,
   persistAssistantMessage,
   prepareChatTurnContext,
 } from './chat-stream/shared.js';
 import { persistConversationMentions } from './persistence.js';
-import { mergeDailyBreakdowns, runToolLoop } from './chat-stream/tool-dispatch.js';
+import { mergeDailyBreakdowns, runStreamingToolLoop } from './chat-stream/tool-dispatch.js';
 
 export type ChatStreamRequestBody = {
   messages: Array<{ role: string; content: string }>;
@@ -51,14 +48,15 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       localOverviewActivity,
       entityRefs,
     } = body;
-    const prepared = await prepareChatTurnContext(token, messages, timezone, providedConversationId, responseMode);
+    const prepared = prepareChatTurnContext(token, messages, timezone, providedConversationId, responseMode);
     const {
       conversationIdPromise,
       immediateConversationId,
       deferredConversationIdPromise,
       isVoiceMode,
       latestUserContent,
-      fullSystemPrompt,
+      baseSystemPrompt,
+      factsPromise,
     } = prepared;
     const attachedRefs = Array.isArray(entityRefs)
       ? entityRefs.filter((ref) => ref && typeof ref.type === 'string' && typeof ref.id === 'string')
@@ -89,74 +87,80 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       });
     }
 
-    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: fullSystemPrompt },
-      ...(attachedRefs.length
-        ? [{
-            role: 'system' as const,
-            content: `The user attached object references as EntityRef values. Use these identities rather than guessing titles:\n${JSON.stringify(attachedRefs)}`,
-          }]
-        : []),
-      ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    ];
-
-    const response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: apiMessages,
-      tools: toolSchemas,
-      tool_choice: route.forcedToolName
-        ? { type: 'function', function: { name: route.forcedToolName } }
-        : 'auto',
-      temperature: 0.3,
-    });
-
     const toolResults: ChatToolResults = { allStats: [], allBreakdowns: [] };
-    const { assistantMessage, streamedSynthesisTokens } = await runToolLoop(
-      t0,
-      apiMessages,
-      response.choices[0].message,
-      toolResults,
-      {
-        token,
-        timezone,
-        localOverviewActivity,
-        latestUserContent,
-        weeklyOverviewQueryParams: route.weeklyOverviewQueryParams,
-        strictThisWeekForWeeklyOverview: route.strictThisWeekForWeeklyOverview,
-        conversationId: immediateConversationId,
-        conversationIdPromise,
-      },
-      isVoiceMode,
-    );
-
-    let finalText = streamedSynthesisTokens ? '' : (assistantMessage.content || 'I was unable to process your request.');
-    finalText = applyVoiceMode(finalText, toolResults, isVoiceMode);
-    mergeDailyBreakdowns(toolResults);
-
-    const canvasToolPayload = buildCanvasToolPayload(toolResults);
-    const streamSource = resolveFinalStreamSource(t0, isVoiceMode, toolResults, streamedSynthesisTokens, finalText);
-
-    if (streamSource.type === 'complete') {
-      persistAssistantMessage(conversationIdPromise, token, streamSource.text, canvasToolPayload);
-    }
-
-    persistConversationMentions({
-      token,
-      conversationIdPromise,
-      userContent: latestUserContent,
-      attachedRefs,
-      assistantRefs: toolResults.entityRefs,
+    let resolveCanvas: (payload: Record<string, unknown> | null) => void = () => {};
+    const canvasToolPayloadPromise = new Promise<Record<string, unknown> | null>((resolve) => {
+      resolveCanvas = resolve;
     });
+
+    console.log(`⏱️ [${elapsed(t0)}] response_open`);
+
+    async function* streamTurnEvents(): AsyncGenerator<ChatStreamEvent> {
+      try {
+        yield { type: 'phase', phase: 'context' };
+        const facts = await awaitPromptFacts(factsPromise);
+        console.log(`⏱️ [${elapsed(t0)}] facts_ready count=${facts.length}`);
+        const fullSystemPrompt = composeSystemPrompt(baseSystemPrompt, facts);
+        const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+          { role: 'system', content: fullSystemPrompt },
+          ...(attachedRefs.length
+            ? [{
+                role: 'system' as const,
+                content: `The user attached object references as EntityRef values. Use these identities rather than guessing titles:\n${JSON.stringify(attachedRefs)}`,
+              }]
+            : []),
+          ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        ];
+
+        yield* runStreamingToolLoop({
+          t0,
+          apiMessages,
+          toolResults,
+          dispatchContext: {
+            token,
+            timezone,
+            localOverviewActivity,
+            latestUserContent,
+            weeklyOverviewQueryParams: route.weeklyOverviewQueryParams,
+            strictThisWeekForWeeklyOverview: route.strictThisWeekForWeeklyOverview,
+            conversationId: immediateConversationId,
+            conversationIdPromise,
+          },
+          isVoiceMode,
+          initialToolChoice: route.forcedToolName
+            ? { type: 'function', function: { name: route.forcedToolName } }
+            : 'auto',
+        });
+
+        mergeDailyBreakdowns(toolResults);
+        resolveCanvas(buildCanvasToolPayload(toolResults));
+        persistConversationMentions({
+          token,
+          conversationIdPromise,
+          userContent: latestUserContent,
+          attachedRefs,
+          assistantRefs: toolResults.entityRefs,
+        });
+      } catch (error) {
+        console.error('Chat API stream error:', error);
+        resolveCanvas(null);
+        yield { type: 'text', text: 'Sorry, there was an error processing your request. Please try again.' };
+      }
+    }
 
     return createChatStreamResponse({
       conversationId: immediateConversationId,
       conversationIdPromise: deferredConversationIdPromise,
-      source: streamSource,
-      canvasToolPayload,
-      prefaceLine: streamSource.type === 'stream' ? '__STREAM_OPEN__' : undefined,
-      onComplete: streamSource.type === 'stream'
-        ? (fullText) => persistAssistantMessage(conversationIdPromise, token, fullText, canvasToolPayload)
-        : undefined,
+      source: {
+        type: 'events',
+        events: streamTurnEvents(),
+      },
+      canvasToolPayload: null,
+      canvasToolPayloadPromise,
+      prefaceLine: '__STREAM_OPEN__',
+      onComplete: (fullText, canvasToolPayload) => {
+        persistAssistantMessage(conversationIdPromise, token, fullText, canvasToolPayload);
+      },
     });
   } catch (error) {
     console.error('Chat API error:', error);

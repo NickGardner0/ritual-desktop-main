@@ -144,7 +144,7 @@ export function ExpandedMetricCard({
               onClick={onClose}
               aria-label={closeLabel}
               data-export-close
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[rgba(39,37,30,0.3)] transition-all duration-150 hover:bg-gray-50 hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[rgba(39,37,30,0.3)] ritual-snappy-row hover:bg-gray-50 hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-400"
             >
               <X className="h-4 w-4" />
             </button>

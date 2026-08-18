@@ -163,7 +163,7 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                       <button
                         onClick={() => switchConversation(conv.id)}
                         className={cn(
-                          "flex-1 min-w-0 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-[1.25rem] transition-colors",
+                          "flex-1 min-w-0 rounded-md px-2.5 py-1.5 text-left text-[13px] leading-[1.25rem] ritual-snappy-row",
                           conv.id === conversationId
                             ? "bg-white text-[#232119] shadow-[0_0_0_1px_rgba(15,23,42,0.03)]"
                             : "text-[#605b51] hover:bg-[#e5e5e5] hover:text-[#2f2c25]"
@@ -177,7 +177,7 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                           e.stopPropagation();
                           deleteConversation(conv.id);
                         }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 transition-all group-hover:opacity-100 hover:bg-[#e5e5e5] hover:text-gray-600"
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-[#e5e5e5] hover:text-gray-600"
                         title="Delete conversation"
                         aria-label="Delete conversation"
                       >
@@ -335,7 +335,7 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                         onClick={startVoiceRecognition}
                         disabled={isLoading}
                         className={cn(
-                          "w-8 h-8 flex items-center justify-center transition-all duration-200",
+                          "w-8 h-8 flex items-center justify-center",
                           isListening || isProcessingVoice
                             ? "text-gray-900"
                             : "text-gray-400 hover:text-gray-600",
