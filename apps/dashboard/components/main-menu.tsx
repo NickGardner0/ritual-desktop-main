@@ -5,75 +5,11 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  FlaskConical,
-  Plug2,
-  ChevronDown,
-  Repeat2,
-  TableProperties,
-  CalendarDays,
-  ChartNoAxesCombined,
-} from "lucide-react";
-import TocIcon from "@mui/icons-material/Toc";
+import { ChevronDown } from "lucide-react";
 import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
 import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
 import { listExperiments } from "@/lib/experiments";
-
-// Custom "I" letter icon component for Index
-const ILetterIcon = ({ strokeWidth = 2.1, ...props }: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    strokeWidth={strokeWidth}
-    stroke="currentColor"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    {...props}
-  >
-    <path
-      d="M9 6h6M12 6v12M9 18h6"
-      stroke="currentColor"
-      strokeWidth={strokeWidth}
-      strokeLinecap="round"
-      fill="none"
-    />
-  </svg>
-);
-
-const MiddayInvoiceIcon = ({
-  strokeWidth: _strokeWidth,
-  ...props
-}: React.SVGProps<SVGSVGElement>) => (
-  <svg
-    viewBox="0 0 20 20"
-    fill="currentColor"
-    stroke="currentColor"
-    strokeWidth={0.25}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-    {...props}
-  >
-    <g transform="translate(10 10) scale(1.16) translate(-10 -10)">
-      <path d="M6.875 14.7916H13.125V13.5416H6.875V14.7916ZM6.875 11.4583H13.125V10.2083H6.875V11.4583ZM3.75 17.9166V2.08331H11.875L16.25 6.45831V17.9166H3.75ZM11.25 7.08331V3.33331H5V16.6666H15V7.08331H11.25Z" />
-    </g>
-  </svg>
-);
-
-const icons = {
-  "/dashboard": (props: React.SVGProps<SVGSVGElement>) => <ILetterIcon {...props} />,
-  "/dashboard?view=metrics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
-  "/tasks": (props: React.SVGProps<SVGSVGElement>) => <TocIcon className={props.className} />,
-  "/activity": (props: React.SVGProps<SVGSVGElement>) => <TableProperties {...props} />,
-  "/calendar": (props: React.SVGProps<SVGSVGElement>) => <CalendarDays {...props} />,
-  "/reports": (props: React.SVGProps<SVGSVGElement>) => <MiddayInvoiceIcon {...props} />,
-  "/routines": (props: React.SVGProps<SVGSVGElement>) => <Repeat2 {...props} />,
-  "/analytics": (props: React.SVGProps<SVGSVGElement>) => <ChartNoAxesCombined {...props} />,
-  "/experiments": (props: React.SVGProps<SVGSVGElement>) => <FlaskConical {...props} />,
-  "/integrations": (props: React.SVGProps<SVGSVGElement>) => <Plug2 {...props} />,
-} as const;
+import { SIDEBAR_ICONS } from "@/components/sidebar-icons";
 
 const items = [
   {
@@ -201,7 +137,7 @@ const Item = ({
   onToggle,
   onSelect,
 }: ItemProps) => {
-  const Icon = icons[item.path as keyof typeof icons];
+  const Icon = SIDEBAR_ICONS[item.path as keyof typeof SIDEBAR_ICONS];
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const hasChildren = item.children && item.children.length > 0;

@@ -11,6 +11,7 @@ import { PanelLeft } from "lucide-react";
 import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
 import { SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 import { DesktopUpdateControl } from '@/components/desktop-update-control';
+import { CreateMenu } from '@/components/create-menu';
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 240;
@@ -142,7 +143,7 @@ export function Sidebar() {
         </ToolbarButton>
       </div>
       {isExpanded ? (
-        <div className="no-drag absolute right-[6px] top-[2px] z-20 flex items-center gap-0.5">
+        <div className="no-drag absolute left-[113px] top-[2px] z-20 flex items-center gap-0.5">
           <ToolbarButton
             type="button"
             onMouseDown={(event) => event.stopPropagation()}
@@ -171,6 +172,11 @@ export function Sidebar() {
           >
             <CodiconArrowRight className="h-4 w-[18px]" />
           </ToolbarButton>
+        </div>
+      ) : null}
+      {isExpanded ? (
+        <div className="no-drag absolute right-[6px] top-[2px] z-30 flex items-center">
+          <CreateMenu align="start" side="right" triggerClassName="ml-0" />
         </div>
       ) : null}
 

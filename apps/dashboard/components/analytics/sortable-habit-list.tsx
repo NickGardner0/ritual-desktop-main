@@ -183,7 +183,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
       >
         <div
           aria-hidden="true"
-          className={`pointer-events-none absolute inset-x-0 top-1/2 h-[var(--sidebar-row-height)] -translate-y-1/2 rounded-[var(--sidebar-row-radius)] transition-none ${
+          className={`pointer-events-none absolute inset-x-0 top-1/2 h-[var(--sidebar-row-height)] -translate-y-1/2 rounded-[12px] transition-none ${
             isDragging
               ? 'bg-[#f5f5f5] shadow-lg'
               : isContextSelected
