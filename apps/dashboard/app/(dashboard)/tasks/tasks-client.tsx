@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
@@ -86,6 +86,7 @@ export function TasksClient() {
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const router = useRouter();
   const searchParams = useSearchParams();
   useTaskRoutineOutboxSync();
 
@@ -97,6 +98,16 @@ export function TasksClient() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [demoGeneratedTasks, setDemoGeneratedTasks] = useState<Task[]>([]);
+
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('create');
+    const query = params.toString();
+    router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+    queueMicrotask(() => setComposerOpen(true));
+  }, [router, searchParams]);
 
   const queryKey = ['tasks', user?.id, view, category];
 

@@ -6,6 +6,7 @@ import { useFont } from '@/contexts/FontContext';
 import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
+import { CreateMenu } from '@/components/create-menu';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -174,6 +175,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                             density="tight"
                           />
                         )}
+                        <CreateMenu />
                         <div id="header-left-slot" className="no-drag ml-1 flex items-center gap-0.5" />
                       </div>
 

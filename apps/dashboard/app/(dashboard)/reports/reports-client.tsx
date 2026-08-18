@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BellRing,
@@ -101,6 +101,7 @@ function deferStateUpdate(fn: () => void) {
 }
 
 export function ReportsClient() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const routinesSectionRef = useRef<HTMLElement | null>(null);
@@ -422,6 +423,19 @@ export function ReportsClient() {
       deferStateUpdate(() => setIsMemoryOpen(true));
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    if (searchParams.get("create") !== "1") return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("create");
+    const query = params.toString();
+    router.replace(query ? `/reports?${query}` : "/reports", { scroll: false });
+    deferStateUpdate(() => {
+      setArtifactEditor(buildArtifactEditorState("report"));
+      setIsArtifactEditorOpen(true);
+    });
+  }, [router, searchParams]);
 
   const unifiedRuns = useMemo(
     () => buildUnifiedRuns(reportRuns, reportSchedules, workflowDefinitions, workflowRuns),

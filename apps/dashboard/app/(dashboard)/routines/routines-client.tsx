@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@ritual/ui/button';
@@ -118,6 +118,7 @@ export function RoutinesClient() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const searchParams = useSearchParams();
   useTaskRoutineOutboxSync();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -357,6 +358,16 @@ export function RoutinesClient() {
     setSelectedId(item.routine.id);
     setModal({ open: true, mode: 'edit', initial: configureStateFromRoutine(item), editing: item });
   }, []);
+
+  useEffect(() => {
+    if (searchParams.get('create') !== '1') return;
+
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('create');
+    const query = params.toString();
+    router.replace(query ? `/routines?${query}` : '/routines', { scroll: false });
+    queueMicrotask(() => openCreateModal());
+  }, [openCreateModal, router, searchParams]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
