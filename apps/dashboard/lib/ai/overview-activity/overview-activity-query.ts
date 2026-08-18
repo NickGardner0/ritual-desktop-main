@@ -45,7 +45,7 @@ export const overviewActivityKeys = {
 
 export function hasMeaningfulOverviewActivity(
   bundle: LocalOverviewActivityBundle | null | undefined,
-): boolean {
+): bundle is LocalOverviewActivityBundle {
   if (!bundle) return false;
 
   const hasDailyActivity = Array.isArray(bundle.daily) && bundle.daily.some((row) =>
