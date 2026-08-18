@@ -77,7 +77,7 @@ const ComposerPill = React.forwardRef<
       ref={ref}
       type={type}
       className={cn(
-        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
+        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-[var(--radius-row)] border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
         className,
       )}
       {...props}
@@ -246,12 +246,14 @@ export function NewTaskComposer({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="New task"
-        className="ritual-dialog-surface fixed left-1/2 top-1/2 z-10 flex w-[min(680px,calc(100vw-48px))] max-h-[calc(100vh-96px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden"
+        aria-labelledby="new-task-title"
+        className="ritual-dialog-surface fixed left-1/2 top-1/2 z-10 flex w-[min(560px,calc(100vw-32px))] max-h-[calc(100vh-64px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden"
         data-tauri-drag-region="false"
       >
-        <div className="flex shrink-0 items-center justify-between gap-2 px-5 pt-3.5">
-          <p className="text-[13px] text-[var(--text-muted)]">New task</p>
+        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-[var(--divider-subtle)] px-4">
+          <h2 id="new-task-title" className="text-[13px] font-medium text-[var(--text-primary)]">
+            New task
+          </h2>
           <div className="flex items-center gap-0.5">
             {(title.trim() || notes.trim()) ? (
               <button
@@ -260,7 +262,7 @@ export function NewTaskComposer({
                   clearTaskComposerDraft();
                   resetForm(defaultSchedule);
                 }}
-                className="rounded-full px-2.5 py-1 text-[12px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                className="rounded-[var(--radius-row)] px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
               >
                 Clear draft
               </button>
@@ -268,7 +270,7 @@ export function NewTaskComposer({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-1.5 text-[var(--icon-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+              className="rounded-[var(--radius-row)] p-1.5 text-[var(--icon-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -276,7 +278,7 @@ export function NewTaskComposer({
           </div>
         </div>
 
-        <div className="px-5 pb-1 pt-3">
+        <div className="px-4 pb-3 pt-4">
           <input
             ref={titleRef}
             value={title}
@@ -287,18 +289,19 @@ export function NewTaskComposer({
               }
             }}
             placeholder="Task title"
-            className="w-full bg-transparent text-[22px] font-medium leading-snug tracking-[-0.03em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="w-full bg-transparent text-[16px] font-medium leading-6 tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:font-normal placeholder:text-[var(--text-muted)]"
+            aria-label="Task title"
           />
           <EntityNoteField
             value={notes}
             onChange={setNotes}
             placeholder="Add description..."
             rows={3}
-            className="mt-2 min-h-[72px] w-full resize-none bg-transparent text-[14px] leading-relaxed text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="mt-2 min-h-[64px] w-full resize-none bg-transparent text-[13px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
           />
         </div>
 
-        <div className="relative flex flex-wrap items-center gap-1.5 px-5 pb-4 pt-3">
+        <div className="relative flex flex-wrap items-center gap-1.5 border-t border-[var(--divider-subtle)] px-4 py-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <ComposerPill>
@@ -383,7 +386,7 @@ export function NewTaskComposer({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-4 py-3">
           <label className="mr-auto flex cursor-pointer items-center gap-2">
             <Switch checked={createMore} onCheckedChange={setCreateMore} />
             <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
@@ -394,10 +397,10 @@ export function NewTaskComposer({
             size="compact"
             onClick={handleSubmit}
             disabled={!title.trim() || pending}
-            className="rounded-full px-3.5"
+            className="rounded-[var(--radius-row)] px-3.5 text-[12px]"
           >
             Create task
-            <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
+            <kbd className="font-mono text-[10px] font-normal opacity-60">
               ⌘↵
             </kbd>
           </Button>
