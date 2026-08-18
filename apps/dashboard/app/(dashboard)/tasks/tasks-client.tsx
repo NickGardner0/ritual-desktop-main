@@ -5,6 +5,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { play } from 'cuelume';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
 import { apiOperationWithAuth } from '@/lib/api/client';
@@ -184,6 +185,7 @@ export function TasksClient() {
       }
     },
     onSuccess: (_task, variables) => {
+      play('success', { volume: 0.32 });
       invalidateTaskSurfaces();
       if (user?.id && _task) void putLocalVaultTask(user.id, _task).catch(() => undefined);
       if (_task) rememberEntitySummary(summaryFromTask(_task));
@@ -197,7 +199,10 @@ export function TasksClient() {
       }
       if (!variables.createMore) setComposerOpen(false);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create task.'),
+    onError: (error) => {
+      play('error', { volume: 0.28 });
+      toast.error(error instanceof Error ? error.message : 'Failed to create task.');
+    },
   });
 
   const updateTaskMutation = useMutation({

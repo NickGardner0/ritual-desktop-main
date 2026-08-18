@@ -16,6 +16,7 @@ import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabili
 import { desktopFrontendReady } from '@/lib/desktop-runtime';
 import { showMainWindow } from '@/lib/tauri-utils';
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
+import { InteractionSounds } from '@/components/interaction-sounds';
 
 /**
  * Root Providers Wrapper
@@ -222,6 +223,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     >
       {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
       <PlatformDetector />
+      <InteractionSounds />
       {isTransparencyProbe ? (
         <TransparencyProbe />
       ) : isDesktopBootstrap || isVoiceHudWindow() ? (

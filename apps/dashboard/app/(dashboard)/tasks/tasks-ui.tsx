@@ -92,6 +92,7 @@ export function TasksToolbarActions({
           size="compact"
           onClick={onNewTask}
           className="rounded-full px-3 font-medium [&_svg]:size-3.5"
+          data-cuelume-release="bloom"
         >
           <Plus className="h-3.5 w-3.5" />
           New task
@@ -247,6 +248,7 @@ export function TaskRow({
             )}
             aria-label={`Complete ${task.title}`}
             aria-pressed={task.status === 'completed'}
+            data-cuelume-toggle
           >
             <Check className="h-3 w-3" />
           </button>

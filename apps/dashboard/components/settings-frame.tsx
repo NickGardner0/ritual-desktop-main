@@ -3,7 +3,7 @@
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
 import { useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
-import { Brain, Check, ChevronsUpDown, Hash, MapPin, Mic, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type } from 'lucide-react';
+import { Brain, Check, ChevronsUpDown, Hash, MapPin, Mic, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, Volume2 } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
@@ -19,6 +19,11 @@ import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
 import { PrivacySettingsPanel } from './privacy-settings-panel';
 import { VoiceSettings } from './voice-settings';
+import {
+  readInteractionSoundsEnabled,
+  subscribeToInteractionSounds,
+  writeInteractionSoundsEnabled,
+} from '@/lib/interaction-sounds';
 import {
   SettingsGroup as RitualSettingsGroup,
   SettingsRow as RitualSettingsRow,
@@ -90,6 +95,7 @@ export function SettingsFrame({
   const { habitTextColor, setHabitTextColor } = useUIPreferences();
   const [activeTab, setActiveTab] = useState<DesktopSettingsView>(() => normalizeSettingsFrameView(initialView));
   const [aiDataRetention, setAiDataRetention] = useState(true);
+  const [interactionSoundsEnabled, setInteractionSoundsEnabled] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
@@ -123,6 +129,17 @@ export function SettingsFrame({
       window.localStorage.getItem('ritual-show-attribution-health') === '1';
     startTransition(() => setShowAttributionHealth(enabled));
   }, [user?.primaryEmailAddress?.emailAddress]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setInteractionSoundsEnabled(readInteractionSoundsEnabled());
+    });
+    const unsubscribe = subscribeToInteractionSounds(setInteractionSoundsEnabled);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!listenForDesktopShow || !isDesktop) return;
@@ -273,6 +290,22 @@ export function SettingsFrame({
                 title="AI data retention"
                 description="Let Ritual save and use memories when answering."
                 control={<SettingsToggle checked={aiDataRetention} onClick={() => setAiDataRetention(!aiDataRetention)} />}
+              />
+
+              <SettingsRow
+                icon={<Volume2 className="h-[15px] w-[15px]" strokeWidth={1.9} />}
+                title="Interaction sounds"
+                description="Play quiet cues for repeated actions and completed tasks."
+                control={(
+                  <SettingsToggle
+                    checked={interactionSoundsEnabled}
+                    onClick={() => {
+                      const enabled = !interactionSoundsEnabled;
+                      setInteractionSoundsEnabled(enabled);
+                      writeInteractionSoundsEnabled(enabled);
+                    }}
+                  />
+                )}
               />
 
               <SettingsRow
@@ -587,6 +620,7 @@ function SettingsToggle({ checked, onClick }: { checked: boolean; onClick: () =>
       type="button"
       onClick={onClick}
       aria-pressed={checked}
+      data-cuelume-toggle
       className={cn(
         'relative inline-flex h-5 w-[38px] flex-shrink-0 items-center rounded-full transition-colors duration-200',
         checked ? 'bg-black' : 'bg-[#d1d1d1]',

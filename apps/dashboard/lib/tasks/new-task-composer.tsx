@@ -76,8 +76,9 @@ const ComposerPill = React.forwardRef<
     <button
       ref={ref}
       type={type}
+      data-cuelume-release="release"
       className={cn(
-        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-[var(--radius-row)] border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
+        'inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
         className,
       )}
       {...props}
@@ -87,11 +88,6 @@ const ComposerPill = React.forwardRef<
     </button>
   );
 });
-
-function getContentPortalRoot(): Element | null {
-  if (typeof document === 'undefined') return null;
-  return document.querySelector('.content-opaque');
-}
 
 function defaultFormState(defaultSchedule: ScheduleWhen): Omit<TaskComposerDraft, 'savedAt'> {
   return {
@@ -128,9 +124,7 @@ export function NewTaskComposer({
   const [dueDate, setDueDate] = useState('');
   const [schedule, setSchedule] = useState<ScheduleWhen>(defaultSchedule);
   const [createMore, setCreateMore] = useState(false);
-  const portalRoot = open && typeof document !== 'undefined'
-    ? getContentPortalRoot() ?? document.body
-    : null;
+  const portalRoot = open && typeof document !== 'undefined' ? document.body : null;
 
   const applyFormState = useCallback((state: Omit<TaskComposerDraft, 'savedAt'>) => {
     setTitle(state.title);
@@ -230,27 +224,27 @@ export function NewTaskComposer({
     : 'Due date';
 
   const modalContent = (
-    <div
-      className="fixed inset-0 z-[9999]"
-      style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }}
-      data-tauri-drag-region="false"
-    >
+    <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden" data-tauri-drag-region="false">
       <div
-        className="absolute inset-0 bg-[var(--surface-overlay)]"
-        onClick={onClose}
+        className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
+        }}
         data-tauri-drag-region="false"
         aria-hidden
-        style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
       />
-
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-task-title"
-        className="ritual-dialog-surface fixed left-1/2 top-1/2 z-10 flex w-[min(560px,calc(100vw-32px))] max-h-[calc(100vh-64px)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden"
-        data-tauri-drag-region="false"
+        className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
+        style={{ left: 'var(--ritual-sidebar-current-width, 0px)' }}
       >
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-[var(--divider-subtle)] px-4">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-task-title"
+          className="ritual-dialog-surface pointer-events-auto flex w-full max-w-[560px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden"
+          data-tauri-drag-region="false"
+        >
+        <div className="flex h-11 shrink-0 items-center justify-between gap-2 px-4">
           <h2 id="new-task-title" className="text-[13px] font-medium text-[var(--text-primary)]">
             New task
           </h2>
@@ -289,7 +283,7 @@ export function NewTaskComposer({
               }
             }}
             placeholder="Task title"
-            className="w-full bg-transparent text-[16px] font-medium leading-6 tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:font-normal placeholder:text-[var(--text-muted)]"
+            className="w-full bg-transparent text-[22px] font-semibold leading-7 tracking-[-0.025em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             aria-label="Task title"
           />
           <EntityNoteField
@@ -301,7 +295,7 @@ export function NewTaskComposer({
           />
         </div>
 
-        <div className="relative flex flex-wrap items-center gap-1.5 border-t border-[var(--divider-subtle)] px-4 py-3">
+        <div className="relative flex flex-wrap items-center gap-1.5 px-4 py-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <ComposerPill>
@@ -388,7 +382,7 @@ export function NewTaskComposer({
 
         <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-4 py-3">
           <label className="mr-auto flex cursor-pointer items-center gap-2">
-            <Switch checked={createMore} onCheckedChange={setCreateMore} />
+            <Switch checked={createMore} onCheckedChange={setCreateMore} data-cuelume-toggle />
             <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
           </label>
           <Button
@@ -397,13 +391,15 @@ export function NewTaskComposer({
             size="compact"
             onClick={handleSubmit}
             disabled={!title.trim() || pending}
-            className="rounded-[var(--radius-row)] px-3.5 text-[12px]"
+            className="rounded-full px-3.5"
+            data-cuelume-press="press"
           >
             Create task
-            <kbd className="font-mono text-[10px] font-normal opacity-60">
+            <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
               ⌘↵
             </kbd>
           </Button>
+        </div>
         </div>
       </div>
     </div>

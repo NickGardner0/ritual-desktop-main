@@ -58,6 +58,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "1.0.4",
+    "cuelume": "^0.2.2",
     "date-fns": "^3.6.0",
     "fast-xml-parser": "^5.3.3",
     "framer-motion": "^12.23.25",
