@@ -522,7 +522,7 @@ function UnifiedAnalyticsContent({
           className="pointer-events-none fixed bottom-[24px] right-0 flex justify-center px-4 pb-2 pt-2 sm:px-6 lg:px-8"
           style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
         >
-          <div className="pointer-events-auto w-full max-w-[640px]">
+          <div className="pointer-events-auto w-full max-w-[720px]">
                 <AIHabitChat
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
