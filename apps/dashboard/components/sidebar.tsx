@@ -143,7 +143,7 @@ export function Sidebar() {
         </ToolbarButton>
       </div>
       {isExpanded ? (
-        <div className="no-drag absolute left-[113px] top-[2px] z-20 flex items-center gap-0.5">
+        <div className="no-drag absolute right-[42px] top-[2px] z-20 flex items-center gap-0.5">
           <ToolbarButton
             type="button"
             onMouseDown={(event) => event.stopPropagation()}
@@ -176,7 +176,7 @@ export function Sidebar() {
       ) : null}
       {isExpanded ? (
         <div className="no-drag absolute right-[6px] top-[2px] z-30 flex items-center">
-          <CreateMenu align="start" side="right" triggerClassName="ml-0" />
+          <CreateMenu align="start" side="right" triggerClassName="app-toolbar-icon-button ml-0" />
         </div>
       ) : null}
 

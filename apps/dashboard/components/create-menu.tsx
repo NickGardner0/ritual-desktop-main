@@ -8,7 +8,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/ritual-system";
@@ -108,13 +107,13 @@ export function CreateMenu({ align = "start", side = "bottom", triggerClassName 
         <ToolbarButton
           type="button"
           className={cn(
-            "ml-2 rounded-[9px] border border-[var(--border-subtle)] bg-[var(--surface-control)] text-[var(--icon-default)] shadow-sm hover:bg-[var(--surface-control-hover)] data-[state=open]:bg-[var(--surface-control-hover)]",
+            "ml-2 rounded-[7px] border-0 bg-transparent text-[var(--icon-default)] shadow-none hover:bg-[var(--row-hover)] data-[state=open]:bg-[var(--row-hover)]",
             triggerClassName,
           )}
           aria-label="Create"
           title="Create"
         >
-          <SquarePen className="h-[17px] w-[17px]" strokeWidth={1.9} />
+          <SquarePen className="h-4 w-4" strokeWidth={1.75} />
         </ToolbarButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent
@@ -122,7 +121,7 @@ export function CreateMenu({ align = "start", side = "bottom", triggerClassName 
         side={side}
         sideOffset={6}
         collisionPadding={8}
-        className="w-[248px]"
+        className="w-[216px]"
         aria-label="Create"
       >
         {CREATE_MENU_ITEMS.map((item) => {
@@ -130,16 +129,13 @@ export function CreateMenu({ align = "start", side = "bottom", triggerClassName 
           return (
             <DropdownMenuItem
               key={item.id}
-              className="gap-3"
+              className="gap-2.5 text-[13px]"
               onSelect={() => selectItem(item)}
             >
               <span className="flex h-5 w-5 shrink-0 items-center justify-center text-[var(--icon-default)]">
-                <Icon className="h-[18px] w-[18px]" strokeWidth={2.1} aria-hidden="true" />
+                <Icon className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
               </span>
               <span className="flex-1">{item.label}</span>
-              <DropdownMenuShortcut className="ml-6 inline-flex h-5 min-w-5 items-center justify-center rounded-[6px] border border-[var(--border-floating)] bg-transparent px-1 text-[11px] text-[var(--text-muted)]">
-                {item.shortcut}
-              </DropdownMenuShortcut>
             </DropdownMenuItem>
           );
         })}
