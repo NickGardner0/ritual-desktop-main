@@ -208,6 +208,12 @@ export type ChatActionReceiptData = {
   date?: string | null;
 };
 
+export type ChatEntityRef = {
+  type: string;
+  id: string;
+  title?: string;
+};
+
 export interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -215,6 +221,7 @@ export interface Message {
   canvasData?: HabitCanvasData;
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
   actionReceipts?: ChatActionReceiptData[];
+  entityRefs?: ChatEntityRef[];
 }
 
 export type ConversationContextMenuState = {

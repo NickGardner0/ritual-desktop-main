@@ -24,6 +24,10 @@ import {
   formatHabitLogDisplayDate,
   formatHabitLogDisplayTime,
 } from '@/lib/habit-log-time';
+import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
+import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
+import { EntityNoteText } from '@/components/entities/entity-note-text';
+import { entityProtocolEnabled } from '@/lib/entities/feature-flag';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitLog } from '@/components/habit-logs/types';
 
@@ -267,7 +271,7 @@ export function LogDetailPanel({
             <DetailRow label="Notes">
               <div className="flex items-start justify-end gap-2">
                 <p className="text-[14px] text-neutral-700 text-right whitespace-pre-wrap break-words max-w-[240px]">
-                  {log.notes}
+                  <EntityNoteText text={log.notes} />
                 </p>
                 <button
                   type="button"
@@ -305,6 +309,12 @@ export function LogDetailPanel({
             </DetailRow>
           )}
         </div>
+        {entityProtocolEnabled() && log.id ? (
+          <div className="mt-5 space-y-3">
+            <EntityRelatedPanel entityRef={{ type: 'habit_log', id: log.id }} />
+            <EntityLinkPicker source={{ type: 'habit_log', id: log.id }} />
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );

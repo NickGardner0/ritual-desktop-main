@@ -1,8 +1,35 @@
 import type OpenAI from 'openai';
 import { dispatchToolCall, withToolErrorHandling } from '../runtime-tools.js';
 import { toolSchemas } from '../tool-registry.js';
-import type { ChatToolResults } from '../types.js';
+import type { ActionReceiptSummary, ChatEntityRef, ChatToolResults } from '../types.js';
 import { elapsed, getOpenAIClient } from './shared.js';
+
+export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef): void {
+  if (!ref.id || !ref.type) return;
+  toolResults.entityRefs = toolResults.entityRefs || [];
+  if (toolResults.entityRefs.some((item) => item.type === ref.type && item.id === ref.id)) return;
+  toolResults.entityRefs.push(ref);
+}
+
+export function appendEntityRefsFromReceipt(
+  toolResults: ChatToolResults,
+  receipt: Pick<ActionReceiptSummary, 'habit_id' | 'habit_name' | 'log_id'>,
+): void {
+  if (receipt.habit_id) {
+    appendEntityRef(toolResults, {
+      type: 'habit',
+      id: receipt.habit_id,
+      title: receipt.habit_name || undefined,
+    });
+  }
+  if (receipt.log_id) {
+    appendEntityRef(toolResults, {
+      type: 'habit_log',
+      id: receipt.log_id,
+      title: receipt.habit_name || undefined,
+    });
+  }
+}
 
 export type ToolDispatchContext = {
   token: string;
@@ -98,13 +125,24 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
         if (parsed.success) toolResults.screenTimeSummary = parsed;
         break;
       case 'getCalendarEvents':
-        if (parsed.success) toolResults.calendarEvents = parsed;
+        if (parsed.success) {
+          toolResults.calendarEvents = parsed;
+          for (const event of parsed.events || []) {
+            if (event?.id) {
+              appendEntityRef(toolResults, {
+                type: 'calendar_block',
+                id: String(event.id),
+                title: typeof event.title === 'string' ? event.title : undefined,
+              });
+            }
+          }
+        }
         break;
       case 'logHabit':
       case 'createHabit':
         if (parsed.success && parsed.receipt?.receipt_id) {
           toolResults.actionReceipts = toolResults.actionReceipts || [];
-          toolResults.actionReceipts.push({
+          const receipt = {
             receipt_id: parsed.receipt.receipt_id,
             action_kind: name,
             habit_id: parsed.habit_id ?? parsed.receipt.habit_id ?? null,
@@ -114,7 +152,9 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
             log_id: parsed.log?.id ?? parsed.receipt.log_id ?? null,
             amount: parsed.amount ?? null,
             date: parsed.date ?? null,
-          });
+          };
+          toolResults.actionReceipts.push(receipt);
+          appendEntityRefsFromReceipt(toolResults, receipt);
         }
         break;
       case 'getSmsPreferences':

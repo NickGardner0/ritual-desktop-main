@@ -15,6 +15,7 @@ import {
   persistAssistantMessage,
   prepareChatTurnContext,
 } from './chat-stream/shared.js';
+import { persistConversationMentions } from './persistence.js';
 import { mergeDailyBreakdowns, runToolLoop } from './chat-stream/tool-dispatch.js';
 
 export type ChatStreamRequestBody = {
@@ -23,6 +24,7 @@ export type ChatStreamRequestBody = {
   conversationId?: string | null;
   responseMode?: 'text' | 'voice';
   localOverviewActivity?: unknown;
+  entityRefs?: Array<{ type: string; id: string; title?: string }>;
 };
 
 export type ChatStreamRequestContext = {
@@ -47,6 +49,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       conversationId: providedConversationId,
       responseMode = 'text',
       localOverviewActivity,
+      entityRefs,
     } = body;
     const prepared = await prepareChatTurnContext(token, messages, timezone, providedConversationId, responseMode);
     const {
@@ -57,10 +60,19 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       latestUserContent,
       fullSystemPrompt,
     } = prepared;
+    const attachedRefs = Array.isArray(entityRefs)
+      ? entityRefs.filter((ref) => ref && typeof ref.type === 'string' && typeof ref.id === 'string')
+      : [];
     const route = classifyChatRoute(latestUserContent, timezone, isVoiceMode);
     console.log(`⏱️ [${elapsed(t0)}] route=${route.retrievalRoute} forced=${route.forcedToolName || 'none'} voice=${isVoiceMode}`);
 
     if (route.deterministicFastPath && route.forcedToolName) {
+      persistConversationMentions({
+        token,
+        conversationIdPromise,
+        userContent: latestUserContent,
+        attachedRefs,
+      });
       return handleDeterministicFastPath({
         t0,
         token,
@@ -79,6 +91,12 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
 
     const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: fullSystemPrompt },
+      ...(attachedRefs.length
+        ? [{
+            role: 'system' as const,
+            content: `The user attached object references as EntityRef values. Use these identities rather than guessing titles:\n${JSON.stringify(attachedRefs)}`,
+          }]
+        : []),
       ...messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })),
     ];
 
@@ -121,6 +139,14 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     if (streamSource.type === 'complete') {
       persistAssistantMessage(conversationIdPromise, token, streamSource.text, canvasToolPayload);
     }
+
+    persistConversationMentions({
+      token,
+      conversationIdPromise,
+      userContent: latestUserContent,
+      attachedRefs,
+      assistantRefs: toolResults.entityRefs,
+    });
 
     return createChatStreamResponse({
       conversationId: immediateConversationId,

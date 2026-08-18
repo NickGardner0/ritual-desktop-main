@@ -214,6 +214,14 @@ export type ChatToolResults = {
   suggested_followups?: string[];
   reply_chips?: string[];
   actionReceipts?: ActionReceiptSummary[];
+  entityRefs?: ChatEntityRef[];
+};
+
+/** Thin citation identity. Keep independent of shared-contracts. */
+export type ChatEntityRef = {
+  type: string;
+  id: string;
+  title?: string;
 };
 
 /** Mutation receipt returned by logHabit / createHabit tools */

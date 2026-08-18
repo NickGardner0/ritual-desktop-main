@@ -10,6 +10,9 @@ import {
 } from './chat-client.shared';
 import type { Message } from './chat-client.shared';
 import { ChatActionReceiptList } from './chat-action-receipt';
+import { EntityCitationList } from '@/components/entities/entity-related-panel';
+import { EntityNoteText } from '@/components/entities/entity-note-text';
+import { canonicalEntityType } from '@ritual/shared-contracts';
 
 type ToolStatus = {
   label: string;
@@ -76,9 +79,9 @@ const ChatMessageRow = memo(function ChatMessageRow({
   return (
     <div ref={isLastUserMessage ? latestUserMessageRef : undefined}>
       {message.role === 'user' ? (
-        <h1 className="mb-6 text-2xl font-medium leading-snug text-gray-900">
-          {message.content}
-        </h1>
+        <div className="mb-6 text-2xl font-medium leading-snug text-gray-900">
+          <EntityNoteText text={message.content} />
+        </div>
       ) : (
         <div className="mb-8">
           <Response className="text-[14px] leading-[1.55] text-[#535353]">
@@ -86,6 +89,14 @@ const ChatMessageRow = memo(function ChatMessageRow({
           </Response>
           {message.actionReceipts && message.actionReceipts.length > 0 ? (
             <ChatActionReceiptList receipts={message.actionReceipts} />
+          ) : null}
+          {message.entityRefs && message.entityRefs.length > 0 ? (
+            <EntityCitationList
+              refs={message.entityRefs.flatMap((ref) => {
+                const type = canonicalEntityType(ref.type);
+                return type ? [{ type, id: ref.id }] : [];
+              })}
+            />
           ) : null}
           {voiceStyleEnabled &&
             message.replyChips &&

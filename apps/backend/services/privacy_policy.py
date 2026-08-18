@@ -60,6 +60,8 @@ PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
         typesense_collections=("habit_logs", "log_phrases"),
     ),
     "daily_note": _sensitive("daily_note"),
+    "task": _sensitive("task"),
+    "routine": _sensitive("routine"),
     "computer_activity": _sensitive(
         "computer_activity",
         retention_days=365,
@@ -229,6 +231,26 @@ def can_send_to_cloud(
             return PrivacyDecision(False, f"{purpose} consent is required")
 
     return PrivacyDecision(True, "policy permits destination")
+
+
+ENTITY_TYPE_PRIVACY_CLASS = {
+    "habit": "habit_definition",
+    "habit_log": "habit_log",
+    "task": "task",
+    "routine": "routine",
+    "artifact": "ai_content",
+    "conversation": "ai_content",
+    "experiment": "task",
+    "calendar_block": "task",
+    "day": "habit_log",
+    "time_window": "habit_log",
+}
+
+
+def data_class_for_entity_type(entity_type: str) -> str:
+    aliases = {"report": "artifact", "calendar": "calendar_block"}
+    canonical = aliases.get(entity_type, entity_type)
+    return ENTITY_TYPE_PRIVACY_CLASS.get(canonical, "account_metadata")
 
 
 def data_class_for_tinybird_datasource(datasource: str) -> str:

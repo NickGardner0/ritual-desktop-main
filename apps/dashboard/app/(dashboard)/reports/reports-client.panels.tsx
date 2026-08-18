@@ -11,6 +11,7 @@ import type { ArtifactKind } from "@/lib/workflows/types";
 import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
 import { cn } from "@/lib/utils";
 import { EMPTY_BLOCK, formatDateTime, formatKind, isProfileSchedulable } from "./reports-client.helpers";
+import { EntityNoteField } from "@/components/entities/entity-note-field";
 
 type ReportsSideSheetsProps = { ctx: Record<string, any> };
 
@@ -80,9 +81,9 @@ export function ReportsSideSheets({ ctx }: ReportsSideSheetsProps) {
                   </label>
                   <label className="block">
                     <div className="mb-2 text-sm font-[600] text-[#111827]">Summary</div>
-                    <textarea
+                    <EntityNoteField
                       value={artifactEditor.summary}
-                      onChange={(event) => setArtifactEditor({ ...artifactEditor, summary: event.target.value })}
+                      onChange={(value) => setArtifactEditor({ ...artifactEditor, summary: value })}
                       className="min-h-[100px] w-full rounded-[18px] border border-[rgba(15,23,42,0.12)] bg-white px-3 py-3 text-sm text-[#111827] outline-none"
                     />
                   </label>
@@ -185,14 +186,14 @@ export function ReportsSideSheets({ ctx }: ReportsSideSheetsProps) {
                                 })
                               }
                             />
-                            <textarea
+                            <EntityNoteField
                               value={block.intro}
                               placeholder="Intro"
-                              onChange={(event) =>
+                              onChange={(value) =>
                                 setArtifactEditor({
                                   ...artifactEditor,
                                   body_blocks: artifactEditor.body_blocks.map((candidate) =>
-                                    candidate.id === block.id ? { ...candidate, intro: event.target.value } : candidate,
+                                    candidate.id === block.id ? { ...candidate, intro: value } : candidate,
                                   ),
                                 })
                               }
@@ -200,14 +201,14 @@ export function ReportsSideSheets({ ctx }: ReportsSideSheetsProps) {
                             />
                           </div>
                         ) : block.type === "summary" ? (
-                          <textarea
+                          <EntityNoteField
                             value={block.text}
                             placeholder="Summary text"
-                            onChange={(event) =>
+                            onChange={(value) =>
                               setArtifactEditor({
                                 ...artifactEditor,
                                 body_blocks: artifactEditor.body_blocks.map((candidate) =>
-                                  candidate.id === block.id ? { ...candidate, text: event.target.value } : candidate,
+                                  candidate.id === block.id ? { ...candidate, text: value } : candidate,
                                 ),
                               })
                             }
@@ -229,14 +230,14 @@ export function ReportsSideSheets({ ctx }: ReportsSideSheetsProps) {
                                 }
                               />
                             ) : null}
-                            <textarea
+                            <EntityNoteField
                               value={block.items_text}
                               placeholder={block.type === "metric_list" ? "One per line: label | value | note" : "One item per line"}
-                              onChange={(event) =>
+                              onChange={(value) =>
                                 setArtifactEditor({
                                   ...artifactEditor,
                                   body_blocks: artifactEditor.body_blocks.map((candidate) =>
-                                    candidate.id === block.id ? { ...candidate, items_text: event.target.value } : candidate,
+                                    candidate.id === block.id ? { ...candidate, items_text: value } : candidate,
                                   ),
                                 })
                               }

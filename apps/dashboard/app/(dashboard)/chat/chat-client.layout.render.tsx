@@ -22,6 +22,7 @@ import {
 
 
 import { buildRenderActiveChat } from './chat-client.layout.active';
+import { ChatComposerEntityExtras } from './chat-composer-entity-extras';
 
 import type { ChatLayoutContext } from './chat-client.layout.types';
 
@@ -53,6 +54,8 @@ export function createChatLayoutRenderers(ctx: Record<string, any>) {
     headerCenterSlot,
     headerLeftSlot,
     input,
+    attachedEntityRefs,
+    setAttachedEntityRefs,
     isListening,
     isLoading,
     isLoadingConversations,
@@ -163,6 +166,16 @@ export function createChatLayoutRenderers(ctx: Record<string, any>) {
                       rows={1}
                       disabled={isLoading}
                       readOnly={isListening}
+                    />
+                    <ChatComposerEntityExtras
+                      input={input}
+                      attached={attachedEntityRefs || []}
+                      onAttachedChange={setAttachedEntityRefs}
+                      onInputChange={(value) => {
+                        setInput(value);
+                        setSelectedSuggestionIndex(0);
+                        setKeyboardSuggestionActive(false);
+                      }}
                     />
                   </div>
                   <div className="px-4">
@@ -446,6 +459,16 @@ export function createChatLayoutRenderers(ctx: Record<string, any>) {
                     className="w-full resize-none border-0 outline-none text-[15px] text-gray-900 placeholder-gray-400 bg-transparent px-5 pt-3 pb-1.5 min-h-[48px] max-h-[96px]"
                     rows={1}
                     readOnly={isListening}
+                  />
+                  <ChatComposerEntityExtras
+                    input={input}
+                    attached={attachedEntityRefs || []}
+                    onAttachedChange={setAttachedEntityRefs}
+                    onInputChange={(value) => {
+                      setInput(value);
+                      setSelectedSuggestionIndex(0);
+                      setKeyboardSuggestionActive(false);
+                    }}
                   />
                   <div className="px-5">
                     {suggestionList}

@@ -9,6 +9,8 @@ export const DATA_CLASSES = [
   "crash_diagnostics",
   "habit_definition",
   "habit_log",
+  "task",
+  "routine",
   "daily_note",
   "computer_activity",
   "browser_activity",
@@ -74,6 +76,8 @@ export type PrivacyPolicyInput = {
 const SENSITIVE_DATA_CLASSES = new Set<PrivacyDataClass>([
   "habit_definition",
   "habit_log",
+  "task",
+  "routine",
   "daily_note",
   "computer_activity",
   "browser_activity",

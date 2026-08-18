@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, File, FlaskConical, MessageSquare, Plus, Target, Trash2, TrendingUp } from "lucide-react";
 import { Button } from "@ritual/ui/button";
@@ -24,6 +24,11 @@ import {
   updateExperiment,
   type ExperimentEntryKind,
 } from "@/lib/experiments";
+import { EntityLinkPicker } from "@/components/entities/entity-link-picker";
+import { EntityRelatedPanel } from "@/components/entities/entity-related-panel";
+import { EntityNoteField } from "@/components/entities/entity-note-field";
+import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
+import { syncEntityMentions } from "@/lib/entities/sync-mentions";
 
 const ENTRY_SECTIONS: Array<{ kind: ExperimentEntryKind; label: string; icon: typeof File }> = [
   { kind: "observation", label: "Observations", icon: Target },
@@ -38,14 +43,19 @@ export function ExperimentWorkspaceClient() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [entryDialogOpen, setEntryDialogOpen] = useState(false);
+  const [relatedRefreshKey, setRelatedRefreshKey] = useState(0);
   const [entryKind, setEntryKind] = useState<ExperimentEntryKind>("observation");
   const [entryTitle, setEntryTitle] = useState("");
   const [entryContent, setEntryContent] = useState("");
+  const [descriptionDraft, setDescriptionDraft] = useState("");
 
   const experimentQuery = useQuery({
     queryKey: ["experiments", experimentId],
     queryFn: () => getExperiment(experimentId),
   });
+  useEffect(() => {
+    setDescriptionDraft(experimentQuery.data?.description || "");
+  }, [experimentQuery.data?.description]);
   const refreshExperiment = () => {
     void queryClient.invalidateQueries({ queryKey: ["experiments"] });
     void queryClient.invalidateQueries({ queryKey: ["experiments", experimentId] });
@@ -106,9 +116,37 @@ export function ExperimentWorkspaceClient() {
             <FlaskConical className="h-5 w-5 text-[var(--icon-default)]" strokeWidth={1.9} />
             <h1 className="truncate text-2xl font-medium tracking-[-0.02em] text-[var(--text-primary)]">{experiment.title}</h1>
           </div>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
-            {experiment.description || "Add threads and evidence as this experiment develops."}
-          </p>
+          {entityProtocolEnabled() ? (
+            <div className="mt-4 max-w-2xl space-y-3">
+              <EntityNoteField
+                value={descriptionDraft}
+                onChange={setDescriptionDraft}
+                onBlur={(description) => {
+                  void updateExperiment(experimentId, { description: description.trim() || undefined }).then((updated) => {
+                    refreshExperiment();
+                    void syncEntityMentions({
+                      source: { type: "experiment", id: experimentId },
+                      text: updated.description,
+                    });
+                  });
+                }}
+                placeholder="What are you testing?"
+                className="min-h-20 w-full resize-none rounded-[var(--radius-row)] border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus-visible:outline-none"
+              />
+              <EntityRelatedPanel
+                entityRef={{ type: "experiment", id: experimentId }}
+                refreshKey={relatedRefreshKey}
+              />
+              <EntityLinkPicker
+                source={{ type: "experiment", id: experimentId }}
+                onLinked={() => setRelatedRefreshKey((value) => value + 1)}
+              />
+            </div>
+          ) : (
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-secondary)]">
+              {experiment.description || "Add threads and evidence as this experiment develops."}
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <Button

@@ -15,6 +15,7 @@ import {
   cn,
 } from './chat-client.shared';
 import { ChatMessageList } from './chat-message-list';
+import { ChatComposerEntityExtras } from './chat-composer-entity-extras';
 import type { ChatLayoutContext } from './chat-client.layout.types';
 
 export function buildRenderActiveChat(ctx: ChatLayoutContext) {
@@ -43,6 +44,8 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
     headerCenterSlot,
     headerLeftSlot,
     input,
+    attachedEntityRefs,
+    setAttachedEntityRefs,
     isListening,
     isLoading,
     isLoadingConversations,
@@ -300,6 +303,16 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                       rows={1}
                       disabled={isLoading}
                       readOnly={isListening}
+                    />
+                    <ChatComposerEntityExtras
+                      input={input}
+                      attached={attachedEntityRefs || []}
+                      onAttachedChange={setAttachedEntityRefs}
+                      onInputChange={(value) => {
+                        setInput(value);
+                        setSelectedSuggestionIndex(0);
+                        setKeyboardSuggestionActive(false);
+                      }}
                     />
                   </div>
                   <div className="px-4">

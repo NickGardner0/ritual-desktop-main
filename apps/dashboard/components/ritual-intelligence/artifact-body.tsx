@@ -1,4 +1,12 @@
+"use client";
+
 import { cn } from "@/lib/utils";
+import { EntityNoteText } from "@/components/entities/entity-note-text";
+import { EntityPreviewCard } from "@/components/entities/entity-pill";
+import { resolveEntity } from "@/lib/entities/resolve";
+import { canonicalEntityType, entityRoute, type EntitySummary } from "@ritual/shared-contracts";
+import Link from "next/link";
+import { useEffect, useState } from "react";
 
 interface ArtifactBodyProps {
   body?: {
@@ -15,6 +23,46 @@ function asString(value: unknown, fallback = ""): string {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function EntityEmbedBlock({
+  entityType,
+  entityId,
+  title,
+}: {
+  entityType: string;
+  entityId: string;
+  title?: string;
+}) {
+  const [summary, setSummary] = useState<EntitySummary | null>(null);
+  const canonicalType = canonicalEntityType(entityType);
+  useEffect(() => {
+    if (!canonicalType || !entityId) return;
+    let cancelled = false;
+    void resolveEntity({ type: canonicalType, id: entityId }).then((item) => {
+      if (!cancelled) setSummary(item);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canonicalType, entityId]);
+
+  if (!canonicalType || !entityId) return null;
+  const fallback: EntitySummary = summary || {
+    ref: { type: canonicalType, id: entityId },
+    title: title || "Linked object",
+    route: entityRoute(canonicalType, entityId),
+    privacyClass: "ai_content",
+    availability: "ok",
+  };
+
+  return (
+    <Link href={fallback.route} className="block no-underline">
+      <section className="rounded-3xl border border-[rgba(15,23,42,0.08)] bg-white/85 px-6 py-5">
+        <EntityPreviewCard summary={fallback} />
+      </section>
+    </Link>
+  );
 }
 
 export function ArtifactBody({ body, emptyMessage = "No structured content yet.", className }: ArtifactBodyProps) {
@@ -46,9 +94,9 @@ export function ArtifactBody({ body, emptyMessage = "No structured content yet."
                 {asString(block.title, "Untitled artifact")}
               </h2>
               {asString(block.intro) ? (
-                <p className="mt-3 max-w-2xl text-[15px] leading-7 text-[#4b5563]">
-                  {asString(block.intro)}
-                </p>
+                <div className="mt-3 max-w-2xl text-[15px] leading-7 text-[#4b5563]">
+                  <EntityNoteText text={asString(block.intro)} />
+                </div>
               ) : null}
             </section>
           );
@@ -60,7 +108,9 @@ export function ArtifactBody({ body, emptyMessage = "No structured content yet."
               key={`${type}-${index}`}
               className="rounded-3xl border border-[rgba(15,23,42,0.08)] bg-white/85 px-6 py-5"
             >
-              <p className="text-[15px] leading-7 text-[#111827]">{asString(block.text, emptyMessage)}</p>
+              <div className="text-[15px] leading-7 text-[#111827]">
+                <EntityNoteText text={asString(block.text, emptyMessage)} />
+              </div>
             </section>
           );
         }
@@ -86,7 +136,9 @@ export function ArtifactBody({ body, emptyMessage = "No structured content yet."
                             {asString(metric.unit) ? <span className="ml-1 text-[15px] font-[500] text-[#6b7280]">{asString(metric.unit)}</span> : null}
                           </div>
                           {asString(metric.note) ? (
-                            <div className="mt-2 text-sm leading-6 text-[#4b5563]">{asString(metric.note)}</div>
+                            <div className="mt-2 text-sm leading-6 text-[#4b5563]">
+                              <EntityNoteText text={asString(metric.note)} />
+                            </div>
                           ) : null}
                         </div>
                       );
@@ -112,12 +164,23 @@ export function ArtifactBody({ body, emptyMessage = "No structured content yet."
                   ? items.map((item, itemIndex) => (
                       <li key={`bullet-${itemIndex}`} className="flex gap-3 text-[15px] leading-7 text-[#111827]">
                         <span className="mt-[10px] h-2 w-2 rounded-full bg-[#73bf1d]" />
-                        <span>{String(item)}</span>
+                        <EntityNoteText text={String(item)} />
                       </li>
                     ))
                   : <li className="text-sm text-[#6b7280]">No items yet.</li>}
               </ul>
             </section>
+          );
+        }
+
+        if (type === "entity_embed") {
+          return (
+            <EntityEmbedBlock
+              key={`${type}-${index}`}
+              entityType={asString(block.entity_type)}
+              entityId={asString(block.entity_id)}
+              title={asString(block.title) || undefined}
+            />
           );
         }
 

@@ -79,6 +79,41 @@ export type {
 export type { CreateHabitInput, HabitRecord } from "./habits";
 
 export {
+  AUTHORED_RELATIONSHIPS,
+  ENTITY_MENTION_TOKEN_PATTERN,
+  ENTITY_TYPES,
+  ENTITY_TYPE_ALIASES,
+  LAYER_0_ENTITY_TYPES,
+  canonicalEntityType,
+  entityRefKey,
+  entityRoute,
+  entityTypeToPrivacyClass,
+  formatEntityMentionToken,
+  insertEntityMentionToken,
+  isDayId,
+  isEntityType,
+  isTimeWindowId,
+  parseDateMentionQuery,
+  parseEntityMentionTokens,
+  splitEntityMentionText,
+  stripEntityMentionTokens,
+  unavailableEntitySummary,
+  virtualDateSummary,
+} from "./entities";
+export type {
+  AuthoredRelationship,
+  EntityAvailability,
+  EntityRef,
+  EntitySummary,
+  EntityType,
+  Layer0EntityType,
+  EntityMentionSegment,
+  ParsedDateMention,
+  RelatedEntity,
+  RelatedEntitySource,
+} from "./entities";
+
+export {
   CLOUD_CONSENTS,
   CLOUD_DESTINATIONS,
   DATA_CLASSES,

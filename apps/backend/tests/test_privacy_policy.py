@@ -10,12 +10,26 @@ from services.privacy_policy import (
     category_is_deletable,
     category_is_exportable,
     category_retention_days,
+    data_class_for_entity_type,
     data_class_for_tinybird_datasource,
     data_class_for_typesense_collection,
     request_cloud_consents,
     request_privacy_mode,
     should_redact_observability_key,
 )
+
+
+def test_entity_types_map_to_privacy_classes():
+    assert data_class_for_entity_type("habit") == "habit_definition"
+    assert data_class_for_entity_type("task") == "task"
+    assert data_class_for_entity_type("routine") == "routine"
+    assert data_class_for_entity_type("artifact") == "ai_content"
+    assert data_class_for_entity_type("report") == "ai_content"
+    assert data_class_for_entity_type("calendar_block") == "task"
+    assert data_class_for_entity_type("calendar") == "task"
+    assert data_class_for_entity_type("experiment") == "task"
+    assert data_class_for_entity_type("day") == "habit_log"
+    assert data_class_for_entity_type("time_window") == "habit_log"
 
 
 def test_local_only_blocks_sensitive_cloud_egress(monkeypatch):

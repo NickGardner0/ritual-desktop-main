@@ -17,8 +17,10 @@ import {
   formatISO,
 } from 'date-fns';
 import { useHotkeys } from 'react-hotkeys-hook';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useHeartRateRange } from '@/hooks/useHeartRateRange';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
+import { resolveEntity } from '@/lib/entities/resolve';
 
 import { CalendarHeader } from './calendar-header';
 import { CalendarMonthView } from './calendar-month-view';
@@ -30,6 +32,7 @@ import type {
 import type { HabitLog } from './tracker-events';
 import {
   mapScheduledBlockFromApi,
+  parseCalendarBlockSubtitle,
   type ProjectTimeSessionsResponse,
   type ScheduledBlockApi,
 } from './calendar-client.helpers';
@@ -54,9 +57,14 @@ type Habit = {
 export function CalendarClient() {
   const ref = useRef<HTMLDivElement>(null);
   const selectedDayPanelRef = useRef<HTMLDivElement>(null);
+  const openedBlockIdRef = useRef<string | null>(null);
   const { getToken } = useAuth();
   const { user } = useUser();
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const selectedBlockId = searchParams.get('block');
+  const selectedDateParam = searchParams.get('date');
 
   // State
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -64,6 +72,14 @@ export function CalendarClient() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [range, setRange] = useState<[string, string] | null>(null);
   const weekStartsOnMonday = false;
+
+  useEffect(() => {
+    if (!selectedDateParam || !/^\d{4}-\d{2}-\d{2}$/.test(selectedDateParam)) return;
+    const next = new Date(`${selectedDateParam}T12:00:00`);
+    if (Number.isNaN(next.getTime())) return;
+    setCurrentDate(next);
+    setSelectedDate(selectedDateParam);
+  }, [selectedDateParam]);
 
   // Drag selection state
   const [isDragging, setIsDragging] = useState(false);
@@ -411,7 +427,108 @@ export function CalendarClient() {
     deleteTaskComposer,
   } = useCalendarTaskComposer(scheduledBlocksByDay);
 
+  const replaceBlockParam = useCallback((blockId: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (blockId) params.set('block', blockId);
+    else params.delete('block');
+    const query = params.toString();
+    const next = query ? `/calendar?${query}` : '/calendar';
+    const current = searchParams.toString() ? `/calendar?${searchParams.toString()}` : '/calendar';
+    if (next === current) return;
+    router.replace(next, { scroll: false });
+  }, [router, searchParams]);
 
+  const onScheduledItemClick = useCallback((item: WeekScheduledItem) => {
+    replaceBlockParam(item.id);
+    handleScheduledItemClick(item);
+  }, [handleScheduledItemClick, replaceBlockParam]);
+
+  const onCreateSelection = useCallback((selection: WeekSelectionPayload) => {
+    replaceBlockParam(null);
+    openTaskComposer(selection);
+  }, [openTaskComposer, replaceBlockParam]);
+
+  const onDayBlockEditorOpen = useCallback((day: Date) => {
+    replaceBlockParam(null);
+    openMonthDayBlockEditor(day);
+  }, [openMonthDayBlockEditor, replaceBlockParam]);
+
+  const closeComposer = useCallback(() => {
+    replaceBlockParam(null);
+    closeTaskComposer();
+  }, [closeTaskComposer, replaceBlockParam]);
+
+  const saveComposer = useCallback(async () => {
+    const saved = await saveTaskComposer();
+    if (saved) replaceBlockParam(null);
+  }, [replaceBlockParam, saveTaskComposer]);
+
+  const deleteComposer = useCallback(async () => {
+    const deleted = await deleteTaskComposer();
+    if (deleted) replaceBlockParam(null);
+  }, [deleteTaskComposer, replaceBlockParam]);
+
+  useEffect(() => {
+    if (!selectedBlockId) {
+      openedBlockIdRef.current = null;
+      return;
+    }
+    if (taskComposer?.id === selectedBlockId) {
+      openedBlockIdRef.current = selectedBlockId;
+      return;
+    }
+
+    const existing = scheduledBlocks.find((item) => item.id === selectedBlockId);
+    if (existing) {
+      openedBlockIdRef.current = selectedBlockId;
+      setViewMode('week');
+      setCurrentDate(new Date(`${existing.day}T12:00:00`));
+      handleScheduledItemClick(existing);
+      return;
+    }
+
+    if (calendarReadModelQuery.isPending) return;
+    if (openedBlockIdRef.current === selectedBlockId) return;
+
+    let cancelled = false;
+    openedBlockIdRef.current = selectedBlockId;
+    void resolveEntity(
+      { type: 'calendar_block', id: selectedBlockId },
+      { userId: user?.id, getToken },
+    ).then((summary) => {
+      if (cancelled) {
+        openedBlockIdRef.current = null;
+        return;
+      }
+      if (summary.availability !== 'ok') return;
+      const parsed = parseCalendarBlockSubtitle(summary.subtitle);
+      const dayKey = parsed?.dayKey;
+      if (dayKey) {
+        setViewMode('week');
+        setCurrentDate(new Date(`${dayKey}T12:00:00`));
+      }
+      handleScheduledItemClick({
+        id: selectedBlockId,
+        title: summary.title,
+        notes: '',
+        day: dayKey || format(new Date(), 'yyyy-MM-dd'),
+        startMinutes: parsed?.startMinutes ?? 9 * 60,
+        endMinutes: parsed?.endMinutes ?? 10 * 60,
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    calendarReadModelQuery.isPending,
+    getToken,
+    handleScheduledItemClick,
+    scheduledBlocks,
+    selectedBlockId,
+    taskComposer?.id,
+    user?.id,
+  ]);
 
   // Valid range for components
   const validRange: [string, string] | null =
@@ -425,9 +542,9 @@ export function CalendarClient() {
       isSavingTaskComposer={isSavingTaskComposer}
       setTaskComposer={setTaskComposer}
       setTaskComposerError={setTaskComposerError}
-      closeTaskComposer={closeTaskComposer}
-      saveTaskComposer={saveTaskComposer}
-      deleteTaskComposer={deleteTaskComposer}
+      closeTaskComposer={closeComposer}
+      saveTaskComposer={saveComposer}
+      deleteTaskComposer={deleteComposer}
     />
   ) : null;
 
@@ -471,8 +588,8 @@ export function CalendarClient() {
               handleMouseEnter={handleMouseEnter}
               handleMouseUp={handleMouseUp}
               onEventClick={handleEventClick}
-              onScheduledItemClick={handleScheduledItemClick}
-              onDayBlockEditorOpen={openMonthDayBlockEditor}
+              onScheduledItemClick={onScheduledItemClick}
+              onDayBlockEditorOpen={onDayBlockEditorOpen}
               onDayHover={handleDayHover}
               heartRateSummariesByDay={heartRateSummariesByDay}
               onWeekClick={(_weekNumber, weekStart) => {
@@ -508,8 +625,8 @@ export function CalendarClient() {
               weekDays={weekDays}
               currentDate={currentDate}
               scheduledItems={scheduledBlocks}
-              onCreateSelection={openTaskComposer}
-              onItemClick={handleScheduledItemClick}
+              onCreateSelection={onCreateSelection}
+              onItemClick={onScheduledItemClick}
               onItemUpdate={handleScheduledItemUpdate}
             />
             {taskComposerModal}

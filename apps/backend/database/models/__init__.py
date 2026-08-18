@@ -11,6 +11,7 @@ from database.models.conversations import (
     ConversationQueueItemDB,
 )
 from database.models.experiments import ExperimentDB, ExperimentEntryDB
+from database.models.entities import EntityReferenceDB
 from database.models.facts import (
     AiFactDB,
     AiFactEventDB,
@@ -130,6 +131,7 @@ __all__ = [
     "ArtifactRevisionDB",
     "BehaviorBaselineSnapshotDB",
     "ConversationQueueItemDB",
+    "EntityReferenceDB",
     "ExperimentDB",
     "ExperimentEntryDB",
     "DailyActivityRollupDB",

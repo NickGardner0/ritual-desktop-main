@@ -290,3 +290,17 @@ export function mapScheduledBlockFromApi(item: ScheduledBlockApi): WeekScheduled
     endMinutes: item.end_minutes,
   };
 }
+
+export function parseCalendarBlockSubtitle(subtitle?: string | null): {
+  dayKey: string;
+  startMinutes: number;
+  endMinutes: number;
+} | null {
+  const match = (subtitle || "").match(/^(\d{4}-\d{2}-\d{2})\s·\s(\d{2}):(\d{2})[–-](\d{2}):(\d{2})$/);
+  if (!match) return null;
+  return {
+    dayKey: match[1],
+    startMinutes: Number(match[2]) * 60 + Number(match[3]),
+    endMinutes: Number(match[4]) * 60 + Number(match[5]),
+  };
+}

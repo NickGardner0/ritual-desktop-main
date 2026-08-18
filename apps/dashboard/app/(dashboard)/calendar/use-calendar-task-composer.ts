@@ -3,6 +3,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
+import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 import type { WeekScheduledItem, WeekScheduledItemUpdate, WeekSelectionPayload } from './calendar-week-view';
 import type { TaskComposerState } from './task-composer-modal';
 
@@ -161,7 +162,7 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
   }, []);
 
   const saveTaskComposer = useCallback(async () => {
-    if (!taskComposer) return;
+    if (!taskComposer) return false;
 
     const normalizedTitle = taskComposer.title.trim() || 'Untitled block';
     const payload = {
@@ -207,16 +208,28 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
       await queryClient.invalidateQueries({
         queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
       });
+      const saved = await response.json().catch(() => null) as { id?: string } | null;
+      const sourceId = saved?.id || taskComposer.id;
+      if (sourceId) {
+        void syncEntityMentions({
+          source: { type: 'calendar_block', id: sourceId },
+          text: payload.notes,
+          getToken,
+          userId: user?.id,
+        });
+      }
       setTaskComposer(null);
     } catch (error) {
       setTaskComposerError(error instanceof Error ? error.message : 'Failed to save block');
+      return false;
     } finally {
       setIsSavingTaskComposer(false);
     }
+    return true;
   }, [getToken, queryClient, taskComposer, user?.id]);
 
   const deleteTaskComposer = useCallback(async () => {
-    if (!taskComposer?.id) return;
+    if (!taskComposer?.id) return false;
 
     setIsSavingTaskComposer(true);
     setTaskComposerError(null);
@@ -252,9 +265,11 @@ export function useCalendarTaskComposer(scheduledBlocksByDay: Map<string, WeekSc
       setTaskComposer(null);
     } catch (error) {
       setTaskComposerError(error instanceof Error ? error.message : 'Failed to delete block');
+      return false;
     } finally {
       setIsSavingTaskComposer(false);
     }
+    return true;
   }, [getToken, queryClient, taskComposer, user?.id]);
 
   return {

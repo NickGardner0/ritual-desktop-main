@@ -24,6 +24,7 @@ from api.approvals import create_approvals_router
 from api.artifacts import create_artifacts_router
 from api.biometrics import create_biometrics_router
 from api.conversations import create_conversations_router
+from api.entities import create_entities_router
 from api.experiments import create_experiments_router
 from api.core import create_core_router
 from api.facts import create_facts_router
@@ -233,6 +234,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(create_conversations_router(get_current_user=get_persisted_account))
     app.include_router(create_experiments_router(get_current_user=get_persisted_account))
+    app.include_router(create_entities_router(get_current_user=get_persisted_account))
     app.include_router(create_search_router(get_current_user=get_persisted_account))
     app.include_router(create_reports_router(get_current_user=get_persisted_account))
     app.include_router(create_artifacts_router(get_current_user=get_persisted_account))

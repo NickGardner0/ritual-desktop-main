@@ -8,6 +8,7 @@ import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
 import { Plus, Repeat2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import { apiOperationWithAuth } from '@/lib/api/client';
@@ -331,6 +332,12 @@ export function RoutinesClient() {
       if (routine) {
         setSelectedId(routine.id);
         if (user?.id) void putLocalVaultRoutine(user.id, routine).catch(() => undefined);
+        void syncEntityMentions({
+          source: { type: 'routine', id: routine.id },
+          text: routine.task_template?.notes,
+          getToken,
+          userId: user?.id,
+        });
       }
       toast.success(created ? 'Routine created' : 'Routine saved');
     },
@@ -418,6 +425,7 @@ export function RoutinesClient() {
         initial={modal.initial}
         lastRunAt={modal.editing?.routine.last_run_at || null}
         submitting={submitModalMutation.isPending}
+        routineId={modal.editing?.routine.id || null}
         onClose={() => setModal(closedModal())}
         onSubmit={(state) => submitModalMutation.mutate({ state, editing: modal.editing })}
       />

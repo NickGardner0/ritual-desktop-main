@@ -24,12 +24,31 @@ import {
 } from './chat-stream-buffer';
 import type { Message } from './chat-client.shared';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
+import { canonicalEntityType, parseEntityMentionTokens } from '@ritual/shared-contracts';
+import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
 const HABIT_LOG_LOCATION_PREFLIGHT_PATTERN =
   /\b(log|logged|logging|track|tracked|record|recorded|completed|finished|walked|ran|meditated|workout|worked out|read|drank|consumed|slept)\b/i;
 
 function shouldPreflightLocationForChat(text: string): boolean {
   return HABIT_LOG_LOCATION_PREFLIGHT_PATTERN.test(text);
+}
+
+function entityRefsFromReceipts(receipts: Message['actionReceipts']): Message['entityRefs'] {
+  if (!receipts?.length) return undefined;
+  const refs: NonNullable<Message['entityRefs']> = [];
+  const seen = new Set<string>();
+  for (const receipt of receipts) {
+    if (receipt.habit_id && !seen.has(`habit:${receipt.habit_id}`)) {
+      seen.add(`habit:${receipt.habit_id}`);
+      refs.push({ type: 'habit', id: receipt.habit_id, title: receipt.habit_name || undefined });
+    }
+    if (receipt.log_id && !seen.has(`habit_log:${receipt.log_id}`)) {
+      seen.add(`habit_log:${receipt.log_id}`);
+      refs.push({ type: 'habit_log', id: receipt.log_id, title: receipt.habit_name || undefined });
+    }
+  }
+  return refs.length ? refs : undefined;
 }
 
 export function useChatSendMessage({
@@ -71,7 +90,7 @@ export function useChatSendMessage({
   loadMemoryFacts: () => Promise<void>;
   voiceStyleEnabled: boolean;
 }) {
-  const sendMessage = useCallback(async (text: string): Promise<boolean> => {
+  const sendMessage = useCallback(async (text: string, options?: { entityRefs?: Message['entityRefs'] }): Promise<boolean> => {
     if (isLoading || !text.trim()) return false;
     
     setIsLoading(true);
@@ -79,10 +98,19 @@ export function useChatSendMessage({
     setCurrentQuestion(text);
     setToolStatus({ label: getToolLabel(text), done: false });
     
+    const tokenRefs = parseEntityMentionTokens(text).map((ref) => ({ type: ref.type, id: ref.id }));
+    const attachedRefs = [...tokenRefs, ...(options?.entityRefs || [])].filter((ref) => {
+      const type = canonicalEntityType(ref?.type);
+      return Boolean(type && ref?.id);
+    }).filter((ref, index, items) => {
+      const type = canonicalEntityType(ref.type) || ref.type;
+      return items.findIndex((item) => (canonicalEntityType(item.type) || item.type) === type && item.id === ref.id) === index;
+    });
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
       content: text.trim(),
+      entityRefs: attachedRefs.length ? attachedRefs : undefined,
     };
     
     const newMessages = [...messages, userMessage];
@@ -150,6 +178,7 @@ export function useChatSendMessage({
           conversationId: conversationId, // Include conversation ID for persistence
           responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
           localOverviewActivity,
+          entityRefs: attachedRefs.length ? attachedRefs : undefined,
         }),
       });
       
@@ -159,6 +188,7 @@ export function useChatSendMessage({
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullResponse = '';
+      let resolvedConversationId = conversationId;
       let toolData: {
         stats?: any;
         dailyBreakdown?: any;
@@ -173,6 +203,7 @@ export function useChatSendMessage({
         suggested_followups?: string[];
         reply_chips?: string[];
         actionReceipts?: Message['actionReceipts'];
+        entityRefs?: Message['entityRefs'];
       } | null = null;
       let streamBuffer = '';
       let toolMarkedDone = false;
@@ -225,6 +256,7 @@ export function useChatSendMessage({
           if (match) {
             const newConversationId = match[1];
             console.log('💬 Received conversation ID:', newConversationId);
+            resolvedConversationId = newConversationId;
             setConversationId(newConversationId);
             // Refresh conversations list to include the new conversation
             loadConversationsList();
@@ -324,6 +356,9 @@ export function useChatSendMessage({
       const actionReceipts = Array.isArray((toolData as any)?.actionReceipts)
         ? ((toolData as any).actionReceipts as Message['actionReceipts'])
         : undefined;
+      const entityRefs = Array.isArray((toolData as any)?.entityRefs)
+        ? ((toolData as any).entityRefs as Message['entityRefs'])
+        : entityRefsFromReceipts(actionReceipts);
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
@@ -332,12 +367,32 @@ export function useChatSendMessage({
         canvasData: extractedCanvas,
         replyChips: replyChips,  // Phase 4A
         actionReceipts,
+        entityRefs,
       };
       
       setMessages([...newMessages, assistantMessage]);
       clearStreamingFlushTimer();
       setStreamingContent('');
       void loadMemoryFacts();
+      if (resolvedConversationId) {
+        void syncEntityMentions({
+          source: { type: 'conversation', id: resolvedConversationId },
+          text,
+          extraTargets: attachedRefs,
+          provenance: 'user',
+          getToken,
+          userId,
+        });
+        if (entityRefs?.length) {
+          void syncEntityMentions({
+            source: { type: 'conversation', id: resolvedConversationId },
+            extraTargets: entityRefs,
+            provenance: 'assistant',
+            getToken,
+            userId,
+          });
+        }
+      }
       return true;
     } catch (error) {
       console.error('Chat error:', error);

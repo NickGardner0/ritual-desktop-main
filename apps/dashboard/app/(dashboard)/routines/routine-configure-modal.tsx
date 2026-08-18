@@ -25,6 +25,10 @@ import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
 import { WEEKDAYS } from '@/lib/tasks/routine-editor';
 import { InlineFieldInput, PillSelect } from '@/lib/tasks/task-ui-shell';
 import type { TaskPriority } from '@/lib/tasks/types';
+import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
+import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
+import { EntityNoteField } from '@/components/entities/entity-note-field';
+import { entityProtocolEnabled } from '@/lib/entities/feature-flag';
 
 export type RoutineConfigureState = {
   name: string;
@@ -408,6 +412,7 @@ export function RoutineConfigurePanel({
   submitting,
   onClose,
   onSubmit,
+  routineId,
 }: {
   open: boolean;
   mode: 'create' | 'edit';
@@ -416,12 +421,14 @@ export function RoutineConfigurePanel({
   submitting: boolean;
   onClose: () => void;
   onSubmit: (state: RoutineConfigureState) => void;
+  routineId?: string | null;
 }) {
   const [state, setState] = useState<RoutineConfigureState>(initial);
   const [lastInitial, setLastInitial] = useState(initial);
   const [editingTitle, setEditingTitle] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
+  const [relatedRefreshKey, setRelatedRefreshKey] = useState(0);
   const panelRef = useRef<HTMLElement | null>(null);
   const reduceMotion = useReducedMotion();
   const dockTarget = useRightDockTarget();
@@ -646,9 +653,9 @@ export function RoutineConfigurePanel({
                 </section>
 
                 <section className={groupClass}>
-                  <textarea
+                  <EntityNoteField
                     value={state.notes}
-                    onChange={(event) => setState({ ...state, notes: event.target.value })}
+                    onChange={(notes) => setState({ ...state, notes })}
                     placeholder="Add a short description…"
                     className="min-h-[88px] w-full resize-none border-0 bg-transparent px-3 py-3 text-[13px] leading-5 text-[#27251E] outline-none placeholder:text-[rgba(39,37,30,0.4)] focus-visible:ring-0"
                   />
@@ -658,6 +665,19 @@ export function RoutineConfigurePanel({
                   value={state.tags}
                   onChange={(tags) => setState((current) => ({ ...current, tags }))}
                 />
+
+                {entityProtocolEnabled() && mode === 'edit' && routineId ? (
+                  <section className="space-y-3 px-1 pb-2">
+                    <EntityRelatedPanel
+                      entityRef={{ type: 'routine', id: routineId }}
+                      refreshKey={relatedRefreshKey}
+                    />
+                    <EntityLinkPicker
+                      source={{ type: 'routine', id: routineId }}
+                      onLinked={() => setRelatedRefreshKey((value) => value + 1)}
+                    />
+                  </section>
+                ) : null}
               </div>
             </div>
 

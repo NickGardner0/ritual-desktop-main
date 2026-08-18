@@ -207,6 +207,7 @@ export function useChatConversationActions({
           const loadedMessages: Message[] = conversation.messages.map((m) => {
             let messageCanvasData: HabitCanvasData | undefined;
             let actionReceipts: Message['actionReceipts'];
+            let entityRefs: Message['entityRefs'];
             if (m.tool_payload && m.role === 'assistant') {
               const toolData = m.tool_payload as {
                 stats?: unknown;
@@ -218,6 +219,7 @@ export function useChatConversationActions({
                 dailyOverview?: unknown;
                 monthlyOverview?: unknown;
                 actionReceipts?: Message['actionReceipts'];
+                entityRefs?: Message['entityRefs'];
               };
               const messageIndex = conversation.messages.findIndex(msg => msg.id === m.id);
               const previousUserMessage = messageIndex > 0 ? conversation.messages[messageIndex - 1] : null;
@@ -225,6 +227,9 @@ export function useChatConversationActions({
               messageCanvasData = buildCanvasFromToolData(toolData, question);
               if (Array.isArray(toolData.actionReceipts)) {
                 actionReceipts = toolData.actionReceipts;
+              }
+              if (Array.isArray(toolData.entityRefs)) {
+                entityRefs = toolData.entityRefs;
               }
             }
             
@@ -234,6 +239,7 @@ export function useChatConversationActions({
               content: m.content,
               canvasData: messageCanvasData,
               actionReceipts,
+              entityRefs,
             };
           });
           

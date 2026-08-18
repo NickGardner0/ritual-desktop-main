@@ -15,6 +15,9 @@ class ExperimentDB(Base):
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
+    hypothesis = Column(Text, nullable=True)
+    period_start = Column(String, nullable=True)
+    period_end = Column(String, nullable=True)
     status = Column(String, nullable=False, default="active")  # active | completed | archived
     created_at = Column(DateTime, default=_utcnow_naive)
     updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)

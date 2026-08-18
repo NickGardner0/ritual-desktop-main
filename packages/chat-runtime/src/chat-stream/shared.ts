@@ -40,6 +40,7 @@ export function buildCanvasToolPayload(toolResults: ChatToolResults): Record<str
     suggested_followups: toolResults.suggested_followups,
     reply_chips: toolResults.reply_chips,
     actionReceipts: toolResults.actionReceipts,
+    entityRefs: toolResults.entityRefs,
   };
 
   for (const key of Object.keys(payload)) {

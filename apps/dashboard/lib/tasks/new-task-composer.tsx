@@ -20,6 +20,7 @@ import {
 } from '@/lib/tasks/task-composer-storage';
 import type { TaskCreateInput, TaskPriority } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
+import { EntityNoteField } from '@/components/entities/entity-note-field';
 
 import { CATEGORY_FILTERS, PRIORITIES } from '@/lib/tasks/task-constants';
 
@@ -119,7 +120,6 @@ export function NewTaskComposer({
   defaultSchedule?: ScheduleWhen;
 }) {
   const titleRef = useRef<HTMLInputElement>(null);
-  const notesRef = useRef<HTMLTextAreaElement>(null);
   const dueInputRef = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<number | null>(null);
 
@@ -283,16 +283,14 @@ export function NewTaskComposer({
             onKeyDown={(event) => {
               if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
-                notesRef.current?.focus();
               }
             }}
             placeholder="New task"
             className="w-full bg-transparent text-[18px] font-medium leading-snug tracking-[-0.01em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
           />
-          <textarea
-            ref={notesRef}
+          <EntityNoteField
             value={notes}
-            onChange={(event) => setNotes(event.target.value)}
+            onChange={setNotes}
             placeholder="Add description..."
             rows={5}
             className="mt-3 min-h-[120px] w-full resize-none bg-transparent text-[14px] leading-relaxed text-[rgba(39,37,30,0.78)] outline-none placeholder:text-[var(--text-muted)]"

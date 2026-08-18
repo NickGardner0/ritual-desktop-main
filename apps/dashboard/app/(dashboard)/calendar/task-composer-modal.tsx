@@ -1,7 +1,11 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
+import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
+import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
+import { EntityNoteField } from '@/components/entities/entity-note-field';
+import { entityProtocolEnabled } from '@/lib/entities/feature-flag';
 import { formatMinutesDisplay, formatMinutesInput, parseMinutes } from './calendar-client.helpers';
 
 export type TaskComposerState = {
@@ -33,6 +37,7 @@ export function TaskComposerModal({
   saveTaskComposer,
   deleteTaskComposer,
 }: TaskComposerModalProps) {
+  const [relatedRefreshKey, setRelatedRefreshKey] = useState(0);
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center px-4 py-6">
       <button
@@ -123,10 +128,9 @@ export function TaskComposerModal({
             <label className="text-xs uppercase tracking-[0.04em] text-gray-500">
               Notes
             </label>
-            <textarea
+            <EntityNoteField
               value={taskComposer.notes}
-              onChange={(event) => {
-                const value = event.target.value;
+              onChange={(value) => {
                 setTaskComposer((prev) => (prev ? { ...prev, notes: value } : prev));
               }}
               rows={2}
@@ -134,6 +138,19 @@ export function TaskComposerModal({
               className="w-full resize-none border border-gray-300 px-2.5 py-2 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:border-gray-500 selection:bg-[rgba(17,24,39,0.16)] selection:text-[#111827]"
             />
           </div>
+
+          {entityProtocolEnabled() && taskComposer.id ? (
+            <div className="space-y-2">
+              <EntityRelatedPanel
+                entityRef={{ type: 'calendar_block', id: taskComposer.id }}
+                refreshKey={relatedRefreshKey}
+              />
+              <EntityLinkPicker
+                source={{ type: 'calendar_block', id: taskComposer.id }}
+                onLinked={() => setRelatedRefreshKey((value) => value + 1)}
+              />
+            </div>
+          ) : null}
 
           {taskComposerError && (
             <p className="text-xs text-red-600">{taskComposerError}</p>

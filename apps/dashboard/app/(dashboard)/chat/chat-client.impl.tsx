@@ -102,6 +102,7 @@ export function ChatClient() {
   const suggestionsAbortRef = useRef<AbortController | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [attachedEntityRefs, setAttachedEntityRefs] = useState<Message['entityRefs']>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [canvasData, setCanvasData] = useState<HabitCanvasData | null>(null);
@@ -504,8 +505,9 @@ export function ChatClient() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
-    sendMessage(input.trim());
+    sendMessage(input.trim(), { entityRefs: attachedEntityRefs });
     setInput('');
+    setAttachedEntityRefs([]);
   };
 
   const handleInputFocus = useCallback(() => {
@@ -641,6 +643,8 @@ export function ChatClient() {
     headerCenterSlot,
     headerLeftSlot,
     input,
+    attachedEntityRefs,
+    setAttachedEntityRefs,
     isListening,
     isLoading,
     isLoadingConversations,

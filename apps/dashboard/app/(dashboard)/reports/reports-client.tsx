@@ -23,6 +23,10 @@ import {
 import { toast } from "sonner";
 
 import { ArtifactBody } from "@/components/ritual-intelligence/artifact-body";
+import { EntityLinkPicker } from "@/components/entities/entity-link-picker";
+import { EntityRelatedPanel } from "@/components/entities/entity-related-panel";
+import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
+import { syncEntityMentions } from "@/lib/entities/sync-mentions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QUERY_POLICY } from "@/lib/query-policies";
@@ -264,6 +268,23 @@ export function ReportsClient() {
       void queryClient.invalidateQueries({ queryKey: ["artifacts-library"] });
       void queryClient.invalidateQueries({ queryKey: ["artifact-detail"] });
       void queryClient.invalidateQueries({ queryKey: ["workflow-runs"] });
+      const mentionText = [
+        artifact.summary,
+        artifact.preview_text,
+        ...(Array.isArray(artifact.body?.blocks)
+          ? artifact.body.blocks.flatMap((block: Record<string, unknown>) => [
+              block.text,
+              block.intro,
+              Array.isArray(block.items) ? block.items.map((item) => (typeof item === "string" ? item : JSON.stringify(item))).join("\n") : "",
+            ])
+          : []),
+      ]
+        .filter((item) => typeof item === "string" && item.trim())
+        .join("\n");
+      void syncEntityMentions({
+        source: { type: "artifact", id: artifact.id },
+        text: mentionText,
+      });
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Failed to save artifact.");
@@ -565,6 +586,12 @@ export function ReportsClient() {
                   </div>
                 </div>
                 <ArtifactBody body={selectedArtifact.body} />
+                {entityProtocolEnabled() ? (
+                  <div className="mt-5 space-y-3">
+                    <EntityRelatedPanel entityRef={{ type: "artifact", id: selectedArtifact.id }} />
+                    <EntityLinkPicker source={{ type: "artifact", id: selectedArtifact.id }} />
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="flex h-[640px] items-center justify-center rounded-[28px] border border-dashed border-[rgba(15,23,42,0.12)] bg-[#fbfcfb] text-center">

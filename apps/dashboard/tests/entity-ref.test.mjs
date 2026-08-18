@@ -1,0 +1,254 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+const ENTITY_ROUTES = {
+  habit: (id) => `/dashboard?view=metrics&habit=${encodeURIComponent(id)}`,
+  habit_log: (id) => `/activity?logId=${encodeURIComponent(id)}`,
+  task: (id) => `/tasks?task=${encodeURIComponent(id)}`,
+  routine: (id) => `/routines?routine=${encodeURIComponent(id)}`,
+  artifact: (id) => `/reports?artifactId=${encodeURIComponent(id)}`,
+  conversation: (id) => `/chat?conversation=${encodeURIComponent(id)}`,
+  experiment: (id) => `/experiments/${encodeURIComponent(id)}`,
+  calendar_block: (id) => `/calendar?block=${encodeURIComponent(id)}`,
+  day: (id) => `/calendar?date=${encodeURIComponent(id)}`,
+  time_window: (id) => {
+    const [from, to] = id.split("/");
+    return `/activity?from=${encodeURIComponent(from || id)}&to=${encodeURIComponent(to || from || id)}`;
+  },
+};
+
+const ENTITY_TYPE_ALIASES = {
+  report: "artifact",
+  calendar: "calendar_block",
+};
+
+function canonicalEntityType(value) {
+  if (ENTITY_ROUTES[value]) return value;
+  return ENTITY_TYPE_ALIASES[value] || null;
+}
+
+function entityProtocolEnabled({ envValue, storageValue } = {}) {
+  if (envValue === "0") return false;
+  if (storageValue === "0") return false;
+  return true;
+}
+
+function mentionQueryFromInput(value) {
+  const match = value.match(/(?:^|\s)@([^\s@]*)$/);
+  return match ? match[1] : null;
+}
+
+function mergeEntitySummaries(...groups) {
+  const seen = new Set();
+  const merged = [];
+  for (const group of groups) {
+    for (const item of group) {
+      const key = `${item.ref.type}:${item.ref.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+function summariesFromSearchBuckets(payload) {
+  const items = [];
+  for (const hit of payload.artifacts?.hits || []) {
+    items.push({
+      ref: { type: "artifact", id: String(hit.id) },
+      title: String(hit.title || "Report"),
+    });
+  }
+  for (const hit of payload.conversations?.hits || []) {
+    items.push({
+      ref: { type: "conversation", id: String(hit.conversation_id || hit.id) },
+      title: String(hit.title || "Conversation"),
+    });
+  }
+  return items;
+}
+
+function unavailableTitle(availability) {
+  if (availability === "forbidden") return "Unavailable";
+  if (availability === "deleted") return "Deleted";
+  return "Unknown";
+}
+
+test("canonical entity routes cover layer 0 types and experiments", () => {
+  assert.equal(ENTITY_ROUTES.habit("h1"), "/dashboard?view=metrics&habit=h1");
+  assert.equal(ENTITY_ROUTES.habit_log("log 1"), "/activity?logId=log%201");
+  assert.equal(ENTITY_ROUTES.task("t1"), "/tasks?task=t1");
+  assert.equal(ENTITY_ROUTES.routine("r1"), "/routines?routine=r1");
+  assert.equal(ENTITY_ROUTES.artifact("a1"), "/reports?artifactId=a1");
+  assert.equal(ENTITY_ROUTES.conversation("c1"), "/chat?conversation=c1");
+  assert.equal(ENTITY_ROUTES.experiment("e1"), "/experiments/e1");
+  assert.equal(ENTITY_ROUTES.calendar_block("b1"), "/calendar?block=b1");
+  assert.equal(ENTITY_ROUTES.day("2026-08-17"), "/calendar?date=2026-08-17");
+  assert.equal(ENTITY_ROUTES.time_window("2026-08-11/2026-08-17"), "/activity?from=2026-08-11&to=2026-08-17");
+});
+
+test("report and calendar aliases canonicalize to existing types", () => {
+  assert.equal(canonicalEntityType("report"), "artifact");
+  assert.equal(canonicalEntityType("calendar"), "calendar_block");
+  assert.equal(ENTITY_ROUTES[canonicalEntityType("report")]("a1"), "/reports?artifactId=a1");
+  assert.equal(ENTITY_ROUTES[canonicalEntityType("calendar")]("b1"), "/calendar?block=b1");
+});
+
+test("entity protocol flag is on unless explicitly disabled", () => {
+  assert.equal(entityProtocolEnabled(), true);
+  assert.equal(entityProtocolEnabled({ envValue: "0" }), false);
+  assert.equal(entityProtocolEnabled({ storageValue: "0" }), false);
+});
+
+test("unknown and forbidden fallbacks never leak a title", () => {
+  assert.equal(unavailableTitle("unknown"), "Unknown");
+  assert.equal(unavailableTitle("deleted"), "Deleted");
+  assert.equal(unavailableTitle("forbidden"), "Unavailable");
+});
+
+test("mention query reads the trailing @token", () => {
+  assert.equal(mentionQueryFromInput("see @wal"), "wal");
+  assert.equal(mentionQueryFromInput("@"), "");
+  assert.equal(mentionQueryFromInput("hello there"), null);
+});
+
+test("search buckets normalize artifacts and conversations", () => {
+  const items = summariesFromSearchBuckets({
+    artifacts: { hits: [{ id: "a1", title: "Morning brief" }] },
+    conversations: { hits: [{ conversation_id: "c1", title: "Walk recap" }] },
+  });
+  const merged = mergeEntitySummaries(items, [
+    { ref: { type: "artifact", id: "a1" }, title: "Duplicate" },
+  ]);
+  assert.equal(merged.length, 2);
+  assert.equal(merged[0].title, "Morning brief");
+  assert.equal(merged[1].ref.type, "conversation");
+});
+
+test("calendar block subtitle encodes day and time range", () => {
+  const match = "2026-08-17 · 09:00–10:00".match(/^(\d{4}-\d{2}-\d{2})\s·\s(\d{2}):(\d{2})[–-](\d{2}):(\d{2})$/);
+  assert.equal(match[1], "2026-08-17");
+  assert.equal(Number(match[2]) * 60 + Number(match[3]), 540);
+  assert.equal(Number(match[4]) * 60 + Number(match[5]), 600);
+});
+
+const ENTITY_MENTION_TOKEN_PATTERN = /\[\[([a-z_]+):([^\]]+)\]\]/g;
+
+function formatEntityMentionToken(ref) {
+  const type = canonicalEntityType(ref.type) || ref.type;
+  return `[[${type}:${ref.id}]]`;
+}
+
+function splitEntityMentionText(text) {
+  const source = String(text || "");
+  const parts = [];
+  const pattern = new RegExp(ENTITY_MENTION_TOKEN_PATTERN.source, "g");
+  let lastIndex = 0;
+  for (const match of source.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > lastIndex) parts.push({ kind: "text", value: source.slice(lastIndex, index) });
+    const type = canonicalEntityType(match[1]);
+    const id = String(match[2] || "").trim();
+    if (type && id) parts.push({ kind: "mention", ref: { type, id } });
+    else parts.push({ kind: "unknown", raw: match[0] });
+    lastIndex = index + match[0].length;
+  }
+  if (lastIndex < source.length) parts.push({ kind: "text", value: source.slice(lastIndex) });
+  return parts;
+}
+
+function parseEntityMentionTokens(text) {
+  return splitEntityMentionText(text)
+    .filter((part) => part.kind === "mention")
+    .map((part) => part.ref)
+    .filter((ref, index, items) => items.findIndex((item) => item.type === ref.type && item.id === ref.id) === index);
+}
+
+function insertEntityMentionToken(text, ref) {
+  const token = formatEntityMentionToken(ref);
+  const replaced = String(text || "").replace(/(^|\s)@([^\s@]*)$/, `$1${token} `);
+  if (replaced !== text) return replaced;
+  const trimmed = String(text || "").replace(/\s+$/, "");
+  return trimmed ? `${trimmed} ${token} ` : `${token} `;
+}
+
+function parseDateMentionQuery(query, now = new Date("2026-08-17T12:00:00")) {
+  const raw = query.trim().toLowerCase();
+  const isoDay = /^\d{4}-\d{2}-\d{2}$/;
+  const isoWindow = /^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/;
+  if (isoDay.test(raw)) return { type: "day", id: raw };
+  const windowMatch = raw.match(isoWindow);
+  if (windowMatch && windowMatch[1] <= windowMatch[2]) {
+    return { type: "time_window", id: `${windowMatch[1]}/${windowMatch[2]}` };
+  }
+  const formatLocalDay = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const today = new Date(now);
+  today.setHours(12, 0, 0, 0);
+  if (raw === "today") return { type: "day", id: formatLocalDay(today) };
+  if (raw === "yesterday") {
+    const date = new Date(today);
+    date.setDate(date.getDate() - 1);
+    return { type: "day", id: formatLocalDay(date) };
+  }
+  if (raw === "this week") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - start.getDay());
+    const end = new Date(start);
+    end.setDate(end.getDate() + 6);
+    return { type: "time_window", id: `${formatLocalDay(start)}/${formatLocalDay(end)}` };
+  }
+  if (raw === "last 7 days") {
+    const start = new Date(today);
+    start.setDate(start.getDate() - 6);
+    return { type: "time_window", id: `${formatLocalDay(start)}/${formatLocalDay(today)}` };
+  }
+  return null;
+}
+
+function entityPillMeta(summary) {
+  const type = summary.ref.type;
+  const preferred =
+    type === "habit_log" || type === "artifact" || type === "day" || type === "time_window"
+      ? summary.subtitle || summary.status
+      : summary.status || summary.subtitle;
+  return (preferred || "").trim() || undefined;
+}
+
+test("mention tokens round-trip and canonicalize report aliases", () => {
+  const inserted = insertEntityMentionToken("see @rep", { type: "report", id: "a1" });
+  assert.equal(inserted, "see [[artifact:a1]] ");
+  const parsed = parseEntityMentionTokens("Notes [[report:a1]] and [[artifact:a1]] [[calendar:b1]]");
+  assert.deepEqual(parsed, [
+    { type: "artifact", id: "a1" },
+    { type: "calendar_block", id: "b1" },
+  ]);
+});
+
+test("unknown mention tokens stay unknown", () => {
+  const parts = splitEntityMentionText("hello [[widget:abc]] world");
+  assert.deepEqual(parts, [
+    { kind: "text", value: "hello " },
+    { kind: "unknown", raw: "[[widget:abc]]" },
+    { kind: "text", value: " world" },
+  ]);
+});
+
+test("relative dates canonicalize in local timezone with Sunday weeks", () => {
+  assert.deepEqual(parseDateMentionQuery("today"), { type: "day", id: "2026-08-17" });
+  assert.deepEqual(parseDateMentionQuery("yesterday"), { type: "day", id: "2026-08-16" });
+  assert.deepEqual(parseDateMentionQuery("this week"), { type: "time_window", id: "2026-08-16/2026-08-22" });
+  assert.deepEqual(parseDateMentionQuery("last 7 days"), { type: "time_window", id: "2026-08-11/2026-08-17" });
+});
+
+test("compact pills prefer status or a short subtitle", () => {
+  assert.equal(entityPillMeta({ ref: { type: "task", id: "t1" }, status: "open", subtitle: "Personal" }), "open");
+  assert.equal(entityPillMeta({ ref: { type: "habit_log", id: "l1" }, status: "completed", subtitle: "2026-08-17" }), "2026-08-17");
+  assert.equal(entityPillMeta({ ref: { type: "calendar_block", id: "b1" }, status: "09:00–10:00", subtitle: "2026-08-17 · 09:00–10:00" }), "09:00–10:00");
+  assert.equal(entityPillMeta({ ref: { type: "artifact", id: "a1" }, subtitle: "notebook", status: "published" }), "notebook");
+});

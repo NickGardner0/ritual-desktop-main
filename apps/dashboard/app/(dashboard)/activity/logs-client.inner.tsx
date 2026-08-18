@@ -80,6 +80,8 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       'date',
       'start_date',
       'end_date',
+      'from',
+      'to',
       'categories',
       'habits',
       'statuses',
@@ -91,8 +93,8 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     if (!hasPaletteParams) return;
 
     const exactDate = searchParams.get('date');
-    const startDate = searchParams.get('start_date') || exactDate;
-    const endDate = searchParams.get('end_date') || exactDate;
+    const startDate = searchParams.get('start_date') || searchParams.get('from') || exactDate;
+    const endDate = searchParams.get('end_date') || searchParams.get('to') || exactDate;
 
     const nextFilters: FilterState = {
       q: searchParams.get('q') || null,

@@ -5,6 +5,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
+import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
 import { apiOperationWithAuth } from '@/lib/api/client';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
@@ -194,6 +195,14 @@ export function TasksClient() {
     onSuccess: (_task, variables) => {
       void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
       if (user?.id && _task) void putLocalVaultTask(user.id, _task).catch(() => undefined);
+      if (_task?.id) {
+        void syncEntityMentions({
+          source: { type: 'task', id: _task.id },
+          text: _task.notes,
+          getToken,
+          userId: user?.id,
+        });
+      }
       if (!variables.createMore) setComposerOpen(false);
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create task.'),
