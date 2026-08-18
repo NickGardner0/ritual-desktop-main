@@ -1,17 +1,17 @@
 "use client";
 
+import { useAuth, useUser } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
 import { CalendarCheck, Pin, Plus, Repeat2 } from "lucide-react";
+import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ToolbarButton } from "@/components/ui/ritual-system";
+import { apiOperationWithAuth } from "@/lib/api/client";
+import type { Task } from "@/lib/tasks/types";
 import { cn } from "@/lib/utils";
-
-const taskRows = [
-  { title: "Review today", detail: "Nothing pinned", muted: true },
-  { title: "Next up", detail: "No active task", muted: true },
-];
 
 const routineRows = [
   { title: "Morning check-in", detail: "No pinned run", muted: true },
@@ -42,11 +42,13 @@ function SummarySection({
   title,
   count,
   icon,
+  addHref,
   children,
 }: {
   title: string;
   count: number;
   icon: ReactNode;
+  addHref?: string;
   children: ReactNode;
 }) {
   return (
@@ -57,13 +59,23 @@ function SummarySection({
           <span>{title}</span>
           <span className="text-[12px] text-[#b0aea8]">{count}</span>
         </div>
-        <button
-          type="button"
-          className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
-          aria-label={`Add ${title.toLowerCase()}`}
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
-        </button>
+        {addHref ? (
+          <Link
+            href={addHref}
+            className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
+            aria-label={`Add ${title.toLowerCase()}`}
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
+            aria-label={`Add ${title.toLowerCase()}`}
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
+          </button>
+        )}
       </div>
       <div className="flex flex-col gap-px">{children}</div>
     </section>
@@ -74,20 +86,19 @@ function SummaryRow({
   title,
   detail,
   muted,
+  href,
 }: {
   title: string;
   detail: string;
   muted?: boolean;
+  href?: string;
 }) {
-  return (
-    <button
-      type="button"
-      title={detail}
-      className={cn(
-        "ritual-snappy-row ritual-snappy-row-menu grid h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 text-left",
-        "focus-visible:outline-none",
-      )}
-    >
+  const className = cn(
+    "ritual-snappy-row ritual-snappy-row-menu grid h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-1.5 text-left",
+    "focus-visible:outline-none",
+  );
+  const body = (
+    <>
       <span
         className={cn(
           "min-w-0 truncate text-[13px] font-normal leading-none",
@@ -97,13 +108,46 @@ function SummaryRow({
         {title}
       </span>
       <Pin className="h-3 w-3 text-[#b5b2ab]" strokeWidth={1.75} />
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} title={detail} className={className}>
+        {body}
+      </Link>
+    );
+  }
+
+  return (
+    <button type="button" title={detail} className={className}>
+      {body}
     </button>
   );
 }
 
 export function PinnedSummaryPopover() {
+  const { getToken } = useAuth();
+  const { user } = useUser();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement | null>(null);
+
+  const todayTasksQuery = useQuery({
+    queryKey: ["tasks", user?.id, "today", "pinned-summary"],
+    enabled: open && Boolean(user?.id),
+    queryFn: async () => {
+      const response = await apiOperationWithAuth(
+        "get_tasks_api_tasks_get",
+        getToken,
+        { query: { view: "today", limit: 20 } },
+        user?.id,
+      );
+      return ((response.items ?? []) as Task[]).filter((task) => task.status === "open");
+    },
+    staleTime: 15_000,
+  });
+
+  const todayTasks = todayTasksQuery.data ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -165,21 +209,33 @@ export function PinnedSummaryPopover() {
                     <h2 className="text-[14px] font-medium leading-none text-[#2d2d2b]">Pinned</h2>
                     <p className="mt-1 text-[12px] font-normal leading-none text-[#9b9a96]">Today</p>
                   </div>
-                  <button
-                    type="button"
+                  <Link
+                    href="/tasks?create=1"
                     className="ritual-snappy-row ritual-snappy-row-menu flex h-5 w-5 items-center justify-center rounded-md text-[#a5a39e] hover:text-[#6d6b66]"
                     aria-label="Add pinned item"
                   >
                     <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  </button>
+                  </Link>
                 </div>
 
                 <div>
-                  <SummarySection title="Tasks" count={0} icon={<CodexPinnedSummaryIcon className="h-3 w-3" />}>
-                    {taskRows.map((row) => (
-                      <SummaryRow key={row.title} {...row} />
-                    ))}
-                  </SummarySection>
+                  {todayTasks.length > 0 ? (
+                    <SummarySection
+                      title="Tasks"
+                      count={todayTasks.length}
+                      icon={<CodexPinnedSummaryIcon className="h-3 w-3" />}
+                      addHref="/tasks?create=1"
+                    >
+                      {todayTasks.slice(0, 6).map((task) => (
+                        <SummaryRow
+                          key={task.id}
+                          title={task.title}
+                          detail={task.category || task.project || "Open"}
+                          href={`/tasks?task=${encodeURIComponent(task.id)}`}
+                        />
+                      ))}
+                    </SummarySection>
+                  ) : null}
 
                   <SummarySection title="Routines" count={0} icon={<Repeat2 className="h-3 w-3" strokeWidth={1.9} />}>
                     {routineRows.map((row) => (
