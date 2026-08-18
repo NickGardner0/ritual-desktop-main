@@ -73,12 +73,12 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
   const hasExtraInput = input.length > 120 || input.includes('\n');
   const hasSuggestionContent = visibleInlineOptions.length > 0 || clarifications.length > 0;
   const composerHeightClass = showSuggestions && hasSuggestionContent
-    ? 'h-[194px]'
+    ? 'h-[184px]'
     : error
-      ? 'h-[142px]'
+      ? 'h-[132px]'
       : hasExtraInput
-        ? 'h-[132px]'
-        : 'h-[114px]';
+        ? 'h-[124px]'
+        : 'h-[104px]';
 
   return (
     <div className="w-full">
@@ -103,13 +103,13 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[12px] border border-[rgba(24,24,27,0.14)] bg-[var(--content-bg)] shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
+          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[28px] border border-[rgba(24,24,27,0.14)] bg-[var(--content-bg)] shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
           composerHeightClass
         )}
       >
         <form onSubmit={handleFormSubmit} className="h-full">
           <div className="relative h-full">
-            <div className="absolute inset-x-0 top-0 px-5 pt-4">
+            <div className="absolute inset-x-0 top-0 px-5 pt-3.5">
               {isListening && audioStream ? (
                 <div className="flex h-[36px] w-full items-center justify-center">
                   <VoiceWaveform isActive={true} audioStream={audioStream} className="h-8 w-full" />
@@ -208,7 +208,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <div className="absolute bottom-3.5 left-5 right-14 flex items-center gap-2 text-gray-600">
+            <div className="absolute bottom-3 left-5 right-14 flex items-center gap-2 text-gray-600">
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
@@ -283,7 +283,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-3.5 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
+              className="absolute bottom-3 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
               aria-label="Submit"
             >
               {submitButtonLoading ? (
