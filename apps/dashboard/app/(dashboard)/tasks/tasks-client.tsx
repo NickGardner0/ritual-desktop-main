@@ -33,8 +33,6 @@ import { TaskDetailSheet } from '@/lib/tasks/task-detail-sheet';
 import { rememberEntitySummary, summaryFromTask } from '@/lib/entities/resolve';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import {
-  appendDemoRoutineGeneration,
-  buildSeedRoutines,
   buildSeedTasks,
   dedupeById,
   readDemoGeneratedTasks,
@@ -161,36 +159,6 @@ export function TasksClient() {
     },
     enabled: Boolean(user?.id),
     staleTime: 15_000,
-  });
-
-  const generateDueMutation = useMutation({
-    mutationFn: async () => {
-      try {
-        return await apiOperationWithAuth(
-          'generate_due_routines_api_routines_generate_due_post',
-          getToken,
-          { query: { horizon_days: 7 } },
-          user?.id,
-        );
-      } catch (error) {
-        console.warn('[Tasks] Backend routine generation failed; using local visual fallback', error);
-        return { generated_tasks: 0, generated_workflow_runs: 0, generated_scheduled_blocks: 0, skipped: 0 };
-      }
-    },
-    onSuccess: (response) => {
-      const generatedCount = Number(response.generated_tasks || 0)
-        + Number(response.generated_workflow_runs || 0)
-        + Number(response.generated_scheduled_blocks || 0);
-      if (generatedCount === 0 && user?.id) {
-        appendDemoRoutineGeneration(user.id, buildSeedRoutines(user.id)[0]);
-        setDemoGeneratedTasks(readDemoGeneratedTasks(user.id));
-        toast.success('Generated a due routine task locally.');
-      } else {
-        toast.success('Due routines generated.');
-      }
-      invalidateTaskSurfaces();
-      void queryClient.invalidateQueries({ queryKey: ['routines', user?.id] });
-    },
   });
 
   const createTaskMutation = useMutation({
@@ -342,8 +310,6 @@ export function TasksClient() {
         layoutMode={layoutMode}
         onLayoutModeChange={setLayoutMode}
         onNewTask={() => setComposerOpen(true)}
-        onSyncRoutines={() => generateDueMutation.mutate()}
-        syncPending={generateDueMutation.isPending}
       />
 
       <div className="min-h-0 flex-1 overflow-auto pb-12 pt-5">

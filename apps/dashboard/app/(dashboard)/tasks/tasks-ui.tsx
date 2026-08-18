@@ -6,18 +6,11 @@ import {
   Check,
   Circle,
   Flag,
-  MoreHorizontal,
   Plus,
-  RotateCw,
   SkipForward,
 } from 'lucide-react';
 
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@ritual/ui/dropdown-menu';
+import { Button } from '@ritual/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
 import { dateInputValue } from '@/lib/tasks/date-format';
 import {
@@ -36,7 +29,7 @@ import {
   PillSelect,
   TaskPageHeader,
   TaskRowShell,
-  ToolbarIconButton,
+  toolbarPillClass,
   ViewPills,
   taskContentMaxClass,
 } from '@/lib/tasks/task-ui-shell';
@@ -75,18 +68,15 @@ export function TasksFilterBar({
     </div>
   );
 }
+
 export function TasksToolbarActions({
   layoutMode,
   onLayoutModeChange,
   onNewTask,
-  onSyncRoutines,
-  syncPending,
 }: {
   layoutMode: ListLayoutMode;
   onLayoutModeChange: (mode: ListLayoutMode) => void;
   onNewTask: () => void;
-  onSyncRoutines: () => void;
-  syncPending: boolean;
 }) {
   return (
     <HeaderPortal>
@@ -96,27 +86,16 @@ export function TasksToolbarActions({
           options={LIST_LAYOUT_MODES}
           onChange={(value) => onLayoutModeChange(value as ListLayoutMode)}
         />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <ToolbarIconButton aria-label="More actions" title="More actions">
-              <MoreHorizontal className="h-3.5 w-3.5" />
-            </ToolbarIconButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" sideOffset={6} className="w-44">
-            <DropdownMenuItem onClick={onSyncRoutines} disabled={syncPending}>
-              <RotateCw className={cn('mr-2 h-3.5 w-3.5', syncPending && 'animate-spin')} />
-              Sync routines
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <button
+        <Button
           type="button"
+          variant="brand"
+          size="compact"
           onClick={onNewTask}
-          className="inline-flex h-7 items-center gap-1.5 rounded-sm border border-gray-300 bg-white px-2.5 text-[12.5px] font-medium text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1"
+          className="rounded-full px-3 font-medium [&_svg]:size-3.5"
         >
           <Plus className="h-3.5 w-3.5" />
           New task
-        </button>
+        </Button>
       </div>
     </HeaderPortal>
   );
@@ -261,7 +240,7 @@ export function TaskRow({
               onComplete();
             }}
             className={cn(
-              'flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-sm border',
+              'flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[5px] border',
               task.status === 'completed'
                 ? 'border-[#27251E] bg-[#27251E] text-white'
                 : 'border-[rgba(39,37,30,0.28)] bg-white text-transparent hover:border-[#27251E]',
@@ -342,7 +321,7 @@ export function TaskRowMenu({
             <button
               type="button"
               onClick={() => onUpdate({ status: 'skipped' })}
-              className="inline-flex h-7 items-center gap-1.5 rounded-sm px-2 text-[12.5px] text-[rgba(39,37,30,0.7)] hover:bg-[#F3F3F3]"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
               <SkipForward className="h-3.5 w-3.5" />
               Skip
@@ -352,7 +331,7 @@ export function TaskRowMenu({
             <button
               type="button"
               onClick={() => onUpdate({ status: 'archived' })}
-              className="inline-flex h-7 items-center gap-1.5 rounded-sm px-2 text-[12.5px] text-[rgba(39,37,30,0.7)] hover:bg-[#F3F3F3]"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
               <Archive className="h-3.5 w-3.5" />
               Archive
@@ -368,7 +347,7 @@ export function TasksLoadingSkeleton() {
   return (
     <div className="space-y-2">
       {[0, 1, 2, 3].map((item) => (
-        <div key={item} className="h-8 animate-pulse rounded-sm bg-[#f3f3f2]" />
+        <div key={item} className="h-8 animate-pulse rounded-[var(--radius-row)] bg-[var(--surface-panel)]" />
       ))}
     </div>
   );
@@ -382,17 +361,19 @@ export function TasksEmptyState({ onNewTask }: { onNewTask: () => void }) {
           <Circle className="h-4 w-4 text-[rgba(39,37,30,0.35)]" />
         </span>
         <div className="mt-3 text-[17px] font-medium text-[#27251E]">No tasks here</div>
-        <p className="mt-1.5 text-[13px] text-[rgba(39,37,30,0.45)]">
-          Create a task or sync routines from the menu.
+        <p className="mt-1.5 text-[13px] text-[var(--text-muted)]">
+          Create a task to start this list.
         </p>
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="compact"
           onClick={onNewTask}
-          className="mt-4 inline-flex h-8 items-center gap-1.5 rounded-sm border border-gray-300 bg-white px-3 text-[13px] font-medium text-[#27251E] shadow-sm hover:bg-[#F5F5F5]"
+          className={cn(toolbarPillClass, 'mt-4 font-medium')}
         >
           <Plus className="h-3.5 w-3.5" />
           New task
-        </button>
+        </Button>
       </div>
     </div>
   );

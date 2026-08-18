@@ -16,6 +16,9 @@ import type { TaskPriority } from './types';
 
 export const taskContentMaxClass = 'mx-auto w-full max-w-[var(--task-content-max,720px)]';
 
+export const toolbarPillClass =
+  'inline-flex h-7 items-center gap-1.5 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-3 text-[12.5px] font-medium text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50';
+
 export function TaskPageShell({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <div className={cn('flex h-full min-h-0 flex-col overflow-hidden text-[var(--text-primary)]', className)}>
@@ -106,10 +109,10 @@ export function ViewPills({
           type="button"
           onClick={() => onChange(option)}
           className={cn(
-            'h-7 rounded-sm px-2.5 text-[12.5px] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1',
+            'h-7 rounded-full border px-3 text-[12.5px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
             value === option
-              ? 'bg-[#F3F3F3] font-medium text-[#27251E]'
-              : 'font-normal text-[rgba(39,37,30,0.55)] hover:bg-[#F3F3F3]/60 hover:text-[rgba(39,37,30,0.85)]',
+              ? 'border-transparent bg-[var(--surface-panel)] font-medium text-[var(--text-primary)]'
+              : 'border-[var(--border-floating)] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
           )}
         >
           {option}
@@ -166,7 +169,7 @@ export function TaskRowShell({
   return (
     <div
       className={cn(
-        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,34px)] grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-sm px-1 py-0.5 outline-none hover:bg-[#f6f6f5] focus-visible:bg-[#f6f6f5] focus-visible:ring-2 focus-visible:ring-gray-300',
+        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,34px)] grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-3 rounded-[var(--sidebar-row-radius,var(--radius-row))] px-2 py-0.5 outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
         className,
       )}
       {...props}
@@ -227,7 +230,7 @@ export function PillButton({
     <button
       type="button"
       className={cn(
-        'inline-flex h-7 items-center gap-1.5 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50',
+        toolbarPillClass,
         className,
       )}
       {...props}
@@ -246,7 +249,7 @@ export function ToolbarIconButton({
     <button
       type="button"
       className={cn(
-        'inline-flex h-7 w-7 items-center justify-center rounded-sm border border-gray-300 bg-white text-gray-500 shadow-sm hover:bg-[#F5F5F5] hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1 disabled:opacity-50',
+        'inline-flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50',
         className,
       )}
       {...props}
@@ -273,7 +276,7 @@ export function PillSelect<T extends string>({
     <Select value={value} onValueChange={(next) => onChange(next as T)}>
       <SelectTrigger
         className={cn(
-          'h-7 w-auto min-w-[88px] gap-1 rounded-md border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[#27251E] shadow-sm hover:bg-[#F5F5F5] focus:ring-1 focus:ring-gray-300 focus:ring-offset-0',
+          'h-7 w-auto min-w-[88px] gap-1 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-3 text-[12.5px] font-normal text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:ring-1 focus:ring-[var(--ritual-focus-ring)] focus:ring-offset-0',
           className,
         )}
       >
@@ -376,8 +379,10 @@ export function GroupBySelect({
   return (
     <Select value={value} onValueChange={onChange}>
       <SelectTrigger
+        density="compact"
         className={cn(
-          'h-7 w-auto gap-1 rounded-sm border border-gray-200/90 bg-white px-2.5 text-[12.5px] font-normal text-[rgba(39,37,30,0.75)] shadow-sm hover:bg-[#F5F5F5] focus:ring-1 focus:ring-gray-300 focus:ring-offset-0 [&>svg]:h-3.5 [&>svg]:w-3.5',
+          toolbarPillClass,
+          'w-auto shrink-0 font-normal text-[var(--text-secondary)] shadow-none focus:ring-0 focus:ring-offset-0 focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] [&>svg]:h-3.5 [&>svg]:w-3.5',
           className,
         )}
       >
