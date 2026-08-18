@@ -15,6 +15,7 @@ export interface Habit {
 export interface HabitLog {
   id?: string
   habit_id: string
+  habit_name?: string
   duration?: number
   amount?: number
   unit?: string
