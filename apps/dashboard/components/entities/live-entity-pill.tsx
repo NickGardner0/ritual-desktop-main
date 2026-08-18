@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import type { EntityRef, EntitySummary } from "@ritual/shared-contracts";
 import { EntityPill } from "@/components/entities/entity-pill";
-import { resolveEntity } from "@/lib/entities/resolve";
+import { resolveEntity, subscribeEntitySummaries } from "@/lib/entities/resolve";
 
 export function LiveEntityPill({
   entityRef,
@@ -18,6 +18,9 @@ export function LiveEntityPill({
   const { getToken } = useAuth();
   const { user } = useUser();
   const [summary, setSummary] = useState<EntitySummary | null>(null);
+  const [epoch, setEpoch] = useState(0);
+
+  useEffect(() => subscribeEntitySummaries(() => setEpoch((value) => value + 1)), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,7 +30,7 @@ export function LiveEntityPill({
     return () => {
       cancelled = true;
     };
-  }, [entityRef.id, entityRef.type, getToken, user?.id]);
+  }, [entityRef.id, entityRef.type, epoch, getToken, user?.id]);
 
   if (!summary) {
     return (
