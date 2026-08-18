@@ -44,4 +44,8 @@ test("tool registry records executor ownership and channel-specific schemas", ()
   assert.ok(smsToolNames.includes("logHabit"));
   assert.ok(smsToolNames.includes("updateSmsPreferences"));
   assert.ok(!smsToolNames.includes("getCalendarEvents"));
+  assert.ok(!smsToolNames.includes("createTask"));
+  assert.ok(!smsToolNames.includes("updateTask"));
+  assert.equal(getToolOwner("createTask"), "tasks");
+  assert.equal(getToolOwner("updateTask"), "tasks");
 });

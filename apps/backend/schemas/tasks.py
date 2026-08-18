@@ -34,6 +34,7 @@ class TaskCreate(BaseModel):
     linked_habit_id: Optional[str] = None
     linked_artifact_id: Optional[str] = None
     client_event_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 class TaskUpdate(BaseModel):
@@ -72,6 +73,8 @@ class TaskRead(BaseModel):
     client_event_id: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    receipt_id: Optional[str] = None
+    was_inserted: Optional[bool] = None
 
 
 class TaskListResponse(BaseModel):

@@ -11,7 +11,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from database.connection import get_db_session
-from database.models import ActionReceiptDB, HabitDB, HabitLogDB
+from database.models import ActionReceiptDB, HabitDB, HabitLogDB, TaskDB
 from schemas.workflows import ActionReceiptRead, ActionReceiptUndoResponse
 
 logger = logging.getLogger(__name__)
@@ -201,6 +201,18 @@ class ActionReceiptService:
                         await search_service.delete_habit_index(habit_id)
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("Typesense habit delete after undo failed: %s", exc)
+            elif op == "archive_task":
+                task_id = str(undo.get("task_id") or "")
+                task_result = await session.execute(
+                    select(TaskDB).where(
+                        TaskDB.id == task_id,
+                        TaskDB.user_id == user_id,
+                    )
+                )
+                task_row = task_result.scalar_one_or_none()
+                if task_row and task_row.status == "open":
+                    task_row.status = "archived"
+                    task_row.updated_at = _utc_now()
             else:
                 raise ValueError(f"Unsupported undo operation: {op}")
 

@@ -9,6 +9,7 @@
 export {
   fetchPythonApi,
   fetchPythonApiPost,
+  fetchPythonApiPatch,
   getTimezoneYmd,
   shiftYmd,
   formatTzDay,
@@ -62,6 +63,11 @@ export {
 export {
   executeGetCalendarEvents,
 } from './calendar.js';
+
+export {
+  executeCreateTask,
+  executeUpdateTask,
+} from './tasks.js';
 
 // SMS preferences executors
 export {

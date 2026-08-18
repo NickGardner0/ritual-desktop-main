@@ -10,6 +10,8 @@ import {
   executeGetStreaks,
   executeLogHabit,
   executeCreateHabit,
+  executeCreateTask,
+  executeUpdateTask,
   executeGetWeeklyOverview,
   executeGetDailyOverview,
   executeGetMonthlyOverview,
@@ -208,6 +210,13 @@ export async function dispatchToolCall(
         conversationId: ctx.conversationId,
         conversationIdPromise: ctx.conversationIdPromise,
       });
+    case 'createTask':
+      return executeCreateTask(token, a, {
+        conversationId: ctx.conversationId,
+        conversationIdPromise: ctx.conversationIdPromise,
+      });
+    case 'updateTask':
+      return executeUpdateTask(token, a);
     case 'getSmsPreferences':
       return executeGetSmsPreferences(token);
     case 'updateSmsPreferences':

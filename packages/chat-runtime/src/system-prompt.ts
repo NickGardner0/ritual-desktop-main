@@ -87,6 +87,10 @@ FOR CALENDAR / SCHEDULE QUESTIONS ("what's on my calendar", "what do I have sche
 → Present events sorted by time with start/end times
 → These are scheduled blocks from Ritual, not external calendar events
 
+FOR HABIT WRITES ("log 30mg caffeine", "start tracking meditation"):
+→ Use logHabit / createHabit
+→ NEVER log or create habits on recap questions
+
 FOR SPECIFIC COMPUTER ACTIVITY QUESTIONS ("what did I work on in Cursor", "when did I look at X", "find when I was doing Y", "what apps did I use at 3pm"):
 → Use getActivitySummary for recap/workstream questions and getComputerTimeSpentBreakdown for time allocation questions
 → The project-time tools return structured workstreams, apps/domains, git activity, and time ranges
@@ -200,6 +204,12 @@ FORMAT:
 - Follow-up question (ends with ?)
 
 Keep total response under 500 characters when possible.`;
+
+const DASHBOARD_TASK_WRITE_PROMPT = `FOR TASK WRITES ("add a task", "create a task", "remind me to", "mark X done", "complete that task", "reschedule"):
+→ Use createTask to create a TaskDB row. Use updateTask only when you already have a task id from a [[task:...]] mention or a createTask result in this turn.
+→ NEVER call createTask or updateTask on recap, overview, "what did I do", or "how was my week" questions.
+
+`;
 
 // ---------------------------------------------------------------------------
 // SMS style addendum (appended when channel is 'sms')
@@ -328,7 +338,13 @@ Current date: ${options.today}
 Current year: ${options.currentYear}
 Timezone: ${options.timezone}`;
 
-  const base = `${header}\n\n${STATIC_SYSTEM_PROMPT}`;
+  const staticPrompt = channel === 'sms'
+    ? STATIC_SYSTEM_PROMPT
+    : STATIC_SYSTEM_PROMPT.replace(
+        'FOR HABIT WRITES',
+        `${DASHBOARD_TASK_WRITE_PROMPT}FOR HABIT WRITES`,
+      );
+  const base = `${header}\n\n${staticPrompt}`;
 
   if (channel === 'sms') {
     return base + SMS_STYLE_PROMPT;

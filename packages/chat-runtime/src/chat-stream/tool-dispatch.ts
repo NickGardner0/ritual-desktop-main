@@ -16,7 +16,7 @@ export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef
 
 export function appendEntityRefsFromReceipt(
   toolResults: ChatToolResults,
-  receipt: Pick<ActionReceiptSummary, 'habit_id' | 'habit_name' | 'log_id'>,
+  receipt: Pick<ActionReceiptSummary, 'habit_id' | 'habit_name' | 'log_id' | 'task_id' | 'task_title'>,
 ): void {
   if (receipt.habit_id) {
     appendEntityRef(toolResults, {
@@ -30,6 +30,13 @@ export function appendEntityRefsFromReceipt(
       type: 'habit_log',
       id: receipt.log_id,
       title: receipt.habit_name || undefined,
+    });
+  }
+  if (receipt.task_id) {
+    appendEntityRef(toolResults, {
+      type: 'task',
+      id: receipt.task_id,
+      title: receipt.task_title || undefined,
     });
   }
 }
@@ -143,6 +150,8 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
         break;
       case 'logHabit':
       case 'createHabit':
+      case 'createTask':
+      case 'updateTask':
         if (parsed.success && parsed.receipt?.receipt_id) {
           toolResults.actionReceipts = toolResults.actionReceipts || [];
           const receipt = {
@@ -150,6 +159,8 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
             action_kind: name,
             habit_id: parsed.habit_id ?? parsed.receipt.habit_id ?? null,
             habit_name: parsed.habit_name ?? parsed.receipt.habit_name ?? null,
+            task_id: parsed.task_id ?? parsed.receipt.task_id ?? null,
+            task_title: parsed.task_title ?? parsed.receipt.task_title ?? null,
             was_inserted: parsed.receipt.was_inserted ?? parsed.was_inserted ?? true,
             undoable: parsed.receipt.undoable ?? true,
             log_id: parsed.log?.id ?? parsed.receipt.log_id ?? null,
@@ -158,6 +169,12 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
           };
           toolResults.actionReceipts.push(receipt);
           appendEntityRefsFromReceipt(toolResults, receipt);
+        } else if (parsed.success && (name === 'createTask' || name === 'updateTask') && parsed.task_id) {
+          appendEntityRef(toolResults, {
+            type: 'task',
+            id: String(parsed.task_id),
+            title: typeof parsed.task_title === 'string' ? parsed.task_title : undefined,
+          });
         }
         break;
       case 'getSmsPreferences':

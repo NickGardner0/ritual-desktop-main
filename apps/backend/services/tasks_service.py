@@ -10,7 +10,7 @@ from uuid import uuid4
 from sqlalchemy import and_, asc, desc, or_, select
 
 from database.connection import get_db_session
-from database.models import HabitDB, RoutineDB, RoutineRunDB, ScheduledBlockDB, TaskDB, TaskEventDB, WorkflowDefinitionDB, WorkflowRunDB
+from database.models import EntityReferenceDB, HabitDB, RoutineDB, RoutineRunDB, ScheduledBlockDB, TaskDB, TaskEventDB, WorkflowDefinitionDB, WorkflowRunDB
 from database.models.base import _utcnow_naive
 from schemas.tasks import (
     RoutineCreate,
@@ -25,6 +25,8 @@ from schemas.tasks import (
     TaskRead,
     TaskUpdate,
 )
+from schemas.entities import EntityRef, parse_entity_mention_tokens
+from services.action_receipt_service import action_receipt_service
 from services.scheduled_block_tasks import sync_linked_blocks_from_task
 from services.recurrence import (
     ensure_utc_naive,
@@ -95,7 +97,12 @@ def _scheduled_block_window(scheduled_for: datetime, timezone_name: str, config:
     return local.date().isoformat(), start_minutes, end_minutes
 
 
-def _task_to_schema(task: TaskDB) -> TaskRead:
+def _task_to_schema(
+    task: TaskDB,
+    *,
+    receipt_id: Optional[str] = None,
+    was_inserted: Optional[bool] = None,
+) -> TaskRead:
     return TaskRead(
         id=task.id,
         user_id=task.user_id,
@@ -117,7 +124,46 @@ def _task_to_schema(task: TaskDB) -> TaskRead:
         client_event_id=task.client_event_id,
         created_at=task.created_at,
         updated_at=task.updated_at,
+        receipt_id=receipt_id,
+        was_inserted=was_inserted,
     )
+
+
+def _add_task_mention_refs(
+    session,
+    *,
+    user_id: str,
+    task_id: str,
+    notes: Optional[str],
+    conversation_id: Optional[str] = None,
+    provenance: str = "assistant",
+) -> None:
+    targets = list(parse_entity_mention_tokens(notes))
+    if conversation_id and not any(item.type == "conversation" and item.id == conversation_id for item in targets):
+        targets.append(EntityRef(type="conversation", id=conversation_id))
+    seen: set[tuple[str, str]] = set()
+    now = _utcnow_naive()
+    for target in targets:
+        if target.type == "task" and target.id == task_id:
+            continue
+        key = (target.type, target.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        session.add(
+            EntityReferenceDB(
+                id=str(uuid4()),
+                user_id=user_id,
+                source_type="task",
+                source_id=task_id,
+                target_type=target.type,
+                target_id=target.id,
+                relationship="mentions",
+                provenance=provenance,
+                client_event_id=f"mention:task:{task_id}:{target.type}:{target.id}",
+                created_at=now,
+            )
+        )
 
 
 def _routine_template_from_row(routine: RoutineDB) -> RoutineTaskTemplate:
@@ -307,7 +353,16 @@ class TasksService:
                 )
                 existing = existing_result.scalar_one_or_none()
                 if existing:
-                    return _task_to_schema(existing)
+                    receipt = None
+                    if payload.client_event_id:
+                        receipt = await action_receipt_service.get_db_by_client_event_id(
+                            session, user_id, payload.client_event_id
+                        )
+                    return _task_to_schema(
+                        existing,
+                        receipt_id=receipt.id if receipt else None,
+                        was_inserted=False,
+                    )
 
             if payload.routine_id:
                 routine_result = await session.execute(
@@ -364,9 +419,36 @@ class TasksService:
                     created_at=now,
                 )
             )
+            conversation_id = payload.conversation_id
+            should_receipt = payload.source == "ai" or bool(conversation_id)
+            receipt_id = None
+            if should_receipt:
+                receipt = await action_receipt_service.create_receipt(
+                    session,
+                    user_id=user_id,
+                    action_kind="createTask",
+                    capability="tasks.write",
+                    target_ref=task.id,
+                    conversation_id=conversation_id,
+                    client_event_id=payload.client_event_id,
+                    before=None,
+                    after=_task_to_schema(task).model_dump(mode="json"),
+                    undo={"op": "archive_task", "task_id": task.id},
+                    metadata={"source": task.source, "tool": "createTask"},
+                )
+                receipt_id = receipt.id
+            if conversation_id or (task.notes and "[[" in task.notes):
+                _add_task_mention_refs(
+                    session,
+                    user_id=user_id,
+                    task_id=task.id,
+                    notes=task.notes,
+                    conversation_id=conversation_id,
+                    provenance="assistant" if task.source == "ai" else "user",
+                )
             await session.commit()
             await session.refresh(task)
-            return _task_to_schema(task)
+            return _task_to_schema(task, receipt_id=receipt_id, was_inserted=True)
 
     async def update_task(self, user_id: str, task_id: str, payload: TaskUpdate) -> TaskRead:
         async with get_db_session() as session:

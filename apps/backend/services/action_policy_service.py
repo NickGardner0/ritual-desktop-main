@@ -46,7 +46,7 @@ DEFAULT_RULES_BY_MODE: Dict[str, Dict[str, Any]] = {
     },
     "organize": {
         "read_scopes": ["artifacts", "facts", "activity", "calendar", "habits", "reports"],
-        "write_scopes": ["artifacts", "artifact_links", "workflow_definitions", "queue_items", "facts", "scheduled_blocks"],
+        "write_scopes": ["artifacts", "artifact_links", "workflow_definitions", "queue_items", "facts", "scheduled_blocks", "tasks"],
         "delivery_scopes": [],
         "approval_policy": {"default": "approval", "scheduled_blocks": "approval"},
         "budgets": {"max_actions": 12, "max_writes": 8, "max_external_actions": 0},
@@ -54,7 +54,7 @@ DEFAULT_RULES_BY_MODE: Dict[str, Dict[str, Any]] = {
     },
     "act": {
         "read_scopes": ["artifacts", "facts", "activity", "calendar", "habits", "reports"],
-        "write_scopes": ["artifacts", "artifact_links", "workflow_definitions", "queue_items", "facts", "scheduled_blocks"],
+        "write_scopes": ["artifacts", "artifact_links", "workflow_definitions", "queue_items", "facts", "scheduled_blocks", "tasks"],
         "delivery_scopes": ["in_app"],
         "approval_policy": {"default": "approval", "delivery": "approval"},
         "budgets": {"max_actions": 16, "max_writes": 10, "max_external_actions": 0},

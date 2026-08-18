@@ -15,13 +15,14 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///test-tasks-routines.db")
 
 import httpx
 from fastapi import FastAPI
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.tasks import create_tasks_router
 from api.workflows import create_workflows_router
-from database.models import Base, HabitDB, RoutineDB, ScheduledBlockDB, TaskDB, UserDB
+from database.models import Base, EntityReferenceDB, HabitDB, RoutineDB, ScheduledBlockDB, TaskDB, UserDB
 from schemas.tasks import RoutineCreate, TaskCreate, TaskUpdate
 from services.recurrence import humanize_recurrence, next_run_at, next_run_preview
 from services.tasks_service import TaskRoutineValidationError, tasks_service
@@ -415,6 +416,38 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                 archived_list = await client.get("/api/tasks?view=archived")
                 self.assertEqual(archived_list.status_code, 200)
                 self.assertEqual([item["id"] for item in archived_list.json()["items"]], [task_id])
+
+    async def test_ai_create_writes_conversation_mention_and_receipt(self):
+        with patch("services.tasks_service.get_db_session", self.db_session):
+            async with await self.api_client() as client:
+                created_response = await client.post(
+                    "/api/tasks",
+                    json={
+                        "title": "Ship task unification",
+                        "notes": "Follow up from chat\n\n[[conversation:conv-1]]",
+                        "source": "ai",
+                        "conversation_id": "conv-1",
+                        "client_event_id": "ai-task-1",
+                    },
+                )
+                self.assertEqual(created_response.status_code, 200, created_response.text)
+                body = created_response.json()
+                self.assertTrue(body["receipt_id"])
+                self.assertEqual(body["source"], "ai")
+                self.assertIn("[[conversation:conv-1]]", body["notes"] or "")
+
+                async with self.Session() as session:
+                    refs = (
+                        await session.execute(
+                            select(EntityReferenceDB).where(
+                                EntityReferenceDB.source_id == body["id"],
+                                EntityReferenceDB.target_type == "conversation",
+                            )
+                        )
+                    ).scalars().all()
+                    self.assertEqual(len(refs), 1)
+                    self.assertEqual(refs[0].target_id, "conv-1")
+                    self.assertEqual(refs[0].relationship, "mentions")
 
     async def test_routine_api_generation_paused_noop_and_workflow_definition_create(self):
         with patch("services.tasks_service.get_db_session", self.db_session), patch(

@@ -86,6 +86,38 @@ class ActionReceiptServiceTests(unittest.IsolatedAsyncioTestCase):
             second = await service.undo_receipt("u1", "r1")
             self.assertTrue(second.noop)
 
+    async def test_undo_archives_open_task(self):
+        service = ActionReceiptService()
+        receipt = SimpleNamespace(
+            id="r2",
+            user_id="u1",
+            workflow_run_id=None,
+            conversation_id="c1",
+            client_event_id="e2",
+            action_kind="createTask",
+            capability="tasks.write",
+            target_ref="t1",
+            status="applied",
+            before_json=None,
+            after_json='{"id":"t1"}',
+            undo_json='{"op":"archive_task","task_id":"t1"}',
+            metadata_json="{}",
+            created_at=None,
+        )
+        task_row = SimpleNamespace(id="t1", status="open", updated_at=None)
+        session = _FakeSession(receipt, log_row=task_row)
+
+        @asynccontextmanager
+        async def fake_session():
+            yield session
+
+        with patch("services.action_receipt_service.get_db_session", fake_session):
+            first = await service.undo_receipt("u1", "r2")
+            self.assertTrue(first.undone)
+            self.assertFalse(first.noop)
+            self.assertEqual(task_row.status, "archived")
+            self.assertEqual(session.deleted, [])
+
 
 if __name__ == "__main__":
     unittest.main()

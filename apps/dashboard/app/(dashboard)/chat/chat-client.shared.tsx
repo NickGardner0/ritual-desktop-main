@@ -201,6 +201,8 @@ export type ChatActionReceiptData = {
   action_kind: string;
   habit_id?: string | null;
   habit_name?: string | null;
+  task_id?: string | null;
+  task_title?: string | null;
   was_inserted?: boolean;
   undoable?: boolean;
   log_id?: string | null;

@@ -1,7 +1,7 @@
 /**
  * OpenAI tool (function) definitions — single source of truth.
  *
- * All 16 tool schemas are defined here. The orchestrator imports this
+ * All tool schemas are defined here. The orchestrator imports this
  * array and passes it to every OpenAI chat.completions.create() call.
  *
  * Tool names are string constants — never rename them without updating
@@ -271,6 +271,43 @@ export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           unitType: { type: 'string', description: 'Optional unit of measurement (e.g., "minutes", "oz", "reps", "pages", "mg"). Omit for simple checkbox/boolean habits.' },
         },
         required: ['name', 'category'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'createTask',
+      description: 'Create a Ritual task (TaskDB). Use when the user asks to add, create, or remember a to-do. Do not use on recap or overview questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Task title' },
+          notes: { type: 'string', description: 'Optional notes or description. Mentions like [[task:id]] are allowed.' },
+          dueAt: { type: 'string', description: 'Optional due datetime in ISO 8601' },
+          scheduledFor: { type: 'string', description: 'Optional scheduled datetime in ISO 8601' },
+          priority: { type: 'string', description: 'none, low, medium, or high' },
+          category: { type: 'string', description: 'Optional category such as Work or Personal' },
+        },
+        required: ['title'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'updateTask',
+      description: 'Update an existing Ritual task. Only call when you already have a task id from a [[task:id]] mention or a createTask result in this turn. Do not use on recap questions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'Task id' },
+          title: { type: 'string', description: 'Replacement title' },
+          notes: { type: 'string', description: 'Replacement notes' },
+          status: { type: 'string', description: 'open, completed, skipped, or archived' },
+          dueAt: { type: 'string', description: 'Optional due datetime in ISO 8601' },
+        },
+        required: ['id'],
       },
     },
   },

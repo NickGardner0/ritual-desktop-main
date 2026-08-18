@@ -2,13 +2,17 @@
 
 import { useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiJsonWithAuth } from '@/lib/api/client';
+import { forgetEntitySummary } from '@/lib/entities/resolve';
 
 export type ChatActionReceipt = {
   receipt_id: string;
   action_kind: string;
   habit_id?: string | null;
   habit_name?: string | null;
+  task_id?: string | null;
+  task_title?: string | null;
   was_inserted?: boolean;
   undoable?: boolean;
   log_id?: string | null;
@@ -21,6 +25,12 @@ export function chatActionReceiptsEnabled(): boolean {
 }
 
 function describeReceipt(receipt: ChatActionReceipt): string {
+  if (receipt.action_kind === 'createTask') {
+    return `Created task “${receipt.task_title || 'Untitled'}”`;
+  }
+  if (receipt.action_kind === 'updateTask') {
+    return `Updated task “${receipt.task_title || 'Untitled'}”`;
+  }
   const name = receipt.habit_name || 'a habit';
   if (receipt.action_kind === 'createHabit') {
     return `Created habit “${name}”`;
@@ -63,6 +73,7 @@ function ChatActionReceiptCard({
   onUndone?: (receiptId: string) => void;
 }) {
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(true);
   const [undone, setUndone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -77,6 +88,11 @@ function ChatActionReceiptCard({
         method: 'POST',
       });
       setUndone(true);
+      if (receipt.task_id) {
+        forgetEntitySummary({ type: 'task', id: receipt.task_id });
+      }
+      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks'] });
       onUndone?.(receipt.receipt_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Undo failed');

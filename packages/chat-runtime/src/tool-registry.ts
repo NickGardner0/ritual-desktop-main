@@ -20,6 +20,8 @@ export const toolNames = [
   'getStreaks',
   'logHabit',
   'createHabit',
+  'createTask',
+  'updateTask',
   'getSmsPreferences',
   'updateSmsPreferences',
 ] as const;
@@ -34,6 +36,7 @@ export type ChatToolOwner =
   | 'biometrics'
   | 'screen-time'
   | 'calendar'
+  | 'tasks'
   | 'sms-preferences';
 
 export interface RegisteredTool {
@@ -52,6 +55,8 @@ const dashboardOnlyTools = new Set<ToolName>([
   'getDailyBiometrics',
   'getScreenTimeSummary',
   'getCalendarEvents',
+  'createTask',
+  'updateTask',
 ]);
 
 const toolOwners: Record<ToolName, ChatToolOwner> = {
@@ -72,6 +77,8 @@ const toolOwners: Record<ToolName, ChatToolOwner> = {
   getStreaks: 'habits',
   logHabit: 'habits',
   createHabit: 'habits',
+  createTask: 'tasks',
+  updateTask: 'tasks',
   getSmsPreferences: 'sms-preferences',
   updateSmsPreferences: 'sms-preferences',
 };
