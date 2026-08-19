@@ -241,11 +241,11 @@ export function NewTaskComposer({
           role="dialog"
           aria-modal="true"
           aria-labelledby="new-task-title"
-          className="ritual-dialog-surface pointer-events-auto flex w-full max-w-[560px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden"
+          className="pointer-events-auto flex min-h-[360px] w-full max-w-[680px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--ritual-border-default)] bg-[var(--surface-floating)] shadow-[var(--shadow-dialog)]"
           data-tauri-drag-region="false"
         >
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 px-4">
-          <h2 id="new-task-title" className="text-[13px] font-medium text-[var(--text-primary)]">
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
+          <h2 id="new-task-title" className="text-[14px] font-medium text-[var(--text-primary)]">
             New task
           </h2>
           <div className="flex items-center gap-0.5">
@@ -272,7 +272,7 @@ export function NewTaskComposer({
           </div>
         </div>
 
-        <div className="px-4 pb-3 pt-4">
+        <div className="flex-1 px-5 pb-4 pt-5">
           <input
             ref={titleRef}
             value={title}
@@ -283,7 +283,7 @@ export function NewTaskComposer({
               }
             }}
             placeholder="Task title"
-            className="w-full bg-transparent text-[22px] font-semibold leading-7 tracking-[-0.025em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="w-full bg-transparent text-[22px] font-medium leading-7 tracking-[-0.02em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             aria-label="Task title"
           />
           <EntityNoteField
@@ -291,11 +291,11 @@ export function NewTaskComposer({
             onChange={setNotes}
             placeholder="Add description..."
             rows={3}
-            className="mt-2 min-h-[64px] w-full resize-none bg-transparent text-[13px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
+            className="mt-3 min-h-[104px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
           />
         </div>
 
-        <div className="relative flex flex-wrap items-center gap-1.5 px-4 py-3">
+        <div className="relative flex flex-wrap items-center gap-1.5 px-5 pb-3">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <ComposerPill>
@@ -380,7 +380,7 @@ export function NewTaskComposer({
           />
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-4 py-3">
+        <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
           <label className="mr-auto flex cursor-pointer items-center gap-2">
             <Switch checked={createMore} onCheckedChange={setCreateMore} data-cuelume-toggle />
             <span className="text-[12px] text-[var(--text-muted)]">Create more</span>

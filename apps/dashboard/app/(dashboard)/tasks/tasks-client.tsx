@@ -35,7 +35,6 @@ import { rememberEntitySummary, summaryFromTask } from '@/lib/entities/resolve';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import {
   buildSeedTasks,
-  dedupeById,
   readDemoGeneratedTasks,
   sortTasksForDisplay,
   subscribeDemoRoutineGeneration,
@@ -57,6 +56,11 @@ import {
 } from './tasks-ui';
 
 const TASK_CREATE_TIMEOUT_MS = 10_000;
+
+type CreateTaskResult = {
+  task: Task;
+  syncStatus: 'remote' | 'local';
+};
 
 async function withTaskCreateTimeout<T>(request: Promise<T>): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -90,6 +94,18 @@ function filterTasksForView(tasks: Task[], view: TaskViewId, category: string): 
   return tasks.filter((task) => isTaskInView(task, view) && (category === 'All' || task.category === category));
 }
 
+function dedupeTasksByIdentity(tasks: Task[]): Task[] {
+  const ids = new Set<string>();
+  const clientEventIds = new Set<string>();
+  return tasks.filter((task) => {
+    if (ids.has(task.id)) return false;
+    if (task.client_event_id && clientEventIds.has(task.client_event_id)) return false;
+    ids.add(task.id);
+    if (task.client_event_id) clientEventIds.add(task.client_event_id);
+    return true;
+  });
+}
+
 function groupTasksByProject(tasks: Task[]) {
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
@@ -116,6 +132,7 @@ export function TasksClient() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [demoGeneratedTasks, setDemoGeneratedTasks] = useState<Task[]>([]);
+  const [recentlyCreatedTasks, setRecentlyCreatedTasks] = useState<Task[]>([]);
 
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
@@ -131,6 +148,13 @@ export function TasksClient() {
 
   const invalidateTaskSurfaces = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks', user?.id] });
+    void queryClient.invalidateQueries({
+      queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
+    });
+  }, [queryClient, user?.id]);
+
+  const invalidateTaskDerivedSurfaces = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks', user?.id] });
     void queryClient.invalidateQueries({
       queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
@@ -181,7 +205,7 @@ export function TasksClient() {
     mutationFn: async (input: NewTaskComposerSubmit) => {
       const { createMore: _createMore, ...payload } = input;
       try {
-        return await withTaskCreateTimeout(
+        const task = await withTaskCreateTimeout(
           apiOperationWithAuth(
             'create_task_api_tasks_post',
             getToken,
@@ -189,27 +213,33 @@ export function TasksClient() {
             user?.id,
           ) as Promise<Task>,
         );
+        return { task, syncStatus: 'remote' } satisfies CreateTaskResult;
       } catch (error) {
         if (!user?.id) throw error;
         const optimistic = buildOptimisticTask(payload, user.id);
-        await putLocalVaultTask(user.id, optimistic);
-        await putLocalVaultTaskRoutineWriteOutboxItem(
-          user.id,
-          buildTaskCreateOutboxItem(user.id, payload, optimistic),
-        );
-        toast.message('Task saved locally. It will sync when the backend is available.');
-        return optimistic;
+        try {
+          await putLocalVaultTask(user.id, optimistic);
+          await putLocalVaultTaskRoutineWriteOutboxItem(
+            user.id,
+            buildTaskCreateOutboxItem(user.id, payload, optimistic),
+          );
+          toast.message('Task saved locally. It will sync when the backend is available.');
+        } catch (persistenceError) {
+          console.error('[Tasks] Could not persist the optimistic task locally', persistenceError);
+          toast.warning('Task added for this session, but local sync is temporarily unavailable.');
+        }
+        return { task: optimistic, syncStatus: 'local' } satisfies CreateTaskResult;
       }
     },
-    onSuccess: (_task, variables) => {
+    onSuccess: ({ task, syncStatus }, variables) => {
       play('success', { volume: 0.32 });
-      invalidateTaskSurfaces();
-      if (user?.id && _task) void putLocalVaultTask(user.id, _task).catch(() => undefined);
-      if (_task) rememberEntitySummary(summaryFromTask(_task));
-      if (_task?.id) {
+      invalidateTaskDerivedSurfaces();
+      if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
+      rememberEntitySummary(summaryFromTask(task));
+      if (syncStatus === 'remote') {
         void syncEntityMentions({
-          source: { type: 'task', id: _task.id },
-          text: _task.notes,
+          source: { type: 'task', id: task.id },
+          text: task.notes,
           getToken,
           userId: user?.id,
         });
@@ -274,8 +304,10 @@ export function TasksClient() {
 
   const tasks = useMemo(() => {
     const demoTasks = filterTasksForView(demoGeneratedTasks, view, category);
-    return sortTasksForDisplay(dedupeById([...(tasksQuery.data || []), ...demoTasks]));
-  }, [category, demoGeneratedTasks, tasksQuery.data, view]);
+    const sortedTasks = sortTasksForDisplay(dedupeTasksByIdentity([...(tasksQuery.data || []), ...demoTasks]));
+    const recentTasks = filterTasksForView(recentlyCreatedTasks, view, category);
+    return dedupeTasksByIdentity([...recentTasks, ...sortedTasks]);
+  }, [category, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
   const groups = useMemo(() => groupTasksByProject(tasks), [tasks]);
   const selectedTask = useMemo(
     () => (selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null),
@@ -323,24 +355,32 @@ export function TasksClient() {
 
     if (belongsInCurrentView) {
       queryClient.setQueryData<Task[]>(queryKey, (current = []) => (
-        sortTasksForDisplay(dedupeById([optimisticTask, ...current]))
+        dedupeTasksByIdentity([optimisticTask, ...current])
       ));
     }
+    setRecentlyCreatedTasks((current) => dedupeTasksByIdentity([optimisticTask, ...current]));
     if (!values.createMore) setComposerOpen(false);
 
     createTaskMutation.mutate(values, {
-      onSuccess: (createdTask) => {
-        if (!belongsInCurrentView) return;
-        queryClient.setQueryData<Task[]>(queryKey, (current = []) => {
+      onSuccess: ({ task: createdTask }) => {
+        setRecentlyCreatedTasks((current) => {
           const withoutOptimistic = current.filter((task) => (
             task.id !== optimisticTask.id
             && task.client_event_id !== optimisticTask.client_event_id
           ));
-          return sortTasksForDisplay(dedupeById([createdTask, ...withoutOptimistic]));
+          return dedupeTasksByIdentity([createdTask, ...withoutOptimistic]);
+        });
+        if (belongsInCurrentView) queryClient.setQueryData<Task[]>(queryKey, (current = []) => {
+          const withoutOptimistic = current.filter((task) => (
+            task.id !== optimisticTask.id
+            && task.client_event_id !== optimisticTask.client_event_id
+          ));
+          return dedupeTasksByIdentity([createdTask, ...withoutOptimistic]);
         });
       },
       onError: () => {
         if (belongsInCurrentView) queryClient.setQueryData(queryKey, previousTasks);
+        setRecentlyCreatedTasks((current) => current.filter((task) => task.id !== optimisticTask.id));
         if (!values.createMore) setComposerOpen(true);
       },
     });
