@@ -248,7 +248,6 @@ export function TaskRow({
             )}
             aria-label={`Complete ${task.title}`}
             aria-pressed={task.status === 'completed'}
-            data-cuelume-toggle
           >
             <Check className="h-3 w-3" />
           </button>

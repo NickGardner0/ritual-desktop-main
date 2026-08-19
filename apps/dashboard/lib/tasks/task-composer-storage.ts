@@ -6,6 +6,7 @@ export type TaskComposerDraft = {
   priority: TaskPriority;
   category: string;
   dueDate: string;
+  deadlineDate: string;
   schedule: 'today' | 'upcoming' | 'anytime' | 'custom';
   savedAt: number;
 };
@@ -23,7 +24,11 @@ export function loadTaskComposerDraft(): TaskComposerDraft | null {
       clearTaskComposerDraft();
       return null;
     }
-    return draft;
+    return {
+      ...draft,
+      dueDate: typeof draft.dueDate === 'string' ? draft.dueDate : '',
+      deadlineDate: typeof draft.deadlineDate === 'string' ? draft.deadlineDate : '',
+    };
   } catch {
     return null;
   }
@@ -34,7 +39,10 @@ export function saveTaskComposerDraft(draft: Omit<TaskComposerDraft, 'savedAt'>)
   try {
     window.localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ ...draft, savedAt: Date.now() } satisfies TaskComposerDraft),
+      JSON.stringify({
+        ...draft,
+        savedAt: Date.now(),
+      } satisfies TaskComposerDraft),
     );
   } catch {
     // ignore quota errors
@@ -50,6 +58,7 @@ export function touchTaskComposerDraft(): void {
     priority: draft.priority,
     category: draft.category,
     dueDate: draft.dueDate,
+    deadlineDate: draft.deadlineDate,
     schedule: draft.schedule,
   });
 }

@@ -140,7 +140,7 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
   }
 }
 
-export type DesktopSettingsView = 'account' | 'privacy' | 'voice' | 'computer-tracking' | 'place-tagging' | 'apple-health';
+export type DesktopSettingsView = 'account' | 'sounds' | 'privacy' | 'voice' | 'computer-tracking' | 'place-tagging' | 'apple-health';
 
 export async function openDesktopSettingsWindow(initialView: DesktopSettingsView = 'account'): Promise<void> {
   const maxAttempts = 8;

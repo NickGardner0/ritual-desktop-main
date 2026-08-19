@@ -30,6 +30,7 @@ const CodiconArrowRight = (props: React.SVGProps<SVGSVGElement>) => (
 
 function isDesktopSettingsView(value: string | null): value is DesktopSettingsView {
   return value === 'account'
+    || value === 'sounds'
     || value === 'privacy'
     || value === 'computer-tracking'
     || value === 'place-tagging'

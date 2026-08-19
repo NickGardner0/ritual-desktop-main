@@ -5,8 +5,9 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
-import { play } from 'cuelume';
+import { play as playCuelume } from 'cuelume';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
+import { playInteractionSound } from '@/lib/interaction-sounds';
 
 import { apiOperationWithAuth } from '@/lib/api/client';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
@@ -232,7 +233,7 @@ export function TasksClient() {
       }
     },
     onSuccess: ({ task, syncStatus }, variables) => {
-      play('success', { volume: 0.32 });
+      playInteractionSound('taskCreated');
       invalidateTaskDerivedSurfaces();
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
       rememberEntitySummary(summaryFromTask(task));
@@ -247,7 +248,7 @@ export function TasksClient() {
       if (!variables.createMore) setComposerOpen(false);
     },
     onError: (error) => {
-      play('error', { volume: 0.28 });
+      playCuelume('error');
       toast.error(error instanceof Error ? error.message : 'Failed to create task.');
     },
   });
@@ -288,6 +289,7 @@ export function TasksClient() {
       toast.error(error instanceof Error ? error.message : 'Failed to update task.');
     },
     onSuccess: (task, variables) => {
+      if (variables.patch.status === 'completed') playInteractionSound('taskCompleted');
       invalidateTaskSurfaces();
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
       if (task) rememberEntitySummary(summaryFromTask(task));

@@ -14,6 +14,7 @@ import { apiFetchWithAuth } from '@/lib/api/client';
 import { putLocalVaultHabit, putLocalVaultHabitLog, putLocalVaultHabitWriteOutboxItem, readLocalVaultHabitLogs, readLocalVaultHabits, readLocalVaultHabitWriteOutboxItems } from '@/lib/privacy/habit-vault-adapter';
 import { buildHabitCreateOutboxItem, buildHabitLogCreateOutboxItem, buildOptimisticHabit, buildOptimisticHabitLog, createHabitClientEventId, getHabitLogOptimisticDelta, getHabitLogOptimisticUnit, markOutboxItemFailed, markOutboxItemSynced, mergeHabitLogsWithOutbox, mergeHabitsWithOutbox, upsertById, type HabitLogMutationInput, type HabitWriteOutboxItem, type OptimisticHabit, type OptimisticHabitLog } from '@/lib/habits/local-first-writes';
 import { useHabitWriteOutboxSync } from './use-habit-outbox-sync';
+import { playInteractionSound } from '@/lib/interaction-sounds';
 
 const LOCAL_HABITS_API = '/api/habits';
 const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
@@ -443,6 +444,7 @@ export function useLogHabitMutation() {
     },
 
     onSuccess: async (result, _vars, context) => {
+      playInteractionSound('habitLogCreated');
       markReadConsistencyRequired(user?.id);
       if (user?.id && result?.overview_snapshot?.overviewStats) {
         applyCanonicalOverviewSnapshot(queryClient, user.id, result.overview_snapshot);

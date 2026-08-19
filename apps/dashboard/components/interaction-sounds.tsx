@@ -4,18 +4,19 @@ import { useEffect } from 'react';
 import { bind, setEnabled, setVolume } from 'cuelume';
 
 import {
-  readInteractionSoundsEnabled,
-  subscribeToInteractionSounds,
+  readInteractionSoundPreferences,
+  subscribeToInteractionSoundPreferences,
 } from '@/lib/interaction-sounds';
-
-const RITUAL_SOUND_VOLUME = 0.28;
 
 export function InteractionSounds() {
   useEffect(() => {
     bind();
-    setVolume(RITUAL_SOUND_VOLUME);
-    setEnabled(readInteractionSoundsEnabled());
-    return subscribeToInteractionSounds(setEnabled);
+    const applyPreferences = (preferences: ReturnType<typeof readInteractionSoundPreferences>) => {
+      setVolume(preferences.volume);
+      setEnabled(preferences.enabled);
+    };
+    applyPreferences(readInteractionSoundPreferences());
+    return subscribeToInteractionSoundPreferences(applyPreferences);
   }, []);
 
   return null;

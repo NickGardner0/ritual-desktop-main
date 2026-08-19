@@ -2025,7 +2025,7 @@ fn set_voice_hotkey_settings(
 
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
-        "account" | "privacy" | "voice" | "computer-tracking" | "place-tagging"
+        "account" | "sounds" | "privacy" | "voice" | "computer-tracking" | "place-tagging"
         | "apple-health" => view.unwrap_or_else(|| "account".to_string()),
         _ => "account".to_string(),
     }

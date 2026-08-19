@@ -19,11 +19,7 @@ import { AppleWatchSettings } from './apple-watch-settings';
 import { PlaceTaggingSettings } from './place-tagging-settings';
 import { PrivacySettingsPanel } from './privacy-settings-panel';
 import { VoiceSettings } from './voice-settings';
-import {
-  readInteractionSoundsEnabled,
-  subscribeToInteractionSounds,
-  writeInteractionSoundsEnabled,
-} from '@/lib/interaction-sounds';
+import { InteractionSoundSettings } from './interaction-sound-settings';
 import {
   SettingsGroup as RitualSettingsGroup,
   SettingsRow as RitualSettingsRow,
@@ -49,6 +45,7 @@ function AppleGlyph({ className }: { className?: string; strokeWidth?: number })
 
 const TABS: Record<DesktopSettingsView, TabConfig> = {
   account: { label: 'General', icon: Settings2 },
+  sounds: { label: 'Sounds', icon: Volume2 },
   privacy: { label: 'Privacy', icon: ShieldCheck },
   voice: { label: 'Voice', icon: Mic },
   'computer-tracking': { label: 'Computer Use', icon: Monitor },
@@ -56,7 +53,7 @@ const TABS: Record<DesktopSettingsView, TabConfig> = {
   'apple-health': { label: 'Apple Watch', icon: AppleGlyph },
 };
 
-const TAB_ORDER: DesktopSettingsView[] = ['account', 'privacy', 'voice', 'computer-tracking', 'place-tagging', 'apple-health'];
+const TAB_ORDER: DesktopSettingsView[] = ['account', 'sounds', 'privacy', 'voice', 'computer-tracking', 'place-tagging', 'apple-health'];
 
 const fontOptions: { value: FontOption; label: string }[] = [
   { value: 'fk-grotesk', label: 'FK Grotesk Neue' },
@@ -76,7 +73,7 @@ const sidebarModeOptions: { value: SidebarMode; label: string }[] = [
 ];
 
 export function normalizeSettingsFrameView(value: unknown): DesktopSettingsView {
-  return value === 'privacy' || value === 'voice' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
+  return value === 'sounds' || value === 'privacy' || value === 'voice' || value === 'computer-tracking' || value === 'place-tagging' || value === 'apple-health'
     ? value
     : 'account';
 }
@@ -95,7 +92,6 @@ export function SettingsFrame({
   const { habitTextColor, setHabitTextColor } = useUIPreferences();
   const [activeTab, setActiveTab] = useState<DesktopSettingsView>(() => normalizeSettingsFrameView(initialView));
   const [aiDataRetention, setAiDataRetention] = useState(true);
-  const [interactionSoundsEnabled, setInteractionSoundsEnabled] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
@@ -129,17 +125,6 @@ export function SettingsFrame({
       window.localStorage.getItem('ritual-show-attribution-health') === '1';
     startTransition(() => setShowAttributionHealth(enabled));
   }, [user?.primaryEmailAddress?.emailAddress]);
-
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      setInteractionSoundsEnabled(readInteractionSoundsEnabled());
-    });
-    const unsubscribe = subscribeToInteractionSounds(setInteractionSoundsEnabled);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      unsubscribe();
-    };
-  }, []);
 
   useEffect(() => {
     if (!listenForDesktopShow || !isDesktop) return;
@@ -295,16 +280,15 @@ export function SettingsFrame({
               <SettingsRow
                 icon={<Volume2 className="h-[15px] w-[15px]" strokeWidth={1.9} />}
                 title="Interaction sounds"
-                description="Play quiet cues for repeated actions and completed tasks."
+                description="Choose sounds for logs, new tasks, and completed tasks."
                 control={(
-                  <SettingsToggle
-                    checked={interactionSoundsEnabled}
-                    onClick={() => {
-                      const enabled = !interactionSoundsEnabled;
-                      setInteractionSoundsEnabled(enabled);
-                      writeInteractionSoundsEnabled(enabled);
-                    }}
-                  />
+                  <button
+                    type="button"
+                    onClick={() => handleTabSelect('sounds')}
+                    className="settings-value-button"
+                  >
+                    Configure
+                  </button>
                 )}
               />
 
@@ -469,6 +453,12 @@ export function SettingsFrame({
                 Delete account
               </button>
             </SettingsSection>
+          </SettingsPage>
+        ) : null}
+
+        {activeTab === 'sounds' ? (
+          <SettingsPage title="Sounds" embedded>
+            <InteractionSoundSettings />
           </SettingsPage>
         ) : null}
 

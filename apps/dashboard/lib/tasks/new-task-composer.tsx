@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Calendar, ChevronDown, CircleDashed, Tag, X } from 'lucide-react';
+import { Calendar, ChevronDown, CircleDashed, Flag, Tag, X } from 'lucide-react';
 
 import { Button } from '@ritual/ui/button';
 import {
@@ -12,6 +12,8 @@ import {
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
+import { Calendar as DateCalendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
 import { dateFromInput } from '@/lib/tasks/date-format';
 import {
   clearTaskComposerDraft,
@@ -48,24 +50,38 @@ const SCHEDULE_LABELS: Record<ScheduleWhen, string> = {
 
 const CATEGORY_OPTIONS = CATEGORY_FILTERS.filter((item) => item !== 'All');
 
-function scheduleToDates(schedule: ScheduleWhen, dueDate: string) {
+function scheduleToDate(schedule: ScheduleWhen, dueDate: string) {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (schedule === 'today') {
     const iso = todayStart.toISOString();
-    return { scheduled_for: iso, due_at: iso };
+    return iso;
   }
   if (schedule === 'upcoming') {
     const tomorrow = new Date(todayStart);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const iso = tomorrow.toISOString();
-    return { scheduled_for: iso, due_at: iso };
+    return iso;
   }
   if (schedule === 'anytime') {
-    return { scheduled_for: null, due_at: null };
+    return null;
   }
   const iso = dateFromInput(dueDate);
-  return { scheduled_for: iso, due_at: iso };
+  return iso;
+}
+
+function dateToInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromDaysAhead(days: number): string {
+  const date = new Date();
+  date.setHours(9, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return dateToInput(date);
 }
 
 const ComposerPill = React.forwardRef<
@@ -96,6 +112,7 @@ function defaultFormState(defaultSchedule: ScheduleWhen): Omit<TaskComposerDraft
     priority: 'none',
     category: 'Personal',
     dueDate: '',
+    deadlineDate: '',
     schedule: defaultSchedule,
   };
 }
@@ -122,6 +139,8 @@ export function NewTaskComposer({
   const [priority, setPriority] = useState<TaskPriority>('none');
   const [category, setCategory] = useState('Personal');
   const [dueDate, setDueDate] = useState('');
+  const [deadlineDate, setDeadlineDate] = useState('');
+  const [deadlinePickerOpen, setDeadlinePickerOpen] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleWhen>(defaultSchedule);
   const [createMore, setCreateMore] = useState(false);
   const portalRoot = open && typeof document !== 'undefined' ? document.body : null;
@@ -132,6 +151,7 @@ export function NewTaskComposer({
     setPriority(state.priority);
     setCategory(state.category);
     setDueDate(state.dueDate);
+    setDeadlineDate(state.deadlineDate);
     setSchedule(state.schedule);
   }, []);
 
@@ -149,6 +169,7 @@ export function NewTaskComposer({
       if (cancelled) return;
       applyFormState(loadTaskComposerDraft() ?? defaultFormState(defaultSchedule));
       setCreateMore(false);
+      setDeadlinePickerOpen(false);
       window.setTimeout(() => titleRef.current?.focus(), 40);
     });
     return () => {
@@ -164,12 +185,20 @@ export function NewTaskComposer({
         clearTaskComposerDraft();
         return;
       }
-      saveTaskComposerDraft({ title, notes, priority, category, dueDate, schedule });
+      saveTaskComposerDraft({
+        title,
+        notes,
+        priority,
+        category,
+        dueDate,
+        deadlineDate,
+        schedule,
+      });
     }, 300);
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [open, title, notes, priority, category, dueDate, schedule]);
+  }, [open, title, notes, priority, category, dueDate, deadlineDate, schedule]);
 
   useEffect(() => {
     if (!open) return;
@@ -186,13 +215,14 @@ export function NewTaskComposer({
     const trimmedTitle = title.trim();
     if (!trimmedTitle || pending) return;
 
-    const dates = scheduleToDates(schedule, dueDate);
+    const scheduledFor = scheduleToDate(schedule, dueDate);
     onSubmit({
       title: trimmedTitle,
       notes: notes.trim() || null,
       priority,
       category,
-      ...dates,
+      scheduled_for: scheduledFor,
+      due_at: dateFromInput(deadlineDate),
       source: 'manual',
       client_event_id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       createMore,
@@ -203,7 +233,20 @@ export function NewTaskComposer({
       resetForm(defaultSchedule);
       window.setTimeout(() => titleRef.current?.focus(), 40);
     }
-  }, [createMore, defaultSchedule, dueDate, notes, onSubmit, pending, priority, category, resetForm, schedule, title]);
+  }, [
+    createMore,
+    deadlineDate,
+    defaultSchedule,
+    dueDate,
+    notes,
+    onSubmit,
+    pending,
+    priority,
+    category,
+    resetForm,
+    schedule,
+    title,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -219,14 +262,27 @@ export function NewTaskComposer({
 
   if (!open) return null;
 
-  const dueLabel = dueDate
-    ? new Date(`${dueDate}T00:00:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-    : 'Due date';
+  const customScheduleLabel = dueDate
+    ? new Date(`${dueDate}T00:00:00`).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+      })
+    : 'Pick date';
+  const deadlineLabel = deadlineDate
+    ? new Date(`${deadlineDate}T09:00:00`).toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+      })
+    : 'Deadline';
+  const selectedDeadline = deadlineDate ? new Date(`${deadlineDate}T09:00:00`) : undefined;
 
   const modalContent = (
-    <div className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden" data-tauri-drag-region="false">
+    <div
+      className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden"
+      data-tauri-drag-region="false"
+    >
       <div
-        className="absolute inset-0 bg-transparent"
+        className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
         onClick={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
@@ -241,166 +297,248 @@ export function NewTaskComposer({
           role="dialog"
           aria-modal="true"
           aria-labelledby="new-task-title"
-          className="ritual-dialog-surface pointer-events-auto relative z-20 flex min-h-[360px] w-full max-w-[680px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden"
-          style={{ boxShadow: 'var(--shadow-dialog), 0 0 0 1px var(--border-floating)' }}
+          className={cn(
+            'pointer-events-auto relative z-20 flex min-h-[360px] max-h-[calc(100dvh-32px)] w-full max-w-[680px] flex-col overflow-hidden',
+            'rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.92)] text-[#111111]',
+            'shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)]',
+            'supports-[backdrop-filter]:bg-[rgba(255,255,255,0.86)] supports-[backdrop-filter]:backdrop-blur-xl',
+          )}
           data-tauri-drag-region="false"
         >
-        <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
-          <h2 id="new-task-title" className="text-[14px] font-medium text-[var(--text-primary)]">
-            New task
-          </h2>
-          <div className="flex items-center gap-0.5">
-            {(title.trim() || notes.trim()) ? (
+          <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
+            <h2 id="new-task-title" className="text-[14px] font-medium text-[var(--text-primary)]">
+              New task
+            </h2>
+            <div className="flex items-center gap-0.5">
+              {title.trim() || notes.trim() ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearTaskComposerDraft();
+                    resetForm(defaultSchedule);
+                  }}
+                  className="rounded-[var(--radius-row)] px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+                >
+                  Clear draft
+                </button>
+              ) : null}
               <button
                 type="button"
-                onClick={() => {
-                  clearTaskComposerDraft();
-                  resetForm(defaultSchedule);
-                }}
-                className="rounded-[var(--radius-row)] px-2 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+                onClick={onClose}
+                className="rounded-[var(--radius-row)] p-1.5 text-[var(--icon-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+                aria-label="Close"
               >
-                Clear draft
+                <X className="h-4 w-4" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-[var(--radius-row)] p-1.5 text-[var(--icon-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            </div>
           </div>
-        </div>
 
-        <div className="flex-1 px-5 pb-4 pt-5">
-          <input
-            ref={titleRef}
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey) {
-                event.preventDefault();
-              }
-            }}
-            placeholder="Task title"
-            className="w-full bg-transparent text-[22px] font-medium leading-7 tracking-[-0.02em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
-            aria-label="Task title"
-          />
-          <EntityNoteField
-            value={notes}
-            onChange={setNotes}
-            placeholder="Add description..."
-            rows={3}
-            className="mt-3 min-h-[104px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
-          />
-        </div>
+          <div className="flex-1 px-5 pb-4 pt-5">
+            <input
+              ref={titleRef}
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                }
+              }}
+              placeholder="Task title"
+              className="w-full bg-transparent text-[22px] font-medium leading-7 tracking-[-0.02em] text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              aria-label="Task title"
+            />
+            <EntityNoteField
+              value={notes}
+              onChange={setNotes}
+              placeholder="Add description..."
+              rows={3}
+              className="mt-3 min-h-[104px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
+            />
+          </div>
 
-        <div className="relative flex flex-wrap items-center gap-1.5 px-5 pb-3">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <ComposerPill>
-                {priority === 'none' ? (
-                  <CircleDashed className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                ) : (
-                  priorityBars(priority)
-                )}
-                {PRIORITY_LABELS[priority]}
-              </ComposerPill>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-44">
-              {PRIORITIES.map((item) => (
-                <DropdownMenuItem key={item} onClick={() => setPriority(item)}>
-                  {item === 'none' ? (
+          <div className="relative flex flex-wrap items-center gap-1.5 px-5 pb-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ComposerPill>
+                  {priority === 'none' ? (
                     <CircleDashed className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                   ) : (
-                    priorityBars(item)
+                    priorityBars(priority)
                   )}
-                  {PRIORITY_LABELS[item]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  {PRIORITY_LABELS[priority]}
+                </ComposerPill>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                {PRIORITIES.map((item) => (
+                  <DropdownMenuItem key={item} onClick={() => setPriority(item)}>
+                    {item === 'none' ? (
+                      <CircleDashed className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                    ) : (
+                      priorityBars(item)
+                    )}
+                    {PRIORITY_LABELS[item]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <ComposerPill>
-                <Tag className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                {category}
-              </ComposerPill>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
-              {CATEGORY_OPTIONS.map((item) => (
-                <DropdownMenuItem key={item} onClick={() => setCategory(item)}>
-                  {item}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ComposerPill>
+                  <Tag className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  {category}
+                </ComposerPill>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {CATEGORY_OPTIONS.map((item) => (
+                  <DropdownMenuItem key={item} onClick={() => setCategory(item)}>
+                    {item}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <ComposerPill className={cn(schedule === 'custom' && dueDate && 'text-[var(--text-primary)]')}>
-                {schedule === 'custom' && !dueDate ? (
-                  <CircleDashed className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                ) : (
-                  <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                )}
-                {schedule === 'custom' ? dueLabel : SCHEDULE_LABELS[schedule]}
-              </ComposerPill>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-40">
-              {(Object.keys(SCHEDULE_LABELS) as ScheduleWhen[]).map((item) => (
-                <DropdownMenuItem
-                  key={item}
-                  onClick={() => {
-                    setSchedule(item);
-                    if (item === 'custom') {
-                      window.setTimeout(() => dueInputRef.current?.showPicker?.(), 0);
-                      return;
-                    }
-                    setDueDate('');
-                  }}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <ComposerPill
+                  className={cn(schedule === 'custom' && dueDate && 'text-[var(--text-primary)]')}
                 >
-                  {SCHEDULE_LABELS[item]}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <input
-            ref={dueInputRef}
-            type="date"
-            value={dueDate}
-            onChange={(event) => {
-              setDueDate(event.target.value);
-              if (event.target.value) setSchedule('custom');
-            }}
-            className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
-            tabIndex={-1}
-            aria-hidden
-          />
-        </div>
+                  {schedule === 'custom' && !dueDate ? (
+                    <CircleDashed className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  ) : (
+                    <Calendar className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  )}
+                  {schedule === 'custom' ? customScheduleLabel : SCHEDULE_LABELS[schedule]}
+                </ComposerPill>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-40">
+                {(Object.keys(SCHEDULE_LABELS) as ScheduleWhen[]).map((item) => (
+                  <DropdownMenuItem
+                    key={item}
+                    onClick={() => {
+                      setSchedule(item);
+                      if (item === 'custom') {
+                        window.setTimeout(() => dueInputRef.current?.showPicker?.(), 0);
+                        return;
+                      }
+                      setDueDate('');
+                    }}
+                  >
+                    {SCHEDULE_LABELS[item]}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <input
+              ref={dueInputRef}
+              type="date"
+              value={dueDate}
+              onChange={(event) => {
+                setDueDate(event.target.value);
+                if (event.target.value) setSchedule('custom');
+              }}
+              className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0"
+              tabIndex={-1}
+              aria-hidden
+            />
 
-        <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
-          <label className="mr-auto flex cursor-pointer items-center gap-2">
-            <Switch checked={createMore} onCheckedChange={setCreateMore} data-cuelume-toggle />
-            <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
-          </label>
-          <Button
-            type="button"
-            variant="brand"
-            size="compact"
-            onClick={handleSubmit}
-            disabled={!title.trim() || pending}
-            className="rounded-full px-3.5"
-            data-cuelume-press="press"
-          >
-            {pending ? 'Creating…' : 'Create task'}
-            <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
-              ⌘↵
-            </kbd>
-          </Button>
-        </div>
+            <Popover open={deadlinePickerOpen} onOpenChange={setDeadlinePickerOpen}>
+              <PopoverTrigger asChild>
+                <ComposerPill className={cn(deadlineDate && 'text-[var(--text-primary)]')}>
+                  <Flag className="h-3.5 w-3.5 text-[var(--text-muted)]" />
+                  {deadlineLabel}
+                </ComposerPill>
+              </PopoverTrigger>
+              <PopoverContent
+                align="start"
+                sideOffset={8}
+                className="z-[10000] w-auto overflow-hidden rounded-[var(--radius-floating)] border border-[var(--border-floating)] bg-[var(--surface-floating)] p-0 shadow-[var(--shadow-popover)]"
+              >
+                <div className="flex items-center justify-between gap-4 border-b border-[var(--divider-subtle)] px-3 py-2.5">
+                  <div>
+                    <p className="text-[12px] font-medium text-[var(--text-primary)]">Deadline</p>
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      Choose the date this task is due.
+                    </p>
+                  </div>
+                  {deadlineDate ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDeadlineDate('');
+                        setDeadlinePickerOpen(false);
+                      }}
+                      className="rounded-[var(--radius-control)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                    >
+                      Clear
+                    </button>
+                  ) : null}
+                </div>
+                <div className="flex gap-1 border-b border-[var(--divider-subtle)] p-2">
+                  {[
+                    { label: 'Today', days: 0 },
+                    { label: 'Tomorrow', days: 1 },
+                    { label: 'Next week', days: 7 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setDeadlineDate(dateFromDaysAhead(preset.days));
+                        setDeadlinePickerOpen(false);
+                      }}
+                      className="rounded-[var(--radius-control)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <DateCalendar
+                  mode="single"
+                  selected={selectedDeadline}
+                  onSelect={(date) => {
+                    if (!date) return;
+                    setDeadlineDate(dateToInput(date));
+                    setDeadlinePickerOpen(false);
+                  }}
+                  defaultMonth={selectedDeadline}
+                  initialFocus
+                  className="p-3"
+                  classNames={{
+                    day: 'h-8 w-8 rounded-[var(--radius-control)] p-0 text-[12px] font-normal hover:bg-[var(--row-hover)]',
+                    cell: 'relative h-8 w-8 p-0 text-center text-[12px] focus-within:relative focus-within:z-20',
+                    day_selected:
+                      'rounded-[var(--radius-control)] bg-[var(--brand-action)] text-[var(--brand-action-foreground)] hover:bg-[var(--brand-action-hover)] hover:text-[var(--brand-action-foreground)] focus:bg-[var(--brand-action)] focus:text-[var(--brand-action-foreground)]',
+                    day_today:
+                      'rounded-[var(--radius-control)] bg-[var(--row-hover)] text-[var(--text-primary)]',
+                    nav_button:
+                      'h-7 w-7 rounded-[var(--radius-control)] border-0 bg-transparent p-0 text-[var(--icon-muted)] opacity-70 hover:bg-[var(--row-hover)] hover:opacity-100',
+                  }}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
+
+          <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
+            <label className="mr-auto flex cursor-pointer items-center gap-2">
+              <Switch checked={createMore} onCheckedChange={setCreateMore} data-cuelume-toggle />
+              <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
+            </label>
+            <Button
+              type="button"
+              variant="brand"
+              size="compact"
+              onClick={handleSubmit}
+              disabled={!title.trim() || pending}
+              className="rounded-full px-3.5"
+              data-cuelume-press="press"
+            >
+              {pending ? 'Creating…' : 'Create task'}
+              <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
+                ⌘↵
+              </kbd>
+            </Button>
+          </div>
         </div>
       </div>
     </div>

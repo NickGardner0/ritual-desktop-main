@@ -10,6 +10,7 @@ import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { apiFetchWithAuth } from '@/lib/api/client';
+import { playInteractionSound } from '@/lib/interaction-sounds';
 
 const DESKTOP_RUNTIME_BRIDGE_POLL_MS = 10_000;
 const DESKTOP_RUNTIME_BRIDGE_OVERVIEW_POLL_MS = 60_000;
@@ -382,32 +383,6 @@ function RuntimeSyncBridge() {
       }, delayMs);
     };
 
-    const playRemoteHabitLogSound = () => {
-      try {
-        const audioCtx = new (window.AudioContext || (window as never as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-        if (audioCtx.state === 'suspended') void audioCtx.resume();
-        const osc1 = audioCtx.createOscillator();
-        const osc2 = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc1.connect(gain);
-        osc2.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc1.frequency.setValueAtTime(523.25, audioCtx.currentTime);
-        osc2.frequency.setValueAtTime(659.25, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0, audioCtx.currentTime);
-        gain.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.1);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
-        osc1.type = 'sine';
-        osc2.type = 'sine';
-        osc1.start(audioCtx.currentTime);
-        osc2.start(audioCtx.currentTime);
-        osc1.stop(audioCtx.currentTime + 0.6);
-        osc2.stop(audioCtx.currentTime + 0.6);
-      } catch (e) {
-        console.log('Remote habit log sound failed:', e);
-      }
-    };
-
     const connectRealtime = async () => {
       try {
         const token = await getToken();
@@ -451,7 +426,7 @@ function RuntimeSyncBridge() {
             void invalidateHabitData(queryClient, user.id);
 
             if (payload.playSound) {
-              playRemoteHabitLogSound();
+              playInteractionSound('habitLogCreated');
             }
 
             window.dispatchEvent(new CustomEvent('ritual:habit-log-updated', {
