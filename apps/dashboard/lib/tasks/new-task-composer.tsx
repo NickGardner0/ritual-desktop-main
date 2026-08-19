@@ -241,7 +241,8 @@ export function NewTaskComposer({
           role="dialog"
           aria-modal="true"
           aria-labelledby="new-task-title"
-          className="pointer-events-auto flex min-h-[360px] w-full max-w-[680px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden rounded-[var(--radius-dialog)] border border-[var(--ritual-border-default)] bg-[var(--surface-floating)] shadow-[var(--shadow-dialog)]"
+          className="ritual-dialog-surface pointer-events-auto relative z-20 flex min-h-[360px] w-full max-w-[680px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden"
+          style={{ boxShadow: 'var(--shadow-dialog), 0 0 0 1px var(--border-floating)' }}
           data-tauri-drag-region="false"
         >
         <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
