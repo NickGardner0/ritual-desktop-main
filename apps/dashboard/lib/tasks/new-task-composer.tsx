@@ -291,9 +291,8 @@ export function NewTaskComposer({
           aria-modal="true"
           aria-labelledby="new-task-title"
           className={cn(
+            'ritual-dialog-surface',
             'pointer-events-auto relative z-20 flex min-h-[360px] max-h-[calc(100dvh-32px)] w-full max-w-[680px] flex-col overflow-hidden',
-            'rounded-[var(--radius-dialog)] border border-[var(--ritual-border-default)] bg-[var(--ritual-surface-raised)] text-[var(--text-primary)]',
-            'shadow-[var(--shadow-dialog)]',
           )}
           data-tauri-drag-region="false"
         >
