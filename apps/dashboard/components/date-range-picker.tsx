@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Calendar as CalendarIcon, ChevronDown } from "lucide-react"
-import { format, subDays, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay, isBefore } from "date-fns"
+import { addDays, format, subDays, subMonths, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfDay, endOfDay, isBefore } from "date-fns"
 import { DateRange } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
@@ -15,7 +15,8 @@ interface DateRangePickerProps {
   className?: string
   onDateRangeChange?: (dateRange: DateRange | undefined) => void
   initialDateRange?: DateRange
-  variant?: "default" | "titlebar"
+  variant?: "default" | "titlebar" | "compact"
+  trigger?: React.ReactNode
 }
 
 interface PresetRange {
@@ -104,14 +105,50 @@ const presetRanges: PresetRange[] = [
   }
 ]
 
+const deadlinePresetRanges: PresetRange[] = [
+  {
+    label: "Today",
+    value: "today",
+    getRange: () => {
+      const today = new Date()
+      return { from: startOfDay(today), to: endOfDay(today) }
+    }
+  },
+  {
+    label: "Tomorrow",
+    value: "tomorrow",
+    getRange: () => {
+      const tomorrow = addDays(new Date(), 1)
+      return { from: startOfDay(tomorrow), to: endOfDay(tomorrow) }
+    }
+  },
+  {
+    label: "Next week",
+    value: "nextweek",
+    getRange: () => {
+      const nextWeek = addDays(new Date(), 7)
+      return { from: startOfDay(nextWeek), to: endOfDay(nextWeek) }
+    }
+  },
+  {
+    label: "No deadline",
+    value: "none",
+    getRange: () => undefined
+  }
+]
+
 export function DateRangePicker({
   className,
   onDateRangeChange,
   initialDateRange,
-  variant = "default"
+  variant = "default",
+  trigger
 }: DateRangePickerProps) {
+  const isTitlebar = variant === "titlebar"
+  const isCompact = variant === "compact"
+  const availablePresets = isCompact ? deadlinePresetRanges : presetRanges
   const [date, setDate] = React.useState<DateRange | undefined>(initialDateRange)
-  const [selectedPreset, setSelectedPreset] = React.useState<string>(initialDateRange ? "custom" : "alltime")
+  const [selectedPreset, setSelectedPreset] = React.useState<string>(initialDateRange ? "custom" : isCompact ? "none" : "alltime")
   const [isOpen, setIsOpen] = React.useState(false)
   
   // Drag-to-select state
@@ -411,51 +448,59 @@ export function DateRangePicker({
     return "All time"
   }
 
-  const isTitlebar = variant === "titlebar"
+  const calendarWidth = isCompact ? "w-[472px]" : "w-[580px]"
 
   return (
     <div className={cn(isTitlebar ? "flex items-center" : "grid gap-2", className)}>
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
-          <Button
-            id="date"
-            variant={"outline"}
-            aria-label={`Date range: ${formatDateRange()}`}
-            className={cn(
-              isTitlebar
-                ? "app-toolbar-date-button h-7 min-w-[104px] justify-between gap-1 rounded-[7px] border border-transparent bg-transparent px-2 text-left text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.045] hover:text-[#2f302d] data-[state=open]:bg-black/[0.045] data-[state=open]:text-[#2f302d] focus-visible:bg-black/[0.045] focus-visible:ring-0"
-                : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
-              !date && (isTitlebar ? "text-[#6b6a66]" : "text-black"),
-              isTitlebar ? undefined : className
-            )}
-          >
-            {isTitlebar ? null : (
-              <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            <span className="min-w-0 truncate">{formatDateRange()}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 shrink-0", isTitlebar ? "text-[#9b9a96]" : undefined)} />
-          </Button>
+          {trigger ?? (
+            <Button
+              id="date"
+              variant={"outline"}
+              aria-label={`Date range: ${formatDateRange()}`}
+              className={cn(
+                isTitlebar
+                  ? "app-toolbar-date-button h-7 min-w-[104px] justify-between gap-1 rounded-[7px] border border-transparent bg-transparent px-2 text-left text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.045] hover:text-[#2f302d] data-[state=open]:bg-black/[0.045] data-[state=open]:text-[#2f302d] focus-visible:bg-black/[0.045] focus-visible:ring-0"
+                  : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
+                !date && (isTitlebar ? "text-[#6b6a66]" : "text-black"),
+                isTitlebar ? undefined : className
+              )}
+            >
+              {isTitlebar ? null : (
+                <CalendarIcon className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              <span className="min-w-0 truncate">{formatDateRange()}</span>
+              <ChevronDown className={cn("h-3.5 w-3.5 shrink-0", isTitlebar ? "text-[#9b9a96]" : undefined)} />
+            </Button>
+          )}
         </PopoverTrigger>
         <PopoverContent
-          className="w-[580px] p-0"
+          className={cn(calendarWidth, "p-0", isCompact && "z-[10000]")}
           align="end"
           side="bottom"
           sideOffset={8}
-          avoidCollisions={false}
+          avoidCollisions={isCompact}
         >
           <div className="flex flex-col">
-            <div className="px-4 py-3 border-b border-gray-300">
+            <div className={cn("border-b border-[var(--divider-subtle)]", isCompact ? "px-3 py-2.5" : "px-4 py-3")}>
               <Select value={selectedPreset} onValueChange={(value) => {
-                const preset = presetRanges.find(p => p.value === value)
+                const preset = availablePresets.find(p => p.value === value)
                 if (preset) {
                   handlePresetClick(preset)
                 }
               }}>
-                <SelectTrigger className="w-[200px] h-9 text-sm border-gray-300 hover:border-gray-300 hover:bg-[#F3F3F3] rounded-sm focus:ring-0 focus:ring-offset-0 focus:border-gray-300">
+                <SelectTrigger className={cn(
+                  "border-[var(--border-floating)] hover:border-[var(--border-floating)] hover:bg-[var(--row-hover)] focus:border-[var(--border-floating)] focus:ring-0 focus:ring-offset-0",
+                  isCompact ? "h-8 w-[180px] rounded-[var(--radius-control)] text-[13px]" : "h-9 w-[200px] rounded-[var(--radius-control)] text-sm"
+                )}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {presetRanges.map((preset) => (
+                  <SelectItem value="custom" disabled>
+                    Custom range
+                  </SelectItem>
+                  {availablePresets.map((preset) => (
                     <SelectItem key={preset.value} value={preset.value}>
                       {preset.label}
                     </SelectItem>
@@ -464,7 +509,7 @@ export function DateRangePicker({
               </Select>
             </div>
             <div 
-              className={cn("w-[580px] select-none", isDragging && "cursor-crosshair")}
+              className={cn(calendarWidth, "select-none", isDragging && "cursor-crosshair")}
               onPointerDownCapture={handleCalendarMouseDown}
               onPointerMoveCapture={handleCalendarMouseMove}
               onPointerUpCapture={handleMouseUp}
@@ -478,18 +523,24 @@ export function DateRangePicker({
                 onSelect={handleDateSelect}
                 numberOfMonths={2}
                 fixedWeeks={true}
-                className="p-4"
+                className={isCompact ? "p-3" : "p-4"}
                 classNames={{
+                  months: cn("flex flex-row", isCompact ? "gap-3" : "gap-4"),
+                  month: isCompact ? "space-y-2" : "space-y-4",
+                  caption_label: isCompact ? "text-[13px] font-medium" : "text-sm font-medium",
+                  head_cell: cn("font-normal text-[var(--text-muted)]", isCompact ? "w-8 text-[11px]" : "w-9 text-[0.8rem]"),
+                  row: cn("flex w-full", isCompact ? "mt-1" : "mt-2"),
                   day: cn(
-                    "h-9 w-9 p-0 font-normal aria-selected:opacity-100 rounded-none hover:bg-[#F3F3F3] hover:text-gray-900",
+                    isCompact ? "h-8 w-8 text-[12px]" : "h-9 w-9 text-sm",
+                    "rounded-full p-0 font-normal aria-selected:opacity-100 hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]",
                     isDragging && "cursor-crosshair"
                   ),
-                  day_selected: "bg-[#F3F3F3] text-gray-900 hover:bg-[#F3F3F3] hover:text-gray-900 focus:bg-[#F3F3F3] focus:text-gray-900 rounded-none",
-                  day_today: "bg-[#F3F3F3] text-gray-900 rounded-none",
-                  day_range_middle: "aria-selected:bg-[#F3F3F3] aria-selected:text-gray-900",
-                  day_outside: "day-outside text-muted-foreground aria-selected:bg-[#F3F3F3]/50 aria-selected:text-muted-foreground",
-                  cell: "h-9 w-9 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-none [&:has([aria-selected].day-outside)]:bg-[#F3F3F3]/50 [&:has([aria-selected])]:bg-[#F3F3F3] first:[&:has([aria-selected])]:rounded-none last:[&:has([aria-selected])]:rounded-none focus-within:relative focus-within:z-20",
-                  nav_button: "h-7 w-7 bg-transparent p-0 opacity-50 hover:opacity-100 hover:bg-[#F3F3F3] rounded-none border-gray-300"
+                  day_selected: "rounded-full bg-[var(--row-hover)] text-[var(--text-primary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:bg-[var(--row-hover)] focus:text-[var(--text-primary)]",
+                  day_today: "rounded-full bg-[var(--row-hover)] text-[var(--text-primary)]",
+                  day_range_middle: "rounded-full aria-selected:bg-[var(--row-hover)] aria-selected:text-[var(--text-primary)]",
+                  day_outside: "day-outside text-muted-foreground aria-selected:bg-[var(--row-hover)] aria-selected:text-muted-foreground",
+                  cell: cn("relative p-0 text-center focus-within:relative focus-within:z-20", isCompact ? "h-8 w-8 text-[12px]" : "h-9 w-9 text-sm"),
+                  nav_button: "h-7 w-7 rounded-full border-0 bg-transparent p-0 opacity-50 hover:bg-[var(--row-hover)] hover:opacity-100"
                 }}
               />
             </div>

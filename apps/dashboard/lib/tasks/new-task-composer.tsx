@@ -12,8 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
 import { Switch } from '@/components/ui/switch';
-import { Calendar as DateCalendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
+import { DateRangePicker } from '@/components/date-range-picker';
 import { dateFromInput } from '@/lib/tasks/date-format';
 import {
   clearTaskComposerDraft,
@@ -77,13 +76,6 @@ function dateToInput(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function dateFromDaysAhead(days: number): string {
-  const date = new Date();
-  date.setHours(9, 0, 0, 0);
-  date.setDate(date.getDate() + days);
-  return dateToInput(date);
-}
-
 const ComposerPill = React.forwardRef<
   HTMLButtonElement,
   React.ButtonHTMLAttributes<HTMLButtonElement>
@@ -140,7 +132,6 @@ export function NewTaskComposer({
   const [category, setCategory] = useState('Personal');
   const [dueDate, setDueDate] = useState('');
   const [deadlineDate, setDeadlineDate] = useState('');
-  const [deadlinePickerOpen, setDeadlinePickerOpen] = useState(false);
   const [schedule, setSchedule] = useState<ScheduleWhen>(defaultSchedule);
   const [createMore, setCreateMore] = useState(false);
   const portalRoot = open && typeof document !== 'undefined' ? document.body : null;
@@ -169,7 +160,6 @@ export function NewTaskComposer({
       if (cancelled) return;
       applyFormState(loadTaskComposerDraft() ?? defaultFormState(defaultSchedule));
       setCreateMore(false);
-      setDeadlinePickerOpen(false);
       window.setTimeout(() => titleRef.current?.focus(), 40);
     });
     return () => {
@@ -275,6 +265,9 @@ export function NewTaskComposer({
       })
     : 'Deadline';
   const selectedDeadline = deadlineDate ? new Date(`${deadlineDate}T09:00:00`) : undefined;
+  const selectedDeadlineRange = selectedDeadline
+    ? { from: selectedDeadline, to: selectedDeadline }
+    : undefined;
 
   const modalContent = (
     <div
@@ -282,7 +275,7 @@ export function NewTaskComposer({
       data-tauri-drag-region="false"
     >
       <div
-        className="absolute inset-0 bg-[rgba(232,229,223,0.28)] backdrop-blur-[8px]"
+        className="absolute inset-0 bg-transparent"
         onClick={(event) => {
           if (event.target === event.currentTarget) onClose();
         }}
@@ -299,9 +292,8 @@ export function NewTaskComposer({
           aria-labelledby="new-task-title"
           className={cn(
             'pointer-events-auto relative z-20 flex min-h-[360px] max-h-[calc(100dvh-32px)] w-full max-w-[680px] flex-col overflow-hidden',
-            'rounded-2xl border border-[rgba(39,37,30,0.08)] bg-[rgba(255,255,255,0.92)] text-[#111111]',
-            'shadow-[0_24px_64px_rgba(28,25,18,0.16),0_4px_16px_rgba(28,25,18,0.06)]',
-            'supports-[backdrop-filter]:bg-[rgba(255,255,255,0.86)] supports-[backdrop-filter]:backdrop-blur-xl',
+            'rounded-[var(--radius-dialog)] border border-[var(--ritual-border-default)] bg-[var(--ritual-surface-raised)] text-[var(--text-primary)]',
+            'shadow-[var(--shadow-dialog)]',
           )}
           data-tauri-drag-region="false"
         >
@@ -442,81 +434,20 @@ export function NewTaskComposer({
               aria-hidden
             />
 
-            <Popover open={deadlinePickerOpen} onOpenChange={setDeadlinePickerOpen}>
-              <PopoverTrigger asChild>
+            <DateRangePicker
+              variant="compact"
+              initialDateRange={selectedDeadlineRange}
+              onDateRangeChange={(range) => {
+                const deadline = range?.to ?? range?.from;
+                setDeadlineDate(deadline ? dateToInput(deadline) : '');
+              }}
+              trigger={
                 <ComposerPill className={cn(deadlineDate && 'text-[var(--text-primary)]')}>
                   <Flag className="h-3.5 w-3.5 text-[var(--text-muted)]" />
                   {deadlineLabel}
                 </ComposerPill>
-              </PopoverTrigger>
-              <PopoverContent
-                align="start"
-                sideOffset={8}
-                className="z-[10000] w-auto overflow-hidden rounded-[var(--radius-floating)] border border-[var(--border-floating)] bg-[var(--surface-floating)] p-0 shadow-[var(--shadow-popover)]"
-              >
-                <div className="flex items-center justify-between gap-4 border-b border-[var(--divider-subtle)] px-3 py-2.5">
-                  <div>
-                    <p className="text-[12px] font-medium text-[var(--text-primary)]">Deadline</p>
-                    <p className="text-[11px] text-[var(--text-muted)]">
-                      Choose the date this task is due.
-                    </p>
-                  </div>
-                  {deadlineDate ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDeadlineDate('');
-                        setDeadlinePickerOpen(false);
-                      }}
-                      className="rounded-[var(--radius-control)] px-2 py-1 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
-                    >
-                      Clear
-                    </button>
-                  ) : null}
-                </div>
-                <div className="flex gap-1 border-b border-[var(--divider-subtle)] p-2">
-                  {[
-                    { label: 'Today', days: 0 },
-                    { label: 'Tomorrow', days: 1 },
-                    { label: 'Next week', days: 7 },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => {
-                        setDeadlineDate(dateFromDaysAhead(preset.days));
-                        setDeadlinePickerOpen(false);
-                      }}
-                      className="rounded-[var(--radius-control)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <DateCalendar
-                  mode="single"
-                  selected={selectedDeadline}
-                  onSelect={(date) => {
-                    if (!date) return;
-                    setDeadlineDate(dateToInput(date));
-                    setDeadlinePickerOpen(false);
-                  }}
-                  defaultMonth={selectedDeadline}
-                  initialFocus
-                  className="p-3"
-                  classNames={{
-                    day: 'h-8 w-8 rounded-[var(--radius-control)] p-0 text-[12px] font-normal hover:bg-[var(--row-hover)]',
-                    cell: 'relative h-8 w-8 p-0 text-center text-[12px] focus-within:relative focus-within:z-20',
-                    day_selected:
-                      'rounded-[var(--radius-control)] bg-[var(--brand-action)] text-[var(--brand-action-foreground)] hover:bg-[var(--brand-action-hover)] hover:text-[var(--brand-action-foreground)] focus:bg-[var(--brand-action)] focus:text-[var(--brand-action-foreground)]',
-                    day_today:
-                      'rounded-[var(--radius-control)] bg-[var(--row-hover)] text-[var(--text-primary)]',
-                    nav_button:
-                      'h-7 w-7 rounded-[var(--radius-control)] border-0 bg-transparent p-0 text-[var(--icon-muted)] opacity-70 hover:bg-[var(--row-hover)] hover:opacity-100',
-                  }}
-                />
-              </PopoverContent>
-            </Popover>
+              }
+            />
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
