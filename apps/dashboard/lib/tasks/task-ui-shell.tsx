@@ -17,7 +17,7 @@ import type { TaskPriority } from './types';
 export const taskContentMaxClass = 'w-full max-w-[var(--task-content-max,720px)]';
 
 export const toolbarPillClass =
-  'inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-3.5 text-[13px] font-medium text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50';
+  'inline-flex h-7 items-center gap-1 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50';
 
 export function TaskPageShell({ children, className }: { children: ReactNode; className?: string }) {
   return (
@@ -109,7 +109,7 @@ export function ViewPills({
           type="button"
           onClick={() => onChange(option)}
           className={cn(
-            'h-8 rounded-full border px-3.5 text-[13px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
+            'h-7 rounded-full border px-2.5 text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
             value === option
               ? 'border-transparent bg-[var(--surface-panel)] font-medium text-[var(--text-primary)]'
               : 'border-[var(--border-floating)] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',

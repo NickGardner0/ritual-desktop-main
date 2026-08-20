@@ -89,9 +89,9 @@ export function TasksToolbarActions({
         <Button
           type="button"
           variant="brand"
-          size="sm"
+          size="compact"
           onClick={onNewTask}
-          className="h-8 !rounded-full px-3.5 font-medium [&_svg]:size-3.5"
+          className="h-7 !rounded-full px-3 font-medium [&_svg]:size-3.5"
           data-cuelume-release="bloom"
         >
           <Plus className="h-3.5 w-3.5" />
