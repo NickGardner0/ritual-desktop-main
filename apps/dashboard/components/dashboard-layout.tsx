@@ -100,7 +100,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       try {
         const state = await invoke<{ width?: number }>('sidebar_get_main_state');
         if (typeof state?.width === 'number') {
-          setDetachedSidebarWidth(Math.max(76, Math.min(240, state.width)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(256, state.width)));
         }
       } catch (error) {
         console.error('Failed to get detached sidebar state:', error);
@@ -108,7 +108,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       unlisten = await listen<number>('sidebar:width', (event) => {
         if (typeof event.payload === 'number') {
-          setDetachedSidebarWidth(Math.max(76, Math.min(240, event.payload)));
+          setDetachedSidebarWidth(Math.max(76, Math.min(256, event.payload)));
         }
       });
 

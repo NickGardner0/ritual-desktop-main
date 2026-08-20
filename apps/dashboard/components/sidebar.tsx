@@ -14,7 +14,7 @@ import { DesktopUpdateControl } from '@/components/desktop-update-control';
 import { CreateMenu } from '@/components/create-menu';
 
 const COLLAPSED_WIDTH = 76;
-const EXPANDED_WIDTH = 240;
+const EXPANDED_WIDTH = 256;
 
 const CodiconArrowLeft = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" {...props}>

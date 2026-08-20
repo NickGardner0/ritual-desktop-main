@@ -169,6 +169,12 @@ export function InlineSelect({ className, ...props }: React.SelectHTMLAttributes
 
 export function priorityBars(priority: TaskPriority, muted = false) {
   const count = priority === 'high' ? 3 : priority === 'medium' ? 2 : priority === 'low' ? 1 : 0;
+  const fillClass =
+    priority === 'low'
+      ? 'bg-[#2f6e45]'
+      : priority === 'high'
+        ? 'bg-[#941304]'
+        : 'bg-[#ef6c2f]';
   return (
     <span className="flex h-4 w-5 items-end gap-[2px]" aria-label={`Priority ${priority}`}>
       {[0, 1, 2].map((index) => (
@@ -177,7 +183,7 @@ export function priorityBars(priority: TaskPriority, muted = false) {
           className={cn(
             'w-[3px] rounded-full',
             index === 0 ? 'h-1.5' : index === 1 ? 'h-2.5' : 'h-3.5',
-            index < count ? 'bg-[#ef6c2f]' : muted ? 'bg-[#d4d8d2]' : 'bg-[#c9cec6]',
+            index < count ? fillClass : muted ? 'bg-[#d4d8d2]' : 'bg-[#c9cec6]',
           )}
         />
       ))}

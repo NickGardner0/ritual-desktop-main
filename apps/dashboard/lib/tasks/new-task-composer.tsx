@@ -283,11 +283,15 @@ export function NewTaskComposer({
         aria-labelledby="new-task-title"
         className={cn(
           'task-composer-dialog',
-          'fixed left-1/2 top-1/2 z-50 flex w-[min(560px,calc(100vw-48px))] max-h-[calc(100dvh-48px)] -translate-x-1/2 -translate-y-1/2 flex-col',
+          'fixed z-50 flex w-[min(680px,calc(100vw-var(--ritual-sidebar-current-width,0px)-48px))] max-h-[calc(100dvh-16vh)] -translate-x-1/2 flex-col',
         )}
+        style={{
+          left: 'calc(50% + (var(--ritual-sidebar-current-width, 0px) / 2))',
+          top: '12vh',
+        }}
       >
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
-          <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
+          <div className="flex h-10 shrink-0 items-center justify-between gap-2 px-5">
             <h2 id="new-task-title" className="text-[14px] font-medium text-[var(--text-primary)]">
               New task
             </h2>
@@ -315,7 +319,7 @@ export function NewTaskComposer({
             </div>
           </div>
 
-          <div className="flex-1 px-5 pb-4 pt-5">
+          <div className="px-5 pb-2 pt-2">
             <input
               ref={titleRef}
               value={title}
@@ -333,8 +337,8 @@ export function NewTaskComposer({
               value={notes}
               onChange={setNotes}
               placeholder="Add description..."
-              rows={3}
-              className="mt-3 min-h-[104px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
+              rows={2}
+              className="mt-2 min-h-[56px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
             />
           </div>
 
@@ -440,7 +444,7 @@ export function NewTaskComposer({
             />
           </div>
 
-          <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-3">
+          <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-2.5">
             <label className="mr-auto flex cursor-pointer items-center gap-2">
               <Switch checked={createMore} onCheckedChange={setCreateMore} data-cuelume-toggle />
               <span className="text-[12px] text-[var(--text-muted)]">Create more</span>
@@ -448,16 +452,13 @@ export function NewTaskComposer({
             <Button
               type="button"
               variant="brand"
-              size="compact"
+              size="sm"
               onClick={handleSubmit}
               disabled={!title.trim() || pending}
-              className="rounded-full px-3.5"
+              className="h-8 rounded-full px-4"
               data-cuelume-press="press"
             >
               {pending ? 'Creating…' : 'Create task'}
-              <kbd className="rounded-full border border-[var(--brand-action-foreground)]/20 px-1.5 py-0.5 text-[10px] font-normal opacity-80">
-                ⌘↵
-              </kbd>
             </Button>
           </div>
         </div>

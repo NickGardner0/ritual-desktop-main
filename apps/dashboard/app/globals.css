@@ -638,7 +638,7 @@ table tbody tr,
     position: absolute;
     right: 0;
     bottom: 0;
-    left: var(--ritual-sidebar-current-width, 240px);
+    left: var(--ritual-sidebar-current-width, 256px);
     z-index: 46;
     height: 1px;
     pointer-events: none;
@@ -659,7 +659,7 @@ table tbody tr,
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--ritual-sidebar-current-width, 240px);
+    left: var(--ritual-sidebar-current-width, 256px);
     z-index: 45;
     width: 1px;
     pointer-events: none;
@@ -807,7 +807,7 @@ table tbody tr,
   }
 
   .titlebar-sidebar-lane {
-    width: max(var(--ritual-sidebar-current-width, 76px), 240px);
+    width: max(var(--ritual-sidebar-current-width, 76px), 256px);
     background: var(--surface-sidebar);
     border-right: 0;
   }

@@ -44,7 +44,7 @@ export function DetachedSidebarShell() {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activePath, setActivePath] = useState("/dashboard");
   const collapsedWidth = 76;
-  const expandedWidth = 240;
+  const expandedWidth = 256;
   const width = isExpanded ? expandedWidth : collapsedWidth;
 
   useEffect(() => {
@@ -101,7 +101,7 @@ export function DetachedSidebarShell() {
     <aside
       className={cn(
         "sidebar-vibrancy relative h-screen flex-shrink-0 flex-col justify-between fixed top-0 left-0 pb-4 items-stretch overflow-hidden flex z-[1002]",
-        isExpanded ? "w-[240px]" : "w-[76px]",
+        isExpanded ? "w-[256px]" : "w-[76px]",
       )}
       style={{ transition: 'width 200ms cubic-bezier(0.4, 0, 0.2, 1)' }}
       onMouseEnter={() => setIsExpanded(true)}

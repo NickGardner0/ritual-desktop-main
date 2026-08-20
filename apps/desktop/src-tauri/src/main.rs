@@ -1032,7 +1032,7 @@ impl SidebarWindowState {
     }
 
     fn set_width(&self, width: f64) -> f64 {
-        let clamped = width.clamp(70.0, 240.0);
+        let clamped = width.clamp(70.0, 256.0);
         let mut lock = self.width.lock().unwrap();
         *lock = clamped;
         clamped
@@ -1064,7 +1064,7 @@ fn sync_detached_sidebar_window(app: &tauri::AppHandle, width: f64) -> Result<()
         .outer_size()
         .map_err(|e| format!("Failed to read main window size: {e}"))?;
 
-    let sidebar_width = width.clamp(70.0, 240.0).round() as u32;
+    let sidebar_width = width.clamp(70.0, 256.0).round() as u32;
     let _ = sidebar.set_position(tauri::Position::Physical(tauri::PhysicalPosition {
         x: main_pos.x,
         y: main_pos.y,
