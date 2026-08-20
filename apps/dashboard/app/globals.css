@@ -494,9 +494,9 @@ table tbody tr,
   --sidebar-icon-box: 40px;
 
   /* Tasks / Routines layout */
-  --task-row-height: 40px;
-  --task-group-gap: 28px;
-  --task-content-max: 760px;
+  --task-row-height: 36px;
+  --task-group-gap: 24px;
+  --task-content-max: 680px;
 }
 
 .dark {

@@ -409,8 +409,8 @@ export function TasksClient() {
         onNewTask={() => setComposerOpen(true)}
       />
 
-      <div className="min-h-0 flex-1 overflow-auto pb-12 pt-5">
-        <div className={cn(taskContentMaxClass, 'px-6 lg:px-8')}>
+      <div className="min-h-0 flex-1 overflow-auto pb-16 pt-8">
+        <div className={cn(taskContentMaxClass, 'px-8 lg:px-10')}>
           <TasksHeader title={viewTitle} />
           <TasksFilterBar category={category} onCategoryChange={setCategory} />
 

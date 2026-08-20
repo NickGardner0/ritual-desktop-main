@@ -155,7 +155,7 @@ export function TaskGroupSection({
   return (
     <section style={{ marginBottom: 'var(--task-group-gap, 32px)' }}>
       <ProjectGroupHeader name={group} overdueLabel={overdueLabel} />
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {tasks.map((task) => (
           <TaskRow
             key={task.id}
@@ -185,7 +185,7 @@ export function TaskListSection({
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
 }) {
   return (
-    <div className="space-y-0.5">
+    <div className="space-y-1">
       {tasks.map((task) => (
         <TaskRow
           key={task.id}
@@ -241,7 +241,7 @@ export function TaskRow({
               onComplete();
             }}
             className={cn(
-              'flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border',
+              'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
               task.status === 'completed'
                 ? 'border-[#27251E] bg-[#27251E] text-white'
                 : 'border-[rgba(39,37,30,0.38)] bg-white text-transparent hover:border-[#27251E]',
@@ -249,29 +249,33 @@ export function TaskRow({
             aria-label={`Complete ${task.title}`}
             aria-pressed={task.status === 'completed'}
           >
-            <Check className="h-3.5 w-3.5" />
+            <Check className="h-3 w-3" />
           </button>
-          <div className="min-w-0">
+          <div className="flex min-w-0 flex-1 items-baseline gap-2.5">
             <div
               className={cn(
-                'truncate text-[15px] font-normal leading-[1.4] text-[#27251E]',
+                'min-w-0 shrink truncate text-[15px] font-normal leading-[1.4] text-[#27251E]',
                 task.status === 'completed' && 'text-[rgba(39,37,30,0.4)] line-through',
               )}
             >
               {task.title}
             </div>
-          </div>
-          <div className="flex min-w-0 items-center justify-end gap-3.5 text-[13px] text-[rgba(39,37,30,0.48)]">
-            {isOverdue && dateLabel ? (
-              <span className="hidden text-[#c44d3a] sm:inline">{dateLabel}</span>
+            {dateLabel && dateLabel !== 'Today' ? (
+              <span
+                className={cn(
+                  'hidden shrink-0 text-[13px] sm:inline',
+                  isOverdue ? 'text-[#c44d3a]' : 'text-[rgba(39,37,30,0.48)]',
+                )}
+              >
+                {dateLabel}
+              </span>
             ) : null}
             {trailingLabel ? (
-              <span className="hidden max-w-[180px] truncate md:block">{trailingLabel}</span>
+              <span className="hidden max-w-[160px] shrink-0 truncate text-[13px] text-[rgba(39,37,30,0.42)] md:inline">
+                {trailingLabel}
+              </span>
             ) : null}
-            {!isOverdue && dateLabel ? (
-              <span className="hidden sm:inline">{dateLabel}</span>
-            ) : null}
-            {task.status === 'skipped' ? <Circle className="h-3.5 w-3.5 text-[rgba(39,37,30,0.35)]" /> : null}
+            {task.status === 'skipped' ? <Circle className="h-3.5 w-3.5 shrink-0 text-[rgba(39,37,30,0.35)]" /> : null}
           </div>
         </TaskRowShell>
       </PopoverTrigger>

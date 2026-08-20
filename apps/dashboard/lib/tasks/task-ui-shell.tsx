@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { TaskPriority } from './types';
 
-export const taskContentMaxClass = 'mx-auto w-full max-w-[var(--task-content-max,720px)]';
+export const taskContentMaxClass = 'w-full max-w-[var(--task-content-max,720px)]';
 
 export const toolbarPillClass =
   'inline-flex h-8 items-center gap-1.5 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-3.5 text-[13px] font-medium text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50';
@@ -38,7 +38,7 @@ export function TaskPageHeader({
   className?: string;
 }) {
   return (
-    <header className={cn('shrink-0 pb-3', className)}>
+    <header className={cn('shrink-0 pb-5', className)}>
       <div className="flex min-w-0 items-center justify-between gap-4">
         <h1 className="truncate text-[22px] font-medium leading-tight tracking-[-0.02em] text-[#27251E]">
           {title}
@@ -169,7 +169,7 @@ export function TaskRowShell({
   return (
     <div
       className={cn(
-        'ritual-snappy-row group/row grid min-h-[var(--task-row-height,40px)] grid-cols-[22px_minmax(0,1fr)_auto] items-center gap-3.5 rounded-[var(--sidebar-row-radius,var(--radius-row))] px-2 py-1 outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
+        'ritual-snappy-row group/row flex min-h-[var(--task-row-height,36px)] items-center gap-2.5 rounded-[var(--sidebar-row-radius,var(--radius-row))] px-1 py-1.5 outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
         className,
       )}
       {...props}
