@@ -291,7 +291,7 @@ export function NewTaskComposer({
           aria-modal="true"
           aria-labelledby="new-task-title"
           className={cn(
-            'ritual-dialog-surface',
+            'ritual-dialog-surface task-composer-dialog',
             'pointer-events-auto relative z-20 flex min-h-[360px] max-h-[calc(100dvh-32px)] w-full max-w-[680px] flex-col overflow-hidden',
           )}
           data-tauri-drag-region="false"
