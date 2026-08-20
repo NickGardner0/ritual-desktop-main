@@ -455,7 +455,7 @@ export function NewTaskComposer({
               size="sm"
               onClick={handleSubmit}
               disabled={!title.trim() || pending}
-              className="h-8 rounded-full px-4"
+              className="h-8 !rounded-full px-4"
               data-cuelume-press="press"
             >
               {pending ? 'Creating…' : 'Create task'}

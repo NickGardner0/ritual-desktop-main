@@ -89,9 +89,9 @@ export function TasksToolbarActions({
         <Button
           type="button"
           variant="brand"
-          size="compact"
+          size="sm"
           onClick={onNewTask}
-          className="rounded-full px-3 font-medium [&_svg]:size-3.5"
+          className="h-8 !rounded-full px-3.5 font-medium [&_svg]:size-3.5"
           data-cuelume-release="bloom"
         >
           <Plus className="h-3.5 w-3.5" />
@@ -112,10 +112,10 @@ function ProjectGroupHeader({
   return (
     <div className="mb-2.5 mt-6 flex items-center gap-2 first:mt-0">
       <span
-        className="flex h-[15px] w-[15px] shrink-0 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.2)]"
+        className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-sm border border-[rgba(39,37,30,0.22)]"
         aria-hidden
       />
-      <h2 className="shrink-0 text-[13px] font-medium tracking-[-0.01em] text-[rgba(39,37,30,0.72)]">{name}</h2>
+      <h2 className="shrink-0 text-[14px] font-medium tracking-[-0.01em] text-[rgba(39,37,30,0.72)]">{name}</h2>
       <div className="h-px min-w-[16px] flex-1 bg-[var(--border-subtle)]" />
       {overdueLabel ? (
         <span className="flex shrink-0 items-center gap-1 text-[11px] text-[#c44d3a]">
@@ -241,27 +241,27 @@ export function TaskRow({
               onComplete();
             }}
             className={cn(
-              'flex h-[17px] w-[17px] shrink-0 items-center justify-center rounded-[5px] border',
+              'flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px] border',
               task.status === 'completed'
                 ? 'border-[#27251E] bg-[#27251E] text-white'
-                : 'border-[rgba(39,37,30,0.28)] bg-white text-transparent hover:border-[#27251E]',
+                : 'border-[rgba(39,37,30,0.38)] bg-white text-transparent hover:border-[#27251E]',
             )}
             aria-label={`Complete ${task.title}`}
             aria-pressed={task.status === 'completed'}
           >
-            <Check className="h-3 w-3" />
+            <Check className="h-3.5 w-3.5" />
           </button>
           <div className="min-w-0">
             <div
               className={cn(
-                'truncate text-[14px] font-normal leading-[1.35] text-[#27251E]',
+                'truncate text-[15px] font-normal leading-[1.4] text-[#27251E]',
                 task.status === 'completed' && 'text-[rgba(39,37,30,0.4)] line-through',
               )}
             >
               {task.title}
             </div>
           </div>
-          <div className="flex min-w-0 items-center justify-end gap-3 text-[12px] text-[rgba(39,37,30,0.42)]">
+          <div className="flex min-w-0 items-center justify-end gap-3.5 text-[13px] text-[rgba(39,37,30,0.48)]">
             {isOverdue && dateLabel ? (
               <span className="hidden text-[#c44d3a] sm:inline">{dateLabel}</span>
             ) : null}
