@@ -5,13 +5,15 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Keep the task composer visibly separate from the white task canvas in the
-   desktop renderer. This surface remains opaque even when glass chrome is on. */
-.task-composer-dialog {
-  border: 1px solid hsl(var(--border)) !important;
-  border-radius: var(--radius-dialog, 18px) !important;
-  background: var(--surface-floating, #ffffff) !important;
-  box-shadow: var(--shadow-dialog) !important;
+/* Window-level task composer card.
+   Specificity must beat `div[data-tauri-drag-region] { border: none; box-shadow: none }`,
+   which matches even `data-tauri-drag-region="false"` in the desktop chrome reset. */
+div.task-composer-dialog {
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent) !important;
+  border-radius: 14px !important;
+  background: var(--surface-raised, #ffffff) !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.12) !important;
+  overflow: visible !important;
 }
 
 html[data-voice-hud-window="1"],

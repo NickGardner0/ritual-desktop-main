@@ -270,32 +270,23 @@ export function NewTaskComposer({
     : undefined;
 
   const modalContent = (
-    <div
-      className="fixed inset-0 z-[9999] h-[100dvh] w-screen overflow-hidden"
-      data-tauri-drag-region="false"
-    >
-      <div
+    <div className="fixed inset-0 z-50">
+      <button
+        type="button"
+        aria-label="Close new task composer"
         className="absolute inset-0 bg-transparent"
-        onClick={(event) => {
-          if (event.target === event.currentTarget) onClose();
-        }}
-        data-tauri-drag-region="false"
-        aria-hidden
+        onClick={onClose}
       />
       <div
-        className="pointer-events-none absolute inset-y-0 right-0 z-10 grid place-items-center p-4"
-        style={{ left: 'var(--ritual-sidebar-current-width, 0px)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-task-title"
+        className={cn(
+          'task-composer-dialog',
+          'fixed left-1/2 top-1/2 z-50 flex w-[min(560px,calc(100vw-48px))] max-h-[calc(100dvh-48px)] -translate-x-1/2 -translate-y-1/2 flex-col',
+        )}
       >
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="new-task-title"
-          className={cn(
-            'ritual-dialog-surface task-composer-dialog',
-            'pointer-events-auto relative z-20 flex min-h-[360px] max-h-[calc(100dvh-32px)] w-full max-w-[680px] flex-col overflow-hidden',
-          )}
-          data-tauri-drag-region="false"
-        >
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit]">
           <div className="flex h-12 shrink-0 items-center justify-between gap-2 px-5">
             <h2 id="new-task-title" className="text-[14px] font-medium text-[var(--text-primary)]">
               New task
