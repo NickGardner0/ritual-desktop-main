@@ -84,6 +84,10 @@ const nextConfig = {
         repoRoot,
         'packages/chat-runtime/dist/weekly-overview-utils.js',
       ),
+      '@ritual/chat-runtime/stream-response': path.resolve(
+        repoRoot,
+        'packages/chat-runtime/dist/stream-response.js',
+      ),
       '@ritual/shared-contracts$': path.resolve(
         repoRoot,
         'packages/shared-contracts/dist/index.js',

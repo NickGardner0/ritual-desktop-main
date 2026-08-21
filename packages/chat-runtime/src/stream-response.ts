@@ -41,6 +41,13 @@ export interface RealTokenSource {
 
 export type ChatStreamPhase = 'context' | 'searching' | 'tool' | 'answering';
 
+export const PHASE_LABELS: Record<ChatStreamPhase, string> = {
+  context: 'Preparing context...',
+  searching: 'Thinking...',
+  tool: 'Fetching data...',
+  answering: 'Writing...',
+};
+
 export type ChatStreamEvent =
   | { type: 'phase'; phase: ChatStreamPhase; label?: string }
   | { type: 'text'; text: string };
@@ -70,13 +77,18 @@ export function parsePhaseLine(line: string): { phase: ChatStreamPhase; label: s
     ) {
       return {
         phase: parsed.phase,
-        label: typeof parsed.label === 'string' ? parsed.label : null,
+        label: typeof parsed.label === 'string' && parsed.label.trim() ? parsed.label : null,
       };
     }
   } catch {
     return null;
   }
   return null;
+}
+
+export function labelForChatPhase(phase: ChatStreamPhase, label?: string | null): string {
+  if (label && label.trim()) return label;
+  return PHASE_LABELS[phase];
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,7 @@ import {
 } from '../dist/index.js';
 import {
   createChatStreamResponse,
+  labelForChatPhase,
   parsePhaseLine,
 } from '../dist/stream-response.js';
 
@@ -63,6 +64,24 @@ test('createChatStreamResponse emits phase events before text', async () => {
   assert.match(text, /__PHASE__/);
   assert.equal(parsePhaseLine('__PHASE__{"phase":"context","label":null}__END_PHASE__')?.phase, 'context');
   assert.match(text, /0:"token-one"/);
+});
+
+test('parsePhaseLine reads Ritual chat phase events', () => {
+  assert.deepEqual(
+    parsePhaseLine('__PHASE__{"phase":"context","label":null}__END_PHASE__'),
+    { phase: 'context', label: null },
+  );
+  assert.deepEqual(
+    parsePhaseLine('__PHASE__{"phase":"tool","label":"Using listHabits..."}__END_PHASE__'),
+    { phase: 'tool', label: 'Using listHabits...' },
+  );
+  assert.equal(parsePhaseLine('0:"hello"'), null);
+  assert.equal(parsePhaseLine('__PHASE__{"phase":"tool","label":"   "}__END_PHASE__')?.label, null);
+});
+
+test('labelForChatPhase prefers server labels and falls back to defaults', () => {
+  assert.equal(labelForChatPhase('searching'), 'Thinking...');
+  assert.equal(labelForChatPhase('tool', 'Using listHabits...'), 'Using listHabits...');
 });
 
 test('createChatStreamResponse supports deferred conversation and tool payloads', async () => {

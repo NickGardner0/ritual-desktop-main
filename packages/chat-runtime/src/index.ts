@@ -41,6 +41,8 @@ export * from './weekly-overview-utils.js';
 export {
   createChatStreamResponse,
   formatPhaseLine,
+  labelForChatPhase,
   parsePhaseLine,
+  PHASE_LABELS,
 } from './stream-response.js';
 export { setOpenAIClientForTests } from './chat-stream/shared.js';

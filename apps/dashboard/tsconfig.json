@@ -42,6 +42,9 @@
       ],
       "@ritual/chat-runtime/weekly-overview-utils": [
         "../../packages/chat-runtime/src/weekly-overview-utils.ts"
+      ],
+      "@ritual/chat-runtime/stream-response": [
+        "../../packages/chat-runtime/src/stream-response.ts"
       ]
     }
   },

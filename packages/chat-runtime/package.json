@@ -25,6 +25,10 @@
     "./tool-registry": {
       "types": "./dist/tool-registry.d.ts",
       "import": "./dist/tool-registry.js"
+    },
+    "./stream-response": {
+      "types": "./dist/stream-response.d.ts",
+      "import": "./dist/stream-response.js"
     }
   },
   "scripts": {

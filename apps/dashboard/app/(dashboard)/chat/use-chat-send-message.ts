@@ -21,11 +21,11 @@ import {
   CHAT_STREAM_FLUSH_INTERVAL_MS,
   getNextStreamingFlushDelay,
   shouldFlushStreamingContent,
-} from './chat-stream-buffer';
+} from '@/lib/chat-stream-buffer.mjs';
 import type { Message } from './chat-client.shared';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { perfInfo } from '@/lib/perf-debug';
-import { parsePhaseLine, labelForChatPhase } from './chat-stream-protocol';
+import { parsePhaseLine, labelForChatPhase } from '@ritual/chat-runtime/stream-response';
 import { canonicalEntityType, parseEntityMentionTokens } from '@ritual/shared-contracts';
 import { enqueueAssistantTurnOutbox, removeAssistantTurnOutbox } from '@/lib/chat/assistant-turn-outbox';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';

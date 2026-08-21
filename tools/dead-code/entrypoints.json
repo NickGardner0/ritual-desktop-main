@@ -128,7 +128,11 @@
     "apps/dashboard/components/analytics/computer-activity.tsx",
     "apps/dashboard/components/analytics/overview-view.tsx",
     "apps/dashboard/components/analytics/metrics-view.tsx",
-    "apps/dashboard/lib/tasks/routine-editor.ts"
+    "apps/dashboard/lib/tasks/routine-editor.ts",
+    "apps/dashboard/lib/chat-stream-protocol.mjs",
+    "apps/dashboard/lib/chat-stream-protocol.mjs.d.ts",
+    "apps/dashboard/app/(dashboard)/chat/chat-stream-protocol.ts",
+    "apps/dashboard/app/(dashboard)/chat/chat-stream-buffer.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
