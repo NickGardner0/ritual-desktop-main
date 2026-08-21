@@ -115,7 +115,12 @@
     "apps/dashboard/app/api/integrations/whoop/store-code/route.ts",
     "apps/dashboard/app/api/integrations/tesla/store-code/route.ts",
     "apps/dashboard/app/(dashboard)/routines/routines-ui.tsx",
-    "apps/dashboard/app/desktop/bootstrap/page-client.tsx"
+    "apps/dashboard/app/desktop/bootstrap/page-client.tsx",
+    "apps/dashboard/app/(dashboard)/routines/routine-list.tsx",
+    "apps/dashboard/app/(dashboard)/routines/routine-detail.tsx",
+    "apps/dashboard/app/(dashboard)/routines/routine-runs.tsx",
+    "apps/dashboard/lib/tasks/ai-routine-templates.ts",
+    "apps/dashboard/lib/routines/ui.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

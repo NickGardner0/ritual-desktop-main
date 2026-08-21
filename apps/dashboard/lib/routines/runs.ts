@@ -2,7 +2,8 @@ import type { RoutineRun } from '@/lib/tasks/types';
 import type { WorkflowRun } from '@/lib/workflows/types';
 
 import type { AgentRoutine } from './model';
-import type { RunStatusKind } from './ui';
+
+export type RunStatusKind = 'queued' | 'running' | 'succeeded' | 'failed' | 'skipped';
 
 /**
  * Unified run row: routine runs are the source of attribution (every scheduled
