@@ -14,7 +14,14 @@ import {
   type EntitySummary,
   type EntityType,
 } from "@ritual/shared-contracts";
-import { apiJson, apiOperationWithAuth } from "@/lib/api/client";
+import { apiOperationWithAuth } from "@/lib/api/client";
+import {
+  createBackendClient,
+  type BackendOperationId,
+  type BackendOperationRequest,
+} from "@/lib/api/generated/backend-client";
+import { getReadConsistencyHeaders } from "@/lib/read-consistency";
+import { privacySettingsHeaders } from "@/lib/privacy/privacy-settings";
 import {
   HABIT_DEFINITIONS_COLLECTION,
   HABIT_LOGS_COLLECTION,
@@ -67,6 +74,24 @@ function canonicalizeRef(ref: EntityRef): EntityRef {
 }
 
 type AuthGetter = (opts?: { skipCache?: boolean }) => Promise<string | null>;
+
+async function cloudEntityOperation<TOperation extends BackendOperationId>(
+  operationId: TOperation,
+  request: BackendOperationRequest<TOperation>,
+  options: { userId?: string | null; getToken?: AuthGetter },
+) {
+  if (options.getToken) {
+    return apiOperationWithAuth(operationId, options.getToken, request, options.userId);
+  }
+  const client = createBackendClient({
+    baseUrl: typeof window !== "undefined" ? window.location.origin : "http://localhost",
+    getAuthHeaders: () => ({
+      ...getReadConsistencyHeaders(options.userId),
+      ...privacySettingsHeaders(),
+    }),
+  });
+  return client.requestOperation(operationId, request);
+}
 
 export function entityLookupPath(
   type: EntityType | string,
@@ -218,19 +243,13 @@ export async function resolveEntity(
     }
 
     try {
-      if (options.getToken) {
-        return summaryFromCloud(
-          await apiOperationWithAuth(
-            "get_entity_summary_query_api_entities_summary_get",
-            options.getToken,
-            { query: { entity_type: ref.type, entity_id: ref.id } },
-            options.userId,
-          ),
-        );
-      }
-      return await apiJson<EntitySummary>(entityLookupPath(ref.type, ref.id), {
-        userId: options.userId,
-      });
+      return summaryFromCloud(
+        await cloudEntityOperation(
+          "get_entity_summary_query_api_entities_summary_get",
+          { query: { entity_type: ref.type, entity_id: ref.id } },
+          options,
+        ),
+      );
     } catch {
       return unavailableEntitySummary(ref, "unknown");
     }
@@ -282,18 +301,11 @@ export async function resolveEntities(
 
   if (remaining.length) {
     try {
-      const response = options.getToken
-        ? await apiOperationWithAuth(
-            "resolve_entities_api_entities_resolve_post",
-            options.getToken,
-            { body: { refs: remaining } },
-            options.userId,
-          )
-        : await apiJson<{ items: EntitySummary[] }>("/api/entities/resolve", {
-            method: "POST",
-            body: JSON.stringify({ refs: remaining }),
-            userId: options.userId,
-          });
+      const response = await cloudEntityOperation(
+        "resolve_entities_api_entities_resolve_post",
+        { body: { refs: remaining } },
+        options,
+      );
       for (const item of response.items || []) {
         const summary = summaryFromCloud(item);
         writeCachedEntitySummary(item.ref, options.userId, summary);

@@ -4,6 +4,11 @@ import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import { normalizeComputerDailySummaryRow } from './normalize'
 import { perfInfo, startPerfTimer } from '@/lib/perf-debug'
 import { getReadConsistencyHeaders } from '@/lib/read-consistency'
+import {
+  BackendClientError,
+  createBackendClient,
+  matchBackendOpenApiOperation,
+} from '@/lib/api/generated/backend-client'
 import { COMPUTER_ACTIVITY_POLICY, getRangeCacheKey } from './policy'
 import type {
   AggregatedComputerStatsResponse,
@@ -51,6 +56,10 @@ export async function fetchWatcherStatsJson<T>(
       ? COMPUTER_ACTIVITY_POLICY.DESKTOP_DAILY_TIMEOUT_MS
       : COMPUTER_ACTIVITY_POLICY.DESKTOP_STATS_DEFAULT_TIMEOUT_MS)
     : 30000
+  const operationId = matchBackendOpenApiOperation('GET', path)
+  if (!operationId) {
+    throw new Error(`${path} is not a generated FastAPI operation`)
+  }
 
   const requestPromise = (async () => {
     const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
@@ -59,43 +68,37 @@ export async function fetchWatcherStatsJson<T>(
       params,
       timeout_ms: timeoutMs,
     })
-    let response: Response
 
     try {
-      response = await fetch(`${path}${queryString ? `?${queryString}` : ''}`, {
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-        signal: controller.signal,
+      const client = createBackendClient({
+        baseUrl: typeof window !== 'undefined' ? window.location.origin : 'http://localhost',
+        getAuthHeaders: () => getReadConsistencyHeaders(),
       })
+      const payload = await client.requestOperation(operationId, {
+        query: params,
+        signal: controller.signal,
+      } as never) as T
+      stopTimer({
+        success: true,
+        row_count: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
+      })
+      return payload
     } catch (error) {
+      const aborted = controller.signal.aborted
+      const status = error instanceof BackendClientError ? error.status : undefined
       stopTimer({
         success: false,
-        aborted: controller.signal.aborted,
+        aborted,
+        status,
         error: error instanceof Error ? error.message : String(error),
       })
+      if (error instanceof BackendClientError) {
+        throw new Error(`${path} failed with status ${error.status}`)
+      }
       throw error
     } finally {
       window.clearTimeout(timeoutId)
     }
-
-    if (!response.ok) {
-      stopTimer({
-        success: false,
-        status: response.status,
-      })
-      throw new Error(`${path} failed with status ${response.status}`)
-    }
-
-    const payload = await response.json() as T
-    stopTimer({
-      success: true,
-      status: response.status,
-      row_count: Array.isArray((payload as any)?.data) ? (payload as any).data.length : undefined,
-    })
-    return payload
   })()
 
   inflightWatcherRequests.set(requestKey, requestPromise)

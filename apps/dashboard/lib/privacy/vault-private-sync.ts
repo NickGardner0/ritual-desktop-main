@@ -38,6 +38,7 @@ import {
   readPrivateSyncState as readState,
   writePrivateSyncState as writeState,
 } from "./vault-private-sync-state";
+import { privacyBackendOperation } from "./privacy-backend-operation";
 
 export const SUPPORTED_PRIVATE_SYNC_CATEGORIES = SUPPORTED_LOCAL_MIGRATION_CATEGORIES;
 
@@ -366,18 +367,6 @@ async function writeConflictRecord({
   });
 }
 
-async function fetchJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-): Promise<T> {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    throw new Error(`Private Sync request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function requestHeaders(headers?: HeadersInit): Headers {
   const prepared = new Headers(headers);
   prepared.set("Content-Type", "application/json");
@@ -498,16 +487,28 @@ export async function pushPrivateSyncEnvelopes({
   let ignoredCount = 0;
   let maxServerRevision = state.lastPulledServerRevision;
   for (const envelopeBatch of chunkEnvelopes(envelopes)) {
-    const response = await fetchJson<PrivateSyncPutResponse>(fetchImpl, "/api/privacy/e2ee/envelopes", {
-      method: "POST",
-      cache: "no-store",
-      credentials: "include",
-      headers: syncHeaders,
-      body: JSON.stringify({
-        client_id: activeKey.clientId,
-        envelopes: envelopeBatch,
-      }),
-    });
+    const response = await privacyBackendOperation(
+      fetchImpl,
+      "/api/privacy/e2ee/envelopes",
+      {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: syncHeaders,
+        body: JSON.stringify({
+          client_id: activeKey.clientId,
+          envelopes: envelopeBatch,
+        }),
+      },
+      "put_e2ee_envelopes_api_privacy_e2ee_envelopes_post",
+      {
+        body: {
+          client_id: activeKey.clientId,
+          envelopes: envelopeBatch,
+        },
+      },
+      "Private Sync request failed",
+    ) as PrivateSyncPutResponse;
     acceptedCount += response.accepted_count;
     ignoredCount += response.ignored_count;
     maxServerRevision = Math.max(maxServerRevision, response.max_server_revision);
@@ -558,7 +559,7 @@ export async function pullPrivateSyncEnvelopes({
   let appliedCount = 0;
   let conflictCount = 0;
   while (true) {
-    const response = await fetchJson<PrivateSyncListResponse>(
+    const response = await privacyBackendOperation(
       fetchImpl,
       `/api/privacy/e2ee/envelopes?since_server_revision=${sinceServerRevision}&limit=${MAX_PRIVATE_SYNC_BATCH}`,
       {
@@ -567,7 +568,15 @@ export async function pullPrivateSyncEnvelopes({
         credentials: "include",
         headers: syncHeaders,
       },
-    );
+      "get_e2ee_envelopes_api_privacy_e2ee_envelopes_get",
+      {
+        query: {
+          since_server_revision: sinceServerRevision,
+          limit: MAX_PRIVATE_SYNC_BATCH,
+        },
+      },
+      "Private Sync request failed",
+    ) as PrivateSyncListResponse;
 
     pulledCount += response.returned_count;
     for (const envelope of response.envelopes) {

@@ -8,6 +8,7 @@ import type {
 } from "./vault-sync";
 import { vaultSync } from "./vault-sync";
 import { PRIVATE_SYNC_STATE_COLLECTION } from "./vault-private-sync-keyring";
+import { privacyBackendOperation } from "./privacy-backend-operation";
 
 export const PRIVATE_SYNC_DEVICE_RECORD_ID = "device-v1";
 export const PRIVATE_SYNC_DEVICE_HEADER = "x-ritual-private-sync-device-id";
@@ -178,18 +179,6 @@ export async function privateSyncDeviceHeaders({
   return { headers: prepared, localDevice: payload };
 }
 
-async function fetchJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-): Promise<T> {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    throw new Error(`Private Sync device request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function jsonHeaders(headers: Headers): Headers {
   const prepared = new Headers(headers);
   prepared.set("Content-Type", "application/json");
@@ -210,17 +199,30 @@ export async function registerPrivateSyncDevice({
   now?: () => Date;
 }): Promise<PrivateSyncDevice> {
   const prepared = await privateSyncDeviceHeaders({ userId, headers, client, now });
-  return fetchJson<PrivateSyncDevice>(fetchImpl, "/api/privacy/e2ee/devices", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "include",
-    headers: jsonHeaders(prepared.headers),
-    body: JSON.stringify({
-      device_id: prepared.localDevice.deviceId,
-      device_name: prepared.localDevice.deviceName,
-      platform: prepared.localDevice.platform,
-    }),
-  });
+  return privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/e2ee/devices",
+    {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: jsonHeaders(prepared.headers),
+      body: JSON.stringify({
+        device_id: prepared.localDevice.deviceId,
+        device_name: prepared.localDevice.deviceName,
+        platform: prepared.localDevice.platform,
+      }),
+    },
+    "register_e2ee_device_api_privacy_e2ee_devices_post",
+    {
+      body: {
+        device_id: prepared.localDevice.deviceId,
+        device_name: prepared.localDevice.deviceName,
+        platform: prepared.localDevice.platform,
+      },
+    },
+    "Private Sync device request failed",
+  ) as Promise<PrivateSyncDevice>;
 }
 
 export async function listPrivateSyncDevices({
@@ -237,12 +239,19 @@ export async function listPrivateSyncDevices({
   now?: () => Date;
 }): Promise<PrivateSyncDeviceListResponse> {
   const prepared = await privateSyncDeviceHeaders({ userId, headers, client, now });
-  return fetchJson<PrivateSyncDeviceListResponse>(fetchImpl, "/api/privacy/e2ee/devices", {
-    method: "GET",
-    cache: "no-store",
-    credentials: "include",
-    headers: jsonHeaders(prepared.headers),
-  });
+  return privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/e2ee/devices",
+    {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      headers: jsonHeaders(prepared.headers),
+    },
+    "list_e2ee_devices_api_privacy_e2ee_devices_get",
+    {},
+    "Private Sync device request failed",
+  ) as Promise<PrivateSyncDeviceListResponse>;
 }
 
 export async function revokePrivateSyncDevice({
@@ -261,7 +270,7 @@ export async function revokePrivateSyncDevice({
   now?: () => Date;
 }): Promise<PrivateSyncDeviceRevokeResponse> {
   const prepared = await privateSyncDeviceHeaders({ userId, headers, client, now });
-  return fetchJson<PrivateSyncDeviceRevokeResponse>(
+  return privacyBackendOperation(
     fetchImpl,
     `/api/privacy/e2ee/devices/${encodeURIComponent(deviceId)}/revoke`,
     {
@@ -271,7 +280,10 @@ export async function revokePrivateSyncDevice({
       headers: jsonHeaders(prepared.headers),
       body: JSON.stringify({}),
     },
-  );
+    "revoke_e2ee_device_api_privacy_e2ee_devices__device_id__revoke_post",
+    { pathParams: { device_id: deviceId } },
+    "Private Sync device request failed",
+  ) as Promise<PrivateSyncDeviceRevokeResponse>;
 }
 
 export async function putPrivateSyncKeyGrants({
@@ -290,13 +302,20 @@ export async function putPrivateSyncKeyGrants({
   now?: () => Date;
 }): Promise<PrivateSyncKeyGrantPutResponse> {
   const prepared = await privateSyncDeviceHeaders({ userId, headers, client, now });
-  return fetchJson<PrivateSyncKeyGrantPutResponse>(fetchImpl, "/api/privacy/e2ee/key-grants", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "include",
-    headers: jsonHeaders(prepared.headers),
-    body: JSON.stringify({ grants }),
-  });
+  return privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/e2ee/key-grants",
+    {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: jsonHeaders(prepared.headers),
+      body: JSON.stringify({ grants }),
+    },
+    "put_e2ee_key_grants_api_privacy_e2ee_key_grants_post",
+    { body: { grants } },
+    "Private Sync device request failed",
+  ) as Promise<PrivateSyncKeyGrantPutResponse>;
 }
 
 export async function listPrivateSyncKeyGrants({
@@ -313,10 +332,17 @@ export async function listPrivateSyncKeyGrants({
   now?: () => Date;
 }): Promise<PrivateSyncKeyGrantListResponse> {
   const prepared = await privateSyncDeviceHeaders({ userId, headers, client, now });
-  return fetchJson<PrivateSyncKeyGrantListResponse>(fetchImpl, "/api/privacy/e2ee/key-grants", {
-    method: "GET",
-    cache: "no-store",
-    credentials: "include",
-    headers: jsonHeaders(prepared.headers),
-  });
+  return privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/e2ee/key-grants",
+    {
+      method: "GET",
+      cache: "no-store",
+      credentials: "include",
+      headers: jsonHeaders(prepared.headers),
+    },
+    "list_e2ee_key_grants_api_privacy_e2ee_key_grants_get",
+    {},
+    "Private Sync device request failed",
+  ) as Promise<PrivateSyncKeyGrantListResponse>;
 }

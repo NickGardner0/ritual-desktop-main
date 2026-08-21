@@ -6,6 +6,7 @@ import type {
   DesktopVaultStatus,
 } from "./vault-sync";
 import { vaultSync } from "./vault-sync";
+import { privacyBackendOperation } from "./privacy-backend-operation";
 import {
   LOCAL_MIGRATION_CATEGORY_LABELS,
   SUPPORTED_LOCAL_MIGRATION_CATEGORIES,
@@ -138,18 +139,6 @@ function assertLocallyMigrated(
   }
 }
 
-async function fetchJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-): Promise<T> {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    throw new Error(`Deletion request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function createDeletionId(now: Date): string {
   const randomPart = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
   return `cloud-delete-${now.toISOString()}-${randomPart}`;
@@ -183,16 +172,23 @@ export async function executeCloudBehavioralDeletion({
   const manifests = await client.listMigrationManifests(userId, 200);
   assertLocallyMigrated(selected, manifests);
 
-  const plan = await fetchJson<DeletionPlan>(fetchImpl, "/api/privacy/deletion-plan", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(headers || {}),
+  const plan = await privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/deletion-plan",
+    {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(headers || {}),
+      },
+      body: JSON.stringify({ categories: selected }),
     },
-    body: JSON.stringify({ categories: selected }),
-  });
+    "deletion_plan_api_privacy_deletion_plan_post",
+    { body: { categories: selected } },
+    "Deletion request failed",
+  ) as DeletionPlan;
 
   if (!plan.deletes_cloud_data || !plan.changes_source_of_truth || !plan.requires_local_receipt) {
     throw new Error("Deletion plan did not include the required destructive-operation guards.");
@@ -219,21 +215,35 @@ export async function executeCloudBehavioralDeletion({
   }
 
   try {
-    const response = await fetchJson<DeletionExecuteResponse>(fetchImpl, "/api/privacy/deletion-execute", {
-      method: "POST",
-      cache: "no-store",
-      credentials: "include",
-      headers: {
-        "Content-Type": "application/json",
-        ...(headers || {}),
+    const response = await privacyBackendOperation(
+      fetchImpl,
+      "/api/privacy/deletion-execute",
+      {
+        method: "POST",
+        cache: "no-store",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(headers || {}),
+        },
+        body: JSON.stringify({
+          deletion_id: deletionId,
+          categories: selected,
+          local_receipt_id: localReceiptId,
+          confirm_behavioral_cloud_deletion: true,
+        }),
       },
-      body: JSON.stringify({
-        deletion_id: deletionId,
-        categories: selected,
-        local_receipt_id: localReceiptId,
-        confirm_behavioral_cloud_deletion: true,
-      }),
-    });
+      "deletion_execute_api_privacy_deletion_execute_post",
+      {
+        body: {
+          deletion_id: deletionId,
+          categories: selected,
+          local_receipt_id: localReceiptId,
+          confirm_behavioral_cloud_deletion: true,
+        },
+      },
+      "Deletion request failed",
+    ) as DeletionExecuteResponse;
 
     const completedReceipt = await writeDeletionReceipt(client, {
       userId,

@@ -10,14 +10,13 @@ import { QUERY_POLICY } from '@/lib/query-policies';
 import { applyCanonicalOverviewSnapshot, applyOptimisticOverviewStatDelta, invalidateAfterHabitWrite, invalidateHabitData } from '@/lib/query-invalidation';
 import { habitKeys as canonicalHabitKeys, habitLogKeys as canonicalHabitLogKeys } from '@/lib/dashboard/query-keys';
 import { clearReadConsistencyRequirement, markReadConsistencyRequired, shouldForceFreshRead } from '@/lib/read-consistency';
-import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { BackendClientError } from '@/lib/api/generated/backend-client';
 import { putLocalVaultHabit, putLocalVaultHabitLog, putLocalVaultHabitWriteOutboxItem, readLocalVaultHabitLogs, readLocalVaultHabits, readLocalVaultHabitWriteOutboxItems } from '@/lib/privacy/habit-vault-adapter';
 import { buildHabitCreateOutboxItem, buildHabitLogCreateOutboxItem, buildOptimisticHabit, buildOptimisticHabitLog, createHabitClientEventId, getHabitLogOptimisticDelta, getHabitLogOptimisticUnit, markOutboxItemFailed, markOutboxItemSynced, mergeHabitLogsWithOutbox, mergeHabitsWithOutbox, upsertById, type HabitLogMutationInput, type HabitWriteOutboxItem, type OptimisticHabit, type OptimisticHabitLog } from '@/lib/habits/local-first-writes';
 import { useHabitWriteOutboxSync } from './use-habit-outbox-sync';
 import { playInteractionSound } from '@/lib/interaction-sounds';
 
-const LOCAL_HABITS_API = '/api/habits';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
 const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -112,6 +111,7 @@ function persistSnapshot<T>(
 }
 
 function getMutationErrorStatus(error: unknown): number | undefined {
+  if (error instanceof BackendClientError) return error.status;
   return typeof (error as MutationErrorWithStatus | undefined)?.status === 'number'
     ? (error as MutationErrorWithStatus).status
     : undefined;
@@ -131,19 +131,6 @@ export function clearPersistedHabitSnapshots(): void {
 
   window.localStorage.removeItem(HABITS_SNAPSHOT_STORAGE_KEY);
   window.localStorage.removeItem(HABIT_LOGS_SNAPSHOT_STORAGE_KEY);
-}
-
-/**
- * Fetch with automatic retry on 401/403 using a fresh token.
- * Reduces stale-token errors on initial load or after app was backgrounded.
- */
-async function fetchWithAuthRetry(
-  url: string,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
-  options?: RequestInit
-): Promise<Response> {
-  const path = url.startsWith('http') ? new URL(url).pathname : url;
-  return apiFetchWithAuth(path, getToken, options);
 }
 
 /**
@@ -501,32 +488,30 @@ export function useCreateHabitMutation() {
       if (!user?.id) throw new Error('No user');
       if (process.env.NODE_ENV !== 'production') { console.log('➕ [React Query] Creating habit:', habitData); }
 
-      const response = await fetchWithAuthRetry(
-        LOCAL_HABITS_API,
-        getToken,
-        {
-          method: 'POST',
-          body: JSON.stringify(habitData),
+      try {
+        return await apiOperationWithAuth(
+          'create_habit_api_habits_post',
+          getToken,
+          { body: habitData },
+          user.id,
+        ) as HabitRecord;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          let detail = error.responseBody;
+          try {
+            const parsed = JSON.parse(error.responseBody) as { detail?: unknown };
+            if (typeof parsed?.detail === 'string') detail = parsed.detail;
+          } catch {
+            /* use raw text */
+          }
+          const failed = new Error(
+            detail ? `Failed to create habit (${error.status}): ${detail}` : `Failed to create habit: ${error.status}`,
+          ) as MutationErrorWithStatus;
+          failed.status = error.status;
+          throw failed;
         }
-      );
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        let detail = errText;
-        try {
-          const j = JSON.parse(errText) as { detail?: unknown };
-          if (typeof j?.detail === 'string') detail = j.detail;
-        } catch {
-          /* use raw text */
-        }
-        const error = new Error(
-          detail ? `Failed to create habit (${response.status}): ${detail}` : `Failed to create habit: ${response.status}`
-        ) as MutationErrorWithStatus;
-        error.status = response.status;
         throw error;
       }
-
-      return response.json() as Promise<HabitRecord>;
     },
 
     onMutate: async (habitData) => {
@@ -638,25 +623,34 @@ export function useUpdateHabitMutation() {
       updates: Partial<Habit>;
     }) => {
       if (!user?.id) throw new Error('No user');
-      const response = await fetchWithAuthRetry(
-        `${LOCAL_HABITS_API}/${habitId}`,
-        getToken,
-        {
-          method: 'PUT',
-          body: JSON.stringify(updates),
-        },
-      );
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => '');
-        throw new Error(
-          errText
-            ? `Failed to update habit (${response.status}): ${errText}`
-            : `Failed to update habit: ${response.status}`,
-        );
+      try {
+        return await apiOperationWithAuth(
+          'update_habit_api_habits__habit_id__put',
+          getToken,
+          {
+            pathParams: { habit_id: habitId },
+            body: {
+              name: updates.name,
+              category: updates.category,
+              icon: updates.icon,
+              integration_source: updates.integration_source,
+              is_custom: updates.is_custom,
+              metric_type: updates.metric_type,
+              unit_type: updates.unit_type,
+            },
+          },
+          user.id,
+        ) as Habit;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          throw new Error(
+            error.responseBody
+              ? `Failed to update habit (${error.status}): ${error.responseBody}`
+              : `Failed to update habit: ${error.status}`,
+          );
+        }
+        throw error;
       }
-
-      return response.json() as Promise<Habit>;
     },
 
     onMutate: async ({ habitId, updates }) => {
@@ -712,18 +706,20 @@ export function useDeleteHabitMutation() {
   return useMutation({
     mutationFn: async ({ habitId, habitName, category }: { habitId: string; habitName?: string; category?: string }) => {
       if (!user?.id) throw new Error('No user');
-      const token = await getToken();
       if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [React Query] Deleting habit:', habitId); }
 
-      const response = await fetch(`${LOCAL_HABITS_API}/${habitId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to delete habit: ${response.status}`);
+      try {
+        await apiOperationWithAuth(
+          'delete_habit_api_habits__habit_id__delete',
+          getToken,
+          { pathParams: { habit_id: habitId } },
+          user.id,
+        );
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          throw new Error(`Failed to delete habit: ${error.status}`);
+        }
+        throw error;
       }
 
       return { habitId, habitName, category };

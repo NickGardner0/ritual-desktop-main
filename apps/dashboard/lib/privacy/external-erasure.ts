@@ -5,6 +5,7 @@ import type {
   DesktopVaultStatus,
 } from "./vault-sync";
 import { vaultSync } from "./vault-sync";
+import { privacyBackendOperation } from "./privacy-backend-operation";
 
 export const SUPPORTED_EXTERNAL_ERASURE_TARGETS = [
   "private_sync_envelopes",
@@ -98,18 +99,6 @@ function selectedTargets(targets: ExternalErasureTarget[]): ExternalErasureTarge
   return SUPPORTED_EXTERNAL_ERASURE_TARGETS.filter((target) => targets.includes(target));
 }
 
-async function fetchJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-): Promise<T> {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    throw new Error(`External erasure request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function createExternalErasureId(now: Date): string {
   const randomPart = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
   return `external-erasure-${now.toISOString()}-${randomPart}`;
@@ -135,16 +124,23 @@ export async function planExternalErasure({
   if (selected.length === 0) {
     throw new Error("Select at least one external erasure target.");
   }
-  return fetchJson<ExternalErasurePlan>(fetchImpl, "/api/privacy/external-erasure-plan", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(headers || {}),
+  return privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/external-erasure-plan",
+    {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(headers || {}),
+      },
+      body: JSON.stringify({ targets: selected }),
     },
-    body: JSON.stringify({ targets: selected }),
-  });
+    "external_erasure_plan_api_privacy_external_erasure_plan_post",
+    { body: { targets: selected } },
+    "External erasure request failed",
+  ) as Promise<ExternalErasurePlan>;
 }
 
 export async function executeExternalErasure({
@@ -201,7 +197,7 @@ export async function executeExternalErasure({
   }
 
   try {
-    const response = await fetchJson<ExternalErasureExecuteResponse>(
+    const response = await privacyBackendOperation(
       fetchImpl,
       "/api/privacy/external-erasure-execute",
       {
@@ -219,7 +215,17 @@ export async function executeExternalErasure({
           confirm_external_erasure: true,
         }),
       },
-    );
+      "external_erasure_execute_api_privacy_external_erasure_execute_post",
+      {
+        body: {
+          erasure_id: erasureId,
+          local_receipt_id: erasureId,
+          targets: selected,
+          confirm_external_erasure: true,
+        },
+      },
+      "External erasure request failed",
+    ) as ExternalErasureExecuteResponse;
     const completedReceipt = await writeDeletionReceipt(client, {
       userId,
       deletionId: erasureId,

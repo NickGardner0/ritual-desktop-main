@@ -4,7 +4,8 @@ import { useEffect } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import {
   putLocalVaultRoutine,
   putLocalVaultTask,
@@ -29,74 +30,87 @@ import type { Routine, RoutineListResponse, Task } from '@/lib/tasks/types';
 
 const syncingUsers = new Set<string>();
 type ReplayResult = { serverEntityId?: string; task?: Task; routine?: Routine };
+type AuthGetter = (opts?: { skipCache?: boolean }) => Promise<string | null>;
 
-async function responseError(response: Response, fallback: string) {
-  const text = await response.text().catch(() => '');
-  return new Error(text || fallback);
+function replayError(error: unknown, fallback: string): Error {
+  if (error instanceof BackendClientError) {
+    return new Error(error.responseBody || fallback);
+  }
+  return error instanceof Error ? error : new Error(fallback);
 }
 
 async function replayTaskCreate(
   item: TaskCreateOutboxItem,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  getToken: AuthGetter,
 ): Promise<ReplayResult> {
-  const response = await apiFetchWithAuth('/api/tasks', getToken, {
-    method: 'POST',
-    body: JSON.stringify(item.payload.input),
-  });
-  if (!response.ok) {
-    throw await responseError(response, `Task create outbox replay failed: ${response.status}`);
+  try {
+    const task = await apiOperationWithAuth(
+      'create_task_api_tasks_post',
+      getToken,
+      { body: item.payload.input },
+    ) as Task;
+    return { serverEntityId: task.id, task };
+  } catch (error) {
+    throw replayError(error, 'Task create outbox replay failed');
   }
-  const task = await response.json() as Task;
-  return { serverEntityId: task.id, task };
 }
 
 async function replayTaskUpdate(
   item: TaskUpdateOutboxItem,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  getToken: AuthGetter,
 ): Promise<ReplayResult> {
-  const response = await apiFetchWithAuth(`/api/tasks/${item.entityId}`, getToken, {
-    method: 'PATCH',
-    body: JSON.stringify(item.payload.patch),
-  });
-  if (!response.ok) {
-    throw await responseError(response, `Task update outbox replay failed: ${response.status}`);
+  try {
+    const task = await apiOperationWithAuth(
+      'update_task_api_tasks__task_id__patch',
+      getToken,
+      {
+        pathParams: { task_id: item.entityId },
+        body: item.payload.patch,
+      },
+    ) as Task;
+    return { serverEntityId: task.id, task };
+  } catch (error) {
+    throw replayError(error, 'Task update outbox replay failed');
   }
-  const task = await response.json() as Task;
-  return { serverEntityId: task.id, task };
 }
 
 async function replayRoutineCreate(
   item: RoutineCreateOutboxItem,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  getToken: AuthGetter,
 ): Promise<ReplayResult> {
-  const response = await apiFetchWithAuth('/api/routines', getToken, {
-    method: 'POST',
-    body: JSON.stringify(item.payload.input),
-  });
-  if (!response.ok) {
-    throw await responseError(response, `Routine create outbox replay failed: ${response.status}`);
+  try {
+    const result = await apiOperationWithAuth(
+      'create_routine_api_routines_post',
+      getToken,
+      { body: item.payload.input },
+    ) as RoutineListResponse;
+    const routine = result.items[0];
+    if (!routine) throw new Error('Routine create outbox replay returned no routine.');
+    return { serverEntityId: routine.id, routine };
+  } catch (error) {
+    throw replayError(error, 'Routine create outbox replay failed');
   }
-  const result = await response.json() as RoutineListResponse;
-  const routine = result.items[0];
-  if (!routine) throw new Error('Routine create outbox replay returned no routine.');
-  return { serverEntityId: routine.id, routine };
 }
 
 async function replayRoutineUpdate(
   item: RoutineUpdateOutboxItem,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  getToken: AuthGetter,
 ): Promise<ReplayResult> {
-  const response = await apiFetchWithAuth(`/api/routines/${item.entityId}`, getToken, {
-    method: 'PATCH',
-    body: JSON.stringify(item.payload.patch),
-  });
-  if (!response.ok) {
-    throw await responseError(response, `Routine update outbox replay failed: ${response.status}`);
+  try {
+    const result = await apiOperationWithAuth(
+      'update_routine_api_routines__routine_id__patch',
+      getToken,
+      {
+        pathParams: { routine_id: item.entityId },
+        body: item.payload.patch,
+      },
+    ) as RoutineListResponse;
+    const routine = result.items[0];
+    if (!routine) throw new Error('Routine update outbox replay returned no routine.');
+    return { serverEntityId: routine.id, routine };
+  } catch (error) {
+    throw replayError(error, 'Routine update outbox replay failed');
   }
-  const result = await response.json() as RoutineListResponse;
-  const routine = result.items[0];
-  if (!routine) throw new Error('Routine update outbox replay returned no routine.');
-  return { serverEntityId: routine.id, routine };
 }
 
 async function replayTaskRoutineOutboxItem(

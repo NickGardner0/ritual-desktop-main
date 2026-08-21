@@ -7,6 +7,7 @@ import type {
   DesktopVaultStatus,
 } from "./vault-sync";
 import { vaultSync } from "./vault-sync";
+import { privacyBackendOperation } from "./privacy-backend-operation";
 
 export const SUPPORTED_LOCAL_MIGRATION_CATEGORIES = [
   "ai_conversations",
@@ -210,18 +211,6 @@ function createMigrationId(now: Date): string {
   return `local-vault-${now.toISOString()}-${randomPart}`;
 }
 
-async function fetchJson<T>(
-  fetchImpl: typeof fetch,
-  url: string,
-  init: RequestInit,
-): Promise<T> {
-  const response = await fetchImpl(url, init);
-  if (!response.ok) {
-    throw new Error(`Migration request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function vaultRecordToMigrationRecord(
   record: DesktopVaultRecord,
   collection: SupportedLocalMigrationCategory,
@@ -258,16 +247,23 @@ export async function executeLocalVaultMigration({
     throw new Error("Ritual Desktop is required for local vault migration.");
   }
 
-  const plan = await fetchJson<MigrationPlan>(fetchImpl, "/api/privacy/migration-plan", {
-    method: "POST",
-    cache: "no-store",
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...(headers || {}),
+  const plan = await privacyBackendOperation(
+    fetchImpl,
+    "/api/privacy/migration-plan",
+    {
+      method: "POST",
+      cache: "no-store",
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...(headers || {}),
+      },
+      body: JSON.stringify({ categories: selected }),
     },
-    body: JSON.stringify({ categories: selected }),
-  });
+    "migration_plan_api_privacy_migration_plan_post",
+    { body: { categories: selected } },
+    "Migration request failed",
+  ) as MigrationPlan;
 
   if (plan.deletes_cloud_data || plan.changes_source_of_truth) {
     throw new Error("Migration plan attempted a disallowed cloud mutation.");
@@ -309,7 +305,7 @@ export async function executeLocalVaultMigration({
       let offset = 0;
       let nextOffset: number | null | undefined = 0;
       while (nextOffset != null) {
-        const batch = await fetchJson<MigrationRecordsBatch>(
+        const batch = await privacyBackendOperation(
           fetchImpl,
           "/api/privacy/migration-records",
           {
@@ -322,7 +318,10 @@ export async function executeLocalVaultMigration({
             },
             body: JSON.stringify({ category, offset, limit: batchLimit }),
           },
-        );
+          "migration_records_api_privacy_migration_records_post",
+          { body: { category, offset, limit: batchLimit } },
+          "Migration request failed",
+        ) as MigrationRecordsBatch;
 
         if (batch.deletes_cloud_data || batch.changes_source_of_truth) {
           throw new Error("Migration batch attempted a disallowed cloud mutation.");

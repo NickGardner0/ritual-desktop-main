@@ -37,13 +37,8 @@ import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
 import { DateRangePicker } from '@/components/date-range-picker';
 import { OverviewView } from './overview/OverviewView';
-import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
+import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
-// Import from separate file to avoid pulling in recharts (~500KB)
-const COMPUTER_SYNC_THROTTLE_MS = 5 * 60 * 1000;
-const COMPUTER_SYNC_LAST_KEY = 'ritual:computer-sync:last';
-const COMPUTER_SYNC_STARTUP_DELAY_MS = 4_000;
-const ENABLE_STARTUP_COMPUTER_SYNC = false;
 const DATE_FILTERED_LOG_REFRESH_THROTTLE_MS = 20_000;
 
 async function playHabitSuccessSound() {
@@ -138,7 +133,7 @@ function UnifiedAnalyticsContent() {
   
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
-  const { user, isLoaded: userLoaded, isSignedIn } = useUser();
+  const { user } = useUser();
   const {
     snapshot: dashboardSnapshot,
     isFetching: isDashboardSnapshotFetching,
@@ -155,71 +150,6 @@ function UnifiedAnalyticsContent() {
   const firstViewReadyLoggedRef = useRef(false);
   const lastDateFilteredLogRefreshKeyRef = useRef<string | null>(null);
   const lastDateFilteredLogRefreshAtRef = useRef(0);
-
-  // Keep "Computer Use" habit in sync after initial paint so startup is not
-  // blocked by a write + read-after-write cycle.
-  const syncAbortRef = useRef<AbortController | null>(null);
-  const syncTimerRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (!ENABLE_STARTUP_COMPUTER_SYNC) {
-      return;
-    }
-
-    const syncComputerUseHabit = async (signal: AbortSignal) => {
-      if (typeof window !== 'undefined') {
-        const lastSyncedAt = Number(sessionStorage.getItem(COMPUTER_SYNC_LAST_KEY) || '0');
-        const tooSoon = Date.now() - lastSyncedAt < COMPUTER_SYNC_THROTTLE_MS;
-        if (tooSoon) {
-          return;
-        }
-      }
-
-      try {
-        // Use lightweight single-day sync on page load. Backfills/reconcile should be manual.
-        const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST', signal });
-        if (!response.ok) {
-          return;
-        }
-        const result = await response.json();
-        if (typeof window !== 'undefined') {
-          sessionStorage.setItem(COMPUTER_SYNC_LAST_KEY, String(Date.now()));
-        }
-        if (signal.aborted) {
-          return;
-        }
-        if (result?.success && result?.synced) {
-          markReadConsistencyRequired(user?.id);
-          await invalidateAfterComputerSync(queryClient, user?.id);
-        }
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-        console.debug('Computer use sync failed:', error);
-      }
-    };
-
-    if (userLoaded && isSignedIn) {
-      syncAbortRef.current?.abort();
-      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
-        window.clearTimeout(syncTimerRef.current);
-      }
-      if (typeof window !== 'undefined') {
-        syncTimerRef.current = window.setTimeout(() => {
-          const controller = new AbortController();
-          syncAbortRef.current = controller;
-          void syncComputerUseHabit(controller.signal);
-        }, COMPUTER_SYNC_STARTUP_DELAY_MS);
-      }
-    }
-
-    return () => {
-      syncAbortRef.current?.abort();
-      if (syncTimerRef.current !== null && typeof window !== 'undefined') {
-        window.clearTimeout(syncTimerRef.current);
-        syncTimerRef.current = null;
-      }
-    };
-  }, [queryClient, user?.id, userLoaded, isSignedIn]);
 
   useEffect(() => {
     const rangeKey = dateRange?.from
