@@ -55,7 +55,6 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
     isResizingCanvas,
     isSidebarCollapsed,
     latestUserMessageRef,
-    loadQueueItems,
     messages,
     openIntegrationsPage,
     partialTranscript,
@@ -65,6 +64,7 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
     queuePrompt,
     router,
     runQueuedItem,
+    cancelQueuedItem,
     scrollRef,
     sendMessage,
     setCanvasData,
@@ -429,15 +429,7 @@ export function buildRenderActiveChat(ctx: ChatLayoutContext) {
                           {item.status === 'pending' ? (
                             <button
                               type="button"
-                              onClick={async () => {
-                                if (!conversationId) return;
-                                await fetch(`/api/conversations/${conversationId}/queue/${item.id}/cancel`, {
-                                  method: 'POST',
-                                  headers: { 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({}),
-                                });
-                                await loadQueueItems(conversationId);
-                              }}
+                              onClick={() => void cancelQueuedItem(item.id)}
                               className="rounded-md border border-gray-200 px-2 py-1 text-[11px] text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
                             >
                               Cancel

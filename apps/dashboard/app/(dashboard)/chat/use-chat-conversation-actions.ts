@@ -3,6 +3,7 @@
 import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   buildCanvasFromToolData,
   buildConversationArtifactBody,
@@ -17,11 +18,9 @@ import type {
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import type {
   AiFact,
-  AiFactListResponse,
   ArtifactDetail,
   ArtifactKind,
   ConversationQueueItem,
-  ConversationQueueListResponse,
 } from '@/lib/workflows/types';
 
 export function useChatConversationActions({
@@ -79,22 +78,14 @@ export function useChatConversationActions({
 }) {
   const loadConversationsList = useCallback(async () => {
     try {
-      const token = await getToken();
-      if (!token) return;
-      
       setIsLoadingConversations(true);
-      const response = await fetch('/api/conversations?limit=10', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        if (data.conversations) {
-          setConversations(data.conversations);
-        }
+      const data = await apiOperationWithAuth(
+        'list_conversations_api_conversations_get',
+        getToken,
+        { query: { limit: 10 } },
+      ) as { conversations?: ConversationListItem[] };
+      if (data.conversations) {
+        setConversations(data.conversations);
       }
     } catch (error) {
       console.error('Failed to load conversations list:', error);
@@ -105,25 +96,25 @@ export function useChatConversationActions({
 
   const loadQueueItems = useCallback(async (targetConversationId: string) => {
     try {
-      const response = await fetch(`/api/conversations/${targetConversationId}/queue`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) return;
-      const data: ConversationQueueListResponse = await response.json();
-      setQueueItems(data.items || []);
+      const data = await apiOperationWithAuth(
+        'get_conversation_queue_api_conversations__conversation_id__queue_get',
+        getToken,
+        { pathParams: { conversation_id: targetConversationId } },
+      );
+      setQueueItems((data.items || []) as ConversationQueueItem[]);
       setQueueAutoRun(Boolean(data.auto_run_queued));
     } catch (error) {
       console.error('Failed to load queue items:', error);
     }
-  }, []);
+  }, [getToken]);
 
   const loadLinkedArtifacts = useCallback(async (targetConversationId: string) => {
     try {
-      const response = await fetch(`/api/artifacts?linked_to=${encodeURIComponent(targetConversationId)}&limit=12`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) return;
-      const data = await response.json() as { items?: Array<{ id: string }> };
+      const data = await apiOperationWithAuth(
+        'get_artifacts_api_artifacts_get',
+        getToken,
+        { query: { linked_to: targetConversationId, limit: 12 } },
+      );
       const artifactIds = (data.items || []).map((item) => item.id).slice(0, 6);
       if (artifactIds.length === 0) {
         setLinkedArtifacts([]);
@@ -131,27 +122,34 @@ export function useChatConversationActions({
       }
       const details = await Promise.all(
         artifactIds.map(async (artifactId) => {
-          const detailResponse = await fetch(`/api/artifacts/${artifactId}`, { cache: 'no-store' });
-          if (!detailResponse.ok) return null;
-          return detailResponse.json() as Promise<ArtifactDetail>;
+          try {
+            return await apiOperationWithAuth(
+              'get_artifact_api_artifacts__artifact_id__get',
+              getToken,
+              { pathParams: { artifact_id: artifactId } },
+            ) as ArtifactDetail;
+          } catch {
+            return null;
+          }
         }),
       );
       setLinkedArtifacts(details.filter(Boolean) as ArtifactDetail[]);
     } catch (error) {
       console.error('Failed to load linked artifacts:', error);
     }
-  }, []);
+  }, [getToken]);
 
   const loadMemoryFacts = useCallback(async () => {
     try {
-      const response = await fetch('/api/ai-facts', { cache: 'no-store' });
-      if (!response.ok) return;
-      const data: AiFactListResponse = await response.json();
-      setMemoryFacts(data.items || []);
+      const data = await apiOperationWithAuth(
+        'get_facts_api_ai_facts_get',
+        getToken,
+      );
+      setMemoryFacts((data.items || []) as AiFact[]);
     } catch (error) {
       console.error('Failed to load AI facts:', error);
     }
-  }, []);
+  }, [getToken]);
 
   // Load conversations list on mount
   useEffect(() => {
@@ -192,18 +190,14 @@ export function useChatConversationActions({
       setMessages([]);
       setCanvasData(null);
       setStreamingContent('');
-      
-      const response = await fetch(`/api/conversations/${targetConversationId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const conversation: PersistedConversation = await response.json();
-        
-        if (conversation && conversation.messages && conversation.messages.length > 0) {
+
+      const conversation = await apiOperationWithAuth(
+        'get_conversation_api_conversations__conversation_id__get',
+        getToken,
+        { pathParams: { conversation_id: targetConversationId } },
+      ) as PersistedConversation;
+
+      if (conversation && conversation.messages && conversation.messages.length > 0) {
           const loadedMessages: Message[] = conversation.messages.map((m) => {
             let messageCanvasData: HabitCanvasData | undefined;
             let actionReceipts: Message['actionReceipts'];
@@ -255,7 +249,6 @@ export function useChatConversationActions({
             setCanvasData(lastMessageWithCanvas.canvasData);
           }
         }
-      }
     } catch (error) {
       console.error('Failed to switch conversation:', error);
     } finally {
@@ -288,25 +281,17 @@ export function useChatConversationActions({
       const token = await getToken();
       if (!token) return;
       
-      const response = await fetch(`/api/conversations/${targetConversationId}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        setConversationContextMenu((current) => (
-          current?.conversationId === targetConversationId ? null : current
-        ));
-        // Remove from local list
-        setConversations(prev => prev.filter(c => c.id !== targetConversationId));
-        
-        // If the deleted conversation was the active one, start a new conversation
-        if (targetConversationId === conversationId) {
-          startNewConversation();
-        }
+      await apiOperationWithAuth(
+        'delete_conversation_api_conversations__conversation_id__delete',
+        getToken,
+        { pathParams: { conversation_id: targetConversationId } },
+      );
+      setConversationContextMenu((current) => (
+        current?.conversationId === targetConversationId ? null : current
+      ));
+      setConversations(prev => prev.filter(c => c.id !== targetConversationId));
+      if (targetConversationId === conversationId) {
+        startNewConversation();
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -364,20 +349,23 @@ export function useChatConversationActions({
       kind,
     };
 
-    const response = await fetch(`/api/conversations/${conversationId}/artifacts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
+    try {
+      await apiOperationWithAuth(
+        'create_conversation_artifact_api_conversations__conversation_id__artifacts_post',
+        getToken,
+        {
+          pathParams: { conversation_id: conversationId },
+          body: payload,
+        },
+      );
+    } catch {
       toast.error('Failed to save artifact.');
       return;
     }
 
     toast.success(kind === 'plan' ? 'Plan saved.' : 'Notebook saved.');
     void loadLinkedArtifacts(conversationId);
-  }, [conversationId, loadLinkedArtifacts]);
+  }, [conversationId, getToken, loadLinkedArtifacts]);
 
   const appendToLatestNotebook = useCallback(async (message: Message) => {
     const latestNotebook = linkedArtifacts.find((artifact) => artifact.kind === 'notebook');
@@ -392,29 +380,32 @@ export function useChatConversationActions({
       { type: 'summary', text: message.content },
     ];
 
-    const response = await fetch(`/api/artifacts/${latestNotebook.id}/revisions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_version: latestNotebook.revision_count,
-        editor_type: 'user',
-        summary: latestNotebook.summary || message.content.slice(0, 160),
-        change_note: 'Appended from chat response',
-        body: {
-          schemaVersion: 1,
-          blocks: nextBlocks,
+    try {
+      await apiOperationWithAuth(
+        'create_artifact_revision_api_artifacts__artifact_id__revisions_post',
+        getToken,
+        {
+          pathParams: { artifact_id: latestNotebook.id },
+          body: {
+            base_version: latestNotebook.revision_count,
+            editor_type: 'user',
+            summary: latestNotebook.summary || message.content.slice(0, 160),
+            change_note: 'Appended from chat response',
+            body: {
+              schemaVersion: 1,
+              blocks: nextBlocks,
+            },
+          },
         },
-      }),
-    });
-
-    if (!response.ok) {
+      );
+    } catch {
       toast.error('Failed to append to notebook.');
       return;
     }
 
     toast.success('Appended to notebook.');
     void loadLinkedArtifacts(conversationId!);
-  }, [conversationId, linkedArtifacts, loadLinkedArtifacts, saveConversationArtifact]);
+  }, [conversationId, getToken, linkedArtifacts, loadLinkedArtifacts, saveConversationArtifact]);
 
   const queuePrompt = useCallback(async (promptText: string, source: ConversationQueueItem['source'] = 'manual') => {
     if (!conversationId) {
@@ -422,24 +413,75 @@ export function useChatConversationActions({
       return;
     }
     const anchorId = getPersistedAfterMessageId(messages[messages.length - 1]?.id);
-    const response = await fetch(`/api/conversations/${conversationId}/queue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        prompt_text: promptText,
-        source,
-        auto_run: queueAutoRun,
-        after_message_id: anchorId,
-      }),
-    });
-    if (!response.ok) {
+    try {
+      await apiOperationWithAuth(
+        'create_conversation_queue_item_api_conversations__conversation_id__queue_post',
+        getToken,
+        {
+          pathParams: { conversation_id: conversationId },
+          body: {
+            prompt_text: promptText,
+            source,
+            auto_run: queueAutoRun,
+            after_message_id: anchorId,
+          },
+        },
+      );
+    } catch {
       toast.error('Failed to queue prompt.');
       return;
     }
     setInput('');
     toast.success('Queued for later.');
     await loadQueueItems(conversationId);
-  }, [conversationId, loadQueueItems, messages, queueAutoRun]);
+  }, [conversationId, getToken, loadQueueItems, messages, queueAutoRun]);
+
+  const cancelQueuedItem = useCallback(async (itemId: string) => {
+    if (!conversationId) return;
+    try {
+      await apiOperationWithAuth(
+        'cancel_conversation_queue_item_api_conversations__conversation_id__queue__item_id__cancel_post',
+        getToken,
+        {
+          pathParams: { conversation_id: conversationId, item_id: itemId },
+          body: {},
+        },
+      );
+    } catch {
+      toast.error('Failed to cancel queued prompt.');
+    }
+    await loadQueueItems(conversationId);
+  }, [conversationId, getToken, loadQueueItems]);
+
+  const approveFact = useCallback(async (factId: string) => {
+    try {
+      await apiOperationWithAuth(
+        'approve_fact_api_ai_facts__fact_id__approve_post',
+        getToken,
+        { pathParams: { fact_id: factId } },
+      );
+    } catch {
+      toast.error('Failed to approve fact.');
+      return;
+    }
+    toast.success('Fact approved.');
+    await loadMemoryFacts();
+  }, [getToken, loadMemoryFacts]);
+
+  const dismissFact = useCallback(async (factId: string) => {
+    try {
+      await apiOperationWithAuth(
+        'dismiss_fact_api_ai_facts__fact_id__dismiss_post',
+        getToken,
+        { pathParams: { fact_id: factId } },
+      );
+    } catch {
+      toast.error('Failed to dismiss fact.');
+      return;
+    }
+    toast.success('Fact dismissed.');
+    await loadMemoryFacts();
+  }, [getToken, loadMemoryFacts]);
 
   return {
     loadConversationsList,
@@ -454,5 +496,8 @@ export function useChatConversationActions({
     saveConversationArtifact,
     appendToLatestNotebook,
     queuePrompt,
+    cancelQueuedItem,
+    approveFact,
+    dismissFact,
   };
 }

@@ -11,6 +11,8 @@ import type { ViewMode } from '@/components/analytics/view-mode-toggle';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { submitCurrentLocationPing } from '@/lib/location-ping';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import {
   getOverviewActivityBundle,
   hasMeaningfulOverviewActivity,
@@ -20,12 +22,8 @@ import {
 } from '@/lib/ai/overview-activity/overview-activity-query';
 import type {
   AiFact,
-  AiFactListResponse,
   ArtifactDetail,
-  ArtifactKind,
   ConversationQueueItem,
-  ConversationQueueListResponse,
-  ConversationQueueRunResponse,
 } from '@/lib/workflows/types';
 
 import {
@@ -34,18 +32,11 @@ import {
   MAX_CANVAS_WIDTH,
   MAX_VISIBLE_CHAT_SUGGESTIONS,
   MIN_CANVAS_WIDTH,
-  buildCanvasFromToolData,
-  buildConversationArtifactBody,
-  cleanContentForDisplay,
-  extractCanvasData,
-  getPersistedAfterMessageId,
-  getToolLabel,
 } from './chat-client.shared';
 import type {
   ConversationContextMenuState,
   ConversationListItem,
   Message,
-  PersistedConversation,
 } from './chat-client.shared';
 import { createChatClientLayout } from './chat-client.layout';
 import { ChatSuggestionList } from './chat-suggestion-list';
@@ -207,22 +198,15 @@ export function ChatClient() {
     signal?: AbortSignal,
   ): Promise<ChatSuggestion[]> => {
     try {
-      const token = await getToken();
-      const params = new URLSearchParams({ mode: 'chat', q: query });
-      const response = await fetch(`/api/suggestions?${params.toString()}`, {
-        cache: 'no-store',
-        signal,
-        headers: {
-          Authorization: token ? `Bearer ${token}` : '',
+      const data = await apiOperationWithAuth(
+        'get_suggestions_api_suggestions_get',
+        getToken,
+        {
+          query: { mode: 'chat', q: query },
+          signal,
         },
-      });
-
-      if (!response.ok) {
-        return [];
-      }
-
-      const data = await response.json();
-      return (data.suggestions || []).slice(0, 5).map((suggestion: ChatSuggestion) => ({
+      ) as { suggestions?: ChatSuggestion[] };
+      return (data.suggestions || []).slice(0, 5).map((suggestion) => ({
         ...suggestion,
         score: suggestion.score || 0,
         source: 'server',
@@ -301,6 +285,9 @@ export function ChatClient() {
     saveConversationArtifact,
     appendToLatestNotebook,
     queuePrompt,
+    cancelQueuedItem,
+    approveFact,
+    dismissFact,
   } = useChatConversationActions({
     getToken,
     router,
@@ -353,16 +340,20 @@ export function ChatClient() {
 
   const runQueuedItem = useCallback(async (itemId: string) => {
     if (!conversationId || isLoading) return;
-    const response = await fetch(`/api/conversations/${conversationId}/queue/${itemId}/run`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-    });
-    if (!response.ok) {
-      if (response.status === 409) await loadQueueItems(conversationId);
+    let data;
+    try {
+      data = await apiOperationWithAuth(
+        'run_conversation_queue_item_api_conversations__conversation_id__queue__item_id__run_post',
+        getToken,
+        { pathParams: { conversation_id: conversationId, item_id: itemId } },
+      );
+    } catch (error) {
+      if (error instanceof BackendClientError && error.status === 409) {
+        await loadQueueItems(conversationId);
+      }
       toast.error('Failed to start queued prompt.');
       return;
     }
-    const data: ConversationQueueRunResponse = await response.json();
     if (data.stale) {
       toast.error('Queued prompt is stale because the conversation moved on.');
       await loadQueueItems(conversationId);
@@ -370,15 +361,22 @@ export function ChatClient() {
     }
 
     const success = await sendMessage(data.item.prompt_text);
-    await fetch(`/api/conversations/${conversationId}/queue/${itemId}/${success ? 'complete' : 'fail'}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        error: success ? null : { message: 'Queued prompt failed during execution.' },
-      }),
-    });
+    try {
+      await apiOperationWithAuth(
+        success
+          ? 'complete_conversation_queue_item_api_conversations__conversation_id__queue__item_id__complete_post'
+          : 'fail_conversation_queue_item_api_conversations__conversation_id__queue__item_id__fail_post',
+        getToken,
+        {
+          pathParams: { conversation_id: conversationId, item_id: itemId },
+          body: { error: success ? null : { message: 'Queued prompt failed during execution.' } },
+        },
+      );
+    } catch {
+      // Keep previous fail-open complete/fail.
+    }
     await loadQueueItems(conversationId);
-  }, [conversationId, isLoading, loadQueueItems, sendMessage]);
+  }, [conversationId, getToken, isLoading, loadQueueItems, sendMessage]);
 
   useEffect(() => {
     if (!queueAutoRun || isLoading || !conversationId) return;
@@ -399,26 +397,6 @@ export function ChatClient() {
     () => memoryFacts.filter((fact) => fact.status === 'active'),
     [memoryFacts],
   );
-
-  const approveFact = useCallback(async (factId: string) => {
-    const response = await fetch(`/api/ai-facts/${factId}/approve`, { method: 'POST' });
-    if (!response.ok) {
-      toast.error('Failed to approve fact.');
-      return;
-    }
-    toast.success('Fact approved.');
-    await loadMemoryFacts();
-  }, [loadMemoryFacts]);
-
-  const dismissFact = useCallback(async (factId: string) => {
-    const response = await fetch(`/api/ai-facts/${factId}/dismiss`, { method: 'POST' });
-    if (!response.ok) {
-      toast.error('Failed to dismiss fact.');
-      return;
-    }
-    toast.success('Fact dismissed.');
-    await loadMemoryFacts();
-  }, [loadMemoryFacts]);
 
   useEffect(() => {
     if (!initialQuestion) {
@@ -626,6 +604,7 @@ export function ChatClient() {
     approveFact,
     audioStream,
     canvasData,
+    cancelQueuedItem,
     conversationContextMenu,
     conversationId,
     conversations,

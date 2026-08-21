@@ -5,6 +5,7 @@ import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useAnalytics } from '@/lib/analytics';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { buildInstantSuggestions, mergeSuggestions, type ChatSuggestion } from '@/lib/ai/chat-suggestions';
 import { useAiHabitLogMutation } from '@/hooks/use-ai-habit-log-mutation';
 import {
@@ -120,27 +121,19 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
     signal?: AbortSignal
   ): Promise<ChatSuggestion[]> => {
     try {
-      const sessionToken = await getToken();
-      const params = new URLSearchParams({ mode: currentMode, q: query });
-
-      const response = await fetch(`/api/suggestions?${params.toString()}`, {
-        cache: 'no-store',
-        signal,
-        headers: {
-          Authorization: sessionToken ? `Bearer ${sessionToken}` : '',
+      const data = await apiOperationWithAuth(
+        'get_suggestions_api_suggestions_get',
+        getToken,
+        {
+          query: { mode: currentMode, q: query },
+          signal,
         },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return (data.suggestions || []).slice(0, 5).map((suggestion: ChatSuggestion) => ({
-          ...suggestion,
-          score: suggestion.score || 0,
-          source: 'server',
-        }));
-      }
-
-      return [];
+      ) as { suggestions?: ChatSuggestion[] };
+      return (data.suggestions || []).slice(0, 5).map((suggestion) => ({
+        ...suggestion,
+        score: suggestion.score || 0,
+        source: 'server',
+      }));
     } catch (err: any) {
       if (err?.name === 'AbortError') {
         return [];
