@@ -129,3 +129,24 @@ export async function apiOperationWithAuth<TOperation extends BackendOperationId
     throw error;
   }
 }
+
+export async function apiOperation<TOperation extends BackendOperationId>(
+  operationId: TOperation,
+  request: BackendOperationRequest<TOperation> = {},
+  options: {
+    getToken?: (opts?: { skipCache?: boolean }) => Promise<string | null>;
+    userId?: string | null;
+  } = {},
+): Promise<BackendOperationResponse<TOperation>> {
+  if (options.getToken) {
+    return apiOperationWithAuth(operationId, options.getToken, request, options.userId);
+  }
+  const client = createBackendClient({
+    baseUrl: dashboardBaseUrl(),
+    getAuthHeaders: () => ({
+      ...getReadConsistencyHeaders(options.userId),
+      ...privacySettingsHeaders(),
+    }),
+  });
+  return client.requestOperation(operationId, request);
+}

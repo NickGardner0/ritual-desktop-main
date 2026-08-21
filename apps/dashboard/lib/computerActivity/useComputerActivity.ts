@@ -136,54 +136,38 @@ async function fetchActivityEvents(
   endTs: number,
   limit?: number,
 ): Promise<{ events: ActivityEvent[]; readSource: ComputerActivityReadSource }> {
+  if (!isDesktopRuntime()) {
+    return { events: [], readSource: 'unavailable' }
+  }
+
   try {
-    if (isDesktopRuntime()) {
-      try {
-        const response = await invokeDetailedActivityWithInitRetry({
-          startTs,
-          endTs,
-          limit,
-        })
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[useComputerActivity] local activity.db: ${response.events.length} events`)
-        }
-
-        return {
-          readSource: 'local',
-          events: response.events.map((e) => ({
-            id: e.id,
-            ts_start: e.ts_start,
-            ts_end: e.ts_end,
-            duration_ms: e.duration_ms,
-            app_bundle_id: e.app_bundle_id,
-            app_name: e.app_name,
-            window_title: e.window_title,
-            browser_url: e.browser_url,
-            browser_domain: e.browser_domain,
-            is_afk: e.is_afk,
-            is_incognito: e.is_incognito,
-          })),
-        }
-      } catch (tauriError) {
-        console.error('[useComputerActivity] activity.db unavailable:', tauriError)
-        return { events: [], readSource: 'unavailable' }
-      }
-    }
-
-    const params = new URLSearchParams({
-      start_ts: startTs.toString(),
-      end_ts: endTs.toString(),
+    const response = await invokeDetailedActivityWithInitRetry({
+      startTs,
+      endTs,
+      limit,
     })
-
-    const response = await fetch(`/api/watcher/activity?${params}`)
-    if (!response.ok) {
-      return { events: [], readSource: 'unavailable' }
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[useComputerActivity] local activity.db: ${response.events.length} events`)
     }
 
-    const data = await response.json()
-    return { events: data.events || [], readSource: 'synced' }
-  } catch (error) {
-    console.error('Failed to fetch activity events:', error)
+    return {
+      readSource: 'local',
+      events: response.events.map((e) => ({
+        id: e.id,
+        ts_start: e.ts_start,
+        ts_end: e.ts_end,
+        duration_ms: e.duration_ms,
+        app_bundle_id: e.app_bundle_id,
+        app_name: e.app_name,
+        window_title: e.window_title,
+        browser_url: e.browser_url,
+        browser_domain: e.browser_domain,
+        is_afk: e.is_afk,
+        is_incognito: e.is_incognito,
+      })),
+    }
+  } catch (tauriError) {
+    console.error('[useComputerActivity] activity.db unavailable:', tauriError)
     return { events: [], readSource: 'unavailable' }
   }
 }

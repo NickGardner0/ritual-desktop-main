@@ -250,14 +250,17 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
 
   // Delete mutation
   const deleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const token = await getToken();
-      const res = await apiFetchWithAuth('/api/habit-logs/bulk-delete', getToken, {
-        method: 'DELETE',
-        body: JSON.stringify({ ids }),
-      });
-      if (!res.ok) throw new Error('Failed to delete logs');
-      return res.json();
+    mutationFn: async (logs: Array<{ id: string; habit_id: string }>) => {
+      await Promise.all(
+        logs.map((log) =>
+          apiOperationWithAuth(
+            'delete_habit_log_api_habits__habit_id__logs__log_id__delete',
+            getToken,
+            { pathParams: { habit_id: log.habit_id, log_id: log.id } },
+            userId,
+          ),
+        ),
+      );
     },
     onSuccess: () => {
       refetch();
@@ -274,7 +277,6 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       log: HabitLog;
       updates: Partial<Pick<HabitLog, 'status' | 'date' | 'completed_at' | 'integration_source'>>;
     }) => {
-      const token = await getToken();
       const payload: Record<string, string> = {};
       if (updates.status) payload.status = updates.status;
       if (updates.date) payload.date = updates.date;
@@ -630,9 +632,12 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   }, []);
 
   const handleDeleteSelected = useCallback(() => {
-    const ids = deletableSelectedLogs.map((log) => log.id);
-    if (!ids.length || deleteMutation.isPending) return;
-    deleteMutation.mutate(ids);
+    if (!deletableSelectedLogs.length || deleteMutation.isPending) return;
+    deleteMutation.mutate(
+      deletableSelectedLogs.flatMap((log) => (
+        log.habit_id ? [{ id: log.id, habit_id: log.habit_id }] : []
+      )),
+    );
   }, [deletableSelectedLogs, deleteMutation]);
 
   return (

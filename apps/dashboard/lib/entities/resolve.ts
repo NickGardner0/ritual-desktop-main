@@ -14,14 +14,7 @@ import {
   type EntitySummary,
   type EntityType,
 } from "@ritual/shared-contracts";
-import { apiOperationWithAuth } from "@/lib/api/client";
-import {
-  createBackendClient,
-  type BackendOperationId,
-  type BackendOperationRequest,
-} from "@/lib/api/generated/backend-client";
-import { getReadConsistencyHeaders } from "@/lib/read-consistency";
-import { privacySettingsHeaders } from "@/lib/privacy/privacy-settings";
+import { apiOperation } from "@/lib/api/client";
 import {
   HABIT_DEFINITIONS_COLLECTION,
   HABIT_LOGS_COLLECTION,
@@ -74,24 +67,6 @@ function canonicalizeRef(ref: EntityRef): EntityRef {
 }
 
 type AuthGetter = (opts?: { skipCache?: boolean }) => Promise<string | null>;
-
-async function cloudEntityOperation<TOperation extends BackendOperationId>(
-  operationId: TOperation,
-  request: BackendOperationRequest<TOperation>,
-  options: { userId?: string | null; getToken?: AuthGetter },
-) {
-  if (options.getToken) {
-    return apiOperationWithAuth(operationId, options.getToken, request, options.userId);
-  }
-  const client = createBackendClient({
-    baseUrl: typeof window !== "undefined" ? window.location.origin : "http://localhost",
-    getAuthHeaders: () => ({
-      ...getReadConsistencyHeaders(options.userId),
-      ...privacySettingsHeaders(),
-    }),
-  });
-  return client.requestOperation(operationId, request);
-}
 
 export function entityLookupPath(
   type: EntityType | string,
@@ -244,7 +219,7 @@ export async function resolveEntity(
 
     try {
       return summaryFromCloud(
-        await cloudEntityOperation(
+        await apiOperation(
           "get_entity_summary_query_api_entities_summary_get",
           { query: { entity_type: ref.type, entity_id: ref.id } },
           options,
@@ -301,7 +276,7 @@ export async function resolveEntities(
 
   if (remaining.length) {
     try {
-      const response = await cloudEntityOperation(
+      const response = await apiOperation(
         "resolve_entities_api_entities_resolve_post",
         { body: { refs: remaining } },
         options,
