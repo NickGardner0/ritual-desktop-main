@@ -39,10 +39,6 @@
       "category": "analytics-boundary",
       "reason": "Tinybird-backed habit summary query with server-side analytics semantics."
     },
-    "apps/dashboard/app/api/analytics/habits/trends/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit trend query with server-side analytics semantics."
-    },
     "apps/dashboard/app/api/analytics/heart-rate/series/route.ts": {
       "category": "analytics-boundary",
       "reason": "Tinybird-backed biometric series query with server-side analytics semantics."

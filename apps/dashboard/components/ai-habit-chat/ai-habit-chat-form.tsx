@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { ArrowUp, ArrowUpRight, AudioLines, Paperclip } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { VoiceWaveform, VoiceWaveformMini } from '../voice-waveform';
-import { BrailleSpinner } from './braille-spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ScreenshotConfirmationModal } from './screenshot-confirmation-modal';
 import type { Clarification, InlineSuggestionOption, InputMode, ScreenshotPreview } from './ai-habit-chat.types';
 import type { HabitOption } from './ai-habit-chat.types';

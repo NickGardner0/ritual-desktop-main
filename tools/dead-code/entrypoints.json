@@ -78,7 +78,12 @@
     "apps/dashboard/lib/ai/agents",
     "apps/dashboard/lib/ai/context.ts",
     "apps/dashboard/types/ai-sdk-tools.d.ts",
-    "packages/chat-runtime/src/chat-turn-engine.ts"
+    "packages/chat-runtime/src/chat-turn-engine.ts",
+    "apps/dashboard/lib/tinybird-service.ts",
+    "apps/dashboard/app/api/analytics/habits/trends/route.ts",
+    "apps/dashboard/components/ai-habit-chat/braille-spinner.tsx",
+    "apps/dashboard/types/computerActivity.ts",
+    "apps/dashboard/components/core/text-shimmer.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
@@ -101,7 +106,13 @@
     "@ai-sdk-tools",
     "@vercel/speed-insights",
     "chat-turn-engine",
-    "lib/ai/agents"
+    "lib/ai/agents",
+    "lib/tinybird-service",
+    "ai-habit-chat/braille-spinner",
+    "from 'cmdk'",
+    "from \"cmdk\"",
+    "usehooks-ts",
+    "@shadcn/ui"
   ],
   "allowlist": []
 }

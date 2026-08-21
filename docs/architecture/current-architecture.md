@@ -233,7 +233,7 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | `lib/privacy/*` | Vault adapters, private sync, migration (~15 modules) |
 | `lib/tasks/*` | Tasks/routines local-first writes + outbox |
 | `lib/ai/*` | Agents, overview activity |
-| `lib/tinybird-service.ts` | Server-side Tinybird queries |
+| FastAPI `tinybird_service.py` | Analytics projection queries and ingest |
 
 **Largest dashboard files (approaching/exceeding 800-line CI budget):**
 
@@ -484,8 +484,9 @@ Desktop ritual-db (local libSQL) → cloud_sync outbox → per-user Turso
 ```
 Habit logs, computer activity, heart rate, Whoop
     → tinybird_service.py → Tinybird Events API
-Dashboard analytics routes → lib/tinybird-service.ts → Tinybird pipes
-Trigger.dev jobs → backend sync → eventual Tinybird writes
+Dashboard `/api/analytics/*` → FastAPI `tinybird_service.py` → Tinybird pipes
+Remaining Next analytics routes compose Tinybird pipes that FastAPI does not yet own
+FastAPI scheduler loops → backend sync → eventual Tinybird writes
 ```
 
 ### Search — Typesense

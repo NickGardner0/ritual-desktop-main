@@ -4,7 +4,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import { BrailleSpinner } from './braille-spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitOption, ScreenshotPreview } from './ai-habit-chat.types';
 
 interface ScreenshotConfirmationModalProps {

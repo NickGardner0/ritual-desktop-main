@@ -55,7 +55,6 @@
     "animejs": "^4.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "cmdk": "1.0.4",
     "cuelume": "^0.2.2",
     "date-fns": "^3.6.0",
     "fast-xml-parser": "^5.3.3",
@@ -82,14 +81,12 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "unicode-animations": "^1.0.3",
-    "usehooks-ts": "^3.1.1",
     "xml2js": "^0.6.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@next/bundle-analyzer": "^16.2.1",
     "@sentry/nextjs": "^10.23.0",
-    "@shadcn/ui": "^0.0.4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

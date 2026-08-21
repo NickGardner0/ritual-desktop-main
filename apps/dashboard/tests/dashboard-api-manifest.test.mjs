@@ -30,6 +30,7 @@ describe("dashboard API route manifest", () => {
 
   test("keeps deleted pure backend proxies out of app/api", () => {
     const deletedProxyRoutes = [
+      "apps/dashboard/app/api/analytics/habits/trends/route.ts",
       "apps/dashboard/app/api/financial/connections/route.ts",
       "apps/dashboard/app/api/integrations/whoop/status/route.ts",
       "apps/dashboard/app/api/search/habits/route.ts",

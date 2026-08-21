@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Maximize2 } from 'lucide-react';
-import { BrailleSpinner } from '@/components/ai-habit-chat/braille-spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { VoiceWaveform } from '@/components/voice-waveform';
 import { FontProvider } from '@/contexts/FontContext';
 import { invokeDesktopCommand, hideDesktopVoiceHud } from '@/lib/native-gateway';
