@@ -1565,43 +1565,6 @@ table tbody tr,
     cursor: default !important;
   }
 
-  /* Team dropdown must stay opaque/interactive inside vibrancy sidebar */
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-menu {
-    background: #ffffff !important;
-    background-color: #ffffff !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-avatar-tile {
-    background: #e6e6e6 !important;
-    background-color: #e6e6e6 !important;
-    border-color: #E5E7EB !important;
-    color: #3d3b30 !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-divider {
-    border-color: #dcdad2 !important;
-    background: transparent !important;
-    background-color: transparent !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row {
-    color: #000000 !important;
-    background: transparent !important;
-    background-color: transparent !important;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:hover,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy .team-dropdown-row:focus-visible {
-    background: #f3f3f3 !important;
-    background-color: #f3f3f3 !important;
-  }
-
 
   /* Remove any remaining browser/system borders */
   ::-webkit-scrollbar {

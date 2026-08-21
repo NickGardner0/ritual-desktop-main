@@ -12,7 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+} from '@ritual/ui/alert-dialog';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { HabitLog } from '@/components/habit-logs/types';
 

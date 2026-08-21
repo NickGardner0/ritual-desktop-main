@@ -83,6 +83,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Collapse colliding BFF proxy helper | `@/lib/server/proxy-response` resolved to `.mjs` missing `createProxiedSuccessResponse` | `.ts` NextResponse wrapper + `proxy-response-init.mjs` | ~0 | webpack missing-export path | none | Production webpack build compiles without that warning |
 | Delete Next Tinybird client + unused trends BFF | `lib/tinybird-service.ts` + dedicated trends route | 0 | ~−400 | second Tinybird owner in Next | none | Habit trends go through FastAPI + catch-all. Remaining Next analytics routes still compose pipes FastAPI does not own |
 | Delete unused npm + duplicate spinner/barrel | unused `cmdk`/`usehooks-ts`/`@shadcn/ui`, duplicate BrailleSpinner, unused `types/computerActivity`, unused `core/text-shimmer` | 0 | ~−150 plus npm tree | unused UI/data paths | `cmdk`, `usehooks-ts`, `@shadcn/ui` | Voice HUD uses the shared spinner. Unused server fetchers `getAnalyticsTrends` / `getWhoopStatus` / `getDashboardData` removed |
+| Delete unused account/wordmark/side-panel and UI shims | unused `team-dropdown`, `ritual-wordmark`, `window-side-panel`, leftover `@/components/ui` re-exports | 0 | ~−400 | extra UI copies | none | Account menu already lives in `sidebar-account-menu`. Select/alert-dialog now import `@ritual/ui` |
 
 ## Aggregate (this pass)
 

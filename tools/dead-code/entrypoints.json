@@ -83,7 +83,14 @@
     "apps/dashboard/app/api/analytics/habits/trends/route.ts",
     "apps/dashboard/components/ai-habit-chat/braille-spinner.tsx",
     "apps/dashboard/types/computerActivity.ts",
-    "apps/dashboard/components/core/text-shimmer.tsx"
+    "apps/dashboard/components/core/text-shimmer.tsx",
+    "apps/dashboard/components/ritual-wordmark.tsx",
+    "apps/dashboard/components/team-dropdown.tsx",
+    "apps/dashboard/lib/tasks/window-side-panel.tsx",
+    "apps/dashboard/components/ui/popover.tsx",
+    "apps/dashboard/components/ui/dropdown-menu.tsx",
+    "apps/dashboard/components/ui/select.tsx",
+    "apps/dashboard/components/ui/alert-dialog.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
@@ -112,7 +119,14 @@
     "from 'cmdk'",
     "from \"cmdk\"",
     "usehooks-ts",
-    "@shadcn/ui"
+    "@shadcn/ui",
+    "components/ritual-wordmark",
+    "components/team-dropdown",
+    "tasks/window-side-panel",
+    "@/components/ui/popover",
+    "@/components/ui/dropdown-menu",
+    "@/components/ui/select",
+    "@/components/ui/alert-dialog"
   ],
   "allowlist": []
 }
