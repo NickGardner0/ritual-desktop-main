@@ -90,7 +90,13 @@
     "apps/dashboard/components/ui/popover.tsx",
     "apps/dashboard/components/ui/dropdown-menu.tsx",
     "apps/dashboard/components/ui/select.tsx",
-    "apps/dashboard/components/ui/alert-dialog.tsx"
+    "apps/dashboard/components/ui/alert-dialog.tsx",
+    "apps/dashboard/app/api/analytics/correlation/route.ts",
+    "apps/dashboard/app/api/analytics/habits/daily-values/route.ts",
+    "apps/dashboard/app/api/analytics/habits/logs/route.ts",
+    "apps/dashboard/app/api/analytics/habits/summary/route.ts",
+    "apps/dashboard/app/api/analytics/heart-rate/series/route.ts",
+    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

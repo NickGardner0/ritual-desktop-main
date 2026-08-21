@@ -32,7 +32,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | 4. Identity-safe React Query cache | Done | Restore waits for Clerk user id and uses `ritual:react-query-cache:v1:<userId>`. Habit snapshots were folded into this persist path |
 | 5. Chat persistence / AssistantKernel | Done for strangler | `AssistantKernel` owns `queued → running → committing → completed\|failed\|canceled`. Durable FastAPI `assistant_turns` store, dashboard outbox, SMS/web/queue entrypoints, serial mutating tools, epoch cancel |
 | 6. One scheduler | Done | Trigger.dev deleted. FastAPI loops are the only scheduler; job table in `docs/architecture/SCHEDULER_JOBS.md`. Default on when `RAILWAY_ENVIRONMENT` is set. `ENABLE_INTERNAL_SCHEDULER` documented in backend README and `.env.example` |
-| 7. Search/index | Done for Typesense | Typesense client, PyPI dep, indexing fan-out, `/api/search/index-phrase`, `/api/search/reindex`, and erasure target removed on the release tree. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics via FastAPI. `/api/search/status` is a SQL-search health check. Next no longer owns a second Tinybird client |
+| 7. Search/index | Done for Typesense | Typesense client, PyPI dep, indexing fan-out, `/api/search/index-phrase`, `/api/search/reindex`, and erasure target removed on the release tree. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics via FastAPI. `/api/search/status` is a SQL-search health check. Next still has `/api/analytics/habits/logs/all` |
 | 8. Telemetry overlap | Done for Speed Insights | Removed Vercel Speed Insights from the root layout and dashboard dependency. OpenPanel (product) and Sentry (errors) kept |
 | 9. Local UI preferences | Partial | FastAPI still owns cross-device overview/color prefs. Local cache is now per-user (`ritual:ui-preferences:v2:<userId>`) |
 | 10. Activity ownership | Done for raw/recent desktop | Desktop raw and ≤7-day reads use `activity.db` with observable `local \| synced \| unavailable`. No hidden HTTP/backend mix. Web/iOS and long-range desktop aggregates remain explicit `synced` |
@@ -85,6 +85,8 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused npm + duplicate spinner/barrel | unused `cmdk`/`usehooks-ts`/`@shadcn/ui`, duplicate BrailleSpinner, unused `types/computerActivity`, unused `core/text-shimmer` | 0 | ~−150 plus npm tree | unused UI/data paths | `cmdk`, `usehooks-ts`, `@shadcn/ui` | Voice HUD uses the shared spinner. Unused server fetchers `getAnalyticsTrends` / `getWhoopStatus` / `getDashboardData` removed |
 | Delete unused account/wordmark/side-panel and UI shims | unused `team-dropdown`, `ritual-wordmark`, `window-side-panel`, leftover `@/components/ui` re-exports | 0 | ~−400 | extra UI copies | none | Account menu already lives in `sidebar-account-menu`. Select/alert-dialog now import `@ritual/ui` |
 | Restore privacy export/sync/erasure sections | compact two-toggle panel only | panel + existing sections | small add | none | none | Those sections still existed but were unwired on the release tree. Keep the compact sync toggles and mount the live export/private-sync/erasure UI |
+| Restore privacy migration inventory and cloud deletion | export/sync/erasure only | inventory, dry-run, migrate, deletion plan/delete | small add | none | none | Required product controls were still unwired on the release tree. Uses `vaultSync`, not a second vault-client import path |
+| Move remaining Tinybird analytics into FastAPI | Next summary/logs/daily-values/correlation/heart-rate routes | FastAPI payloads + catch-all | ~−1.2k Next, small FastAPI add | second Tinybird query owner in Next | none | Dashboard analytics reads FastAPI. `/api/analytics/habits/logs/all` remains a Next compatibility aggregator. Chat name-based correlation still uses Turso SQL |
 
 ## Aggregate (this pass)
 
@@ -116,7 +118,7 @@ Tests do not count against production reduction.
 ## Remaining architecture taxes
 
 1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
-2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and habit trends; remaining Next analytics routes still compose some Tinybird pipes.
+2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads; Next still has `/api/analytics/habits/logs/all`.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Paper shaders remain on the onboarding logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
 5. Authored production LOC on the audit-comparable buckets is ~184.0k, inside the 180–185k target band (audit 192.5k). Remaining fat is live product, not unused deployables.

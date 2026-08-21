@@ -19,33 +19,9 @@
       "category": "backend-catchall",
       "reason": "OpenAPI-allowlisted backend proxy for generated-client compatible dashboard calls."
     },
-    "apps/dashboard/app/api/analytics/correlation/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed analytics composition stays server-side until analytics is fully moved behind FastAPI."
-    },
-    "apps/dashboard/app/api/analytics/habits/daily-values/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit analytics composition with server-only query details."
-    },
     "apps/dashboard/app/api/analytics/habits/logs/all/route.ts": {
       "category": "compatibility",
       "reason": "Legacy dashboard compatibility aggregation that needs a route-specific migration before deletion."
-    },
-    "apps/dashboard/app/api/analytics/habits/logs/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit log query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/habits/summary/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed habit summary query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/heart-rate/series/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed biometric series query with server-side analytics semantics."
-    },
-    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts": {
-      "category": "analytics-boundary",
-      "reason": "Tinybird-backed biometric summary query with server-side analytics semantics."
     },
     "apps/dashboard/app/api/auth/desktop-sign-in-token/route.ts": {
       "category": "auth-boundary",

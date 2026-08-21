@@ -123,7 +123,7 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (39)"]
+    BFF["/api/* BFF Routes (27)"]
     CatchAll["Catch-all FastAPI Proxy"]
     Trigger[Trigger.dev Tasks]
   end
@@ -206,18 +206,18 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (39 — at CI budget cap):**
+**BFF API routes (27 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
 | Category | Purpose |
 |----------|---------|
 | `backend-catchall` | OpenAPI-matched FastAPI proxy |
-| `analytics-boundary` | Tinybird pipe queries (8 routes) |
+| `analytics-boundary` | Remaining calendar summary composition |
 | `ai-streaming` | Chat stream, SMS, voice |
 | `import-boundary` | File import parsing |
-| `oauth-callback` | Whoop, Plaid, Tesla OAuth returns |
-| `webhook` | Sendblue, Clerk webhooks |
+| `oauth-callback` | Whoop, Tesla OAuth returns |
+| `webhook` | Sendblue webhooks |
 
 **Key `lib/` domains (101 files):**
 
@@ -672,13 +672,13 @@ Pattern: `triggerBackendFetch()` with `INTERNAL_API_KEY` + privacy consent check
 
 Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `privacy_*` services), and desktop Rust (`local_vault.rs`, outboxes) with no single facade or state machine diagram.
 
-### 4. BFF route budget at cap
+### 4. BFF route budget
 
-39/39 routes. New routes require deleting/migrating existing ones.
+27/39 routes. Dedicated Next Tinybird analytics routes were moved to FastAPI plus the catch-all proxy.
 
-### 5. Analytics boundary in Next.js
+### 5. Remaining Next analytics composition
 
-8 Tinybird query routes live in dashboard rather than FastAPI. Manifest notes: *"until analytics is fully moved behind FastAPI."*
+`/api/analytics/habits/logs/all` still aggregates habit + wearable timelines in Next. Calendar summary remains an analytics-boundary route. Dashboard Tinybird reads otherwise go through FastAPI.
 
 ### 6. Underused shared contracts
 
