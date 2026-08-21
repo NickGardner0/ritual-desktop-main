@@ -107,6 +107,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Put dashboard analytics reads on the generated client | leftover SSR `initialUserId` + raw snapshot/analytics fetches | Clerk identity + `apiOperationWithAuth` | ~−80 | second FastAPI client and a dead SSR identity path | unused server-snapshot telemetry | Tinybird-first metrics still fall back to FastAPI `/api/analytics/stats` and `/daily-breakdown` |
 | Delete unused computer-activity leftovers | unused barrel + AttentionIndexHeader / SessionFlowTimeline / MicroMetricsRow / DeepDrillDrawer | live ComputerActivityPanel + RankedBars + UsageBreakdownCard | ~−710 | second unused computer-activity UI that the live panel never mounted | none | Metrics still lazy-loads ComputerActivityPanel |
 | Put entity/receipt FastAPI reads on the generated client | leftover `apiJsonWithAuth` path strings | `apiOperationWithAuth` | ~−20 | second typed JSON helper for authenticated FastAPI JSON | unused `apiJsonWithAuth` | Cookie-only entity resolve still uses `apiJson`. Calendar summary and Sendblue stay raw FastAPI fetches |
+| Strip unused computer-activity timeline/micro/sparkline path | derive + hook still built segments, micro, drill-down, sparkline | live panel totals + ranked bars + usage breakdown | ~−500 | unused ActivityWatch-style timeline/drill-down owner | none | Desktop still reads local `activity.db`; iPhone still reads synced aggregates |
 
 ## Aggregate (this pass)
 

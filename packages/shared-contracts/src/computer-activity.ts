@@ -103,10 +103,8 @@ export interface ActivityBreakdownCapabilities {
 
 export interface ComputerActivityViewModel {
   header: AttentionHeader
-  segments: SessionSegment[] // for selected range
   apps: RankedBar[]
   domains: RankedBar[]
-  micro: MicroMetrics
   range: {
     start: number
     end: number

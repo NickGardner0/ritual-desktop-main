@@ -8,7 +8,7 @@
 
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import {
@@ -17,16 +17,11 @@ import {
   ActivityEvent,
   ComputerActivityReadSource,
   TimeRangePreset,
-  SessionSegment,
-  DrillDownData,
 } from '@/lib/computerActivity/contracts'
 import {
-  eventsToSegments,
-  mergeAdjacentSegments,
-  computeMicroMetrics,
+  calculateUniqueActiveTime,
   topApps,
   topDomains,
-  buildAttentionHeader,
   startOfDayLocal,
   endOfDayLocal,
   deduplicateEvents,
@@ -229,11 +224,6 @@ export interface UseComputerActivityReturn {
   range: TimeRangePreset
   setRange: (range: TimeRangePreset) => void
   refresh: () => void
-  // Drill-down
-  selectedSegment: SessionSegment | null
-  selectSegment: (segment: SessionSegment | null) => void
-  drillDownData: DrillDownData | null
-  isDrillLoading: boolean
 }
 
 export function useComputerActivity(
@@ -248,11 +238,6 @@ export function useComputerActivity(
   } = options
   const queryClient = useQueryClient()
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
-
-  // Drill-down state
-  const [selectedSegment, setSelectedSegment] = useState<SessionSegment | null>(null)
-  const [drillDownData, setDrillDownData] = useState<DrillDownData | null>(null)
-  const [isDrillLoading, setIsDrillLoading] = useState(false)
 
   // Computed time range
   const timeRange = useMemo(() => getTimeRangeMs(range), [range])
@@ -345,41 +330,6 @@ export function useComputerActivity(
       )!.message
     : null
 
-  // Clear drill-down when range changes
-  useEffect(() => {
-    setSelectedSegment(null)
-    setDrillDownData(null)
-  }, [range, source])
-  
-  // Handle segment selection for drill-down
-  const selectSegment = useCallback(async (segment: SessionSegment | null) => {
-    setSelectedSegment(segment)
-    
-    if (!segment) {
-      setDrillDownData(null)
-      return
-    }
-    
-    setIsDrillLoading(true)
-    
-    try {
-      // Filter events for this segment's time range
-      const segmentEvents = events.filter(
-        e => e.ts_start >= segment.start && e.ts_end <= segment.end
-      )
-      
-      setDrillDownData({
-        segment,
-        events: segmentEvents,
-        totalDurationMs: segment.durationMs,
-      })
-    } catch (err) {
-      console.error('Failed to load drill-down data:', err)
-    } finally {
-      setIsDrillLoading(false)
-    }
-  }, [events])
-
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: computerActivityKeys.aggregated(source, rangeKey),
@@ -393,13 +343,8 @@ export function useComputerActivity(
   
   // Build view model from events
   const viewModel = useMemo<ActivityBreakdownViewModel>(() => {
-    const rawSegments = eventsToSegments(events)
-    const segments = mergeAdjacentSegments(rawSegments, 60000)
-
-    const micro = computeMicroMetrics(events)
     const fallbackApps = topApps(events, 10)
     const fallbackDomains = topDomains(events, 10)
-    const fallbackHeader = buildAttentionHeader(events, timeRange.start, timeRange.end)
 
     // Aggregated stats are day-level; for sub-day ranges prefer raw
     // event-derived values. Fall back to aggregated if events are empty.
@@ -407,7 +352,7 @@ export function useComputerActivity(
     const hasRawEvents = fallbackApps.length > 0 || fallbackDomains.length > 0
     const useAggregated = aggregatedStats != null && (source === 'iphone' || !isSubDayRange || !hasRawEvents)
 
-    const dailySparkline = useAggregated
+    const dailyTotals = useAggregated
       ? (aggregatedStats?.daily || []).map((row: any) => {
           const dayValue = (row.day || '').toString()
           const dayMs = dayValue ? new Date(`${dayValue}T00:00:00`).getTime() : 0
@@ -415,14 +360,14 @@ export function useComputerActivity(
             0,
             Math.min(Number(row.active_ms ?? row.total_active_ms ?? 0), 24 * 60 * 60 * 1000),
           )
-          return { x: dayMs, yMs: clampedMs, label: dayValue }
+          return { x: dayMs, yMs: clampedMs }
         }).filter((point: any) => Number.isFinite(point.x) && point.x > 0)
       : []
 
     const rawSummaryActiveMs = useAggregated
       ? Math.max(0, Number(aggregatedStats?.summary?.total_active_ms || 0))
       : 0
-    const totalDailyMs = dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
+    const totalDailyMs = dailyTotals.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
     const rangeSpanMs = Math.max(0, timeRange.end - timeRange.start)
     const summaryCapMs = totalDailyMs > 0 ? totalDailyMs : rangeSpanMs
     const summaryActiveMs = summaryCapMs > 0 ? Math.min(rawSummaryActiveMs, summaryCapMs) : rawSummaryActiveMs
@@ -465,30 +410,16 @@ export function useComputerActivity(
       if (domainsFromAggregates.length > 0) domains = domainsFromAggregates
     }
 
-    let aggregatedDeltaPct: number | null = null
-    let aggregatedDeltaMs: number | null = null
-    if (dailySparkline.length >= 2) {
-      const half = Math.floor(dailySparkline.length / 2)
-      const firstHalf = dailySparkline.slice(0, half)
-      const secondHalf = dailySparkline.slice(half)
-      const firstTotal = firstHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
-      const secondTotal = secondHalf.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0)
-      if (firstTotal > 0) {
-        aggregatedDeltaPct = ((secondTotal - firstTotal) / firstTotal) * 100
-        aggregatedDeltaMs = secondTotal - firstTotal
-      }
+    const header = {
+      primaryLabel: 'Active Time',
+      primaryValueMs: useAggregated && (summaryActiveMs > 0 || dailyTotals.length > 0)
+        ? (summaryActiveMs > 0 ? summaryActiveMs : dailyTotals.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0))
+        : calculateUniqueActiveTime(events),
+      deltaPct: null,
+      deltaMs: null,
+      sparkline: [],
     }
 
-    const header = useAggregated && (summaryActiveMs > 0 || dailySparkline.length > 0)
-      ? {
-          primaryLabel: 'Active Time',
-          primaryValueMs: summaryActiveMs > 0 ? summaryActiveMs : dailySparkline.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0),
-          deltaPct: aggregatedDeltaPct,
-          deltaMs: aggregatedDeltaMs,
-          sparkline: dailySparkline.length > 0 ? dailySparkline : fallbackHeader.sparkline,
-        }
-      : fallbackHeader
-    
     const capabilities = {
       supportsDomains: source === 'desktop' ? true : Boolean(aggregatedStats?.summary?.supports_domains),
       domainDisclosure: source === 'iphone' ? (aggregatedStats?.summary?.domain_disclosure || null) : null,
@@ -500,19 +431,8 @@ export function useComputerActivity(
       source,
       capabilities,
       header,
-      segments: source === 'desktop' ? segments : [],
       apps,
       domains,
-      micro: source === 'desktop'
-        ? micro
-        : {
-            focusBlocks: 0,
-            switches: 0,
-            longestBlockMs: 0,
-            longestBlockLabel: undefined,
-            totalActiveMs: header.primaryValueMs,
-            totalAfkMs: 0,
-          },
       range: {
         start: timeRange.start,
         end: timeRange.end,
@@ -529,10 +449,6 @@ export function useComputerActivity(
     range,
     setRange,
     refresh,
-    selectedSegment,
-    selectSegment,
-    drillDownData,
-    isDrillLoading,
   }
 }
 
