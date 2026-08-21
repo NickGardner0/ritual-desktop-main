@@ -88,8 +88,7 @@ Open these pages and notice the **instant loading**:
 ## 📁 New Files Created
 
 ### Server Infrastructure:
-- `apps/dashboard/lib/server/data.ts` - Server-side data fetching
-- `apps/dashboard/app/actions/habits.ts` - Server Actions for mutations
+- Dashboard data loads through the FastAPI catch-all and client React Query. The old Midday SSR fetchers in `lib/server/data.ts` are gone.
 
 ### Converted Pages:
 - `apps/dashboard/app/(dashboard)/analytics/page.tsx` - Server Component (85 lines vs 900 before!)

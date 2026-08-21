@@ -120,7 +120,10 @@
     "apps/dashboard/app/(dashboard)/routines/routine-detail.tsx",
     "apps/dashboard/app/(dashboard)/routines/routine-runs.tsx",
     "apps/dashboard/lib/tasks/ai-routine-templates.ts",
-    "apps/dashboard/lib/routines/ui.tsx"
+    "apps/dashboard/lib/routines/ui.tsx",
+    "apps/dashboard/app/(dashboard)/dashboard/dashboard-server-data.ts",
+    "apps/dashboard/lib/server/data.ts",
+    "apps/dashboard/lib/tasks/reference-task-shell.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

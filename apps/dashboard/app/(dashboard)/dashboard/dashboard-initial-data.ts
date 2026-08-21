@@ -1,6 +1,4 @@
-import type { DehydratedState } from '@tanstack/react-query';
 import type { HabitStats } from '@/lib/services/analytics-api';
-import type { ViewMode } from '@/components/analytics/view-mode-toggle';
 
 export type MetricDailyPoint = {
   habit_id: string;
@@ -35,10 +33,4 @@ export interface DashboardSnapshot extends DashboardDerivedInitialData {
     generatedAt: number;
     hydratedFrom: 'server' | 'client-derived' | 'persisted-query' | 'empty';
   };
-}
-
-export interface DashboardInitialData {
-  dehydratedState: DehydratedState;
-  initialViewMode: ViewMode;
-  initialUserId: string | null;
 }
