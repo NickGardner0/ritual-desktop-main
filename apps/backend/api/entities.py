@@ -33,7 +33,7 @@ def create_entities_router(*, get_current_user: Callable[..., Any]) -> APIRouter
     def _privacy_blocks_search(request: Request, entity_type: str) -> bool:
         decision = can_send_to_cloud(
             data_class=data_class_for_entity_type(entity_type),
-            destination="typesense",
+            destination="backend",
             purpose="search",
             mode=request_privacy_mode(request.headers),
             consents=request_cloud_consents(request.headers),

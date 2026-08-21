@@ -25,7 +25,6 @@ class PrivacyCategorySpec:
     deletable: bool
     analytics_allowed: bool
     tinybird_datasources: tuple[str, ...] = ()
-    typesense_collections: tuple[str, ...] = ()
 
 
 def _sensitive(
@@ -36,7 +35,6 @@ def _sensitive(
     exportable: bool = True,
     analytics_allowed: bool = False,
     tinybird_datasources: tuple[str, ...] = (),
-    typesense_collections: tuple[str, ...] = (),
 ) -> PrivacyCategorySpec:
     return PrivacyCategorySpec(
         category=category,
@@ -47,17 +45,15 @@ def _sensitive(
         deletable=True,
         analytics_allowed=analytics_allowed,
         tinybird_datasources=tinybird_datasources,
-        typesense_collections=typesense_collections,
     )
 
 
 PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
-    "habit_definition": _sensitive("habit_definition", analytics_allowed=True, typesense_collections=("habits",)),
+    "habit_definition": _sensitive("habit_definition", analytics_allowed=True),
     "habit_log": _sensitive(
         "habit_log",
         analytics_allowed=True,
         tinybird_datasources=("habit_logs",),
-        typesense_collections=("habit_logs", "log_phrases"),
     ),
     "daily_note": _sensitive("daily_note"),
     "task": _sensitive("task"),
@@ -67,7 +63,6 @@ PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
         retention_days=365,
         analytics_allowed=True,
         tinybird_datasources=("computer_activity_daily",),
-        typesense_collections=("computer_activity",),
     ),
     "browser_activity": _sensitive("browser_activity", retention_days=365),
     "ocr_text": _sensitive("ocr_text", retention_days=30),
@@ -88,11 +83,8 @@ PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
         analytics_allowed=True,
         tinybird_datasources=("weather_observations",),
     ),
-    "ai_content": _sensitive(
-        "ai_content",
-        typesense_collections=("ai_messages", "artifacts", "workflows"),
-    ),
-    "ai_memory": _sensitive("ai_memory", typesense_collections=("ai_facts",)),
+    "ai_content": _sensitive("ai_content"),
+    "ai_memory": _sensitive("ai_memory"),
     "financial": _sensitive("financial"),
     "provider_secret": _sensitive("provider_secret", storage=("backend_secret_store",), exportable=False),
     "account_metadata": PrivacyCategorySpec(
@@ -118,11 +110,6 @@ SENSITIVE_TINYBIRD_DATASOURCES = {
     datasource: name
     for name, spec in PRIVACY_CATEGORY_SPECS.items()
     for datasource in spec.tinybird_datasources
-}
-SENSITIVE_TYPESENSE_COLLECTIONS = {
-    collection: name
-    for name, spec in PRIVACY_CATEGORY_SPECS.items()
-    for collection in spec.typesense_collections
 }
 
 
@@ -223,7 +210,7 @@ def can_send_to_cloud(
             return PrivacyDecision(False, "sensitive data is local-only by default")
 
     if normalized_mode == "private_sync" and is_sensitive_data_class(data_class):
-        if destination in {"turso_cloud", "tinybird", "typesense"}:
+        if destination in {"turso_cloud", "tinybird"}:
             return PrivacyDecision(False, "Private Sync only permits encrypted envelope sync")
 
     if purpose not in {"account", "local_api", "encrypted_sync"}:
@@ -255,10 +242,6 @@ def data_class_for_entity_type(entity_type: str) -> str:
 
 def data_class_for_tinybird_datasource(datasource: str) -> str:
     return SENSITIVE_TINYBIRD_DATASOURCES.get(datasource, "product_telemetry")
-
-
-def data_class_for_typesense_collection(collection: str) -> str:
-    return SENSITIVE_TYPESENSE_COLLECTIONS.get(collection, "product_telemetry")
 
 
 def should_redact_observability_key(key: str) -> bool:

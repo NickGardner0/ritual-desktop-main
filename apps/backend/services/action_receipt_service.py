@@ -178,12 +178,6 @@ class ActionReceiptService:
                 log_row = log_result.scalar_one_or_none()
                 if log_row:
                     session.delete(log_row)
-                    try:
-                        from services.search_service import search_service
-
-                        await search_service.delete_habit_log_index(log_id)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("Typesense delete after undo failed: %s", exc)
             elif op == "delete_habit":
                 habit_id = str(undo.get("habit_id") or "")
                 habit_result = await session.execute(
@@ -195,12 +189,6 @@ class ActionReceiptService:
                 habit_row = habit_result.scalar_one_or_none()
                 if habit_row:
                     session.delete(habit_row)
-                    try:
-                        from services.search_service import search_service
-
-                        await search_service.delete_habit_index(habit_id)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("Typesense habit delete after undo failed: %s", exc)
             elif op == "archive_task":
                 task_id = str(undo.get("task_id") or "")
                 task_result = await session.execute(

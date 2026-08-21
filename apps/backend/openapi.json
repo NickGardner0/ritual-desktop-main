@@ -23548,52 +23548,6 @@
         ]
       }
     },
-    "/api/search/index-phrase": {
-      "post": {
-        "operationId": "index_log_phrase_api_search_index_phrase_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "additionalProperties": true,
-                "title": "Data",
-                "type": "object"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Index Log Phrase",
-        "tags": [
-          "search"
-        ]
-      }
-    },
     "/api/search/logs": {
       "get": {
         "operationId": "search_logs_endpoint_api_search_logs_get",
@@ -23693,30 +23647,6 @@
           }
         ],
         "summary": "Search Logs Endpoint",
-        "tags": [
-          "search"
-        ]
-      }
-    },
-    "/api/search/reindex": {
-      "post": {
-        "operationId": "reindex_user_data_api_search_reindex_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Reindex User Data",
         "tags": [
           "search"
         ]

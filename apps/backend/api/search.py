@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Callable, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from services.search_service import search_service
 
@@ -81,189 +80,6 @@ def create_search_router(
             logger.error("Log search error: %s", str(e))
             return {"hits": [], "found": 0}
 
-    @router.post("/api/search/reindex")
-    async def reindex_user_data(current_user=Depends(get_current_user)):
-        try:
-            from datetime import datetime, timedelta, timezone
-
-            from sqlalchemy import select
-
-            from database.connection import get_db_session
-            from database.models import AIConversationDB, AIMessageDB, AiFactDB, ArtifactDB, HabitDB, HabitLogDB, WorkflowDefinitionDB
-
-            user_id = current_user["id"]
-            indexed_counts = {"habits": 0, "logs": 0, "messages": 0, "artifacts": 0, "workflows": 0, "facts": 0}
-
-            async with get_db_session() as session:
-                habits_result = await session.execute(
-                    select(HabitDB).where(HabitDB.user_id == user_id)
-                )
-                habits = habits_result.scalars().all()
-
-                habit_docs = []
-                for h in habits:
-                    habit_docs.append(
-                        {
-                            "id": h.id,
-                            "name": h.name,
-                            "category": h.category,
-                            "icon": h.icon,
-                            "unit_type": h.unit_type,
-                            "metric_type": h.metric_type,
-                            "is_active": h.is_active,
-                            "goal": h.goal,
-                            "created_at": h.created_at,
-                            "updated_at": h.updated_at,
-                            "aliases": [],
-                        }
-                    )
-
-                await search_service.bulk_index_habits(habit_docs, user_id)
-                indexed_counts["habits"] = len(habit_docs)
-
-                ninety_days_ago = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%d")
-                logs_result = await session.execute(
-                    select(HabitLogDB, HabitDB.name, HabitDB.category)
-                    .join(HabitDB, HabitLogDB.habit_id == HabitDB.id)
-                    .where(HabitDB.user_id == user_id)
-                    .where(HabitLogDB.date >= ninety_days_ago)
-                )
-                logs = logs_result.all()
-
-                log_docs = []
-                for log, habit_name, category in logs:
-                    log_docs.append(
-                        {
-                            "id": log.id,
-                            "habit_id": log.habit_id,
-                            "habit_name": habit_name,
-                            "category": category,
-                            "date": log.date,
-                            "amount": log.amount,
-                            "duration": log.duration,
-                            "unit_type": log.unit_type,
-                            "status": log.status,
-                            "notes": log.notes,
-                            "source": log.source,
-                            "created_at": log.completed_at,
-                        }
-                    )
-
-                await search_service.bulk_index_logs(log_docs, user_id)
-                indexed_counts["logs"] = len(log_docs)
-
-                messages_result = await session.execute(
-                    select(AIMessageDB, AIConversationDB.user_id)
-                    .join(AIConversationDB, AIMessageDB.conversation_id == AIConversationDB.id)
-                    .where(AIConversationDB.user_id == user_id)
-                )
-                messages = messages_result.all()
-
-                for message, _ in messages:
-                    await search_service.index_ai_message(
-                        {
-                            "id": message.id,
-                            "conversation_id": message.conversation_id,
-                            "role": message.role,
-                            "content": message.content,
-                            "created_at": message.created_at,
-                        },
-                        user_id,
-                    )
-                indexed_counts["messages"] = len(messages)
-
-                artifacts_result = await session.execute(
-                    select(ArtifactDB).where(ArtifactDB.user_id == user_id)
-                )
-                artifacts = artifacts_result.scalars().all()
-                for artifact in artifacts:
-                    await search_service.index_artifact(
-                        {
-                            "id": artifact.id,
-                            "kind": artifact.kind,
-                            "title": artifact.title,
-                            "slug": artifact.slug,
-                            "summary": artifact.summary,
-                            "preview_text": artifact.preview_text,
-                            "folder_key": artifact.folder_key,
-                            "is_pinned": bool(artifact.is_pinned),
-                            "status": artifact.status,
-                            "source_type": artifact.source_type,
-                            "source_id": artifact.source_id,
-                            "conversation_id": artifact.conversation_id,
-                            "created_at": artifact.created_at,
-                            "updated_at": artifact.updated_at,
-                            "published_at": artifact.published_at,
-                        },
-                        user_id,
-                    )
-                indexed_counts["artifacts"] = len(artifacts)
-
-                workflows_result = await session.execute(
-                    select(WorkflowDefinitionDB).where(WorkflowDefinitionDB.user_id == user_id)
-                )
-                workflows = workflows_result.scalars().all()
-                for workflow in workflows:
-                    await search_service.index_workflow_definition(
-                        {
-                            "id": workflow.id,
-                            "kind": workflow.kind,
-                            "name": workflow.name,
-                            "definition_family": workflow.definition_family,
-                            "trigger_type": workflow.trigger_type,
-                            "signal_kind": workflow.signal_kind,
-                            "status": workflow.status,
-                            "schedule": {
-                                "cadence": workflow.cadence,
-                                "send_hour_local": workflow.send_hour_local,
-                                "send_minute_local": workflow.send_minute_local,
-                            },
-                            "delivery": {"channel": workflow.delivery_channel},
-                            "config": json.loads(workflow.config_json or "{}"),
-                            "next_run_at": workflow.next_run_at,
-                            "updated_at": workflow.updated_at,
-                        },
-                        user_id,
-                    )
-                indexed_counts["workflows"] = len(workflows)
-
-                facts_result = await session.execute(
-                    select(AiFactDB).where(AiFactDB.user_id == user_id, AiFactDB.status == "active")
-                )
-                facts = facts_result.scalars().all()
-                for fact in facts:
-                    await search_service.index_ai_fact(
-                        {
-                            "id": fact.id,
-                            "category": fact.category,
-                            "subject": fact.subject,
-                            "predicate": fact.predicate,
-                            "value": json.loads(fact.value_json or "{}"),
-                            "status": fact.status,
-                            "visibility": fact.visibility,
-                            "confidence": fact.confidence,
-                            "created_at": fact.created_at,
-                            "updated_at": fact.updated_at,
-                        },
-                        user_id,
-                    )
-                indexed_counts["facts"] = len(facts)
-
-            return {
-                "success": True,
-                "indexed": indexed_counts,
-                "message": (
-                    f"Indexed {indexed_counts['habits']} habits, "
-                    f"{indexed_counts['logs']} logs, {indexed_counts['messages']} messages, "
-                    f"{indexed_counts['artifacts']} artifacts, {indexed_counts['workflows']} workflows, "
-                    f"and {indexed_counts['facts']} facts"
-                ),
-            }
-
-        except Exception as e:
-            logger.error("Reindex error: %s", str(e))
-            raise HTTPException(status_code=500, detail="Request could not be processed.")
-
     @router.get("/api/suggestions")
     async def get_suggestions(
         mode: str = "chat",
@@ -281,39 +97,12 @@ def create_search_router(
             logger.error("Suggestions error: %s", str(e))
             return {"suggestions": [], "mode": mode, "query": q}
 
-    @router.post("/api/search/index-phrase")
-    async def index_log_phrase(
-        data: dict,
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            input_text = data.get("input_text", "")
-            habit_id = data.get("habit_id", "")
-            habit_name = data.get("habit_name", "")
-            value = data.get("value")
-            unit = data.get("unit")
-
-            if not input_text or not habit_id:
-                return {"success": False, "message": "input_text and habit_id required"}
-
-            await search_service.index_log_phrase(
-                user_id=current_user["id"],
-                input_text=input_text,
-                habit_id=habit_id,
-                habit_name=habit_name,
-                value=value,
-                unit=unit,
-            )
-            return {"success": True}
-        except Exception as e:
-            logger.error("Index phrase error: %s", str(e))
-            return {"success": False, "message": str(e)}
-
     @router.get("/api/search/status")
     async def search_status():
         return {
-            "available": search_service.is_available,
-            "message": "Search service is ready" if search_service.is_available else "Typesense not configured",
+            "available": True,
+            "backend": "sql",
+            "message": "Search reads canonical Turso/SQL.",
         }
 
     return router

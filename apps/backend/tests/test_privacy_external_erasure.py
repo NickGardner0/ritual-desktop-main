@@ -28,42 +28,21 @@ class FakeTinybird:
         }
 
 
-class FakeSearch:
-    def __init__(self):
-        self.calls = []
-
-    async def delete_user_indexed_documents(self, user_id, collections=None):
-        self.calls.append((user_id, collections))
-        return {
-            "status": "completed",
-            "deleted_count": 5,
-            "collections": [
-                {
-                    "collection": "habit_logs",
-                    "status": "deleted",
-                    "deleted_count": 5,
-                }
-            ],
-        }
-
-
 class PrivacyExternalErasureTests(unittest.TestCase):
     def test_plan_marks_manual_processors_without_claiming_deletion(self):
         plan = build_external_erasure_plan(
             "user-external",
-            targets=["tinybird", "typesense", "openpanel", "sentry"],
+            targets=["tinybird", "openpanel", "sentry"],
         )
 
         statuses = {item["target"]: item["status"] for item in plan["targets"]}
         self.assertEqual(statuses["tinybird"], "supported_by_api")
-        self.assertEqual(statuses["typesense"], "supported_by_api")
         self.assertEqual(statuses["openpanel"], "manual_required")
         self.assertEqual(statuses["sentry"], "manual_required")
         self.assertTrue(plan["requires_local_receipt"])
 
     def test_execute_mixed_external_erasure_receipts(self):
         fake_tinybird = FakeTinybird()
-        fake_search = FakeSearch()
 
         with patch(
             "services.privacy_external_erasure.delete_private_sync_envelopes",
@@ -74,28 +53,25 @@ class PrivacyExternalErasureTests(unittest.TestCase):
         ):
             result = asyncio.run(execute_external_erasure(
                 "user-external",
-                targets=["private_sync_envelopes", "tinybird", "typesense", "openpanel"],
+                targets=["private_sync_envelopes", "tinybird", "openpanel"],
                 erasure_id="external-1",
                 local_receipt_id="external-1",
                 confirm_external_erasure=True,
                 tinybird_service=fake_tinybird,
-                search_service=fake_search,
             ))
 
         self.assertEqual(
             result["deleted_count"],
-            2 + (3 * len(SENSITIVE_TINYBIRD_DATASOURCES)) + 5,
+            2 + (3 * len(SENSITIVE_TINYBIRD_DATASOURCES)),
         )
         self.assertEqual(result["manual_required_count"], 1)
         self.assertEqual(
             {call[0] for call in fake_tinybird.calls},
             set(SENSITIVE_TINYBIRD_DATASOURCES),
         )
-        self.assertEqual(fake_search.calls[0][0], "user-external")
         receipt_statuses = {item["target"]: item["status"] for item in result["targets"]}
         self.assertEqual(receipt_statuses["private_sync_envelopes"], "deleted")
         self.assertEqual(receipt_statuses["tinybird"], "completed")
-        self.assertEqual(receipt_statuses["typesense"], "completed")
         self.assertEqual(receipt_statuses["openpanel"], "manual_required")
 
     def test_execute_requires_confirmation(self):
@@ -107,7 +83,6 @@ class PrivacyExternalErasureTests(unittest.TestCase):
                 local_receipt_id="external-1",
                 confirm_external_erasure=False,
                 tinybird_service=FakeTinybird(),
-                search_service=FakeSearch(),
             ))
 
 

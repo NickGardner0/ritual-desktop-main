@@ -9,10 +9,8 @@ import { vaultSync } from "./vault-sync";
 export const SUPPORTED_EXTERNAL_ERASURE_TARGETS = [
   "private_sync_envelopes",
   "tinybird",
-  "typesense",
   "openpanel",
   "sentry",
-  "trigger",
   "external_providers",
 ] as const;
 
@@ -21,10 +19,8 @@ export type ExternalErasureTarget = typeof SUPPORTED_EXTERNAL_ERASURE_TARGETS[nu
 export const EXTERNAL_ERASURE_TARGET_LABELS: Record<ExternalErasureTarget, string> = {
   private_sync_envelopes: "Private Sync",
   tinybird: "Tinybird",
-  typesense: "Typesense",
   openpanel: "OpenPanel",
   sentry: "Sentry",
-  trigger: "Trigger.dev",
   external_providers: "Providers",
 };
 

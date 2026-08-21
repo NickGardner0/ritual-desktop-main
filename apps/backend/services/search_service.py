@@ -1,34 +1,19 @@
-"""
-Typesense Search Service for Ritual
+"""Canonical product search over Turso/SQL.
 
-Provides fast, typo-tolerant search across:
-- Habits (name, category, aliases)
-- Habit Logs (notes, date, habit_name)
-- AI Conversations (messages, topics)
-- Computer Activity (app names, domains)
-
-Features:
-- Search-as-you-type (instant results)
-- Fuzzy matching (typo tolerance)
-- Multi-collection federated search
-- Personalized ranking (recent items first)
+Command palette, habit autocomplete, and chat suggestions read the same
+tables the rest of the product writes. There is no secondary search index.
 """
 
-import os
+from __future__ import annotations
+
 import json
-import hashlib
 import logging
 import re
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, Literal
-import typesense
-from typesense.exceptions import ObjectNotFound, TypesenseClientError
-from sqlalchemy import select
+from collections import Counter
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-from services.privacy_policy import (
-    can_send_to_cloud,
-    data_class_for_typesense_collection,
-)
+from sqlalchemy import func, or_, select
 
 logger = logging.getLogger(__name__)
 
@@ -36,162 +21,7 @@ logger = logging.getLogger(__name__)
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
-# Collection schemas
-HABITS_SCHEMA = {
-    "name": "habits",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "name", "type": "string"},
-        {"name": "name_lowercase", "type": "string"},  # For exact matching
-        {"name": "category", "type": "string", "facet": True, "optional": True},
-        {"name": "icon", "type": "string", "optional": True},
-        {"name": "unit_type", "type": "string", "optional": True, "facet": True},
-        {"name": "metric_type", "type": "string", "optional": True, "facet": True},
-        {"name": "aliases", "type": "string[]", "optional": True},  # For fuzzy matching
-        {"name": "is_active", "type": "bool", "facet": True},
-        {"name": "goal", "type": "float", "optional": True},
-        {"name": "created_at", "type": "int64"},  # Unix timestamp for sorting
-        {"name": "updated_at", "type": "int64"},
-        {"name": "log_count", "type": "int32", "optional": True},  # For ranking
-        {"name": "last_logged_at", "type": "int64", "optional": True},  # For recency
-    ],
-    "default_sorting_field": "updated_at",
-    "token_separators": ["-", "_", " "],
-}
 
-HABIT_LOGS_SCHEMA = {
-    "name": "habit_logs",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "habit_id", "type": "string", "facet": True},
-        {"name": "habit_name", "type": "string"},
-        {"name": "category", "type": "string", "facet": True, "optional": True},
-        {"name": "date", "type": "string", "facet": True},  # YYYY-MM-DD
-        {"name": "date_timestamp", "type": "int64"},  # For range queries
-        {"name": "amount", "type": "float", "optional": True},
-        {"name": "duration", "type": "int32", "optional": True},
-        {"name": "unit_type", "type": "string", "optional": True},
-        {"name": "status", "type": "string", "facet": True},
-        {"name": "notes", "type": "string", "optional": True},
-        {"name": "source", "type": "string", "facet": True, "optional": True},
-        {"name": "created_at", "type": "int64"},
-    ],
-    "default_sorting_field": "date_timestamp",
-    "token_separators": ["-", "_", " "],
-}
-
-AI_MESSAGES_SCHEMA = {
-    "name": "ai_messages",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "conversation_id", "type": "string", "facet": True},
-        {"name": "role", "type": "string", "facet": True},  # user, assistant
-        {"name": "content", "type": "string"},
-        {"name": "content_preview", "type": "string"},  # First 200 chars for display
-        {"name": "created_at", "type": "int64"},
-        {"name": "topics", "type": "string[]", "optional": True, "facet": True},  # Extracted topics
-    ],
-    "default_sorting_field": "created_at",
-}
-
-COMPUTER_ACTIVITY_SCHEMA = {
-    "name": "computer_activity",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "device_id", "type": "string", "facet": True},
-        {"name": "app_name", "type": "string"},
-        {"name": "app_name_lowercase", "type": "string"},
-        {"name": "window_title", "type": "string", "optional": True},
-        {"name": "bundle_id", "type": "string", "optional": True},
-        {"name": "browser_domain", "type": "string", "optional": True, "facet": True},
-        {"name": "date", "type": "string", "facet": True},
-        {"name": "total_ms", "type": "int64"},
-        {"name": "active_ms", "type": "int64"},
-        {"name": "created_at", "type": "int64"},
-    ],
-    "default_sorting_field": "created_at",
-}
-
-ARTIFACTS_SCHEMA = {
-    "name": "artifacts",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "kind", "type": "string", "facet": True},
-        {"name": "status", "type": "string", "facet": True},
-        {"name": "title", "type": "string"},
-        {"name": "slug", "type": "string", "optional": True},
-        {"name": "summary", "type": "string", "optional": True},
-        {"name": "preview_text", "type": "string", "optional": True},
-        {"name": "folder_key", "type": "string", "optional": True, "facet": True},
-        {"name": "is_pinned", "type": "bool"},
-        {"name": "source_type", "type": "string", "optional": True, "facet": True},
-        {"name": "conversation_id", "type": "string", "optional": True, "facet": True},
-        {"name": "created_at", "type": "int64"},
-        {"name": "updated_at", "type": "int64"},
-        {"name": "published_at", "type": "int64", "optional": True},
-    ],
-    "default_sorting_field": "updated_at",
-}
-
-WORKFLOWS_SCHEMA = {
-    "name": "workflows",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "kind", "type": "string", "facet": True},
-        {"name": "name", "type": "string"},
-        {"name": "definition_family", "type": "string", "facet": True},
-        {"name": "trigger_type", "type": "string", "facet": True},
-        {"name": "signal_kind", "type": "string", "optional": True, "facet": True},
-        {"name": "status", "type": "string", "facet": True},
-        {"name": "schedule_text", "type": "string", "optional": True},
-        {"name": "config_summary", "type": "string", "optional": True},
-        {"name": "next_run_at", "type": "int64", "optional": True},
-        {"name": "updated_at", "type": "int64"},
-    ],
-    "default_sorting_field": "updated_at",
-}
-
-AI_FACTS_SCHEMA = {
-    "name": "ai_facts",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "category", "type": "string", "facet": True},
-        {"name": "subject", "type": "string"},
-        {"name": "predicate", "type": "string"},
-        {"name": "value_text", "type": "string", "optional": True},
-        {"name": "status", "type": "string", "facet": True},
-        {"name": "visibility", "type": "string", "facet": True},
-        {"name": "confidence", "type": "float"},
-        {"name": "created_at", "type": "int64"},
-        {"name": "updated_at", "type": "int64"},
-    ],
-    "default_sorting_field": "updated_at",
-}
-
-LOG_PHRASES_SCHEMA = {
-    "name": "log_phrases",
-    "fields": [
-        {"name": "id", "type": "string"},
-        {"name": "user_id", "type": "string", "facet": True},
-        {"name": "habit_id", "type": "string", "facet": True},
-        {"name": "habit_name", "type": "string"},
-        {"name": "input_text", "type": "string"},  # Raw user input for prefix matching
-        {"name": "value", "type": "float", "optional": True},
-        {"name": "unit", "type": "string", "optional": True},
-        {"name": "created_at", "type": "int64"},
-    ],
-    "default_sorting_field": "created_at",
-    "token_separators": ["-", "_", " "],
-}
-
-# Unit display abbreviations for suggestion formatting
 UNIT_ABBREVIATIONS = {
     "Milligrams": "mg",
     "Minutes": "min",
@@ -212,970 +42,66 @@ UNIT_ABBREVIATIONS = {
     "Sets": "sets",
 }
 
-# Quick action items for command palette
 QUICK_ACTIONS = [
     {"id": "log-habit", "name": "Log a habit", "keywords": ["log", "track", "add", "record", "capture"], "action": "navigate", "path": "/dashboard?view=overview&compose=log", "icon": "plus"},
     {"id": "search-logs", "name": "Search logs", "keywords": ["find", "search", "history", "logs", "activity"], "action": "navigate", "path": "/activity", "icon": "search"},
     {"id": "open-overview", "name": "Open overview", "keywords": ["home", "dashboard", "overview", "index"], "action": "navigate", "path": "/dashboard?view=overview", "icon": "list"},
     {"id": "view-metrics", "name": "View metrics", "keywords": ["stats", "charts", "graphs", "analytics", "metrics"], "action": "navigate", "path": "/dashboard?view=metrics", "icon": "bar-chart"},
     {"id": "open-calendar", "name": "Open calendar", "keywords": ["calendar", "schedule", "plan", "events"], "action": "navigate", "path": "/calendar", "icon": "calendar"},
-    {"id": "open-tasks", "name": "Open tasks", "keywords": ["tasks", "todo", "kanban", "board"], "action": "navigate", "path": "/tasks", "icon": "list"},
+    {"id": "open-tasks", "name": "Open tasks", "keywords": ["tasks", "todo", "board"], "action": "navigate", "path": "/tasks", "icon": "list"},
     {"id": "ai-assistant", "name": "Ask AI assistant", "keywords": ["ai", "chat", "ask", "help", "analyze"], "action": "navigate", "path": "/chat", "icon": "bot"},
     {"id": "import-data", "name": "Import data", "keywords": ["import", "upload", "csv", "health", "backfill"], "action": "navigate", "path": "/dashboard?view=overview&openImport=1", "icon": "upload"},
     {"id": "connect-wearables", "name": "Open integrations", "keywords": ["whoop", "oura", "garmin", "apple", "health", "connect", "integrations"], "action": "navigate", "path": "/integrations", "icon": "watch"},
     {"id": "settings", "name": "Settings", "keywords": ["settings", "preferences", "config", "account"], "action": "navigate", "path": "/dashboard?openSettings=account", "icon": "settings"},
     {"id": "computer-settings", "name": "Computer use settings", "keywords": ["computer", "watcher", "screen", "tracking", "activity"], "action": "navigate", "path": "/dashboard?openSettings=computer-tracking", "icon": "monitor"},
     {"id": "apple-health-settings", "name": "Apple Health settings", "keywords": ["apple", "health", "watch", "sync"], "action": "navigate", "path": "/dashboard?openSettings=apple-health", "icon": "watch"},
-    {"id": "screen-recording-settings", "name": "Screen recording settings", "keywords": ["screen", "recording", "recorder", "privacy"], "action": "navigate", "path": "/dashboard?openSettings=screen-recording", "icon": "eye"},
     {"id": "open-reports", "name": "Open reports", "keywords": ["reports", "artifacts", "notebooks", "plans"], "action": "navigate", "path": "/reports", "icon": "file"},
 ]
 
 
+def _empty_bucket() -> Dict[str, Any]:
+    return {"hits": [], "found": 0}
+
+
+def _like(query: str) -> str:
+    escaped = (
+        (query or "")
+        .strip()
+        .lower()
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+    )
+    return f"%{escaped}%"
+
+
+def _score_text(query: str, *parts: Optional[str]) -> int:
+    needle = (query or "").strip().lower()
+    haystack = " ".join(part for part in parts if part).lower()
+    if not needle or not haystack:
+        return 0
+    score = 0
+    if haystack == needle:
+        score += 240
+    if haystack.startswith(needle):
+        score += 180
+    elif needle in haystack:
+        score += 90
+    for token in needle.split():
+        if not token:
+            continue
+        if token in haystack.split():
+            score += 30
+        elif any(word.startswith(token) for word in haystack.split()):
+            score += 20
+        elif token in haystack:
+            score += 10
+    return score
+
+
 class SearchService:
-    """
-    Typesense search service for Ritual.
-    Handles indexing and searching across all collections.
-    """
-    
-    def __init__(self):
-        self.client: Optional[typesense.Client] = None
-        self._initialized = False
-        self._init_client()
-    
-    def _init_client(self):
-        """Initialize Typesense client from environment variables"""
-        api_key = os.getenv("TYPESENSE_API_KEY")
-        host = os.getenv("TYPESENSE_HOST", "localhost")
-        port = os.getenv("TYPESENSE_PORT", "8108")
-        protocol = os.getenv("TYPESENSE_PROTOCOL", "http")
-        
-        if not api_key:
-            logger.warning("⚠️ TYPESENSE_API_KEY not set - search features disabled")
-            return
-        
-        try:
-            self.client = typesense.Client({
-                "api_key": api_key,
-                "nodes": [{
-                    "host": host,
-                    "port": port,
-                    "protocol": protocol,
-                }],
-                "connection_timeout_seconds": 5,
-            })
-            self._initialized = True
-            logger.info(f"✅ Typesense client initialized: {protocol}://{host}:{port}")
-        except Exception as e:
-            logger.error(f"❌ Failed to initialize Typesense client: {e}")
-    
-    @property
-    def is_available(self) -> bool:
-        """Check if search service is available"""
-        return self._initialized and self.client is not None
+    """SQL search over canonical Ritual tables."""
 
-    def _can_use_collection(self, collection: str, *, purpose: str = "search") -> bool:
-        decision = can_send_to_cloud(
-            data_class=data_class_for_typesense_collection(collection),
-            destination="typesense",
-            purpose=purpose,
-        )
-        if not decision.allowed:
-            logger.info(
-                "Typesense %s blocked by privacy policy collection=%s reason=%s",
-                purpose,
-                collection,
-                decision.reason,
-            )
-            return False
-        return True
-    
-    # ================================
-    # COLLECTION MANAGEMENT
-    # ================================
-    
-    async def ensure_collections(self):
-        """Create collections if they don't exist"""
-        if not self.is_available:
-            return
-        if not self._can_use_collection("habits"):
-            return
-        
-        schemas = [
-            HABITS_SCHEMA,
-            HABIT_LOGS_SCHEMA,
-            AI_MESSAGES_SCHEMA,
-            COMPUTER_ACTIVITY_SCHEMA,
-            LOG_PHRASES_SCHEMA,
-            ARTIFACTS_SCHEMA,
-            WORKFLOWS_SCHEMA,
-            AI_FACTS_SCHEMA,
-        ]
-        
-        for schema in schemas:
-            try:
-                self.client.collections[schema["name"]].retrieve()
-                logger.info(f"✓ Collection '{schema['name']}' exists")
-            except ObjectNotFound:
-                try:
-                    self.client.collections.create(schema)
-                    logger.info(f"✓ Created collection '{schema['name']}'")
-                except TypesenseClientError as e:
-                    logger.error(f"❌ Failed to create collection '{schema['name']}': {e}")
-    
-    # ================================
-    # INDEXING - HABITS
-    # ================================
-    
-    async def index_habit(self, habit: Dict[str, Any], user_id: str):
-        """Index a single habit"""
-        if not self.is_available or not self._can_use_collection("habits"):
-            return
-        
-        try:
-            doc = {
-                "id": habit["id"],
-                "user_id": user_id,
-                "name": habit.get("name", ""),
-                "name_lowercase": habit.get("name", "").lower(),
-                "category": habit.get("category"),
-                "icon": habit.get("icon"),
-                "unit_type": habit.get("unit_type"),
-                "metric_type": habit.get("metric_type"),
-                "aliases": habit.get("aliases", []),
-                "is_active": habit.get("is_active", True),
-                "goal": habit.get("goal"),
-                "created_at": self._to_timestamp(habit.get("created_at")),
-                "updated_at": self._to_timestamp(habit.get("updated_at") or habit.get("created_at")),
-                "log_count": habit.get("log_count", 0),
-                "last_logged_at": self._to_timestamp(habit.get("last_logged_at")),
-            }
-            
-            self.client.collections["habits"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index habit {habit.get('id')}: {e}")
-    
-    async def delete_habit_index(self, habit_id: str):
-        """Remove a habit from the index"""
-        if not self.is_available:
-            return
-        
-        try:
-            self.client.collections["habits"].documents[habit_id].delete()
-        except ObjectNotFound:
-            pass
-        except Exception as e:
-            logger.error(f"❌ Failed to delete habit index {habit_id}: {e}")
-    
-    # ================================
-    # INDEXING - HABIT LOGS
-    # ================================
-    
-    async def index_habit_log(self, log: Dict[str, Any], user_id: str, habit_name: str = None, category: str = None):
-        """Index a single habit log"""
-        if not self.is_available or not self._can_use_collection("habit_logs"):
-            return
-        
-        try:
-            date_str = log.get("date", "")
-            date_timestamp = self._date_to_timestamp(date_str)
-            
-            doc = {
-                "id": log["id"],
-                "user_id": user_id,
-                "habit_id": log.get("habit_id", ""),
-                "habit_name": habit_name or log.get("habit_name", ""),
-                "category": category,
-                "date": date_str,
-                "date_timestamp": date_timestamp,
-                "amount": log.get("amount"),
-                "duration": log.get("duration"),
-                "unit_type": log.get("unit_type"),
-                "status": log.get("status", "completed"),
-                "notes": log.get("notes"),
-                "source": log.get("source"),
-                "created_at": self._to_timestamp(log.get("created_at") or log.get("completed_at")),
-            }
-            
-            self.client.collections["habit_logs"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index habit log {log.get('id')}: {e}")
-    
-    async def delete_habit_log_index(self, log_id: str):
-        """Remove a log from the index"""
-        if not self.is_available:
-            return
-        
-        try:
-            self.client.collections["habit_logs"].documents[log_id].delete()
-        except ObjectNotFound:
-            pass
-        except Exception as e:
-            logger.error(f"❌ Failed to delete log index {log_id}: {e}")
-
-    async def delete_user_indexed_documents(self, user_id: str, collections: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Remove all indexed documents for a user from supported collections."""
-        if not self.is_available or not self.client:
-            return {
-                "status": "unavailable",
-                "deleted_count": 0,
-                "collections": [],
-                "error": "Typesense is not configured.",
-            }
-
-        target_collections = collections or [
-            "habits",
-            "habit_logs",
-            "ai_messages",
-            "computer_activity",
-            "artifacts",
-            "workflows",
-            "ai_facts",
-            "log_phrases",
-        ]
-        receipts: List[Dict[str, Any]] = []
-        deleted_count = 0
-        filter_value = str(user_id).replace("`", "\\`")
-        filter_by = f"user_id:=`{filter_value}`"
-
-        for collection in target_collections:
-            try:
-                result = self.client.collections[collection].documents.delete({"filter_by": filter_by})
-                count = int(
-                    result.get("num_deleted")
-                    or result.get("deleted")
-                    or result.get("count")
-                    or 0
-                ) if isinstance(result, dict) else 0
-                deleted_count += count
-                receipts.append({
-                    "collection": collection,
-                    "status": "deleted",
-                    "deleted_count": count,
-                    "result": result,
-                })
-            except ObjectNotFound:
-                receipts.append({
-                    "collection": collection,
-                    "status": "missing",
-                    "deleted_count": 0,
-                })
-            except Exception as e:
-                logger.warning("Typesense user erasure failed for %s: %s", collection, e)
-                receipts.append({
-                    "collection": collection,
-                    "status": "failed",
-                    "deleted_count": 0,
-                    "error": str(e),
-                })
-
-        return {
-            "status": "completed" if all(item["status"] in {"deleted", "missing"} for item in receipts) else "partial",
-            "deleted_count": deleted_count,
-            "collections": receipts,
-        }
-    
-    # ================================
-    # INDEXING - AI MESSAGES
-    # ================================
-    
-    async def index_ai_message(self, message: Dict[str, Any], user_id: str, topics: List[str] = None):
-        """Index an AI chat message"""
-        if not self.is_available or not self._can_use_collection("ai_messages"):
-            return
-        
-        try:
-            content = message.get("content", "")
-            doc = {
-                "id": message["id"],
-                "user_id": user_id,
-                "conversation_id": message.get("conversation_id", ""),
-                "role": message.get("role", "user"),
-                "content": content,
-                "content_preview": content[:200] if content else "",
-                "created_at": self._to_timestamp(message.get("created_at")),
-                "topics": topics or [],
-            }
-            
-            self.client.collections["ai_messages"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index AI message {message.get('id')}: {e}")
-    
-    # ================================
-    # INDEXING - COMPUTER ACTIVITY
-    # ================================
-    
-    async def index_activity(self, activity: Dict[str, Any], user_id: str):
-        """Index computer activity data"""
-        if not self.is_available or not self._can_use_collection("computer_activity"):
-            return
-        
-        try:
-            doc = {
-                "id": activity.get("id") or f"{user_id}_{activity.get('app_name')}_{activity.get('date')}",
-                "user_id": user_id,
-                "device_id": activity.get("device_id", ""),
-                "app_name": activity.get("app_name", ""),
-                "app_name_lowercase": activity.get("app_name", "").lower(),
-                "window_title": activity.get("window_title"),
-                "bundle_id": activity.get("bundle_id"),
-                "browser_domain": activity.get("browser_domain"),
-                "date": activity.get("date", ""),
-                "total_ms": activity.get("total_ms", 0),
-                "active_ms": activity.get("active_ms", 0),
-                "created_at": self._to_timestamp(activity.get("created_at")),
-            }
-            
-            self.client.collections["computer_activity"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index activity: {e}")
-
-    async def index_artifact(self, artifact: Dict[str, Any], user_id: str):
-        if not self.is_available or not self._can_use_collection("artifacts"):
-            return
-        try:
-            doc = {
-                "id": artifact["id"],
-                "user_id": user_id,
-                "kind": artifact.get("kind", "notebook"),
-                "status": artifact.get("status", "draft"),
-                "title": artifact.get("title", ""),
-                "slug": artifact.get("slug"),
-                "summary": artifact.get("summary"),
-                "preview_text": artifact.get("preview_text"),
-                "folder_key": artifact.get("folder_key"),
-                "is_pinned": bool(artifact.get("is_pinned", False)),
-                "source_type": artifact.get("source_type"),
-                "conversation_id": artifact.get("conversation_id"),
-                "created_at": self._to_timestamp(artifact.get("created_at")),
-                "updated_at": self._to_timestamp(artifact.get("updated_at") or artifact.get("created_at")),
-                "published_at": self._to_timestamp(artifact.get("published_at")) if artifact.get("published_at") else None,
-            }
-            self.client.collections["artifacts"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index artifact {artifact.get('id')}: {e}")
-
-    async def index_workflow_definition(self, workflow: Dict[str, Any], user_id: str):
-        if not self.is_available or not self._can_use_collection("workflows"):
-            return
-        try:
-            schedule = workflow.get("schedule") or {}
-            delivery = workflow.get("delivery") or {}
-            config = workflow.get("config") or {}
-            schedule_text = (
-                f"{schedule.get('cadence', 'daily')} at "
-                f"{int(schedule.get('send_hour_local', 0)):02d}:{int(schedule.get('send_minute_local', 0)):02d}"
-            )
-            doc = {
-                "id": workflow["id"],
-                "user_id": user_id,
-                "kind": workflow.get("kind", ""),
-                "name": workflow.get("name", ""),
-                "definition_family": workflow.get("definition_family", "routine"),
-                "trigger_type": workflow.get("trigger_type", "schedule"),
-                "signal_kind": workflow.get("signal_kind"),
-                "status": workflow.get("status", "draft"),
-                "schedule_text": schedule_text if delivery.get("channel") == "in_app" else None,
-                "config_summary": ", ".join(sorted(config.keys())[:6]),
-                "next_run_at": self._to_timestamp(workflow.get("next_run_at")) if workflow.get("next_run_at") else None,
-                "updated_at": self._to_timestamp(workflow.get("updated_at")),
-            }
-            self.client.collections["workflows"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index workflow {workflow.get('id')}: {e}")
-
-    async def index_ai_fact(self, fact: Dict[str, Any], user_id: str):
-        if not self.is_available or not self._can_use_collection("ai_facts"):
-            return
-        try:
-            value = fact.get("value") or {}
-            doc = {
-                "id": fact["id"],
-                "user_id": user_id,
-                "category": fact.get("category", "preference"),
-                "subject": fact.get("subject", "user"),
-                "predicate": fact.get("predicate", ""),
-                "value_text": json.dumps(value, sort_keys=True),
-                "status": fact.get("status", "pending"),
-                "visibility": fact.get("visibility", "private"),
-                "confidence": float(fact.get("confidence") or 0.5),
-                "created_at": self._to_timestamp(fact.get("created_at")),
-                "updated_at": self._to_timestamp(fact.get("updated_at") or fact.get("created_at")),
-            }
-            self.client.collections["ai_facts"].documents.upsert(doc)
-        except Exception as e:
-            logger.error(f"❌ Failed to index AI fact {fact.get('id')}: {e}")
-    
-    # ================================
-    # INDEXING - LOG PHRASES (learned input patterns)
-    # ================================
-    
-    async def index_log_phrase(
-        self,
-        user_id: str,
-        input_text: str,
-        habit_id: str,
-        habit_name: str,
-        value: float = None,
-        unit: str = None,
-    ):
-        """
-        Index a raw user log phrase for future suggestion matching.
-        
-        When the user types "I consumed 200mg of caffeine today" and it resolves
-        to the Caffeine Consumption habit, we store the raw text. Next time
-        they type "I consumed", Typesense prefix search will match it.
-        """
-        if not self.is_available or not input_text or not self._can_use_collection("log_phrases"):
-            return
-        
-        try:
-            # Use a hash so the same phrase just gets updated, not duplicated
-            doc_id = hashlib.md5(
-                f"{user_id}:{input_text.lower().strip()}".encode()
-            ).hexdigest()
-            
-            doc = {
-                "id": doc_id,
-                "user_id": user_id,
-                "habit_id": habit_id,
-                "habit_name": habit_name,
-                "input_text": input_text.strip(),
-                "value": value,
-                "unit": unit,
-                "created_at": int(_utc_now().timestamp()),
-            }
-            
-            self.client.collections["log_phrases"].documents.upsert(doc)
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to index log phrase: {e}")
-    
-    # ================================
-    # BULK INDEXING
-    # ================================
-    
-    async def bulk_index_habits(self, habits: List[Dict], user_id: str):
-        """Bulk index multiple habits"""
-        if not self.is_available or not habits or not self._can_use_collection("habits"):
-            return
-        
-        docs = []
-        for habit in habits:
-            docs.append({
-                "id": habit["id"],
-                "user_id": user_id,
-                "name": habit.get("name", ""),
-                "name_lowercase": habit.get("name", "").lower(),
-                "category": habit.get("category"),
-                "icon": habit.get("icon"),
-                "unit_type": habit.get("unit_type"),
-                "metric_type": habit.get("metric_type"),
-                "aliases": habit.get("aliases", []),
-                "is_active": habit.get("is_active", True),
-                "goal": habit.get("goal"),
-                "created_at": self._to_timestamp(habit.get("created_at")),
-                "updated_at": self._to_timestamp(habit.get("updated_at") or habit.get("created_at")),
-                "log_count": habit.get("log_count", 0),
-                "last_logged_at": self._to_timestamp(habit.get("last_logged_at")),
-            })
-        
-        try:
-            self.client.collections["habits"].documents.import_(docs, {"action": "upsert"})
-            logger.info(f"✓ Indexed {len(docs)} habits")
-        except Exception as e:
-            logger.error(f"❌ Bulk habit indexing failed: {e}")
-    
-    async def bulk_index_logs(self, logs: List[Dict], user_id: str):
-        """Bulk index multiple habit logs"""
-        if not self.is_available or not logs or not self._can_use_collection("habit_logs"):
-            return
-        
-        docs = []
-        for log in logs:
-            date_str = log.get("date", "")
-            docs.append({
-                "id": log["id"],
-                "user_id": user_id,
-                "habit_id": log.get("habit_id", ""),
-                "habit_name": log.get("habit_name", ""),
-                "category": log.get("category"),
-                "date": date_str,
-                "date_timestamp": self._date_to_timestamp(date_str),
-                "amount": log.get("amount"),
-                "duration": log.get("duration"),
-                "unit_type": log.get("unit_type"),
-                "status": log.get("status", "completed"),
-                "notes": log.get("notes"),
-                "source": log.get("source"),
-                "created_at": self._to_timestamp(log.get("created_at") or log.get("completed_at")),
-            })
-        
-        try:
-            self.client.collections["habit_logs"].documents.import_(docs, {"action": "upsert"})
-            logger.info(f"✓ Indexed {len(docs)} logs")
-        except Exception as e:
-            logger.error(f"❌ Bulk log indexing failed: {e}")
-    
-    # ================================
-    # SEARCH - FEDERATED (GLOBAL)
-    # ================================
-    
-    async def search_global(
-        self,
-        query: str,
-        user_id: str,
-        collections: List[str] = None,
-        limit: int = 10,
-    ) -> Dict[str, Any]:
-        """
-        Federated search across all collections.
-        Returns grouped results for command palette.
-        """
-        if not self.is_available:
-            return self._fallback_search(query)
-
-        requested_collections = collections or ["habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts"]
-        allowed_collections = [
-            collection
-            for collection in requested_collections
-            if self._can_use_collection(collection)
-        ]
-        if not allowed_collections:
-            fallback = self._fallback_search(query)
-            fallback["privacy_blocked"] = True
-            return fallback
-
-        if not query or len(query.strip()) == 0:
-            return await self._get_recent_items(user_id, limit)
-
-        collections = allowed_collections
-        
-        searches = []
-        
-        # Search habits
-        if "habits" in collections:
-            searches.append({
-                "collection": "habits",
-                "q": query,
-                "query_by": "name,name_lowercase,aliases,category",
-                "filter_by": f"user_id:={user_id} && is_active:=true",
-                "sort_by": "_text_match:desc,last_logged_at:desc",
-                "per_page": limit,
-                "highlight_full_fields": "name",
-                "typo_tokens_threshold": 1,
-            })
-        
-        # Search habit logs
-        if "habit_logs" in collections:
-            searches.append({
-                "collection": "habit_logs",
-                "q": query,
-                "query_by": "habit_name,notes",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "_text_match:desc,date_timestamp:desc",
-                "per_page": limit,
-                "highlight_full_fields": "habit_name,notes",
-                "typo_tokens_threshold": 1,
-            })
-        
-        # Search AI messages
-        if "ai_messages" in collections:
-            searches.append({
-                "collection": "ai_messages",
-                "q": query,
-                "query_by": "content,topics",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "_text_match:desc,created_at:desc",
-                "per_page": limit,
-                "highlight_full_fields": "content_preview",
-                "typo_tokens_threshold": 1,
-            })
-        
-        # Search computer activity
-        if "computer_activity" in collections:
-            searches.append({
-                "collection": "computer_activity",
-                "q": query,
-                "query_by": "app_name,app_name_lowercase,browser_domain,window_title",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "_text_match:desc,total_ms:desc",
-                "per_page": limit,
-                "highlight_full_fields": "app_name,browser_domain",
-                "typo_tokens_threshold": 1,
-            })
-        if "artifacts" in collections:
-            searches.append({
-                "collection": "artifacts",
-                "q": query,
-                "query_by": "title,summary,preview_text,slug,folder_key",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "_text_match:desc,is_pinned:desc,updated_at:desc",
-                "per_page": limit,
-                "highlight_full_fields": "title,summary,preview_text",
-                "typo_tokens_threshold": 1,
-            })
-        if "workflows" in collections:
-            searches.append({
-                "collection": "workflows",
-                "q": query,
-                "query_by": "name,kind,definition_family,signal_kind,config_summary,schedule_text",
-                "filter_by": f"user_id:={user_id}",
-                "sort_by": "_text_match:desc,updated_at:desc",
-                "per_page": limit,
-                "highlight_full_fields": "name,config_summary",
-                "typo_tokens_threshold": 1,
-            })
-        if "ai_facts" in collections:
-            searches.append({
-                "collection": "ai_facts",
-                "q": query,
-                "query_by": "category,subject,predicate,value_text",
-                "filter_by": f"user_id:={user_id} && status:=active",
-                "sort_by": "_text_match:desc,updated_at:desc",
-                "per_page": limit,
-                "highlight_full_fields": "predicate,value_text",
-                "typo_tokens_threshold": 1,
-            })
-
-        try:
-            results = self.client.multi_search.perform({"searches": searches}, {})
-            results_by_collection = {
-                (item.get("request_params") or {}).get("collection_name"): item
-                for item in results.get("results", [])
-            }
-            
-            # Also search quick actions
-            quick_action_results = self._search_quick_actions(query)
-            
-            return {
-                "query": query,
-                "quick_actions": quick_action_results,
-                "habits": self._format_results(results_by_collection.get("habits", {})),
-                "logs": self._format_results(results_by_collection.get("habit_logs", {})),
-                "conversations": self._format_results(results_by_collection.get("ai_messages", {})),
-                "activity": self._format_results(results_by_collection.get("computer_activity", {})),
-                "artifacts": self._format_results(results_by_collection.get("artifacts", {})),
-                "workflows": self._format_results(results_by_collection.get("workflows", {})),
-                "facts": self._format_results(results_by_collection.get("ai_facts", {})),
-            }
-        except Exception as e:
-            logger.error(f"❌ Search failed: {e}")
-            return self._fallback_search(query)
-    
-    # ================================
-    # SEARCH - HABITS ONLY
-    # ================================
-    
-    async def search_habits(
-        self,
-        query: str,
-        user_id: str,
-        limit: int = 10,
-        include_inactive: bool = False,
-    ) -> List[Dict[str, Any]]:
-        """Search habits with autocomplete"""
-        if not self.is_available or not self._can_use_collection("habits"):
-            return []
-        
-        filter_by = f"user_id:={user_id}"
-        if not include_inactive:
-            filter_by += " && is_active:=true"
-        
-        try:
-            result = self.client.collections["habits"].documents.search({
-                "q": query,
-                "query_by": "name,name_lowercase,aliases,category",
-                "filter_by": filter_by,
-                "sort_by": "_text_match:desc,last_logged_at:desc,log_count:desc",
-                "per_page": limit,
-                "prefix": True,  # Enable prefix search for autocomplete
-                "typo_tokens_threshold": 1,
-                "highlight_full_fields": "name",
-            })
-            
-            return [
-                {
-                    "id": hit["document"]["id"],
-                    "name": hit["document"]["name"],
-                    "category": hit["document"].get("category"),
-                    "icon": hit["document"].get("icon"),
-                    "unit_type": hit["document"].get("unit_type"),
-                    "highlight": hit.get("highlight", {}).get("name", {}).get("snippet"),
-                    "score": hit.get("text_match", 0),
-                }
-                for hit in result.get("hits", [])
-            ]
-        except Exception as e:
-            logger.error(f"❌ Habit search failed: {e}")
-            return []
-    
-    # ================================
-    # SEARCH - LOGS
-    # ================================
-    
-    async def search_logs(
-        self,
-        query: str,
-        user_id: str,
-        habit_ids: List[str] = None,
-        start_date: str = None,
-        end_date: str = None,
-        limit: int = 50,
-    ) -> Dict[str, Any]:
-        """Search habit logs with filters"""
-        if not self.is_available or not self._can_use_collection("habit_logs"):
-            return {"hits": [], "found": 0}
-        
-        filter_by = f"user_id:={user_id}"
-        
-        if habit_ids:
-            filter_by += f" && habit_id:[{','.join(habit_ids)}]"
-        
-        if start_date:
-            start_ts = self._date_to_timestamp(start_date)
-            filter_by += f" && date_timestamp:>={start_ts}"
-        
-        if end_date:
-            end_ts = self._date_to_timestamp(end_date) + 86400  # Include end date
-            filter_by += f" && date_timestamp:<{end_ts}"
-        
-        try:
-            result = self.client.collections["habit_logs"].documents.search({
-                "q": query or "*",
-                "query_by": "habit_name,notes",
-                "filter_by": filter_by,
-                "sort_by": "_text_match:desc,date_timestamp:desc" if query else "date_timestamp:desc",
-                "per_page": limit,
-                "facet_by": "habit_id,category,status,source",
-                "typo_tokens_threshold": 1,
-            })
-            
-            return {
-                "hits": [hit["document"] for hit in result.get("hits", [])],
-                "found": result.get("found", 0),
-                "facets": result.get("facet_counts", []),
-            }
-        except Exception as e:
-            logger.error(f"❌ Log search failed: {e}")
-            return {"hits": [], "found": 0}
-    
-    # ================================
-    # HELPER METHODS
-    # ================================
-    
-    def _search_quick_actions(self, query: str) -> List[Dict]:
-        """Search quick actions by keywords"""
-        if not query:
-            return QUICK_ACTIONS[:5]
-        
-        query_lower = query.lower()
-        scored_actions = []
-        
-        for action in QUICK_ACTIONS:
-            score = 0
-            
-            # Check name match
-            if query_lower in action["name"].lower():
-                score += 10
-            
-            # Check keyword matches
-            for keyword in action.get("keywords", []):
-                if query_lower in keyword or keyword in query_lower:
-                    score += 5
-            
-            if score > 0:
-                scored_actions.append({**action, "score": score})
-        
-        # Sort by score and return top results
-        scored_actions.sort(key=lambda x: x["score"], reverse=True)
-        return scored_actions[:5]
-    
-    def _format_results(self, result: Dict) -> Dict[str, Any]:
-        """Format Typesense results for frontend"""
-        if not result:
-            return {"hits": [], "found": 0}
-        
-        return {
-            "hits": [
-                {
-                    **hit["document"],
-                    "highlight": hit.get("highlight", {}),
-                    "score": hit.get("text_match", 0),
-                }
-                for hit in result.get("hits", [])
-            ],
-            "found": result.get("found", 0),
-        }
-    
-    async def _get_recent_items(self, user_id: str, limit: int = 10) -> Dict[str, Any]:
-        """Get recent items when no query is provided"""
-        result = {
-            "query": "",
-            "quick_actions": QUICK_ACTIONS[:5],
-            "habits": {"hits": [], "found": 0},
-            "logs": {"hits": [], "found": 0},
-            "conversations": {"hits": [], "found": 0},
-            "activity": {"hits": [], "found": 0},
-            "artifacts": {"hits": [], "found": 0},
-            "workflows": {"hits": [], "found": 0},
-            "facts": {"hits": [], "found": 0},
-        }
-        
-        allowed_collections = {
-            collection
-            for collection in ("habits", "habit_logs", "ai_messages", "artifacts", "workflows", "ai_facts")
-            if self._can_use_collection(collection)
-        }
-        if self.is_available and not allowed_collections:
-            result["privacy_blocked"] = True
-            return result
-
-        if not self.is_available:
-            try:
-                from database.connection import get_db_session
-                from database.models import ActionProfileDB, AiFactDB, ArtifactDB, WorkflowDefinitionDB
-
-                async with get_db_session() as session:
-                    artifacts = await session.execute(
-                        select(ArtifactDB)
-                        .where(ArtifactDB.user_id == user_id)
-                        .order_by(ArtifactDB.is_pinned.desc(), ArtifactDB.updated_at.desc())
-                        .limit(limit)
-                    )
-                    workflows = await session.execute(
-                        select(WorkflowDefinitionDB, ActionProfileDB)
-                        .join(ActionProfileDB, ActionProfileDB.id == WorkflowDefinitionDB.action_profile_id)
-                        .where(WorkflowDefinitionDB.user_id == user_id)
-                        .order_by(WorkflowDefinitionDB.updated_at.desc())
-                        .limit(limit)
-                    )
-                    facts = await session.execute(
-                        select(AiFactDB)
-                        .where(AiFactDB.user_id == user_id, AiFactDB.status == "active")
-                        .order_by(AiFactDB.updated_at.desc())
-                        .limit(limit)
-                    )
-                    artifact_rows = artifacts.scalars().all()
-                    result["artifacts"] = {
-                        "hits": [
-                            {
-                                "id": row.id,
-                                "title": row.title,
-                                "kind": row.kind,
-                                "status": row.status,
-                                "summary": row.summary,
-                                "preview_text": row.preview_text,
-                            }
-                            for row in artifact_rows
-                        ],
-                        "found": len(artifact_rows),
-                    }
-                    workflow_rows = workflows.all()
-                    result["workflows"] = {
-                        "hits": [
-                            {
-                                "id": definition.id,
-                                "name": definition.name,
-                                "kind": definition.kind,
-                                "status": definition.status,
-                                "definition_family": definition.definition_family,
-                                "trigger_type": definition.trigger_type,
-                            }
-                            for definition, _profile in workflow_rows
-                        ],
-                        "found": len(workflow_rows),
-                    }
-                    fact_rows = facts.scalars().all()
-                    result["facts"] = {
-                        "hits": [
-                            {
-                                "id": fact.id,
-                                "category": fact.category,
-                                "subject": fact.subject,
-                                "predicate": fact.predicate,
-                                "status": fact.status,
-                            }
-                            for fact in fact_rows
-                        ],
-                        "found": len(fact_rows),
-                    }
-            except Exception as e:
-                logger.error(f"❌ Failed DB fallback recents: {e}")
-            return result
-        
-        try:
-            # Get recent habits
-            if "habits" in allowed_collections:
-                habits_result = self.client.collections["habits"].documents.search({
-                    "q": "*",
-                    "query_by": "name",
-                    "filter_by": f"user_id:={user_id} && is_active:=true",
-                    "sort_by": "last_logged_at:desc",
-                    "per_page": limit,
-                })
-                result["habits"] = self._format_results(habits_result)
-            
-            # Get recent logs
-            if "habit_logs" in allowed_collections:
-                logs_result = self.client.collections["habit_logs"].documents.search({
-                    "q": "*",
-                    "query_by": "habit_name",
-                    "filter_by": f"user_id:={user_id}",
-                    "sort_by": "date_timestamp:desc",
-                    "per_page": limit,
-                })
-                result["logs"] = self._format_results(logs_result)
-
-            if "ai_messages" in allowed_collections:
-                messages_result = self.client.collections["ai_messages"].documents.search({
-                    "q": "*",
-                    "query_by": "content",
-                    "filter_by": f"user_id:={user_id}",
-                    "sort_by": "created_at:desc",
-                    "per_page": min(limit, 5),
-                })
-                result["conversations"] = self._format_results(messages_result)
-
-            if "artifacts" in allowed_collections:
-                artifacts_result = self.client.collections["artifacts"].documents.search({
-                    "q": "*",
-                    "query_by": "title",
-                    "filter_by": f"user_id:={user_id}",
-                    "sort_by": "is_pinned:desc,updated_at:desc",
-                    "per_page": limit,
-                })
-                result["artifacts"] = self._format_results(artifacts_result)
-
-            if "workflows" in allowed_collections:
-                workflows_result = self.client.collections["workflows"].documents.search({
-                    "q": "*",
-                    "query_by": "name",
-                    "filter_by": f"user_id:={user_id}",
-                    "sort_by": "updated_at:desc",
-                    "per_page": limit,
-                })
-                result["workflows"] = self._format_results(workflows_result)
-
-            if "ai_facts" in allowed_collections:
-                facts_result = self.client.collections["ai_facts"].documents.search({
-                    "q": "*",
-                    "query_by": "predicate",
-                    "filter_by": f"user_id:={user_id} && status:=active",
-                    "sort_by": "updated_at:desc",
-                    "per_page": min(limit, 6),
-                })
-                result["facts"] = self._format_results(facts_result)
-            
-        except Exception as e:
-            logger.error(f"❌ Failed to get recent items: {e}")
-        
-        return result
-    
-    # ================================
-    # SUGGESTIONS - Personalized suggestions for chat input
-    # ================================
-
-    # Question templates for chat mode suggestions
-    # {habit} is replaced with actual habit names
     CHAT_TEMPLATES_HABIT = [
         "How has my {habit} been this week?",
         "What's my {habit} trend over the past month?",
@@ -1199,6 +125,519 @@ class SearchService:
         "Which habits correlate with each other?",
     ]
 
+    @property
+    def is_available(self) -> bool:
+        return True
+
+    async def delete_user_indexed_documents(
+        self,
+        user_id: str,
+        collections: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        del user_id, collections
+        return {
+            "status": "completed",
+            "deleted_count": 0,
+            "collections": [],
+            "note": "Product search reads canonical SQL; there is no secondary index to erase.",
+        }
+
+    def _empty_search(self, query: str) -> Dict[str, Any]:
+        return {
+            "query": query,
+            "quick_actions": self._search_quick_actions(query),
+            "habits": _empty_bucket(),
+            "logs": _empty_bucket(),
+            "conversations": _empty_bucket(),
+            "activity": _empty_bucket(),
+            "artifacts": _empty_bucket(),
+            "workflows": _empty_bucket(),
+            "facts": _empty_bucket(),
+        }
+
+    def _fallback_search(self, query: str) -> Dict[str, Any]:
+        payload = self._empty_search(query)
+        payload["fallback"] = True
+        return payload
+
+    def _search_quick_actions(self, query: str) -> List[Dict]:
+        if not query:
+            return QUICK_ACTIONS[:5]
+        query_lower = query.lower()
+        scored_actions = []
+        for action in QUICK_ACTIONS:
+            score = 0
+            if query_lower in action["name"].lower():
+                score += 10
+            for keyword in action.get("keywords", []):
+                if query_lower in keyword or keyword in query_lower:
+                    score += 5
+            if score > 0:
+                scored_actions.append({**action, "score": score})
+        scored_actions.sort(key=lambda item: item["score"], reverse=True)
+        return scored_actions[:5]
+
+    async def search_global(
+        self,
+        query: str,
+        user_id: str,
+        collections: List[str] = None,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        requested = collections or [
+            "habits",
+            "habit_logs",
+            "ai_messages",
+            "artifacts",
+            "workflows",
+            "ai_facts",
+        ]
+        if not (query or "").strip():
+            return await self._get_recent_items(user_id, requested, limit)
+
+        payload = self._empty_search(query)
+        try:
+            from database.connection import get_db_session
+            from database.models import (
+                AIConversationDB,
+                AIMessageDB,
+                ActionProfileDB,
+                AiFactDB,
+                ArtifactDB,
+                HabitAliasDB,
+                HabitDB,
+                HabitLogDB,
+                WorkflowDefinitionDB,
+            )
+
+            needle = _like(query)
+            async with get_db_session() as session:
+                if "habits" in requested:
+                    aliases = (
+                        await session.execute(
+                            select(HabitAliasDB.habit_id, HabitAliasDB.alias_text).join(
+                                HabitDB, HabitDB.id == HabitAliasDB.habit_id
+                            ).where(HabitDB.user_id == user_id)
+                        )
+                    ).all()
+                    alias_by_habit: Dict[str, List[str]] = {}
+                    for habit_id, alias_text in aliases:
+                        alias_by_habit.setdefault(habit_id, []).append(alias_text or "")
+                    rows = (
+                        await session.execute(
+                            select(HabitDB).where(HabitDB.user_id == user_id)
+                        )
+                    ).scalars().all()
+                    hits = []
+                    for row in rows:
+                        score = _score_text(
+                            query,
+                            row.name,
+                            row.category,
+                            *alias_by_habit.get(row.id, []),
+                        )
+                        if score <= 0:
+                            continue
+                        hits.append((
+                            score,
+                            {
+                                "id": row.id,
+                                "name": row.name,
+                                "category": row.category,
+                                "icon": row.icon,
+                                "unit_type": row.unit_type,
+                                "metric_type": row.metric_type,
+                                "score": score,
+                            },
+                        ))
+                    hits.sort(key=lambda item: item[0], reverse=True)
+                    payload["habits"] = {
+                        "hits": [hit for _, hit in hits[:limit]],
+                        "found": len(hits),
+                    }
+
+                if "habit_logs" in requested:
+                    rows = (
+                        await session.execute(
+                            select(HabitLogDB, HabitDB)
+                            .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                            .where(
+                                HabitDB.user_id == user_id,
+                                or_(
+                                    func.lower(HabitLogDB.habit_name).like(needle),
+                                    func.lower(func.coalesce(HabitLogDB.notes, "")).like(needle),
+                                ),
+                            )
+                            .order_by(HabitLogDB.date.desc())
+                            .limit(limit)
+                        )
+                    ).all()
+                    hits = [
+                        {
+                            "id": log.id,
+                            "habit_id": log.habit_id,
+                            "habit_name": log.habit_name or habit.name,
+                            "category": habit.category,
+                            "date": log.date,
+                            "amount": log.amount,
+                            "duration": log.duration,
+                            "notes": log.notes,
+                            "status": log.status,
+                            "source": log.source,
+                        }
+                        for log, habit in rows
+                    ]
+                    payload["logs"] = {"hits": hits, "found": len(hits)}
+
+                if "ai_messages" in requested:
+                    rows = (
+                        await session.execute(
+                            select(AIMessageDB, AIConversationDB)
+                            .join(
+                                AIConversationDB,
+                                AIConversationDB.id == AIMessageDB.conversation_id,
+                            )
+                            .where(
+                                AIConversationDB.user_id == user_id,
+                                func.lower(AIMessageDB.content).like(needle),
+                            )
+                            .order_by(AIMessageDB.created_at.desc())
+                            .limit(limit)
+                        )
+                    ).all()
+                    hits = [
+                        {
+                            "id": message.id,
+                            "conversation_id": message.conversation_id,
+                            "role": message.role,
+                            "content": message.content,
+                            "content_preview": (message.content or "")[:200],
+                        }
+                        for message, _conversation in rows
+                    ]
+                    payload["conversations"] = {"hits": hits, "found": len(hits)}
+
+                if "artifacts" in requested:
+                    rows = (
+                        await session.execute(
+                            select(ArtifactDB)
+                            .where(
+                                ArtifactDB.user_id == user_id,
+                                or_(
+                                    func.lower(ArtifactDB.title).like(needle),
+                                    func.lower(func.coalesce(ArtifactDB.summary, "")).like(needle),
+                                    func.lower(func.coalesce(ArtifactDB.preview_text, "")).like(needle),
+                                    func.lower(func.coalesce(ArtifactDB.slug, "")).like(needle),
+                                ),
+                            )
+                            .order_by(ArtifactDB.is_pinned.desc(), ArtifactDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    hits = [
+                        {
+                            "id": row.id,
+                            "title": row.title,
+                            "kind": row.kind,
+                            "status": row.status,
+                            "summary": row.summary,
+                            "preview_text": row.preview_text,
+                        }
+                        for row in rows
+                    ]
+                    payload["artifacts"] = {"hits": hits, "found": len(hits)}
+
+                if "workflows" in requested:
+                    rows = (
+                        await session.execute(
+                            select(WorkflowDefinitionDB, ActionProfileDB)
+                            .join(
+                                ActionProfileDB,
+                                ActionProfileDB.id == WorkflowDefinitionDB.action_profile_id,
+                            )
+                            .where(
+                                WorkflowDefinitionDB.user_id == user_id,
+                                or_(
+                                    func.lower(WorkflowDefinitionDB.name).like(needle),
+                                    func.lower(WorkflowDefinitionDB.kind).like(needle),
+                                    func.lower(WorkflowDefinitionDB.definition_family).like(needle),
+                                    func.lower(func.coalesce(WorkflowDefinitionDB.signal_kind, "")).like(needle),
+                                ),
+                            )
+                            .order_by(WorkflowDefinitionDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).all()
+                    hits = [
+                        {
+                            "id": definition.id,
+                            "name": definition.name,
+                            "kind": definition.kind,
+                            "status": definition.status,
+                            "definition_family": definition.definition_family,
+                            "trigger_type": definition.trigger_type,
+                        }
+                        for definition, _profile in rows
+                    ]
+                    payload["workflows"] = {"hits": hits, "found": len(hits)}
+
+                if "ai_facts" in requested:
+                    rows = (
+                        await session.execute(
+                            select(AiFactDB)
+                            .where(
+                                AiFactDB.user_id == user_id,
+                                AiFactDB.status == "active",
+                                or_(
+                                    func.lower(AiFactDB.category).like(needle),
+                                    func.lower(AiFactDB.subject).like(needle),
+                                    func.lower(AiFactDB.predicate).like(needle),
+                                    func.lower(AiFactDB.value_json).like(needle),
+                                ),
+                            )
+                            .order_by(AiFactDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    hits = []
+                    for fact in rows:
+                        try:
+                            value = json.loads(fact.value_json or "{}")
+                        except Exception:
+                            value = {}
+                        hits.append({
+                            "id": fact.id,
+                            "category": fact.category,
+                            "subject": fact.subject,
+                            "predicate": fact.predicate,
+                            "status": fact.status,
+                            "value_text": json.dumps(value) if not isinstance(value, str) else value,
+                        })
+                    payload["facts"] = {"hits": hits, "found": len(hits)}
+        except Exception as exc:
+            logger.error("SQL search failed: %s", exc)
+            payload["fallback"] = True
+        return payload
+
+    async def search_habits(
+        self,
+        query: str,
+        user_id: str,
+        limit: int = 10,
+        include_inactive: bool = False,
+    ) -> List[Dict[str, Any]]:
+        del include_inactive
+        result = await self.search_global(query, user_id, collections=["habits"], limit=limit)
+        return [
+            {
+                "id": hit.get("id"),
+                "name": hit.get("name"),
+                "category": hit.get("category"),
+                "icon": hit.get("icon"),
+                "unit_type": hit.get("unit_type"),
+                "score": hit.get("score", 0),
+            }
+            for hit in result.get("habits", {}).get("hits", [])
+        ]
+
+    async def search_logs(
+        self,
+        query: str,
+        user_id: str,
+        habit_ids: List[str] = None,
+        start_date: str = None,
+        end_date: str = None,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        from database.connection import get_db_session
+        from database.models import HabitDB, HabitLogDB
+
+        try:
+            async with get_db_session() as session:
+                statement = (
+                    select(HabitLogDB, HabitDB)
+                    .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                    .where(HabitDB.user_id == user_id)
+                )
+                if habit_ids:
+                    statement = statement.where(HabitLogDB.habit_id.in_(habit_ids))
+                if start_date:
+                    statement = statement.where(HabitLogDB.date >= start_date)
+                if end_date:
+                    statement = statement.where(HabitLogDB.date <= end_date)
+                if (query or "").strip():
+                    needle = _like(query)
+                    statement = statement.where(
+                        or_(
+                            func.lower(HabitLogDB.habit_name).like(needle),
+                            func.lower(func.coalesce(HabitLogDB.notes, "")).like(needle),
+                        )
+                    )
+                rows = (
+                    await session.execute(
+                        statement.order_by(HabitLogDB.date.desc()).limit(limit)
+                    )
+                ).all()
+                hits = [
+                    {
+                        "id": log.id,
+                        "habit_id": log.habit_id,
+                        "habit_name": log.habit_name or habit.name,
+                        "category": habit.category,
+                        "date": log.date,
+                        "amount": log.amount,
+                        "duration": log.duration,
+                        "notes": log.notes,
+                        "status": log.status,
+                        "source": log.source,
+                    }
+                    for log, habit in rows
+                ]
+                return {"hits": hits, "found": len(hits)}
+        except Exception as exc:
+            logger.error("Log search failed: %s", exc)
+            return {"hits": [], "found": 0}
+
+    async def _get_recent_items(
+        self,
+        user_id: str,
+        collections: List[str],
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        result = self._empty_search("")
+        try:
+            from database.connection import get_db_session
+            from database.models import (
+                ActionProfileDB,
+                AiFactDB,
+                ArtifactDB,
+                HabitDB,
+                HabitLogDB,
+                WorkflowDefinitionDB,
+            )
+
+            async with get_db_session() as session:
+                if "habits" in collections:
+                    rows = (
+                        await session.execute(
+                            select(HabitDB)
+                            .where(HabitDB.user_id == user_id)
+                            .order_by(HabitDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    result["habits"] = {
+                        "hits": [
+                            {
+                                "id": row.id,
+                                "name": row.name,
+                                "category": row.category,
+                                "icon": row.icon,
+                                "unit_type": row.unit_type,
+                            }
+                            for row in rows
+                        ],
+                        "found": len(rows),
+                    }
+                if "habit_logs" in collections:
+                    rows = (
+                        await session.execute(
+                            select(HabitLogDB, HabitDB)
+                            .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                            .where(HabitDB.user_id == user_id)
+                            .order_by(HabitLogDB.date.desc())
+                            .limit(limit)
+                        )
+                    ).all()
+                    result["logs"] = {
+                        "hits": [
+                            {
+                                "id": log.id,
+                                "habit_id": log.habit_id,
+                                "habit_name": log.habit_name or habit.name,
+                                "date": log.date,
+                                "notes": log.notes,
+                            }
+                            for log, habit in rows
+                        ],
+                        "found": len(rows),
+                    }
+                if "artifacts" in collections:
+                    rows = (
+                        await session.execute(
+                            select(ArtifactDB)
+                            .where(ArtifactDB.user_id == user_id)
+                            .order_by(ArtifactDB.is_pinned.desc(), ArtifactDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    result["artifacts"] = {
+                        "hits": [
+                            {
+                                "id": row.id,
+                                "title": row.title,
+                                "kind": row.kind,
+                                "status": row.status,
+                                "summary": row.summary,
+                                "preview_text": row.preview_text,
+                            }
+                            for row in rows
+                        ],
+                        "found": len(rows),
+                    }
+                if "workflows" in collections:
+                    rows = (
+                        await session.execute(
+                            select(WorkflowDefinitionDB, ActionProfileDB)
+                            .join(
+                                ActionProfileDB,
+                                ActionProfileDB.id == WorkflowDefinitionDB.action_profile_id,
+                            )
+                            .where(WorkflowDefinitionDB.user_id == user_id)
+                            .order_by(WorkflowDefinitionDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).all()
+                    result["workflows"] = {
+                        "hits": [
+                            {
+                                "id": definition.id,
+                                "name": definition.name,
+                                "kind": definition.kind,
+                                "status": definition.status,
+                                "definition_family": definition.definition_family,
+                                "trigger_type": definition.trigger_type,
+                            }
+                            for definition, _profile in rows
+                        ],
+                        "found": len(rows),
+                    }
+                if "ai_facts" in collections:
+                    rows = (
+                        await session.execute(
+                            select(AiFactDB)
+                            .where(AiFactDB.user_id == user_id, AiFactDB.status == "active")
+                            .order_by(AiFactDB.updated_at.desc())
+                            .limit(limit)
+                        )
+                    ).scalars().all()
+                    result["facts"] = {
+                        "hits": [
+                            {
+                                "id": fact.id,
+                                "category": fact.category,
+                                "subject": fact.subject,
+                                "predicate": fact.predicate,
+                                "status": fact.status,
+                            }
+                            for fact in rows
+                        ],
+                        "found": len(rows),
+                    }
+        except Exception as exc:
+            logger.error("Failed DB recents: %s", exc)
+        return result
+
     async def get_suggestions(
         self,
         user_id: str,
@@ -1206,413 +645,154 @@ class SearchService:
         query: str = "",
         habits_context: List[Dict] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Generate personalized suggestions for the chat input.
-        
-        Log mode: habit autocomplete (from Typesense prefix search or recent habits)
-        Chat mode: personalized question suggestions based on user's habits
-        """
         if mode == "log":
             return await self._get_log_suggestions(user_id, query, habits_context)
-        else:
-            return await self._get_chat_suggestions(user_id, query, habits_context)
+        return await self._get_chat_suggestions(user_id, query, habits_context)
 
     def _format_value_suggestion(self, value: float, unit_type: str, habit_name: str) -> str:
-        """Format a value-based suggestion like '200mg of caffeine' or '15 min meditation'"""
         abbrev = UNIT_ABBREVIATIONS.get(unit_type, unit_type or "")
-        
-        # Clean up the value display (no trailing .0)
         val_str = str(int(value)) if value == int(value) else f"{value:.1f}"
-        
         name_lower = habit_name.lower()
-        
         if not abbrev:
-            # Count-based: "10 pull-ups"
             return f"{val_str} {name_lower}"
-        elif abbrev in ("min", "hr"):
-            # Duration: "15 min meditation"
+        if abbrev in ("min", "hr"):
             return f"{val_str} {abbrev} {name_lower}"
-        else:
-            # Amount with unit: "200mg of caffeine"
-            # Check if abbrev should be attached (mg, g, kg) vs separated (pages, steps)
-            attached_units = {"mg", "g", "kg", "lbs", "cal", "L", "km", "mi"}
-            if abbrev in attached_units:
-                return f"{val_str}{abbrev} of {name_lower}"
-            else:
-                return f"{val_str} {abbrev} of {name_lower}"
+        attached_units = {"mg", "g", "kg", "lbs", "cal", "L", "km", "mi"}
+        if abbrev in attached_units:
+            return f"{val_str}{abbrev} of {name_lower}"
+        return f"{val_str} {abbrev} of {name_lower}"
 
     def _normalize_suggestion_text(self, value: str) -> str:
         return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9\s]", " ", (value or "").lower())).strip()
 
     def _score_suggestion_text(self, query: str, candidate: str) -> int:
-        normalized_query = self._normalize_suggestion_text(query)
-        normalized_candidate = self._normalize_suggestion_text(candidate)
+        return _score_text(query, candidate)
 
-        if not normalized_query or not normalized_candidate:
-            return 0
+    async def _list_user_habits(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+        from database.connection import get_db_session
+        from database.models import HabitDB
 
-        score = 0
-        if normalized_candidate == normalized_query:
-            score += 240
-        if normalized_candidate.startswith(normalized_query):
-            score += 180
-        elif normalized_query in normalized_candidate:
-            score += 90
-
-        query_tokens = [token for token in normalized_query.split(" ") if token]
-        candidate_tokens = [token for token in normalized_candidate.split(" ") if token]
-        ordered_matches = 0
-        search_index = 0
-
-        for token in query_tokens:
-            if token in candidate_tokens:
-                score += 30
-            elif any(candidate_token.startswith(token) for candidate_token in candidate_tokens):
-                score += 20
-            elif token in normalized_candidate:
-                score += 10
-
-            found_index = normalized_candidate.find(token, search_index)
-            if found_index >= 0:
-                ordered_matches += 1
-                search_index = found_index + len(token)
-
-        score += ordered_matches * 12
-        score -= max(0, len(candidate_tokens) - len(query_tokens)) * 2
-        return score
+        async with get_db_session() as session:
+            rows = (
+                await session.execute(
+                    select(HabitDB)
+                    .where(HabitDB.user_id == user_id)
+                    .order_by(HabitDB.updated_at.desc())
+                    .limit(limit)
+                )
+            ).scalars().all()
+        return [
+            {"id": row.id, "name": row.name, "unit_type": row.unit_type or ""}
+            for row in rows
+        ]
 
     async def _get_habit_common_values(
         self, user_id: str, habit_id: str, limit: int = 20
     ) -> List[float]:
-        """
-        Get the most common log values for a habit from the habit_logs collection.
-        Returns deduplicated values sorted by frequency (most common first).
-        """
-        if not self.is_available:
-            return []
-        
+        from database.connection import get_db_session
+        from database.models import HabitDB, HabitLogDB
+
         try:
-            result = self.client.collections["habit_logs"].documents.search({
-                "q": "*",
-                "query_by": "habit_name",
-                "filter_by": f"user_id:={user_id} && habit_id:={habit_id}",
-                "sort_by": "date_timestamp:desc",
-                "per_page": limit,
-            })
-            
-            from collections import Counter
+            async with get_db_session() as session:
+                rows = (
+                    await session.execute(
+                        select(HabitLogDB)
+                        .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                        .where(HabitDB.user_id == user_id, HabitLogDB.habit_id == habit_id)
+                        .order_by(HabitLogDB.date.desc())
+                        .limit(limit)
+                    )
+                ).scalars().all()
             values: List[float] = []
-            
-            for hit in result.get("hits", []):
-                doc = hit["document"]
-                amount = doc.get("amount")
-                duration = doc.get("duration")
-                
-                if amount is not None and amount > 0:
-                    values.append(float(amount))
-                elif duration is not None and duration > 0:
-                    # Duration is stored in seconds; convert to the display unit
-                    # Prefer minutes for short durations, hours for longer
-                    minutes = duration / 60
-                    if minutes >= 60 and minutes % 60 == 0:
-                        values.append(minutes / 60)  # Store as hours
-                    else:
-                        values.append(minutes)  # Store as minutes
-            
-            # Return most common values, deduplicated
-            counter = Counter(values)
-            return [v for v, _ in counter.most_common(6)]
-        
-        except Exception as e:
-            logger.warning(f"⚠️ Get habit values failed: {e}")
+            for log in rows:
+                if log.amount is not None and log.amount > 0:
+                    values.append(float(log.amount))
+                elif log.duration is not None and log.duration > 0:
+                    minutes = log.duration / 60
+                    values.append(minutes / 60 if minutes >= 60 and minutes % 60 == 0 else minutes)
+            return [value for value, _ in Counter(values).most_common(6)]
+        except Exception as exc:
+            logger.warning("Get habit values failed: %s", exc)
             return []
 
     async def _get_log_suggestions(
         self, user_id: str, query: str, habits_context: List[Dict] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Smart log suggestions with two strategies:
-        
-        1. Phrase matching: Search log_phrases collection for learned input patterns.
-           "I consumed" → matches past "I consumed 200mg of caffeine" → Caffeine Consumption.
-        2. Habit name matching: Standard Typesense search on habits collection.
-        
-        Once a habit is identified, get common values and return formatted suggestions
-        like "200mg of caffeine", "100mg of caffeine".
-        """
-        if not self.is_available:
-            # Client-side fallback
-            if habits_context:
-                return [
-                    {
-                        "text": h.get("name", ""),
-                        "type": "habit",
-                        "habit_id": h.get("id"),
-                        "habit_name": h.get("name", ""),
-                        "unit_type": h.get("unit_type"),
-                    }
-                    for h in habits_context[:4]
-                ]
-            return []
-
-        # ── User is typing: phrase match + habit name search ──
+        habits = await self._list_user_habits(user_id)
         if query:
-            matched_habit = None  # Will be: {id, name, unit_type}
-            habit_search_hits: List[Dict[str, Any]] = []
-            
-            # Strategy 1: Search log_phrases for learned patterns
-            try:
-                phrase_result = self.client.collections["log_phrases"].documents.search({
-                    "q": query,
-                    "query_by": "input_text",
-                    "filter_by": f"user_id:={user_id}",
-                    "sort_by": "_text_match:desc,created_at:desc",
-                    "per_page": 1,
-                    "prefix": True,
-                    "typo_tokens_threshold": 1,
-                })
-                
-                if phrase_result.get("found", 0) > 0:
-                    top_hit = phrase_result["hits"][0]["document"]
-                    # Look up the full habit info
-                    try:
-                        habit_result = self.client.collections["habits"].documents.search({
-                            "q": "*",
-                            "query_by": "name",
-                            "filter_by": f"user_id:={user_id} && id:={top_hit['habit_id']}",
-                            "per_page": 1,
-                        })
-                        if habit_result.get("found", 0) > 0:
-                            h = habit_result["hits"][0]["document"]
-                            matched_habit = {
-                                "id": h["id"],
-                                "name": h["name"],
-                                "unit_type": h.get("unit_type", ""),
-                            }
-                    except Exception:
-                        matched_habit = {
-                            "id": top_hit["habit_id"],
-                            "name": top_hit["habit_name"],
-                            "unit_type": top_hit.get("unit", ""),
-                        }
-            except ObjectNotFound:
-                pass  # log_phrases collection may not exist yet
-            except Exception as e:
-                logger.warning(f"⚠️ Log phrase search failed: {e}")
-            
-            # Strategy 2: Fallback to habit name prefix search
-            if not matched_habit:
-                try:
-                    habit_result = self.client.collections["habits"].documents.search({
-                        "q": query,
-                        "query_by": "name,name_lowercase,aliases,category",
-                        "filter_by": f"user_id:={user_id} && is_active:=true",
-                        "sort_by": "_text_match:desc,last_logged_at:desc",
-                        "per_page": 4,
-                        "prefix": True,
-                        "typo_tokens_threshold": 1,
-                    })
+            ranked = sorted(
+                (( _score_text(query, habit["name"]), habit) for habit in habits),
+                key=lambda item: item[0],
+                reverse=True,
+            )
+            matched = [habit for score, habit in ranked if score > 0][:4]
+        else:
+            matched = habits[:4]
 
-                    habit_search_hits = [
-                        hit["document"]
-                        for hit in habit_result.get("hits", [])
-                    ]
-
-                    if habit_search_hits:
-                        h = habit_search_hits[0]
-                        matched_habit = {
-                            "id": h["id"],
-                            "name": h["name"],
-                            "unit_type": h.get("unit_type", ""),
-                        }
-                except Exception as e:
-                    logger.warning(f"⚠️ Habit name search failed: {e}")
-            
-            # If we matched a habit, generate value-based suggestions
-            if matched_habit:
-                common_values = await self._get_habit_common_values(
-                    user_id, matched_habit["id"]
-                )
-                
-                if common_values:
-                    return [
-                        {
-                            "text": self._format_value_suggestion(
-                                val,
-                                matched_habit["unit_type"],
-                                matched_habit["name"],
-                            ),
-                            "type": "log_phrase",
-                            "habit_id": matched_habit["id"],
-                            "habit_name": matched_habit["name"],
-                            "unit_type": matched_habit["unit_type"],
-                            "value": val,
-                        }
-                        for val in common_values[:4]
-                    ]
-                else:
-                    # No log history yet; suggest the habit name
-                    return [{
-                        "text": matched_habit["name"],
-                        "type": "habit",
-                        "habit_id": matched_habit["id"],
-                        "habit_name": matched_habit["name"],
-                        "unit_type": matched_habit["unit_type"],
-                    }]
-
-            if habit_search_hits:
-                suggestions = []
-                for habit_doc in habit_search_hits:
-                    common_values = await self._get_habit_common_values(
-                        user_id, habit_doc["id"]
-                    )
-                    if common_values:
-                        suggestions.append({
-                            "text": self._format_value_suggestion(
-                                common_values[0],
-                                habit_doc.get("unit_type", ""),
-                                habit_doc["name"],
-                            ),
-                            "type": "log_phrase",
-                            "habit_id": habit_doc["id"],
-                            "habit_name": habit_doc["name"],
-                            "unit_type": habit_doc.get("unit_type", ""),
-                            "value": common_values[0],
-                        })
-                    else:
-                        suggestions.append({
-                            "text": habit_doc["name"],
-                            "type": "habit",
-                            "habit_id": habit_doc["id"],
-                            "habit_name": habit_doc["name"],
-                            "unit_type": habit_doc.get("unit_type", ""),
-                        })
-
-                if suggestions:
-                    return suggestions[:4]
-
-            # No match at all: return empty
-            return []
-
-        # ── Empty state: recently logged habits with their last value ──
-        try:
-            result = self.client.collections["habits"].documents.search({
-                "q": "*",
-                "query_by": "name",
-                "filter_by": f"user_id:={user_id} && is_active:=true",
-                "sort_by": "last_logged_at:desc",
-                "per_page": 4,
-            })
-            
-            suggestions = []
-            for hit in result.get("hits", []):
-                doc = hit["document"]
-                
-                # Get the most recent value for this habit
-                common_values = await self._get_habit_common_values(
-                    user_id, doc["id"], limit=5
-                )
-                
-                if common_values:
-                    # Show the most common value
-                    text = self._format_value_suggestion(
-                        common_values[0],
-                        doc.get("unit_type", ""),
-                        doc["name"],
-                    )
-                else:
-                    text = doc["name"]
-                
-                suggestions.append({
-                    "text": text,
-                    "type": "log_phrase" if common_values else "habit",
-                    "habit_id": doc["id"],
-                    "habit_name": doc["name"],
-                    "unit_type": doc.get("unit_type"),
-                    "value": common_values[0] if common_values else None,
-                })
-            
-            if suggestions:
-                return suggestions
-        
-        except Exception as e:
-            logger.warning(f"⚠️ Recent habits fetch failed: {e}")
-
-        # Fallback
-        if habits_context:
-            return [
+        if not matched and habits_context:
+            matched = [
                 {
-                    "text": h.get("name", ""),
-                    "type": "habit",
-                    "habit_id": h.get("id"),
-                    "habit_name": h.get("name", ""),
-                    "unit_type": h.get("unit_type"),
+                    "id": habit.get("id"),
+                    "name": habit.get("name", ""),
+                    "unit_type": habit.get("unit_type", ""),
                 }
-                for h in habits_context[:4]
+                for habit in habits_context[:4]
             ]
-        
-        return []
+
+        suggestions = []
+        for habit in matched:
+            common_values = await self._get_habit_common_values(user_id, habit["id"])
+            if common_values:
+                suggestions.append({
+                    "text": self._format_value_suggestion(
+                        common_values[0],
+                        habit.get("unit_type", ""),
+                        habit["name"],
+                    ),
+                    "type": "log_phrase",
+                    "habit_id": habit["id"],
+                    "habit_name": habit["name"],
+                    "unit_type": habit.get("unit_type", ""),
+                    "value": common_values[0],
+                })
+            else:
+                suggestions.append({
+                    "text": habit["name"],
+                    "type": "habit",
+                    "habit_id": habit["id"],
+                    "habit_name": habit["name"],
+                    "unit_type": habit.get("unit_type", ""),
+                })
+        return suggestions[:4]
 
     async def _get_chat_suggestions(
         self, user_id: str, query: str, habits_context: List[Dict] = None
     ) -> List[Dict[str, Any]]:
-        """Generate personalized chat question suggestions using the user's habits"""
-
-        # Get user's habits for personalization
-        habit_names: List[str] = []
-
-        if self.is_available:
-            try:
-                result = self.client.collections["habits"].documents.search({
-                    "q": "*",
-                    "query_by": "name",
-                    "filter_by": f"user_id:={user_id} && is_active:=true",
-                    "sort_by": "last_logged_at:desc",
-                    "per_page": 20,
-                })
-                habit_names = [
-                    hit["document"]["name"]
-                    for hit in result.get("hits", [])
-                ]
-            except Exception as e:
-                logger.warning(f"⚠️ Chat suggestions - habits fetch failed: {e}")
-
+        habits = await self._list_user_habits(user_id)
+        habit_names = [habit["name"] for habit in habits if habit.get("name")]
         if not habit_names and habits_context:
-            habit_names = [h.get("name", "") for h in habits_context if h.get("name")]
+            habit_names = [habit.get("name", "") for habit in habits_context if habit.get("name")]
 
-        # Build the full suggestion pool
         all_suggestions: List[Dict[str, Any]] = []
-
-        # Add habit-specific suggestions
         for habit_name in habit_names[:8]:
             for template in self.CHAT_TEMPLATES_HABIT:
-                text = template.replace("{habit}", habit_name.lower())
-                all_suggestions.append({"text": text, "type": "question", "habit_name": habit_name})
-
-        # Add general suggestions
+                all_suggestions.append({
+                    "text": template.replace("{habit}", habit_name.lower()),
+                    "type": "question",
+                    "habit_name": habit_name,
+                })
         for template in self.CHAT_TEMPLATES_GENERAL:
             all_suggestions.append({"text": template, "type": "question"})
 
-        # If user is typing, filter by query match
         if query:
-            scored = []
-            for suggestion in all_suggestions:
-                score = self._score_suggestion_text(
-                    query,
-                    " ".join(
-                        part for part in [
-                            suggestion.get("text", ""),
-                            suggestion.get("habit_name", ""),
-                        ] if part
-                    ),
-                )
-                if score > 0:
-                    scored.append((score, suggestion))
-
+            scored = [
+                (self._score_suggestion_text(query, " ".join(part for part in [item.get("text", ""), item.get("habit_name", "")] if part)), item)
+                for item in all_suggestions
+            ]
+            scored = [(score, item) for score, item in scored if score > 0]
             scored.sort(key=lambda item: item[0], reverse=True)
             if scored:
-                return [suggestion for _, suggestion in scored[:5]]
-
+                return [item for _, item in scored[:5]]
             query_text = query.strip()
             return [
                 {"text": f"What patterns do you see around {query_text}?", "type": "question"},
@@ -1620,84 +800,25 @@ class SearchService:
                 {"text": f"When was {query_text} strongest for me?", "type": "question"},
             ]
 
-        # Empty state: pick a diverse set using day-of-year rotation
-        # This gives consistent suggestions within a day but variety across days
         if habit_names:
             day_seed = _utc_now().timetuple().tm_yday
             suggestions = []
             seen_habits = set()
-
-            # Pick 3 habit-specific suggestions (different habits)
-            habit_specific = [s for s in all_suggestions if s.get("habit_name")]
-            for i in range(len(habit_specific)):
-                idx = (day_seed + i * 7) % len(habit_specific)
-                s = habit_specific[idx]
-                h = s.get("habit_name", "")
-                if h not in seen_habits:
-                    suggestions.append(s)
-                    seen_habits.add(h)
+            habit_specific = [item for item in all_suggestions if item.get("habit_name")]
+            for index in range(len(habit_specific)):
+                item = habit_specific[(day_seed + index * 7) % len(habit_specific)]
+                name = item.get("habit_name", "")
+                if name in seen_habits:
+                    continue
+                suggestions.append(item)
+                seen_habits.add(name)
                 if len(suggestions) >= 3:
                     break
-
-            # Pick 1 general suggestion
-            general = [s for s in all_suggestions if not s.get("habit_name")]
+            general = [item for item in all_suggestions if not item.get("habit_name")]
             if general:
-                idx = day_seed % len(general)
-                suggestions.append(general[idx])
-
+                suggestions.append(general[day_seed % len(general)])
             return suggestions[:4]
-        else:
-            # No habits: return general suggestions
-            return [{"text": t, "type": "question"} for t in self.CHAT_TEMPLATES_GENERAL[:4]]
-
-    def _fallback_search(self, query: str) -> Dict[str, Any]:
-        """Fallback when Typesense is not available"""
-        return {
-            "query": query,
-            "quick_actions": self._search_quick_actions(query),
-            "habits": {"hits": [], "found": 0},
-            "logs": {"hits": [], "found": 0},
-            "conversations": {"hits": [], "found": 0},
-            "activity": {"hits": [], "found": 0},
-            "artifacts": {"hits": [], "found": 0},
-            "workflows": {"hits": [], "found": 0},
-            "facts": {"hits": [], "found": 0},
-            "fallback": True,
-        }
-    
-    def _to_timestamp(self, value) -> int:
-        """Convert various datetime formats to Unix timestamp"""
-        if value is None:
-            return int(_utc_now().timestamp())
-        
-        if isinstance(value, (int, float)):
-            return int(value)
-        
-        if isinstance(value, datetime):
-            return int(value.timestamp())
-        
-        if isinstance(value, str):
-            try:
-                dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-                return int(dt.timestamp())
-            except Exception as e:
-                logger.warning(f"Failed to parse timestamp string '{value}': {e}")
-                return int(_utc_now().timestamp())
-        
-        return int(_utc_now().timestamp())
-    
-    def _date_to_timestamp(self, date_str: str) -> int:
-        """Convert YYYY-MM-DD to Unix timestamp (start of day)"""
-        if not date_str:
-            return 0
-        
-        try:
-            dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
-            return int(dt.timestamp())
-        except Exception as e:
-            logger.warning(f"Failed to parse date string '{date_str}': {e}")
-            return 0
+        return [{"text": text, "type": "question"} for text in self.CHAT_TEMPLATES_GENERAL[:4]]
 
 
-# Global service instance
 search_service = SearchService()

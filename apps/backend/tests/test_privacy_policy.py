@@ -12,7 +12,6 @@ from services.privacy_policy import (
     category_retention_days,
     data_class_for_entity_type,
     data_class_for_tinybird_datasource,
-    data_class_for_typesense_collection,
     request_cloud_consents,
     request_privacy_mode,
     should_redact_observability_key,
@@ -48,21 +47,21 @@ def test_local_only_blocks_sensitive_cloud_egress(monkeypatch):
 
 def test_cloud_intelligence_requires_specific_consent(monkeypatch):
     monkeypatch.setenv("RITUAL_PRIVACY_MODE", "cloud_intelligence")
-    monkeypatch.setenv("RITUAL_CLOUD_CONSENTS", "search")
+    monkeypatch.setenv("RITUAL_CLOUD_CONSENTS", "analytics")
 
     ai_decision = can_send_to_cloud(
         data_class="screenshot",
         destination="openai",
         purpose="vision",
     )
-    search_decision = can_send_to_cloud(
+    analytics_decision = can_send_to_cloud(
         data_class="habit_log",
-        destination="typesense",
-        purpose="search",
+        destination="tinybird",
+        purpose="analytics",
     )
 
     assert ai_decision.allowed is False
-    assert search_decision.allowed is True
+    assert analytics_decision.allowed is True
 
 
 def test_private_sync_blocks_plaintext_secondary_stores(monkeypatch):
@@ -71,8 +70,8 @@ def test_private_sync_blocks_plaintext_secondary_stores(monkeypatch):
 
     decision = can_send_to_cloud(
         data_class="computer_activity",
-        destination="typesense",
-        purpose="search",
+        destination="tinybird",
+        purpose="analytics",
     )
 
     assert decision.allowed is False
@@ -94,7 +93,6 @@ def test_request_headers_can_narrow_mode_and_add_consents(monkeypatch):
 
 def test_destination_classification_and_redaction():
     assert data_class_for_tinybird_datasource("habit_logs") == "habit_log"
-    assert data_class_for_typesense_collection("ai_messages") == "ai_content"
     assert should_redact_observability_key("habit_id") is True
     assert should_redact_observability_key("duration_ms") is False
 

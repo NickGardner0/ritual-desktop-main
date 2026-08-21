@@ -31,10 +31,8 @@ export function PrivacyExternalErasureSection({ userId, onVaultStatus }: Props) 
   const [selectedTargets, setSelectedTargets] = useState<ExternalErasureTarget[]>([
     'private_sync_envelopes',
     'tinybird',
-    'typesense',
     'openpanel',
     'sentry',
-    'trigger',
     'external_providers',
   ]);
   const [message, setMessage] = useState('');

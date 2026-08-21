@@ -38,6 +38,3 @@ openai>=1.0.0
 # Google Gemini (fast vision model for screenshot analysis)
 google-generativeai>=0.8.0
 Pillow>=10.0.0  # For image processing with Gemini
-
-# Search - Typesense for instant search
-typesense>=0.21.0

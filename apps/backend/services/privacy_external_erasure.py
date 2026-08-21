@@ -7,7 +7,6 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from services.privacy_policy import (
     SENSITIVE_TINYBIRD_DATASOURCES,
-    SENSITIVE_TYPESENSE_COLLECTIONS,
 )
 from services.privacy_private_sync import delete_private_sync_envelopes
 
@@ -15,13 +14,11 @@ from services.privacy_private_sync import delete_private_sync_envelopes
 EXECUTABLE_TARGETS = {
     "private_sync_envelopes": "Encrypted Private Sync envelopes",
     "tinybird": "Tinybird analytics datasources",
-    "typesense": "Typesense search indexes",
 }
 
 MANUAL_TARGETS = {
     "openpanel": "OpenPanel product analytics workspace",
     "sentry": "Sentry crash diagnostics workspace",
-    "trigger": "Trigger.dev job/event history",
     "external_providers": "Connected third-party provider accounts",
 }
 
@@ -82,14 +79,6 @@ def build_external_erasure_plan(
                 "execution": "tinybird_delete_api",
                 "datasources": sorted(SENSITIVE_TINYBIRD_DATASOURCES),
             })
-        elif target == "typesense":
-            planned_targets.append({
-                "target": target,
-                "label": EXECUTABLE_TARGETS[target],
-                "status": "supported_by_api",
-                "execution": "typesense_delete_by_user",
-                "collections": sorted(SENSITIVE_TYPESENSE_COLLECTIONS),
-            })
         else:
             planned_targets.append(_manual_receipt(target))
 
@@ -104,7 +93,6 @@ def build_external_erasure_plan(
         "limitations": [
             "Targets without a configured deletion API return manual-required receipts instead of pretending erasure completed.",
             "Tinybird deletes are scoped by user_id against sensitive datasources known to Ritual's privacy policy.",
-            "Typesense deletes are scoped by user_id across sensitive search collections.",
         ],
     }
 
@@ -159,30 +147,6 @@ async def _execute_tinybird_erasure(user_id: str, tinybird_service: Any = None) 
     }
 
 
-async def _execute_typesense_erasure(user_id: str, search_service: Any = None) -> Dict[str, Any]:
-    if search_service is None:
-        try:
-            from services.search_service import SearchService
-
-            search_service = SearchService()
-        except Exception as error:
-            return {
-                "target": "typesense",
-                "status": "unavailable",
-                "deleted_count": 0,
-                "error": str(error),
-            }
-
-    result = await search_service.delete_user_indexed_documents(
-        user_id,
-        collections=sorted(SENSITIVE_TYPESENSE_COLLECTIONS),
-    )
-    return {
-        "target": "typesense",
-        **result,
-    }
-
-
 async def execute_external_erasure(
     user_id: str,
     *,
@@ -191,7 +155,6 @@ async def execute_external_erasure(
     local_receipt_id: str,
     confirm_external_erasure: bool,
     tinybird_service: Any = None,
-    search_service: Any = None,
 ) -> Dict[str, Any]:
     if not confirm_external_erasure:
         raise ValueError("External erasure requires explicit confirmation.")
@@ -214,8 +177,6 @@ async def execute_external_erasure(
             })
         elif target == "tinybird":
             receipts.append(await _execute_tinybird_erasure(user_id, tinybird_service))
-        elif target == "typesense":
-            receipts.append(await _execute_typesense_erasure(user_id, search_service))
         else:
             receipts.append(_manual_receipt(target))
 

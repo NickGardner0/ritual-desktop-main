@@ -54,16 +54,6 @@ async def post_startup_initialization(app: FastAPI, tesla_service) -> None:
         uvicorn_logger.warning("⚠️ Deferred database startup maintenance failed: %s", exc)
         return
 
-    try:
-        from services.search_service import search_service
-
-        await search_service.ensure_collections()
-        uvicorn_logger.info("🔎 Typesense search collections are ready")
-    except asyncio.CancelledError:
-        raise
-    except Exception as exc:
-        uvicorn_logger.warning("⚠️ Typesense search initialization skipped: %s", exc)
-
     if ENABLE_INTERNAL_SCHEDULER:
         app.state.scheduler_task = asyncio.create_task(
             internal_scheduler_loop(tesla_service)

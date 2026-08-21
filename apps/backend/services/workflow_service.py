@@ -294,15 +294,8 @@ class WorkflowService:
         )
 
     async def _index_definition(self, definition: WorkflowDefinitionDB, profile: ActionProfileDB) -> None:
-        try:
-            from services.search_service import search_service
-
-            await search_service.index_workflow_definition(
-                self._definition_to_schema(definition, profile).model_dump(mode="json"),
-                definition.user_id,
-            )
-        except Exception:
-            logger.exception("Failed to index workflow definition %s", definition.id)
+        del definition, profile
+        return None
 
     async def ensure_default_action_profiles(self, session, user_id: str) -> List[ActionProfileDB]:
         result = await session.execute(

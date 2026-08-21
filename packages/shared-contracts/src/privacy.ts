@@ -31,14 +31,12 @@ export const CLOUD_DESTINATIONS = [
   "turso_cloud",
   "turso_encrypted_sync",
   "tinybird",
-  "typesense",
   "openpanel",
   "sentry",
   "openai",
   "gemini",
   "deepgram",
   "groq",
-  "trigger",
   "provider_api",
   "sendblue",
 ] as const;
@@ -188,7 +186,7 @@ export function canSendToCloud(input: PrivacyPolicyInput): PrivacyDecision {
   }
 
   if (mode === "private_sync" && isSensitiveDataClass(dataClass)) {
-    if (destination === "turso_cloud" || destination === "tinybird" || destination === "typesense") {
+    if (destination === "turso_cloud" || destination === "tinybird") {
       return { allowed: false, reason: "Private Sync only permits encrypted envelope sync" };
     }
   }

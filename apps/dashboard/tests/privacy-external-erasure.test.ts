@@ -98,7 +98,7 @@ describe("external erasure client", () => {
         deletes_cloud_data: true,
         requested_targets: body.targets,
         targets: [
-          { target: "typesense", status: "completed", deleted_count: 3 },
+          { target: "tinybird", status: "completed", deleted_count: 3 },
           { target: "openpanel", status: "manual_required", deleted_count: 0 },
         ],
         deleted_count: 3,
@@ -109,7 +109,7 @@ describe("external erasure client", () => {
 
     const result = await executeExternalErasure({
       userId: "user-1",
-      targets: ["typesense", "openpanel"],
+      targets: ["tinybird", "openpanel"],
       fetchImpl,
       client,
       now: () => new Date("2026-06-24T00:00:00Z"),

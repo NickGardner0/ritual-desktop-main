@@ -1,7 +1,7 @@
 # Ritual simplification results
 
 **Started:** 2026-08-20  
-**Worktree:** `/Users/nickgardner/Desktop/ritual-desktop-main` at `4afdc5e6` plus the uncommitted source present when this pass began.  
+**Worktree:** `/Users/nickgardner/Desktop/ritual-release-0.1.1-prep` on `codex/release-0.1.1-prep`.  
 **Governing rule:** delete unnecessary machinery; do not hide complexity behind new interfaces.  
 **Architecture report:** [`RITUAL_SIMPLIFICATION_ARCHITECTURE_REPORT.md`](./RITUAL_SIMPLIFICATION_ARCHITECTURE_REPORT.md)
 
@@ -32,7 +32,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | 4. Identity-safe React Query cache | Done | Restore waits for Clerk user id and uses `ritual:react-query-cache:v1:<userId>`. Habit snapshots were folded into this persist path |
 | 5. Chat persistence / AssistantKernel | Done for strangler | `AssistantKernel` owns `queued → running → committing → completed\|failed\|canceled`. Durable FastAPI `assistant_turns` store, dashboard outbox, SMS/web/queue entrypoints, serial mutating tools, epoch cancel |
 | 6. One scheduler | Done | Trigger.dev deleted. FastAPI loops are the only scheduler; job table in `docs/architecture/SCHEDULER_JOBS.md`. Default on when `RAILWAY_ENVIRONMENT` is set. `ENABLE_INTERNAL_SCHEDULER` documented in backend README and `.env.example` |
-| 7. Search/index | Done for Typesense | Typesense client, indexing, privacy destination, erasure target, and leftover write stubs (`/api/search/index-phrase`, `/api/search/reindex`) removed. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics. `/api/search/status` remains as a health check |
+| 7. Search/index | Done for Typesense | Typesense client, PyPI dep, indexing fan-out, `/api/search/index-phrase`, `/api/search/reindex`, and erasure target removed on the release tree. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics. `/api/search/status` is a SQL-search health check |
 | 8. Telemetry overlap | Partial | Removed Vercel Speed Insights. OpenPanel (product) and Sentry (errors) kept |
 | 9. Local UI preferences | Partial | FastAPI still owns cross-device overview/color prefs. Local cache is now per-user (`ritual:ui-preferences:v2:<userId>`) |
 | 10. Activity ownership | Done for raw/recent desktop | Desktop raw and ≤7-day reads use `activity.db` with observable `local \| synced \| unavailable`. No hidden HTTP/backend mix. Web/iOS and long-range desktop aggregates remain explicit `synced` |
@@ -52,7 +52,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Remove unused Tauri IPC wrappers | ~230 Rust physical | 0 | ~−230 | 10 unused command exposures | none | Internal watchdog/project-time functions kept |
 | Identity-safe query cache + ACL contract test | n/a | small add | small add | none | none | Restore is per-user after Clerk; registered==allowed==invoked (60) |
 | Hide nonfunctional AI retention / clear-history controls | small | 0 | small | deceptive UI | none | Hidden until a real persistence/erasure path exists |
-| Delete Typesense | ~1,700 search_service + indexing fan-out | SQL search ~850 | ~−850 plus deleted index call sites | Typesense cluster | `typesense` PyPI | Command palette/habit search read Turso. Privacy destination/erasure target removed |
+| Delete Typesense (completed on release tree) | `search_service.py` 1,703 Typesense client | SQL search 824 | −879 plus deleted index/erasure call sites | Typesense cluster | `typesense` PyPI | Command palette/habit search read Turso. Privacy destination/erasure target removed |
 | Delete Trigger.dev | trigger jobs + client + config | 0 | ~−400 | Trigger.dev cloud cron | `@trigger.dev/sdk`, `@trigger.dev/build` | FastAPI `background_tasks.py` owns wearable/SMS/report/workflow jobs. On by default on Railway |
 | Fold habit snapshots into React Query persist | dedicated localStorage snapshots | 0 | small | extra cache | none | Habits and habit-logs now persist only via identity-keyed React Query cache |
 | Per-user UI preference cache | global `ritual:ui-preferences:v1` | `v2:<userId>` | ~0 | cross-user stale prefs | none | FastAPI remains the cross-device store |
@@ -96,13 +96,13 @@ Remeasured 2026-08-21 after unused-duplicate deletion (tokei 14.0.0, audit exclu
   Audit-comparable total: ~183.97k (baseline 192,474, −8.5k). Target band 180–185k: met on this dirty tree.
 chat-api deployable: removed
 Schedulers before/after: 2 → 1 (FastAPI loops only; Trigger.dev deleted)
-Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted.
+Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted on the release tree.
 Frontend↔desktop paths before: commands + tauri-utils + desktop-runtime + runtime bridge + shell bridge + profiling
 Frontend↔desktop paths after: NativeGateway barrel + generated command/capability/input/output triad; desktop-bridge is implementation; DesktopRuntimeBridge split into lifecycle owners; separate shell bootstrap
 Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS loop → AssistantKernel + assistant_turns + local outbox
 Computer activity recent-desktop source: hidden mix → observable local | synced | unavailable
 Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. Intel is not a 0.1.1 ship target.
-Dashboard production typecheck: green. `next build --webpack`: green.
+Dashboard production typecheck: green. `next build --webpack` compiles; local prerender needs Clerk keys.
 ```
 
 Tests do not count against production reduction.

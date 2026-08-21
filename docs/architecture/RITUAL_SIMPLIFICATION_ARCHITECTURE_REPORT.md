@@ -1,7 +1,7 @@
 # Ritual simplification — architecture before/after
 
 **Date:** 2026-08-21  
-**Worktree:** `/Users/nickgardner/Desktop/ritual-desktop-main` (dirty feature tree). Ship target is `codex/release-0.1.1-prep`.  
+**Worktree:** `/Users/nickgardner/Desktop/ritual-release-0.1.1-prep` on `codex/release-0.1.1-prep`.  
 **Sources:** [`RITUAL_SIMPLIFICATION_PLAN.md`](./RITUAL_SIMPLIFICATION_PLAN.md), [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md), [`RITUAL_SIMPLIFICATION_RESULTS.md`](./RITUAL_SIMPLIFICATION_RESULTS.md).
 
 This is the before/after architecture report. The ledger in the results file is the pass log; this document is the ownership map.
@@ -24,8 +24,8 @@ Desktop IPC
   Command names were strings; ACL check existed after Phase 1.1.
 
 Jobs / search
-  FastAPI loops + Trigger.dev (deleted this program)
-  SQL + Typesense (deleted) + Tinybird + MiniSearch
+  FastAPI loops only
+  SQL search + Tinybird analytics + MiniSearch habit picker
 ```
 
 ## After
@@ -78,18 +78,18 @@ Desktop
 
 | Plan criterion | Evidence |
 |---|---|
-| Production build reproducible and green | Dashboard `tsc --noEmit` and `next build --webpack` are green on this tree (2026-08-21). |
-| Every Tauri command typed + capability | ACL 60/60. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` from Rust signatures. |
-| Persisted browser data cannot cross identity | Done earlier (React Query persist key). |
+| Production build reproducible and green | `npm run typecheck` is green. `next build --webpack` compiles; local prerender still needs Clerk publishableKey. CI/Vercel supply that key. |
+| Every Tauri command typed + capability | ACL 68/68. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` from Rust signatures. |
+| Persisted browser data cannot cross identity | React Query persist key is `ritual:react-query-cache:v1:<userId>` and restore rejects identity mismatch. |
 | One durable turn/receipt history | FastAPI `assistant_turns` + kernel commit after persist. Receipts stored on the turn. |
 | Only read-only tools concurrent | `planToolBatch` / `executeDeclaredToolCalls`; unknown tools fail closed as mutating. |
 | One scheduler owner | FastAPI only. Job table written. Trigger.dev **code** deleted. Cloud project disable is a post-deploy ops step (`TRIGGER_DEV_OPS.md`). |
-| No chat-api / profiling callers | Deleted. |
-| Desktop activity explicit local source | Done earlier for recent desktop. Long-range/web still `synced`. |
-| Remaining projections documented | Tinybird inventory + domain-event types for habit log, habit def, assistant turn, activity sync. |
-| Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS fixture budgets in `repo:check`; desktop-rust tests parse RSS and orphan sidecars; production code records launch milestones and process RSS. |
-| LOC remeasured | Audit baseline 192,474. Audit-comparable total ~183.97k after unused-duplicate deletion. Inside 180–185k. |
-| Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. Conversation queue remains a prompt queue, not a second turn owner. |
+| No chat-api / profiling callers | Deleted. Stale `package-lock.json` `apps/chat-api` workspace entry removed. |
+| Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
+| Remaining projections documented | Tinybird inventory. Typesense client, PyPI dep, index routes, and erasure target deleted; command palette/habit search read Turso SQL. MiniSearch stays for the in-modal picker. |
+| Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS fixture budgets in `repo:check`; production code records launch milestones and process RSS. Live WKWebView five-trial captures are still release QA. |
+| LOC remeasured | Audit baseline 192,474. Typesense `search_service.py` 1,703 → 824 SQL lines on this tree, plus deleted index fan-out. Voice HUD restore added native code back after the collapse commit. |
+| Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. `packages/chat-runtime/src/chat-stream/*` still exists as the model-loop adapter behind the kernel; it is not a second turn owner. |
 
 ## Intentionally not done
 

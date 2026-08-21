@@ -309,36 +309,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Index successful log phrases for future Typesense suggestion matching
-    // This enables learned patterns: "I consumed" → Caffeine Consumption
-    if (logResults.some(r => r.success) && effectiveToken) {
-      const rawInput = messages[messages.length - 1]?.content || '';
-      
-      for (const result of logResults) {
-        if (result.success && result.habit_id && result.habit_name) {
-          try {
-            fetch(`${PYTHON_API_BASE}/api/search/index-phrase`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${effectiveToken}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                input_text: rawInput,
-                habit_id: result.habit_id,
-                habit_name: result.habit_name,
-                value: result.value,
-                unit: result.unit,
-              }),
-              signal: AbortSignal.timeout(15000),
-            }).catch(err => logger.warn('⚠️ Failed to index log phrase:', err));
-          } catch {
-            // Non-blocking: phrase indexing is best-effort
-          }
-        }
-      }
-    }
-
     // Build clarification list
     const clarifications = needsClarification.map((intent, index) => ({
       index,

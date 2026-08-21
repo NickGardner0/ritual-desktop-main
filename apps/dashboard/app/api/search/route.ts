@@ -4,7 +4,7 @@ import { getServerBackendBaseUrl } from "@/lib/api/server-client";
 
 /**
  * Global federated search endpoint.
- * Proxies to Python backend which handles Typesense integration.
+ * Proxies to the FastAPI SQL search over canonical Turso tables.
  */
 export async function GET(request: NextRequest) {
   try {

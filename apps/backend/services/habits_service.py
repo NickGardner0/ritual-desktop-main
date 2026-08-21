@@ -400,7 +400,7 @@ class HabitsService:
     def _fire_habit_log_side_effects(
         self, habit_log: HabitLog, habit: Habit, user_id: str
     ):
-        """Bounded secondary Tinybird/Typesense/WebSocket fan-out for a habit log."""
+        """Bounded secondary Tinybird/WebSocket fan-out for a habit log."""
         if getattr(habit_log, "was_inserted", True) is False:
             return
 
@@ -415,24 +415,6 @@ class HabitsService:
                     ),
                 )
             )
-
-        async def _index_log():
-            from services.search_service import search_service
-            await search_service.index_habit_log(
-                habit_log.model_dump(),
-                user_id,
-                habit_name=habit.name,
-                category=habit.category,
-            )
-
-        asyncio.create_task(
-            secondary_job_runner.enqueue(
-                job_class="search",
-                name=f"typesense_index_log:{habit_log.id}",
-                dedupe_key=f"typesense_index_log:{habit_log.id}",
-                coro_factory=_index_log,
-            )
-        )
 
         async def _notify():
             await websocket_manager.notify_habit_logged(
@@ -461,7 +443,7 @@ class HabitsService:
     def _fire_habit_definition_side_effects(
         self, habit: Habit, user_id: str, *, was_inserted: bool = True
     ):
-        """Bounded secondary Tinybird/Typesense fan-out for a habit definition."""
+        """Bounded secondary Tinybird fan-out for a habit definition."""
         if was_inserted is False:
             return
 
@@ -474,19 +456,6 @@ class HabitsService:
                     coro_factory=lambda h=habit: self._sync_habit_to_tinybird(h),
                 )
             )
-
-        async def _index_habit():
-            from services.search_service import search_service
-            await search_service.index_habit(habit.model_dump(), user_id)
-
-        asyncio.create_task(
-            secondary_job_runner.enqueue(
-                job_class="search",
-                name=f"typesense_index_habit:{habit.id}",
-                dedupe_key=f"typesense_index_habit:{habit.id}",
-                coro_factory=_index_habit,
-            )
-        )
 
     async def create_habit(self, habit_data: HabitCreate, user_id: str) -> Habit:
         """
@@ -884,12 +853,6 @@ class HabitsService:
                     raise Exception("Habit log not found or not authorized")
                 session.delete(log_row)
                 await session.commit()
-                try:
-                    from services.search_service import search_service
-
-                    await search_service.delete_habit_log_index(log_id)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("Typesense delete for habit log failed: %s", exc)
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise Exception(f"Failed to delete habit log: {str(e)}") from e
@@ -1178,24 +1141,6 @@ class HabitsService:
                             coro_factory=lambda payload=batch_payload: self.tinybird.ingest_habit_logs_batch(
                                 payload
                             ),
-                        )
-                    )
-
-                # Typesense search indexing for each log
-                for _, log_db, habit in prepared_logs:
-                    async def _index_batch_log(log_row=log_db, h=habit):
-                        from services.search_service import search_service
-                        log = habit_log_db_to_pydantic(log_row)
-                        await search_service.index_habit_log(
-                            log.model_dump(), user_id,
-                            habit_name=h.name, category=h.category,
-                        )
-                    asyncio.create_task(
-                        secondary_job_runner.enqueue(
-                            job_class="search",
-                            name=f"typesense_index_batch_log:{log_db.id}",
-                            dedupe_key=f"typesense_index_batch_log:{log_db.id}",
-                            coro_factory=_index_batch_log,
                         )
                     )
 
