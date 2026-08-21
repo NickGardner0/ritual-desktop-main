@@ -100,6 +100,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete leftover analytics re-exports and Midday logger | overview/metrics shims + computer-activity wrapper + `lib/logger.ts` | live OverviewView / MetricsView / ComputerActivityPanel + console in two API routes | ~−200 | unused re-export path and unused Sentry-window logger | leftover MetricsView import soup in `metrics-view.shared.tsx` | Metrics still lazy-loads the live panel. Whisper and habit-parser keep their Next routes |
 | Strip leftover MetricsView imports from the live hook | `useMetricsView.ts` still imported the pre-split view | hook-only deps | ~−80 | unused MetricsView coupling | none | Drag/share/fetch behavior unchanged |
 | Mount the durable assistant-turn API that chat already calls | FastAPI service/schema/migration existed but were unreachable | one `/api/assistant-turns` owner | small add | silent 404 fallback in chat-runtime | none | Kernel already posts here. Privacy inventory now deletes the same table |
+| Delete leftover routine-editor and share one FastAPI helper in chat | unused `routine-editor.ts` + a second fetch to PYTHON_API_BASE | live weekday options + `fetchPythonApi` | ~−50 | leftover split-pane editor and a second chat HTTP client | duplicate WEEKDAYS list | Conversation/message/fact/mention writes still fail open |
 
 ## Aggregate (this pass)
 

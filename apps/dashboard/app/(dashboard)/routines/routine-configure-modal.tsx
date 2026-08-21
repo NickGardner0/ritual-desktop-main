@@ -22,8 +22,8 @@ import {
 import { nextOccurrences } from '@/lib/routines/schedule-engine.mjs';
 import { templateScheduleDraft, type RoutineTemplate } from '@/lib/routines/templates';
 import { formatOccurrence, toDate, useNow } from '@/lib/routines/time';
-import { WEEKDAYS } from '@/lib/tasks/routine-editor';
 import { InlineFieldInput, PillSelect } from '@/lib/tasks/task-ui-shell';
+import { WORKFLOW_WEEKDAY_OPTIONS } from '@/lib/workflows/types';
 import type { TaskPriority } from '@/lib/tasks/types';
 import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
 import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
@@ -288,7 +288,7 @@ function ScheduleEditor({
         {draft.frequency === 'weekly' ? (
           <PanelRow label="On" className="items-start py-2.5">
             <span className="flex max-w-[220px] flex-wrap justify-end gap-1">
-              {WEEKDAYS.map((day) => {
+              {WORKFLOW_WEEKDAY_OPTIONS.map((day) => {
                 const active = draft.weekdays.includes(day.value);
                 return (
                   <button

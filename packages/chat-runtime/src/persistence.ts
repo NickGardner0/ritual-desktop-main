@@ -4,24 +4,14 @@
  * Used by the orchestrator for conversation persistence.
  */
 
-const PYTHON_API_BASE = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+import { fetchPythonApi, fetchPythonApiPost } from './executors/shared-api.js';
 
 export async function createConversation(token: string): Promise<string | null> {
   try {
-    const response = await fetch(`${PYTHON_API_BASE}/api/conversations`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (response.ok) {
-      const data = await response.json();
-      console.log('💬 Created new conversation:', data.id);
-      return data.id;
-    }
-    console.error('❌ Failed to create conversation:', await response.text());
-    return null;
+    const data = await fetchPythonApiPost('/api/conversations', token, {});
+    const id = typeof data?.id === 'string' ? data.id : null;
+    if (id) console.log('💬 Created new conversation:', id);
+    return id;
   } catch (error) {
     console.error('❌ Error creating conversation:', error);
     return null;
@@ -36,24 +26,13 @@ export async function saveMessage(
   toolPayload?: Record<string, unknown> | null
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${PYTHON_API_BASE}/api/conversations/${conversationId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        role,
-        content,
-        tool_payload: toolPayload || null,
-      }),
+    await fetchPythonApiPost(`/api/conversations/${conversationId}/messages`, token, {
+      role,
+      content,
+      tool_payload: toolPayload || null,
     });
-    if (response.ok) {
-      console.log(`💾 Saved ${role} message to conversation ${conversationId}`);
-      return true;
-    }
-    console.error('❌ Failed to save message:', await response.text());
-    return false;
+    console.log(`💾 Saved ${role} message to conversation ${conversationId}`);
+    return true;
   } catch (error) {
     console.error('❌ Error saving message:', error);
     return false;
@@ -62,15 +41,10 @@ export async function saveMessage(
 
 export async function getPromptFacts(token: string): Promise<Array<Record<string, unknown>>> {
   try {
-    const response = await fetch(`${PYTHON_API_BASE}/api/ai-facts?status=active`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-    if (!response.ok) return [];
-    const data = await response.json();
-    return Array.isArray(data?.items) ? data.items.filter((item: any) => item?.visibility === 'prompt' || item?.visibility === 'ui') : [];
+    const data = await fetchPythonApi('/api/ai-facts', token, { status: 'active' });
+    return Array.isArray(data?.items)
+      ? data.items.filter((item: { visibility?: string }) => item?.visibility === 'prompt' || item?.visibility === 'ui')
+      : [];
   } catch (error) {
     console.error('❌ Error loading prompt facts:', error);
     return [];
@@ -82,28 +56,17 @@ export async function createFactSuggestions(
   suggestions: Array<Record<string, unknown>>,
 ): Promise<void> {
   if (!suggestions.length) return;
-  try {
-    await Promise.all(
-      suggestions.map((suggestion) =>
-        fetch(`${PYTHON_API_BASE}/api/ai-facts`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            ...suggestion,
-            status: 'pending',
-            source_type: suggestion.source_type || 'assistant',
-          }),
-        }).catch((error) => {
-          console.error('❌ Error storing fact suggestion:', error);
-        }),
-      ),
-    );
-  } catch (error) {
-    console.error('❌ Error storing fact suggestions:', error);
-  }
+  await Promise.all(
+    suggestions.map((suggestion) =>
+      fetchPythonApiPost('/api/ai-facts', token, {
+        ...suggestion,
+        status: 'pending',
+        source_type: suggestion.source_type || 'assistant',
+      }).catch((error) => {
+        console.error('❌ Error storing fact suggestion:', error);
+      }),
+    ),
+  );
 }
 
 const ENTITY_MENTION_TOKEN_RE = /\[\[([a-z_]+):([^\]]+)\]\]/g;
@@ -171,18 +134,11 @@ export async function syncEntityMentions(
   provenance: 'user' | 'assistant' | 'workflow' = 'user',
 ): Promise<boolean> {
   try {
-    const response = await fetch(`${PYTHON_API_BASE}/api/entities/references/sync`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ source, targets, provenance }),
-    });
-    if (!response.ok) {
-      console.error('❌ Failed to sync entity mentions:', await response.text());
-      return false;
-    }
+    await fetchPythonApiPost('/api/entities/references/sync', token, {
+      source,
+      targets,
+      provenance,
+    } as Record<string, unknown>);
     return true;
   } catch (error) {
     console.error('❌ Error syncing entity mentions:', error);
