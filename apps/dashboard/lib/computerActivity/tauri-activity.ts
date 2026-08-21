@@ -1,9 +1,6 @@
 'use client'
 
-import { invoke } from '@tauri-apps/api/core'
-import { buildDesktopCommandOrigin } from '@/lib/desktop-runtime'
-
-const LOCAL_BRIDGE_BASE = 'http://127.0.0.1:3031'
+import { invokeDesktopCommand, buildDesktopCommandOrigin } from '@/lib/native-gateway'
 
 export interface TauriDetailedActivityEvent {
   id: number
@@ -44,99 +41,30 @@ export function isDbNotInitializedError(error: unknown): boolean {
   )
 }
 
-function hasTauriIpcBridge(): boolean {
-  if (typeof window === 'undefined') return false
-  const w = window as Window & {
-    __TAURI__?: unknown;
-    __TAURI_IPC__?: unknown;
-    __TAURI_INTERNALS__?: { invoke?: unknown };
-  }
-  return (
-    Boolean(w.__TAURI__) ||
-    typeof w.__TAURI_IPC__ === 'function' ||
-    typeof w.__TAURI_INTERNALS__?.invoke === 'function'
-  )
-}
-
-function isDesktopUserAgent(): boolean {
-  return typeof navigator !== 'undefined' && (navigator.userAgent || '').includes('RitualDesktop/')
-}
-
-async function fetchLocalBridgeJson<T>(path: string, params: Record<string, string | number | undefined>): Promise<T> {
-  const search = new URLSearchParams()
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue
-    search.set(key, String(value))
-  }
-
-  const response = await fetch(`${LOCAL_BRIDGE_BASE}${path}?${search.toString()}`, {
-    cache: 'no-store',
-  })
-  if (!response.ok) {
-    throw new Error(`Local bridge request failed (${response.status})`)
-  }
-  return response.json() as Promise<T>
-}
-
 export async function invokeDetailedActivityWithInitRetry(params: {
   startTs: number
   endTs: number
   limit?: number
 }): Promise<TauriDetailedActivityResponse> {
-  if (isDesktopUserAgent() && !hasTauriIpcBridge()) {
-    try {
-      return await fetchLocalBridgeJson<TauriDetailedActivityResponse>('/v1/activity/detailed', {
-        start_ts: params.startTs,
-        end_ts: params.endTs,
-        limit: params.limit,
-      })
-    } catch (bridgeError) {
-      console.warn(
-        '[tauri-activity] Local detailed bridge failed, falling back to Tauri invoke',
-        bridgeError,
-        { hasIpcBridge: hasTauriIpcBridge() },
-      )
-    }
-  }
-
   const camelParams = params
-  const snakeParams = {
-    start_ts: params.startTs,
-    end_ts: params.endTs,
-    limit: params.limit,
-  }
   const detailedActivityOrigin = buildDesktopCommandOrigin('tauri-activity:get_detailed_activity')
 
   try {
-    return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
+    return await invokeDesktopCommand<TauriDetailedActivityResponse>('get_detailed_activity', {
       ...camelParams,
       origin: detailedActivityOrigin,
     })
   } catch (error) {
     if (isDbNotInitializedError(error)) {
-      await invoke<string>('init_ritual_database', {
+      await invokeDesktopCommand<string>('init_ritual_database', {
         origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:detailed'),
       })
-      try {
-        return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
-          ...camelParams,
-          origin: detailedActivityOrigin,
-        })
-      } catch (retryError) {
-        if (!isDbNotInitializedError(retryError)) {
-          throw retryError
-        }
-      }
-    }
-
-    try {
-      return await invoke<TauriDetailedActivityResponse>('get_detailed_activity', {
-        ...snakeParams,
+      return await invokeDesktopCommand<TauriDetailedActivityResponse>('get_detailed_activity', {
+        ...camelParams,
         origin: detailedActivityOrigin,
       })
-    } catch (snakeError) {
-      throw snakeError
     }
+    throw error
   }
 }
 
@@ -144,54 +72,24 @@ export async function invokeDailySummariesWithInitRetry(
   startDate: string,
   endDate: string,
 ): Promise<TauriDailySummaryRow[]> {
-  if (isDesktopUserAgent() && !hasTauriIpcBridge()) {
-    try {
-      return await fetchLocalBridgeJson<TauriDailySummaryRow[]>('/v1/activity/daily-summaries', {
-        start_date: startDate,
-        end_date: endDate,
-      })
-    } catch (bridgeError) {
-      console.warn(
-        '[tauri-activity] Local daily-summaries bridge failed, falling back to Tauri invoke',
-        bridgeError,
-        { hasIpcBridge: hasTauriIpcBridge() },
-      )
-    }
-  }
-
   const camelParams = { startDate, endDate }
-  const snakeParams = { start_date: startDate, end_date: endDate }
   const dailySummariesOrigin = buildDesktopCommandOrigin('tauri-activity:get_daily_summaries')
 
   try {
-    return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
+    return await invokeDesktopCommand<TauriDailySummaryRow[]>('get_daily_summaries', {
       ...camelParams,
       origin: dailySummariesOrigin,
     })
   } catch (error) {
     if (isDbNotInitializedError(error)) {
-      await invoke<string>('init_ritual_database', {
+      await invokeDesktopCommand<string>('init_ritual_database', {
         origin: buildDesktopCommandOrigin('tauri-activity:init_ritual_database:daily-summaries'),
       })
-      try {
-        return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
-          ...camelParams,
-          origin: dailySummariesOrigin,
-        })
-      } catch (retryError) {
-        if (!isDbNotInitializedError(retryError)) {
-          throw retryError
-        }
-      }
-    }
-
-    try {
-      return await invoke<TauriDailySummaryRow[]>('get_daily_summaries', {
-        ...snakeParams,
+      return await invokeDesktopCommand<TauriDailySummaryRow[]>('get_daily_summaries', {
+        ...camelParams,
         origin: dailySummariesOrigin,
       })
-    } catch (snakeError) {
-      throw snakeError
     }
+    throw error
   }
 }

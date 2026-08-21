@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::internal::WATCHER_CONTROLLER;
+use super::internal::DEVICE_ID;
 use serde::{Deserialize, Serialize};
 
 pub(crate) fn apply_turso_sync_env(command: &mut Command) {
@@ -27,10 +27,7 @@ pub(crate) fn require_db<'a, T>(db: Option<&'a T>) -> Result<&'a T, String> {
 
 /// Get the current device_id (set when watcher starts)
 pub(crate) fn get_device_id() -> Option<String> {
-    WATCHER_CONTROLLER
-        .lock()
-        .ok()
-        .and_then(|controller| controller.device_id.clone())
+    DEVICE_ID.lock().ok().and_then(|g| g.clone())
 }
 
 /// Get device_id or try to read it from the config file

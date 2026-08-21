@@ -4,7 +4,6 @@
   "budgets": {
     "dashboardApiRoutesMax": 39,
     "dashboardTsxFileMaxLines": 800,
-    "dashboardGeneratedFileMaxLines": 5000,
     "backendProviderServiceMaxLines": 650,
     "trackedFileMaxLines": {
       "apps/dashboard/components/ai-habit-chat.tsx": 550,

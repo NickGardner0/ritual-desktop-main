@@ -4,11 +4,15 @@ use std::collections::HashSet;
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use super::config::default_browser_heartbeat_port;
 use super::diagnostics::{get_browser_extension_diagnostics, watcher_server_statuses};
-use super::internal::{WatcherControllerState, WATCHER_CONTROLLER, WATCHER_OPERATION_GATE};
+use super::internal::{
+    DEVICE_ID, WATCHER_LAST_RESTART_REASON, WATCHER_LAST_STARTED_AT, WATCHER_PROCESS,
+    WATCHER_RESTART_COUNT,
+};
 use tracing::instrument;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -516,16 +520,24 @@ fn list_watcher_pids_for_device(device_id: &str) -> Vec<u32> {
         return Vec::new();
     }
 
+    parse_watcher_pids_from_ps(&String::from_utf8_lossy(&output.stdout), device_id)
+}
+
+pub(crate) fn parse_watcher_pids_from_ps(stdout: &str, device_id: &str) -> Vec<u32> {
+    if device_id.trim().is_empty() {
+        return Vec::new();
+    }
+
     let device_flag = format!("--device-id {}", device_id);
 
-    String::from_utf8_lossy(&output.stdout)
+    stdout
         .lines()
         .filter_map(|line| {
             let trimmed = line.trim();
-            if trimmed.is_empty()
-                || !trimmed.contains("ritual-watcher")
-                || !trimmed.contains(&device_flag)
-            {
+            if trimmed.is_empty() || !trimmed.contains("ritual-watcher") {
+                return None;
+            }
+            if !command_has_exact_flag(trimmed, &device_flag) {
                 return None;
             }
 
@@ -534,6 +546,18 @@ fn list_watcher_pids_for_device(device_id: &str) -> Vec<u32> {
             Some(pid)
         })
         .collect()
+}
+
+fn command_has_exact_flag(command: &str, flag: &str) -> bool {
+    let Some(index) = command.find(flag) else {
+        return false;
+    };
+    let after = index + flag.len();
+    after == command.len()
+        || command
+            .as_bytes()
+            .get(after)
+            .is_some_and(|byte| byte.is_ascii_whitespace())
 }
 
 fn kill_watcher_pid(pid: u32) {
@@ -570,9 +594,6 @@ fn cleanup_existing_watcher_processes(device_id: &str, context: &str) {
 #[tauri::command]
 #[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<WatcherStatus, String> {
-    let _operation = WATCHER_OPERATION_GATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let started_at = Instant::now();
     watcher_info!("🚀 Starting Ritual Watcher...");
     watcher_info!("   Device ID: {}", config.device_id);
@@ -584,19 +605,19 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
     log_existing_watcher_bindings("pre-start self-check");
 
     // Store device_id for later query use
-    {
-        let mut controller = WATCHER_CONTROLLER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.begin_start(config.device_id.clone());
+    if let Ok(mut guard) = DEVICE_ID.lock() {
+        *guard = Some(config.device_id.clone());
+    }
+    if let Ok(mut guard) = WATCHER_LAST_STARTED_AT.lock() {
+        *guard = Some(Instant::now());
     }
 
     // Clear our stored handle
     {
-        let mut controller = WATCHER_CONTROLLER
+        let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(mut existing_child) = controller.process.take() {
+        if let Some(mut existing_child) = guard.take() {
             let _ = existing_child.kill();
             let _ = existing_child.wait();
         }
@@ -628,23 +649,19 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
     command.args(&args);
     super::config::apply_turso_sync_env(&mut command);
     configure_watcher_stdio(&mut command)?;
-    let child = command.spawn().map_err(|e| {
-        WATCHER_CONTROLLER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .fail_start();
-        format!("Failed to start watcher: {}", e)
-    })?;
+    let child = command
+        .spawn()
+        .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
     let pid = child.id();
     watcher_info!("✅ Watcher started with PID: {}", pid);
 
     // Store the process handle
     {
-        let mut controller = WATCHER_CONTROLLER
+        let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.finish_start(child);
+        *guard = Some(child);
     }
 
     watcher_info!(
@@ -662,9 +679,6 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
 /// Start the ritual-watcher sidecar (synchronous version for auto-start)
 #[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
 pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<WatcherStatus, String> {
-    let _operation = WATCHER_OPERATION_GATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let started_at = Instant::now();
     watcher_info!("🚀 Starting Ritual Watcher (sync)...");
     watcher_info!("   Device ID: {}", config.device_id);
@@ -676,19 +690,19 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
     log_existing_watcher_bindings("pre-start self-check");
 
     // Store device_id for later query use
-    {
-        let mut controller = WATCHER_CONTROLLER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.begin_start(config.device_id.clone());
+    if let Ok(mut guard) = DEVICE_ID.lock() {
+        *guard = Some(config.device_id.clone());
+    }
+    if let Ok(mut guard) = WATCHER_LAST_STARTED_AT.lock() {
+        *guard = Some(Instant::now());
     }
 
     // Clear our stored handle
     {
-        let mut controller = WATCHER_CONTROLLER
+        let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(mut existing_child) = controller.process.take() {
+        if let Some(mut existing_child) = guard.take() {
             let _ = existing_child.kill();
             let _ = existing_child.wait();
         }
@@ -719,23 +733,19 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
     command.args(&args);
     super::config::apply_turso_sync_env(&mut command);
     configure_watcher_stdio(&mut command)?;
-    let child = command.spawn().map_err(|e| {
-        WATCHER_CONTROLLER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .fail_start();
-        format!("Failed to start watcher: {}", e)
-    })?;
+    let child = command
+        .spawn()
+        .map_err(|e| format!("Failed to start watcher: {}", e))?;
 
     let pid = child.id();
     watcher_info!("✅ Watcher started with PID: {}", pid);
 
     // Store the process handle
     {
-        let mut controller = WATCHER_CONTROLLER
+        let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        controller.finish_start(child);
+        *guard = Some(child);
     }
 
     watcher_info!(
@@ -754,16 +764,13 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
 #[tauri::command]
 #[instrument]
 pub async fn stop_watcher() -> Result<WatcherStatus, String> {
-    let _operation = WATCHER_OPERATION_GATE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
     watcher_info!("🛑 Stopping Ritual Watcher...");
 
-    let mut controller = WATCHER_CONTROLLER
+    let mut guard = WATCHER_PROCESS
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-    if let Some(mut child) = controller.process.take() {
+    if let Some(mut child) = guard.take() {
         // Try to kill the process gracefully
         match child.kill() {
             Ok(_) => {
@@ -781,7 +788,6 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
             cleanup_existing_watcher_processes(&device_id, "stop fallback");
         }
     }
-    controller.finish_stop(super::config::load_saved_watcher_config().is_some());
 
     Ok(WatcherStatus {
         is_running: false,
@@ -795,15 +801,14 @@ pub async fn stop_watcher() -> Result<WatcherStatus, String> {
 #[instrument]
 pub async fn get_watcher_status() -> WatcherStatus {
     let managed_pid = {
-        let mut controller = WATCHER_CONTROLLER
+        let mut guard = WATCHER_PROCESS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(child) = controller.process.as_mut() {
+        if let Some(child) = guard.as_mut() {
             match child.try_wait() {
                 Ok(None) => Some(child.id()),
                 Ok(Some(_)) | Err(_) => {
-                    controller.process = None;
-                    controller.state = WatcherControllerState::Stopped;
+                    *guard = None;
                     None
                 }
             }
@@ -843,19 +848,15 @@ pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
     let heartbeat_stale = seconds_since_heartbeat
         .map(|seconds| seconds > 60)
         .unwrap_or(false);
-    let (recently_started, last_restart_reason, restart_count) = {
-        let controller = WATCHER_CONTROLLER
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        (
-            controller
-                .last_started_at
-                .map(|started_at| started_at.elapsed() < Duration::from_secs(20))
-                .unwrap_or(false),
-            controller.last_restart_reason.clone(),
-            controller.restart_count,
-        )
-    };
+    let recently_started = WATCHER_LAST_STARTED_AT
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .map(|started_at| started_at.elapsed() < Duration::from_secs(20))
+        .unwrap_or(false);
+    let last_restart_reason = WATCHER_LAST_RESTART_REASON
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
 
     let state = if saved_config.is_none() {
         WatcherLifecycleState::DisabledByUser
@@ -878,7 +879,26 @@ pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
         device_id: basic_status.device_id,
         accessibility_granted,
         seconds_since_heartbeat,
-        restart_count,
+        restart_count: WATCHER_RESTART_COUNT.load(Ordering::Relaxed),
         last_restart_reason,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_watcher_pids_from_ps;
+
+    #[test]
+    fn orphan_sidecar_parser_matches_only_the_requested_device() {
+        let stdout = "\
+  111 ritual-watcher --device-id device-a --title-mode full
+  222 ritual-watcher --device-id device-b --title-mode full
+  333 other-process --device-id device-a
+  444 ritual-watcher --device-id device-a-extra
+";
+        assert_eq!(parse_watcher_pids_from_ps(stdout, "device-a"), vec![111]);
+        assert_eq!(parse_watcher_pids_from_ps(stdout, "device-b"), vec![222]);
+        assert!(parse_watcher_pids_from_ps(stdout, "missing").is_empty());
+        assert!(parse_watcher_pids_from_ps(stdout, "").is_empty());
     }
 }

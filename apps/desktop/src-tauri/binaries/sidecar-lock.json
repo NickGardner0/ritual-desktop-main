@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "shippedTargets": ["aarch64-apple-darwin"],
+  "sidecars": {
+    "ritual-watcher": {
+      "crateVersion": "0.1.0",
+      "targets": {
+        "aarch64-apple-darwin": {
+          "file": "ritual-watcher-aarch64-apple-darwin",
+          "sha256": "397814073b0b7a10aedf9a64e30ee629958b435930fbb972de520cb5fb584df7"
+        }
+      }
+    },
+    "ritual-vision-helper": {
+      "source": "apps/desktop/src-tauri/native-vision",
+      "targets": {
+        "aarch64-apple-darwin": {
+          "file": "ritual-vision-helper-aarch64-apple-darwin",
+          "sha256": "40766fd9c91e3ac4a38b3802d66d6d628dfacfd49f41a2efacc29324629b7309"
+        }
+      }
+    }
+  }
+}

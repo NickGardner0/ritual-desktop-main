@@ -101,7 +101,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
                 active_hours: Number(row.active_hours || 0),
                 events_count: Number(row.events_count || 0),
                 apps_count: Number(row.apps_count || 0),
-                source: localActivityBundle.source || 'cloud_first',
+                source: localActivityBundle.source || 'synced',
               }))
             : [],
           topApps: Array.isArray(localActivityBundle.apps)
@@ -110,7 +110,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
                 app_name: row.app_name,
                 hours: Number(row.hours || 0),
                 total_events: Number(row.total_events || 0),
-                source: localActivityBundle.source || 'cloud_first',
+                source: localActivityBundle.source || 'synced',
               }))
             : [],
           topDomains: Array.isArray(localActivityBundle.domains)
@@ -118,7 +118,7 @@ export async function executeGetWeeklyOverview(token: string, params: {
                 domain: row.domain,
                 hours: Number(row.hours || 0),
                 total_events: Number(row.total_events || 0),
-                source: localActivityBundle.source || 'cloud_first',
+                source: localActivityBundle.source || 'synced',
               }))
             : [],
         };

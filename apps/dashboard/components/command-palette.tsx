@@ -1,58 +1,8 @@
 'use client';
 
 import * as React from "react";
-import dynamic from "next/dynamic";
-// REMOVED: import * as LucideIcons from "lucide-react" - this imported 400+ icons
-// Now using dynamic import for the icon component
-import { 
-  Search, 
-  List, 
-  BarChart3, 
-  CalendarDays,
-  Wifi, 
-  Bot, 
-  Timer, 
-  Focus, 
-  Eye, 
-  FileText, 
-  TrendingUp, 
-  Download,
-  Plus,
-  Settings,
-  Upload,
-  Watch,
-  MessageSquare,
-  Monitor,
-  Activity,
-  Clock,
-  Hash,
-  LayoutDashboard,
-  Sparkles,
-} from "lucide-react";
-
-// Dynamic icon component - loads lucide icons on-demand
-const DynamicIcon = dynamic(() => import('@/components/ui/dynamic-icon'), {
-  ssr: false,
-  loading: () => <LayoutDashboard className="w-4 h-4 text-gray-400" />,
-});
-
-// Check if string is an emoji
-const isEmoji = (str: string) => /[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/u.test(str);
-
-// Render habit icon - handles both emojis and Lucide icon names
-const HabitIcon = ({ iconName, className = "w-4 h-4" }: { iconName?: string; className?: string }) => {
-  if (!iconName) {
-    return <LayoutDashboard className={`${className} text-gray-400`} />;
-  }
-  
-  // If it's an emoji, render directly
-  if (isEmoji(iconName)) {
-    return <span className="text-base leading-none">{iconName}</span>;
-  }
-  
-  // Use dynamic icon loader for Lucide icons
-  return <DynamicIcon name={iconName} className={`${className} text-gray-600`} />;
-};
+import { Search, Clock, Hash, MessageSquare } from "lucide-react";
+import { HabitIcon, commandPaletteIconMap } from "@/components/command-palette.icons";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { useAnalytics } from "@/lib/analytics";
@@ -60,6 +10,12 @@ import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
 import { format, parseISO } from "date-fns";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";
+import { useUser } from "@clerk/nextjs";
+import type { EntitySummary } from "@ritual/shared-contracts";
+import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
+import { rememberEntitySummary, searchLocalEntities } from "@/lib/entities/resolve";
+import { mergeEntitySummaries, summariesFromSearchBuckets } from "@/lib/entities/search-normalize";
+import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
 
 const paletteRowClass =
   "ritual-snappy-row ritual-snappy-row-menu flex w-full cursor-pointer items-center gap-3 rounded-md px-2.5 py-2 text-left outline-none";
@@ -103,35 +59,17 @@ interface SearchResults {
   logs: { hits: LogResult[]; found: number };
   conversations: { hits: any[]; found: number };
   activity: { hits: any[]; found: number };
+  artifacts?: { hits: any[]; found: number };
   fallback?: boolean;
+  privacy_blocked?: boolean;
+  entities?: EntitySummary[];
 }
 
 // ================================
 // ICON MAPPING
 // ================================
 
-const iconMap: Record<string, React.ReactNode> = {
-  "plus": <Plus className="h-4 w-4" />,
-  "search": <Search className="h-4 w-4" />,
-  "bar-chart": <BarChart3 className="h-4 w-4" />,
-  "calendar": <CalendarDays className="h-4 w-4" />,
-  "bot": <Bot className="h-4 w-4" />,
-  "upload": <Upload className="h-4 w-4" />,
-  "watch": <Watch className="h-4 w-4" />,
-  "settings": <Settings className="h-4 w-4" />,
-  "download": <Download className="h-4 w-4" />,
-  "timer": <Timer className="h-4 w-4" />,
-  "focus": <Focus className="h-4 w-4" />,
-  "eye": <Eye className="h-4 w-4" />,
-  "file": <FileText className="h-4 w-4" />,
-  "trending": <TrendingUp className="h-4 w-4" />,
-  "list": <List className="h-4 w-4" />,
-  "wifi": <Wifi className="h-4 w-4" />,
-  "message": <MessageSquare className="h-4 w-4" />,
-  "monitor": <Monitor className="h-4 w-4" />,
-  "activity": <Activity className="h-4 w-4" />,
-  "sparkles": <Sparkles className="h-4 w-4" />,
-};
+const iconMap = commandPaletteIconMap;
 
 // ================================
 // PROPS
@@ -179,6 +117,7 @@ function getFallbackResults(q: string): SearchResults {
     conversations: { hits: [], found: 0 },
     activity: { hits: [], found: 0 },
     fallback: true,
+    entities: [],
   };
 }
 
@@ -200,6 +139,7 @@ export default function CommandPalette({
   const [isLoading, setIsLoading] = React.useState(false);
   
   const router = useRouter();
+  const { user } = useUser();
   const { trackQuickActionsOpened, track } = useAnalytics();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -242,14 +182,46 @@ export default function CommandPalette({
         
         if (response.ok) {
           const data = await response.json();
-          setResults(data);
+          let entities: EntitySummary[] = summariesFromSearchBuckets(data);
+          if (entityProtocolEnabled()) {
+            try {
+              const entityResponse = await fetch(`/api/entities/search?q=${encodeURIComponent(debouncedQuery)}&limit=16`);
+              if (entityResponse.ok) {
+                const entityPayload = await entityResponse.json();
+                entities = mergeEntitySummaries(entities, entityPayload.items || []);
+              }
+            } catch {
+              // Keep bucket-normalized results.
+            }
+            if (user?.id) {
+              const local = await searchLocalEntities(user.id, debouncedQuery);
+              entities = mergeEntitySummaries(local, entities);
+            }
+          }
+          for (const item of entities) rememberEntitySummary(item);
+          setResults({ ...data, entities });
         } else {
-          // Use fallback
-          setResults(getFallbackResults(debouncedQuery));
+          const fallback = getFallbackResults(debouncedQuery);
+          if (entityProtocolEnabled() && user?.id) {
+            const local = await searchLocalEntities(user.id, debouncedQuery);
+            for (const item of local) rememberEntitySummary(item);
+            fallback.entities = local;
+          }
+          setResults(fallback);
         }
       } catch (error) {
         console.error("Search failed:", error);
-        setResults(getFallbackResults(debouncedQuery));
+        const fallback = getFallbackResults(debouncedQuery);
+        if (entityProtocolEnabled() && user?.id) {
+          try {
+            const local = await searchLocalEntities(user.id, debouncedQuery);
+            for (const item of local) rememberEntitySummary(item);
+            fallback.entities = local;
+          } catch {
+            // Keep empty fallback entities.
+          }
+        }
+        setResults(fallback);
       } finally {
         setIsLoading(false);
       }
@@ -258,7 +230,7 @@ export default function CommandPalette({
     if (open) {
       fetchResults();
     }
-  }, [debouncedQuery, open]);
+  }, [debouncedQuery, open, user?.id]);
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();
@@ -373,6 +345,13 @@ export default function CommandPalette({
     router.push(`/chat?conversation=${conv.conversation_id}`);
   };
 
+  const handleEntitySelect = (summary: EntitySummary) => {
+    track('search_entity_selected', { entityType: summary.ref.type, entityId: summary.ref.id });
+    setOpen(false);
+    setQuery("");
+    router.push(summary.route);
+  };
+
   // ================================
   // RENDER HELPERS
   // ================================
@@ -399,7 +378,8 @@ export default function CommandPalette({
       results.habits.found > 0 ||
       results.logs.found > 0 ||
       results.conversations.found > 0 ||
-      results.activity.found > 0
+      results.activity.found > 0 ||
+      (results.entities && results.entities.length > 0)
     ),
   );
 
@@ -407,7 +387,8 @@ export default function CommandPalette({
     | { kind: "action"; key: string; run: () => void }
     | { kind: "habit"; key: string; run: () => void }
     | { kind: "log"; key: string; run: () => void }
-    | { kind: "conversation"; key: string; run: () => void };
+    | { kind: "conversation"; key: string; run: () => void }
+    | { kind: "entity"; key: string; run: () => void };
 
   const selectableEntries = React.useMemo(() => {
     const entries: PaletteEntry[] = [];
@@ -418,25 +399,34 @@ export default function CommandPalette({
         run: () => handleActionSelect(action),
       });
     }
-    for (const habit of results?.habits?.hits?.slice(0, 5) || []) {
-      entries.push({
-        kind: "habit",
-        key: `habit:${habit.id}`,
-        run: () => handleHabitSelect(habit),
-      });
+    if (!(entityProtocolEnabled() && (results?.entities?.length || 0) > 0)) {
+      for (const habit of results?.habits?.hits?.slice(0, 5) || []) {
+        entries.push({
+          kind: "habit",
+          key: `habit:${habit.id}`,
+          run: () => handleHabitSelect(habit),
+        });
+      }
+      for (const log of results?.logs?.hits?.slice(0, 5) || []) {
+        entries.push({
+          kind: "log",
+          key: `log:${log.id}`,
+          run: () => handleLogSelect(log),
+        });
+      }
+      for (const conv of results?.conversations?.hits?.slice(0, 3) || []) {
+        entries.push({
+          kind: "conversation",
+          key: `conv:${conv.id}`,
+          run: () => handleConversationSelect(conv),
+        });
+      }
     }
-    for (const log of results?.logs?.hits?.slice(0, 5) || []) {
+    for (const summary of results?.entities?.slice(0, 12) || []) {
       entries.push({
-        kind: "log",
-        key: `log:${log.id}`,
-        run: () => handleLogSelect(log),
-      });
-    }
-    for (const conv of results?.conversations?.hits?.slice(0, 3) || []) {
-      entries.push({
-        kind: "conversation",
-        key: `conv:${conv.id}`,
-        run: () => handleConversationSelect(conv),
+        kind: "entity",
+        key: `entity:${summary.ref.type}:${summary.ref.id}`,
+        run: () => handleEntitySelect(summary),
       });
     }
     return entries;
@@ -591,7 +581,41 @@ export default function CommandPalette({
               </div>
             )}
 
-            {results?.habits && results.habits.found > 0 && (
+            {entityProtocolEnabled() && results?.entities && results.entities.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
+                  <span>Objects</span>
+                  <span className="text-[11px] text-[rgba(39,37,30,0.3)]">{results.entities.length} found</span>
+                </div>
+                {results.entities.slice(0, 12).map((summary) => {
+                  const index = nextOptionIndex();
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={`${summary.ref.type}:${summary.ref.id}`}
+                      type="button"
+                      data-active={active ? "true" : undefined}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => handleEntitySelect(summary)}
+                      className={paletteRowClass}
+                    >
+                      <span className="flex h-4 w-4 items-center justify-center text-[#27251E]">
+                        <Search className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="text-sm text-[#27251E]">{summary.title}</span>
+                        {summary.subtitle ? (
+                          <span className="ml-2 text-xs text-[rgba(39,37,30,0.4)]">{summary.subtitle}</span>
+                        ) : null}
+                      </div>
+                      <span className="text-xs text-[rgba(39,37,30,0.4)]">{ENTITY_TYPE_LABELS[summary.ref.type]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.habits && results.habits.found > 0 && (
               <div>
                 <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                   <span>Habits</span>
@@ -627,7 +651,7 @@ export default function CommandPalette({
               </div>
             )}
 
-            {results?.logs && results.logs.found > 0 && (
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.logs && results.logs.found > 0 && (
               <div>
                 <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                   <span>Recent Logs</span>
@@ -663,7 +687,7 @@ export default function CommandPalette({
               </div>
             )}
 
-            {results?.conversations && results.conversations.found > 0 && (
+            {(!entityProtocolEnabled() || !results?.entities?.length) && results?.conversations && results.conversations.found > 0 && (
               <div>
                 <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[11px] font-medium tracking-[0.01em] text-[rgba(39,37,30,0.4)]">
                   <span>AI Conversations</span>

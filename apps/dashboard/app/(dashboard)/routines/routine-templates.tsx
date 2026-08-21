@@ -5,7 +5,7 @@ import { CalendarDays, Clock, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@ritual/ui/card';
 import { Separator } from '@ritual/ui/separator';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@ritual/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 import {
   ROUTINE_TEMPLATE_CATEGORIES,
@@ -20,7 +20,7 @@ export function templateScheduleSummary(template: RoutineTemplate): string {
 
 export function RoutinesEmptyHero({ onNewRoutine }: { onNewRoutine: () => void }) {
   return (
-    <Card density="compact" className="flex min-h-52 items-center justify-center border-dashed border-[var(--border-subtle)] bg-transparent">
+    <Card className="flex min-h-52 items-center justify-center border-dashed border-[var(--border-subtle)] bg-transparent">
       <CardContent className="p-6 text-center">
         <div className="mx-auto flex items-center justify-center text-[var(--icon-muted)]" aria-hidden>
           <span className="flex h-7 w-7 rotate-[-4deg] items-center justify-center rounded-md border border-[var(--border-subtle)] bg-surface-panel">
@@ -39,7 +39,7 @@ export function RoutinesEmptyHero({ onNewRoutine }: { onNewRoutine: () => void }
         </p>
         <Button
           type="button"
-          size="compact"
+          size="sm"
           onClick={onNewRoutine}
           className="mt-4 h-7 gap-1.5 rounded-md border border-black bg-black px-2.5 text-[12.5px] font-normal leading-none tracking-[-0.01em] text-white shadow-none transition-colors duration-150 hover:bg-[#3D3C38] hover:text-white focus-visible:ring-gray-400 [&_svg]:size-3.5"
         >
@@ -61,7 +61,7 @@ export function TemplateCard({
   installed?: boolean;
 }) {
   return (
-    <Card density="compact" className="flex min-h-32 flex-col border-border/70 transition-colors hover:bg-surface-panel">
+    <Card className="flex min-h-32 flex-col border-border/70 transition-colors hover:bg-surface-panel">
       <CardHeader className="pb-2.5">
         <CardTitle className="truncate text-sm font-normal leading-5 text-[var(--text-primary)]">
           {template.title}
@@ -77,7 +77,7 @@ export function TemplateCard({
         <Button
           type="button"
           variant="outline"
-          size="compact"
+          size="sm"
           onClick={() => onSetUp(template)}
           className="shrink-0 rounded-md px-2.5 font-normal"
         >

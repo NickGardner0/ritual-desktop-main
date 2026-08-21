@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
-import type { EntityRef, EntitySummary } from "@ritual/shared-contracts";
+import type { EntityRef, EntitySummary, EntityType } from "@ritual/shared-contracts";
 import { parseDateMentionQuery, virtualDateSummary } from "@ritual/shared-contracts";
 import { EntityPill } from "@/components/entities/entity-pill";
 import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
@@ -10,6 +10,42 @@ import { apiJsonWithAuth } from "@/lib/api/client";
 import { rememberEntitySummary, searchLocalEntities } from "@/lib/entities/resolve";
 import { mergeEntitySummaries } from "@/lib/entities/search-normalize";
 import { Input } from "@/components/ui/input";
+
+const AUTOCOMPLETE_TYPES: EntityType[] = [
+  "habit",
+  "task",
+  "routine",
+  "calendar_block",
+  "day",
+  "time_window",
+];
+
+function localSearchTypes(query: string): EntityType[] {
+  return parseDateMentionQuery(query) ? [...AUTOCOMPLETE_TYPES, "habit_log"] : AUTOCOMPLETE_TYPES;
+}
+
+async function searchLinkedEntities(
+  query: string,
+  getToken: ReturnType<typeof useAuth>["getToken"],
+  userId: string | undefined,
+  limit: number,
+): Promise<EntitySummary[]> {
+  const trimmed = query.trim();
+  const types = localSearchTypes(trimmed);
+  const [cloud, local] = await Promise.all([
+    trimmed
+      ? apiJsonWithAuth<{ items: EntitySummary[] }>(
+          `/api/entities/search?q=${encodeURIComponent(trimmed)}&limit=${limit}`,
+          getToken,
+          { userId },
+        ).catch(() => ({ items: [] as EntitySummary[] }))
+      : Promise.resolve({ items: [] as EntitySummary[] }),
+    userId ? searchLocalEntities(userId, trimmed, { types, limit }) : Promise.resolve([]),
+  ]);
+  const parsed = parseDateMentionQuery(trimmed);
+  const dateHit = parsed ? [virtualDateSummary(parsed)] : [];
+  return mergeEntitySummaries(dateHit, local, cloud.items);
+}
 
 export function EntityLinkPicker({
   source,
@@ -25,22 +61,18 @@ export function EntityLinkPicker({
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     const handle = window.setTimeout(() => {
       void (async () => {
-        const [cloud, local] = await Promise.all([
-          apiJsonWithAuth<{ items: EntitySummary[] }>(
-            `/api/entities/search?q=${encodeURIComponent(query)}&limit=12`,
-            getToken,
-            { userId: user?.id },
-          ).catch(() => ({ items: [] as EntitySummary[] })),
-          user?.id ? searchLocalEntities(user.id, query) : Promise.resolve([]),
-        ]);
-        const parsed = parseDateMentionQuery(query);
-        const dateHit = parsed ? [virtualDateSummary(parsed)] : [];
-        setItems(mergeEntitySummaries(dateHit, local, cloud.items).filter((item) => item.ref.type !== source.type || item.ref.id !== source.id));
+        const next = await searchLinkedEntities(query, getToken, user?.id, 12);
+        if (cancelled) return;
+        setItems(next.filter((item) => item.ref.type !== source.type || item.ref.id !== source.id));
       })();
     }, 150);
-    return () => window.clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
   }, [getToken, query, source.id, source.type, user?.id]);
 
   const link = async (target: EntitySummary) => {
@@ -98,22 +130,18 @@ export function EntityMentionTypeahead({
       setItems([]);
       return;
     }
+    let cancelled = false;
     const handle = window.setTimeout(() => {
       void (async () => {
-        const [cloud, local] = await Promise.all([
-          apiJsonWithAuth<{ items: EntitySummary[] }>(
-            `/api/entities/search?q=${encodeURIComponent(query)}&limit=8`,
-            getToken,
-            { userId: user?.id },
-          ).catch(() => ({ items: [] as EntitySummary[] })),
-          user?.id ? searchLocalEntities(user.id, query) : Promise.resolve([]),
-        ]);
-        const parsed = parseDateMentionQuery(query);
-        const dateHit = parsed ? [virtualDateSummary(parsed)] : [];
-        setItems(mergeEntitySummaries(dateHit, local, cloud.items).slice(0, 8));
+        const next = await searchLinkedEntities(query, getToken, user?.id, 8);
+        if (cancelled) return;
+        setItems(next.slice(0, 8));
       })();
     }, 120);
-    return () => window.clearTimeout(handle);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
   }, [getToken, query, user?.id]);
 
   if (!items.length) return null;

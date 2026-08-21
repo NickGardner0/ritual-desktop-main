@@ -120,6 +120,7 @@ export type PreparedChatTurn = {
   latestUserContent: string;
   baseSystemPrompt: string;
   factsPromise: Promise<Array<Record<string, unknown>>>;
+  userPersistPromise: Promise<boolean>;
 };
 
 const FACTS_CACHE_TTL_MS = 60_000;
@@ -204,16 +205,10 @@ export function prepareChatTurnContext(
   const deferredConversationIdPromise = providedConversationId ? undefined : conversationIdPromise;
   const isVoiceMode = responseMode === 'voice';
   const latestUserMessage = messages[messages.length - 1];
-
-  if (latestUserMessage?.role === 'user') {
-    conversationIdPromise.then((cid) => {
-      if (cid) {
-        saveMessage(token, cid, 'user', latestUserMessage.content).catch(err => {
-          console.error('❌ Failed to save user message:', err);
-        });
-      }
-    });
-  }
+  const userPersistPromise =
+    latestUserMessage?.role === 'user'
+      ? persistUserMessage(conversationIdPromise, token, latestUserMessage.content)
+      : Promise.resolve(true);
 
   const now = new Date();
   const year = now.getFullYear();
@@ -239,19 +234,37 @@ export function prepareChatTurnContext(
     latestUserContent: latestUserMessage?.content || '',
     baseSystemPrompt,
     factsPromise,
+    userPersistPromise,
   };
 }
 
-export function persistAssistantMessage(
+export async function persistUserMessage(
+  conversationIdPromise: Promise<string | null>,
+  token: string,
+  text: string,
+): Promise<boolean> {
+  try {
+    const conversationId = await conversationIdPromise;
+    if (!conversationId || !text) return false;
+    return saveMessage(token, conversationId, 'user', text);
+  } catch (error) {
+    console.error('❌ Failed to save user message:', error);
+    return false;
+  }
+}
+
+export async function persistAssistantMessage(
   conversationIdPromise: Promise<string | null>,
   token: string,
   text: string,
   canvasToolPayload: Record<string, unknown> | null,
-): void {
-  conversationIdPromise.then((conversationId) => {
-    if (!conversationId) return;
-    saveMessage(token, conversationId, 'assistant', text, canvasToolPayload).catch(err => {
-      console.error('❌ Failed to save assistant message:', err);
-    });
-  });
+): Promise<boolean> {
+  try {
+    const conversationId = await conversationIdPromise;
+    if (!conversationId) return false;
+    return saveMessage(token, conversationId, 'assistant', text, canvasToolPayload);
+  } catch (error) {
+    console.error('❌ Failed to save assistant message:', error);
+    return false;
+  }
 }

@@ -20,7 +20,7 @@ const requiredPatterns = [
   },
   {
     file: "apps/backend/services/search_service.py",
-    patterns: ["can_send_to_cloud", "data_class_for_typesense_collection", "_can_use_collection", "delete_user_indexed_documents"],
+    patterns: ["delete_user_indexed_documents", "canonical Ritual tables"],
   },
   {
     file: "apps/backend/api/screenshot.py",
@@ -88,7 +88,7 @@ const requiredPatterns = [
   },
   {
     file: "apps/dashboard/components/privacy-settings-panel.tsx",
-    patterns: ["PrivacySettingsPanel", "vaultSync", "private_sync", "cloud_intelligence", "provider_sync", "plaintext_sync"],
+    patterns: ["executeLocalVaultMigration", "executeCloudBehavioralDeletion", "PrivacyPrivateSyncSection", "PrivacyVaultExportSection", "PrivacyExternalErasureSection"],
   },
   {
     file: "apps/dashboard/components/privacy-private-sync-section.tsx",

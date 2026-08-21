@@ -102,12 +102,40 @@ class EntityService:
     async def resolve_many(self, user_id: str, refs: Sequence[EntityRef]) -> List[EntitySummary]:
         items: List[EntitySummary] = []
         seen: set[Tuple[str, str]] = set()
-        for ref in refs[:50]:
-            key = (ref.type, ref.id)
+        ordered: List[Tuple[str, str]] = []
+        by_type: dict[str, List[str]] = {}
+        virtual: dict[Tuple[str, str], EntitySummary] = {}
+
+        for raw in refs[:50]:
+            canonical = canonical_entity_type(raw.type) or raw.type
+            key = (canonical, raw.id)
             if key in seen:
                 continue
             seen.add(key)
-            items.append(await self.get_summary(user_id, ref.type, ref.id))
+            ordered.append(key)
+            if canonical in {"day", "time_window"}:
+                virtual[key] = await self.get_summary(user_id, canonical, raw.id)
+                continue
+            by_type.setdefault(canonical, []).append(raw.id)
+
+        loaded: dict[Tuple[str, str], Any] = {}
+        if by_type:
+            async with get_db_session() as session:
+                for entity_type, ids in by_type.items():
+                    loaded.update(await self._load_many(session, user_id, entity_type, ids))
+
+        for entity_type, entity_id in ordered:
+            key = (entity_type, entity_id)
+            if key in virtual:
+                items.append(virtual[key])
+                continue
+            row = loaded.get(key)
+            if row is FORBIDDEN_ENTITY:
+                items.append(unavailable_summary(EntityRef(type=entity_type, id=entity_id), "forbidden"))
+            elif row is None:
+                items.append(unavailable_summary(EntityRef(type=entity_type, id=entity_id), "unknown"))
+            else:
+                items.append(self._to_summary(entity_type, row))
         return items
 
     async def related(self, user_id: str, entity_type: str, entity_id: str) -> List[RelatedEntityItem]:
@@ -117,19 +145,26 @@ class EntityService:
             return []
         edges = await self._derived_edges(user_id, canonical, entity_id)
         authored = await self._authored_edges(user_id, canonical, entity_id)
-        merged = edges + authored
-        items: List[RelatedEntityItem] = []
+        unique_edges: List[RelatedEntity] = []
         seen: set[Tuple[str, str, str]] = set()
-        for edge in merged:
+        for edge in edges + authored:
             key = (edge.ref.type, edge.ref.id, edge.relationship)
             if key in seen:
                 continue
             seen.add(key)
-            related_summary = await self.get_summary(user_id, edge.ref.type, edge.ref.id)
-            items.append(RelatedEntityItem(edge=edge, summary=related_summary))
-            if len(items) >= 24:
+            unique_edges.append(edge)
+            if len(unique_edges) >= 24:
                 break
-        return items
+        summaries = await self.resolve_many(user_id, [edge.ref for edge in unique_edges])
+        by_ref = {(item.ref.type, item.ref.id): item for item in summaries}
+        return [
+            RelatedEntityItem(
+                edge=edge,
+                summary=by_ref.get((edge.ref.type, edge.ref.id))
+                or unavailable_summary(edge.ref, "unknown"),
+            )
+            for edge in unique_edges
+        ]
 
     async def search(
         self,
@@ -362,45 +397,71 @@ class EntityService:
             return True
 
     async def _owned_or_forbidden(self, session, model, entity_id: str, user_id: str) -> Any:
-        owned = await session.execute(select(model).where(model.id == entity_id, model.user_id == user_id))
-        row = owned.scalar_one_or_none()
-        if row is not None:
-            return row
-        exists = await session.execute(select(model.id).where(model.id == entity_id).limit(1))
-        if exists.scalar_one_or_none() is not None:
-            return FORBIDDEN_ENTITY
+        loaded = await self._load_owned_many(session, model, [entity_id], user_id)
+        if entity_id in loaded:
+            return loaded[entity_id]
         return None
+
+    async def _load_owned_many(self, session, model, ids: Sequence[str], user_id: str) -> dict[str, Any]:
+        unique_ids = list(dict.fromkeys(ids))
+        if not unique_ids:
+            return {}
+        result: dict[str, Any] = {}
+        owned = await session.execute(select(model).where(model.id.in_(unique_ids), model.user_id == user_id))
+        for row in owned.scalars().all():
+            result[row.id] = row
+        missing = [entity_id for entity_id in unique_ids if entity_id not in result]
+        if missing:
+            exists = await session.execute(select(model.id).where(model.id.in_(missing)))
+            for entity_id in exists.scalars().all():
+                result[entity_id] = FORBIDDEN_ENTITY
+        return result
+
+    async def _load_habit_logs_many(self, session, user_id: str, ids: Sequence[str]) -> dict[str, Any]:
+        unique_ids = list(dict.fromkeys(ids))
+        if not unique_ids:
+            return {}
+        result: dict[str, Any] = {}
+        rows = await session.execute(
+            select(HabitLogDB, HabitDB)
+            .join(HabitDB, HabitLogDB.habit_id == HabitDB.id)
+            .where(HabitLogDB.id.in_(unique_ids), HabitDB.user_id == user_id)
+        )
+        for row in rows.all():
+            result[row[0].id] = row
+        missing = [entity_id for entity_id in unique_ids if entity_id not in result]
+        if missing:
+            exists = await session.execute(select(HabitLogDB.id).where(HabitLogDB.id.in_(missing)))
+            for entity_id in exists.scalars().all():
+                result[entity_id] = FORBIDDEN_ENTITY
+        return result
+
+    async def _load_many(self, session, user_id: str, entity_type: str, ids: Sequence[str]) -> dict[Tuple[str, str], Any]:
+        loaded: dict[str, Any]
+        if entity_type == "habit_log":
+            loaded = await self._load_habit_logs_many(session, user_id, ids)
+        elif entity_type == "habit":
+            loaded = await self._load_owned_many(session, HabitDB, ids, user_id)
+        elif entity_type == "task":
+            loaded = await self._load_owned_many(session, TaskDB, ids, user_id)
+        elif entity_type == "routine":
+            loaded = await self._load_owned_many(session, RoutineDB, ids, user_id)
+        elif entity_type == "artifact":
+            loaded = await self._load_owned_many(session, ArtifactDB, ids, user_id)
+        elif entity_type == "conversation":
+            loaded = await self._load_owned_many(session, AIConversationDB, ids, user_id)
+        elif entity_type == "experiment":
+            loaded = await self._load_owned_many(session, ExperimentDB, ids, user_id)
+        elif entity_type == "calendar_block":
+            loaded = await self._load_owned_many(session, ScheduledBlockDB, ids, user_id)
+        else:
+            return {}
+        return {(entity_type, entity_id): row for entity_id, row in loaded.items()}
 
     async def _load(self, user_id: str, entity_type: str, entity_id: str) -> Any:
         async with get_db_session() as session:
-            if entity_type == "habit":
-                return await self._owned_or_forbidden(session, HabitDB, entity_id, user_id)
-            if entity_type == "habit_log":
-                result = await session.execute(
-                    select(HabitLogDB, HabitDB)
-                    .join(HabitDB, HabitLogDB.habit_id == HabitDB.id)
-                    .where(HabitLogDB.id == entity_id, HabitDB.user_id == user_id)
-                )
-                row = result.first()
-                if row is not None:
-                    return row
-                exists = await session.execute(select(HabitLogDB.id).where(HabitLogDB.id == entity_id).limit(1))
-                if exists.scalar_one_or_none() is not None:
-                    return FORBIDDEN_ENTITY
-                return None
-            if entity_type == "task":
-                return await self._owned_or_forbidden(session, TaskDB, entity_id, user_id)
-            if entity_type == "routine":
-                return await self._owned_or_forbidden(session, RoutineDB, entity_id, user_id)
-            if entity_type == "artifact":
-                return await self._owned_or_forbidden(session, ArtifactDB, entity_id, user_id)
-            if entity_type == "conversation":
-                return await self._owned_or_forbidden(session, AIConversationDB, entity_id, user_id)
-            if entity_type == "experiment":
-                return await self._owned_or_forbidden(session, ExperimentDB, entity_id, user_id)
-            if entity_type == "calendar_block":
-                return await self._owned_or_forbidden(session, ScheduledBlockDB, entity_id, user_id)
-            return None
+            loaded = await self._load_many(session, user_id, entity_type, [entity_id])
+            return loaded.get((entity_type, entity_id))
 
     def _to_summary(self, entity_type: str, row: Any) -> EntitySummary:
         if entity_type == "habit":

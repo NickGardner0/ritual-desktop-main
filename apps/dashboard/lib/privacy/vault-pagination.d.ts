@@ -3,4 +3,5 @@ export function collectVaultRecordPages<T>(
     records: T[];
     nextCursor?: string | null;
   }>,
+  options?: { maxRecords?: number },
 ): Promise<T[]>;

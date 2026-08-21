@@ -27,16 +27,18 @@ function RoutineSchedulerBridge() {
 export function DashboardLayoutClient({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   
-  // Prefetch critical routes on mount for instant navigation
+  // Prefetch the current product shell on idle; hover prefetch covers the rest.
   useEffect(() => {
-    router.prefetch('/dashboard');
-    router.prefetch('/activity');
-    router.prefetch('/analytics');
-    router.prefetch('/chat');
-    router.prefetch('/calendar');
-    router.prefetch('/tasks');
-    router.prefetch('/routines');
-    router.prefetch('/integrations');
+    const prefetch = () => {
+      router.prefetch('/dashboard');
+      router.prefetch('/chat');
+    };
+    if (typeof window.requestIdleCallback === 'function' && typeof window.cancelIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(prefetch, { timeout: 2500 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+    const timer = window.setTimeout(prefetch, 1200);
+    return () => window.clearTimeout(timer);
   }, [router]);
   
   return (

@@ -120,3 +120,48 @@ export function getFiltersForPreset(presetId: BuiltInFilterPresetId): FilterStat
       return cloneFilters(defaultFilters);
   }
 }
+
+export const LOGS_PALETTE_PARAM_KEYS = [
+  'q',
+  'date',
+  'start_date',
+  'end_date',
+  'from',
+  'to',
+  'categories',
+  'habits',
+  'statuses',
+  'sources',
+  'sort',
+  'order',
+  'logId',
+] as const;
+
+export function parseLogsSearchParams(searchParams: { get: (key: string) => string | null; has: (key: string) => boolean }): {
+  hasPaletteParams: boolean;
+  filters: FilterState;
+  sortColumn: string | null;
+  sortDirection: 'asc' | 'desc' | null;
+  logId: string | null;
+} {
+  const hasPaletteParams = LOGS_PALETTE_PARAM_KEYS.some((key) => searchParams.has(key));
+  const exactDate = searchParams.get('date');
+  const startDate = searchParams.get('start_date') || searchParams.get('from') || exactDate;
+  const endDate = searchParams.get('end_date') || searchParams.get('to') || exactDate;
+  const sortDirection = searchParams.get('order');
+  return {
+    hasPaletteParams,
+    filters: {
+      q: searchParams.get('q') || null,
+      start: startDate || null,
+      end: endDate || null,
+      categories: parseListParam(searchParams.get('categories')),
+      habits: parseListParam(searchParams.get('habits')),
+      statuses: parseListParam(searchParams.get('statuses')),
+      sources: parseListParam(searchParams.get('sources')),
+    },
+    sortColumn: searchParams.get('sort'),
+    sortDirection: sortDirection === 'asc' || sortDirection === 'desc' ? sortDirection : null,
+    logId: searchParams.get('logId'),
+  };
+}

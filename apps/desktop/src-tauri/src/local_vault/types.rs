@@ -54,28 +54,6 @@ pub struct VaultRecordMetadata {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VaultRecordsPage {
-    pub records: Vec<VaultRecordOutput>,
-    pub next_cursor: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VaultCompareAndSwapInput {
-    pub record: VaultRecordInput,
-    pub expected_updated_at: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VaultCompareAndSwapResult {
-    pub applied: bool,
-    pub record: Option<VaultRecordMetadata>,
-    pub current: Option<VaultRecordOutput>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct VaultMigrationManifestInput {
     pub user_id: String,
     pub migration_id: String,

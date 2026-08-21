@@ -7,6 +7,7 @@ export type {
   RankedBar,
   MicroMetrics,
   ActivityBreakdownSource,
+  ComputerActivityReadSource,
   ActivityBreakdownCapabilities,
   ComputerActivityViewModel,
   ActivityBreakdownViewModel,

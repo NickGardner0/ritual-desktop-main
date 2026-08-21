@@ -39,6 +39,7 @@ export async function executeGetCalendarEvents(
       };
 
       return {
+        id: block.id,
         title: block.title || 'Untitled',
         day: block.day || startDate,
         start_time: fmtTime(startHour, startMin),

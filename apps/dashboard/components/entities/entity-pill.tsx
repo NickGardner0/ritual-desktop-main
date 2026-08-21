@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Calendar, CalendarCheck, CalendarDays, CalendarRange, Check, CheckSquare, FileText, FlaskConical, MessageSquare, Repeat, Sparkles } from "lucide-react";
 import type { EntitySummary, EntityType } from "@ritual/shared-contracts";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@ritual/ui/popover";
 import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
 import { cn } from "@/lib/utils";
 

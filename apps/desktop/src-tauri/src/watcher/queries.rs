@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-use super::internal::WATCHER_CONTROLLER;
+use super::internal::WATCHER_PROCESS;
 use crate::ritual_database::ACTIVITY_DB;
 use crate::watcher_activity::{
     build_app_summaries, build_domain_summaries, build_range_summary, clip_interval,
@@ -213,20 +213,18 @@ pub struct WatcherExtendedStatus {
 }
 
 /// Get extended watcher status including real-time info
-#[tauri::command]
 #[instrument]
 pub async fn get_watcher_extended_status() -> Result<WatcherExtendedStatus, String> {
     let (is_running, pid) = {
-        let mut controller = WATCHER_CONTROLLER.lock().map_err(|e| e.to_string())?;
+        let mut process_guard = WATCHER_PROCESS.lock().map_err(|e| e.to_string())?;
 
-        let running = controller
-            .process
+        let running = process_guard
             .as_mut()
             .map(|child| child.try_wait().map(|s| s.is_none()).unwrap_or(false))
             .unwrap_or(false);
 
         let p = if running {
-            controller.process.as_ref().map(|c| c.id())
+            process_guard.as_ref().map(|c| c.id())
         } else {
             None
         };

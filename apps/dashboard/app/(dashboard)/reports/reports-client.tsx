@@ -4,33 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  BellRing,
-  BookOpen,
   CalendarRange,
-  CheckCircle2,
   Clock3,
   FilePenLine,
   FileStack,
   Loader2,
   MemoryStick,
-  NotebookPen,
   Play,
   Shield,
-  ShieldCheck,
   Sparkles,
-  WandSparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ArtifactBody } from "@/components/ritual-intelligence/artifact-body";
 import { EntityLinkPicker } from "@/components/entities/entity-link-picker";
 import { EntityRelatedPanel } from "@/components/entities/entity-related-panel";
+import { EntityNoteText } from "@/components/entities/entity-note-text";
 import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
 import { syncEntityMentions } from "@/lib/entities/sync-mentions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QUERY_POLICY } from "@/lib/query-policies";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@ritual/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import type {
@@ -52,7 +47,6 @@ import type {
   WorkflowRun,
   WorkflowStatus,
 } from "@/lib/workflows/types";
-import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
 import { cn } from "@/lib/utils";
 import { ReportsSideSheets } from "./reports-client.panels";
 import {
@@ -65,7 +59,6 @@ import {
 
 import {
   ARTIFACT_FILTERS,
-  EMPTY_BLOCK,
   KIND_STYLES,
   RUN_STATUS_STYLES,
   WORKFLOW_STATUS_STYLES,
@@ -73,6 +66,7 @@ import {
   buildDefinitionPayload,
   buildDefaultProjectTimeRange,
   buildUnifiedRuns,
+  deferStateUpdate,
   fetchArtifactDetailForReportsSurface,
   fetchArtifactLibraryForReportsSurface,
   fetchArtifactsForReportsSurface,
@@ -96,13 +90,9 @@ import {
   type WorkflowEditorState,
 } from "./reports-client.helpers";
 
-function deferStateUpdate(fn: () => void) {
-  queueMicrotask(fn);
-}
-
 export function ReportsClient() {
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const routinesSectionRef = useRef<HTMLElement | null>(null);
   const ambientSectionRef = useRef<HTMLElement | null>(null);
@@ -538,7 +528,9 @@ export function ReportsClient() {
                       <span className="text-xs text-[#6b7280]">{formatDateTime(artifact.published_at || artifact.created_at)}</span>
                     </div>
                     <div className="mt-3 text-[17px] font-[620] tracking-[-0.02em] text-[#111827]">{artifact.title}</div>
-                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-[#4b5563]">{artifact.summary || "No summary yet."}</div>
+                    <div className="mt-2 line-clamp-3 text-sm leading-6 text-[#4b5563]">
+                      {artifact.summary ? <EntityNoteText text={artifact.summary} /> : "No summary yet."}
+                    </div>
                     <div className="mt-3 flex items-center gap-2 text-xs text-[#6b7280]">
                       <CalendarRange className="h-3.5 w-3.5" />
                       {formatPeriod(artifact.period)}
@@ -781,27 +773,10 @@ export function ReportsClient() {
 
       <ReportsSideSheets
         ctx={{
-          actionProfiles,
-          activeFacts,
-          approvals,
-          artifactEditor,
-          artifactEditorMutation,
-          editor,
-          factApproveMutation,
-          factDismissMutation,
-          isApprovalsOpen,
-          isArtifactEditorOpen,
-          isMemoryOpen,
-          isWorkflowEditorOpen,
-          pendingFacts,
-          saveWorkflowMutation,
-          selectedProfile,
-          setArtifactEditor,
-          setEditor,
-          setIsApprovalsOpen,
-          setIsArtifactEditorOpen,
-          setIsMemoryOpen,
-          setIsWorkflowEditorOpen,
+          actionProfiles, activeFacts, approvals, artifactEditor, artifactEditorMutation, editor,
+          factApproveMutation, factDismissMutation, isApprovalsOpen, isArtifactEditorOpen, isMemoryOpen,
+          isWorkflowEditorOpen, pendingFacts, saveWorkflowMutation, selectedProfile, setArtifactEditor,
+          setEditor, setIsApprovalsOpen, setIsArtifactEditorOpen, setIsMemoryOpen, setIsWorkflowEditorOpen,
         }}
       />
     </>

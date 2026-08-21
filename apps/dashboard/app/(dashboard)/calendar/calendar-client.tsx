@@ -5,15 +5,9 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   format,
-  startOfMonth,
-  endOfMonth,
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  addMonths,
-  subMonths,
-  addWeeks,
-  subWeeks,
   formatISO,
 } from 'date-fns';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -31,8 +25,16 @@ import type {
 } from './calendar-week-view';
 import type { HabitLog } from './tracker-events';
 import {
+  calendarVisibleRange,
+  groupHeartRateSummariesByDay,
+  groupLogsByDate,
+  groupScheduledBlocksByDay,
   mapScheduledBlockFromApi,
   parseCalendarBlockSubtitle,
+  shiftCalendarDate,
+  weekDaysForDate,
+  type CalendarHabitRef,
+  type CalendarViewMode,
   type ProjectTimeSessionsResponse,
   type ScheduledBlockApi,
 } from './calendar-client.helpers';
@@ -42,17 +44,7 @@ import { useLegacyScheduledBlockMigration } from './use-legacy-scheduled-block-m
 import { useCalendarTaskComposer } from './use-calendar-task-composer';
 import { useCalendarAiSummary } from './use-calendar-ai-summary';
 
-type ViewMode = 'week' | 'month';
-
-type Habit = {
-  id: string;
-  name: string;
-  icon?: string;
-  category?: string;
-  unit_type?: string;
-  integration_source?: string;
-  metric_type?: string;
-};
+type ViewMode = CalendarViewMode;
 
 export function CalendarClient() {
   const ref = useRef<HTMLDivElement>(null);
@@ -65,8 +57,6 @@ export function CalendarClient() {
   const searchParams = useSearchParams();
   const selectedBlockId = searchParams.get('block');
   const selectedDateParam = searchParams.get('date');
-
-  // State
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>('month');
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
@@ -81,14 +71,8 @@ export function CalendarClient() {
     setSelectedDate(selectedDateParam);
   }, [selectedDateParam]);
 
-  // Drag selection state
   const [isDragging, setIsDragging] = useState(false);
-  const [localRange, setLocalRange] = useState<[string | null, string | null]>([
-    null,
-    null,
-  ]);
-
-  // Hover state for the bottom panel (like Lumen)
+  const [localRange, setLocalRange] = useState<[string | null, string | null]>([null, null]);
   const [hoveredDate, setHoveredDate] = useState<Date | null>(null);
   const [hoveredData, setHoveredData] = useState<HabitLog[]>([]);
 
@@ -126,9 +110,7 @@ export function CalendarClient() {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [viewMode, selectedDate]);
 
-
-  // Fetch habits
-  const { data: habits = [] } = useQuery<Habit[]>({
+  const { data: habits = [] } = useQuery<CalendarHabitRef[]>({
     queryKey: ['habits', user?.id],
     queryFn: async () => {
       const token = await getToken();
@@ -142,28 +124,10 @@ export function CalendarClient() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Calculate date range based on view
-  const dateRange = useMemo(() => {
-    if (viewMode === 'month') {
-      const monthStart = startOfMonth(currentDate);
-      const monthEnd = endOfMonth(currentDate);
-      const calendarStart = startOfWeek(monthStart, {
-        weekStartsOn: weekStartsOnMonday ? 1 : 0,
-      });
-      const calendarEnd = endOfWeek(monthEnd, {
-        weekStartsOn: weekStartsOnMonday ? 1 : 0,
-      });
-      return { start: calendarStart, end: calendarEnd };
-    } else {
-      const weekStart = startOfWeek(currentDate, {
-        weekStartsOn: weekStartsOnMonday ? 1 : 0,
-      });
-      const weekEnd = endOfWeek(currentDate, {
-        weekStartsOn: weekStartsOnMonday ? 1 : 0,
-      });
-      return { start: weekStart, end: weekEnd };
-    }
-  }, [currentDate, viewMode, weekStartsOnMonday]);
+  const dateRange = useMemo(
+    () => calendarVisibleRange(currentDate, viewMode, weekStartsOnMonday),
+    [currentDate, viewMode, weekStartsOnMonday],
+  );
 
   const calendarReadModelRange = useMemo(() => {
     const start = format(dateRange.start, 'yyyy-MM-dd');
@@ -206,34 +170,16 @@ export function CalendarClient() {
     !!user?.id,
   );
 
-  // Create habit map
   const habitMap = useMemo(() => {
-    const map = new Map<string, Habit>();
+    const map = new Map<string, CalendarHabitRef>();
     habits.forEach((habit) => map.set(habit.id, habit));
     return map;
   }, [habits]);
 
-  // Group logs by date
-  const logsByDate = useMemo(() => {
-    const grouped = new Map<string, HabitLog[]>();
-    logs.forEach((log) => {
-      const dateKey = log.date?.split('T')[0];
-      if (!dateKey) return;
-      const existing = grouped.get(dateKey) || [];
-      const habit = habitMap.get(log.habit_id);
-      existing.push({
-        ...log,
-        habit_name: log.habit_name || habit?.name || 'Unknown',
-        unit_type: log.unit_type || habit?.unit_type,
-        metric_type: log.metric_type || habit?.metric_type,
-        integration_source: log.integration_source || habit?.integration_source,
-        icon: log.icon || habit?.icon,
-        category: log.category || habit?.category,
-      });
-      grouped.set(dateKey, existing);
-    });
-    return grouped;
-  }, [logs, habitMap]);
+  const logsByDate = useMemo(
+    () => groupLogsByDate(logs, habitMap),
+    [logs, habitMap],
+  );
 
   const { aiSummary, aiSummaryLoading } = useCalendarAiSummary(
     selectedDate,
@@ -241,67 +187,23 @@ export function CalendarClient() {
     logsByDate,
   );
 
-  // Generate calendar days
   const calendarDays = useMemo(() => {
     return eachDayOfInterval({ start: dateRange.start, end: dateRange.end });
   }, [dateRange]);
 
-  const heartRateSummariesByDay = useMemo(() => {
-    const grouped = new Map<string, {
-      totalWeightedBpm: number;
-      minBpm: number;
-      maxBpm: number;
-      sampleCount: number;
-    }>();
+  const heartRateSummariesByDay = useMemo(
+    () => groupHeartRateSummariesByDay(heartRateRangeQuery.data?.points ?? []),
+    [heartRateRangeQuery.data],
+  );
 
-    for (const point of heartRateRangeQuery.data?.points ?? []) {
-      if (!('bucket_start' in point) || !point.bucket_start || point.sample_count == null || point.bpm_avg == null) {
-        continue;
-      }
-
-      const dayKey = format(new Date(point.bucket_start), 'yyyy-MM-dd');
-      const existing = grouped.get(dayKey) ?? {
-        totalWeightedBpm: 0,
-        minBpm: Number.POSITIVE_INFINITY,
-        maxBpm: Number.NEGATIVE_INFINITY,
-        sampleCount: 0,
-      };
-
-      existing.totalWeightedBpm += point.bpm_avg * point.sample_count;
-      existing.sampleCount += point.sample_count;
-      existing.minBpm = Math.min(existing.minBpm, point.bpm_min ?? point.bpm_avg);
-      existing.maxBpm = Math.max(existing.maxBpm, point.bpm_max ?? point.bpm_avg);
-      grouped.set(dayKey, existing);
-    }
-
-    return new Map(
-      Array.from(grouped.entries()).map(([dayKey, value]) => [
-        dayKey,
-        {
-          averageBpm: value.sampleCount > 0 ? value.totalWeightedBpm / value.sampleCount : 0,
-          minBpm: Number.isFinite(value.minBpm) ? value.minBpm : 0,
-          maxBpm: Number.isFinite(value.maxBpm) ? value.maxBpm : 0,
-          sampleCount: value.sampleCount,
-        },
-      ]),
-    );
-  }, [heartRateRangeQuery.data]);
-
-  // First week for headers
   const firstWeek = useMemo(() => {
     return calendarDays.slice(0, 7);
   }, [calendarDays]);
 
-  // Week days for week view
-  const weekDays = useMemo(() => {
-    const weekStart = startOfWeek(currentDate, {
-      weekStartsOn: weekStartsOnMonday ? 1 : 0,
-    });
-    const weekEnd = endOfWeek(currentDate, {
-      weekStartsOn: weekStartsOnMonday ? 1 : 0,
-    });
-    return eachDayOfInterval({ start: weekStart, end: weekEnd });
-  }, [currentDate, weekStartsOnMonday]);
+  const weekDays = useMemo(
+    () => weekDaysForDate(currentDate, weekStartsOnMonday),
+    [currentDate, weekStartsOnMonday],
+  );
 
   const scheduledBlocks = useMemo<WeekScheduledItem[]>(() => {
     const rows = calendarReadModelQuery.data?.scheduledBlocks;
@@ -310,21 +212,12 @@ export function CalendarClient() {
       : [];
   }, [calendarReadModelQuery.data]);
 
-  // Navigation
   const navigatePrevious = useCallback(() => {
-    if (viewMode === 'month') {
-      setCurrentDate((prev) => subMonths(prev, 1));
-    } else {
-      setCurrentDate((prev) => subWeeks(prev, 1));
-    }
+    setCurrentDate((prev) => shiftCalendarDate(prev, viewMode, -1));
   }, [viewMode]);
 
   const navigateNext = useCallback(() => {
-    if (viewMode === 'month') {
-      setCurrentDate((prev) => addMonths(prev, 1));
-    } else {
-      setCurrentDate((prev) => addWeeks(prev, 1));
-    }
+    setCurrentDate((prev) => shiftCalendarDate(prev, viewMode, 1));
   }, [viewMode]);
 
   const navigateToToday = useCallback(() => {
@@ -332,7 +225,6 @@ export function CalendarClient() {
   }, []);
 
 
-  // Keyboard navigation
   useHotkeys('arrowLeft', () => navigatePrevious(), {
     enabled: !selectedDate,
   });
@@ -341,7 +233,6 @@ export function CalendarClient() {
     enabled: !selectedDate,
   });
 
-  // Drag selection handlers
   const handleMouseDown = useCallback((date: Date) => {
     setIsDragging(true);
     const formatted = formatISO(date, { representation: 'date' });
@@ -389,26 +280,16 @@ export function CalendarClient() {
     }
   }, []);
 
-  // Handle day hover for the bottom panel
   const handleDayHover = useCallback((date: Date | null, data: HabitLog[]) => {
     setHoveredDate(date);
     setHoveredData(data);
   }, []);
 
 
-  const scheduledBlocksByDay = useMemo(() => {
-    const grouped = new Map<string, WeekScheduledItem[]>();
-    for (const item of scheduledBlocks) {
-      const existing = grouped.get(item.day) ?? [];
-      existing.push(item);
-      grouped.set(item.day, existing);
-    }
-    for (const [day, items] of grouped.entries()) {
-      items.sort((a, b) => a.startMinutes - b.startMinutes);
-      grouped.set(day, items);
-    }
-    return grouped;
-  }, [scheduledBlocks]);
+  const scheduledBlocksByDay = useMemo(
+    () => groupScheduledBlocksByDay(scheduledBlocks),
+    [scheduledBlocks],
+  );
 
   useLegacyScheduledBlockMigration();
 
@@ -439,13 +320,9 @@ export function CalendarClient() {
   }, [router, searchParams]);
 
   const onScheduledItemClick = useCallback((item: WeekScheduledItem) => {
-    if (item.taskId) {
-      router.push(`/tasks?task=${encodeURIComponent(item.taskId)}`);
-      return;
-    }
     replaceBlockParam(item.id);
     handleScheduledItemClick(item);
-  }, [handleScheduledItemClick, replaceBlockParam, router]);
+  }, [handleScheduledItemClick, replaceBlockParam]);
 
   const onCreateSelection = useCallback((selection: WeekSelectionPayload) => {
     replaceBlockParam(null);
@@ -534,7 +411,8 @@ export function CalendarClient() {
     user?.id,
   ]);
 
-  // Valid range for components
+
+
   const validRange: [string, string] | null =
     range && range.length === 2 ? [range[0], range[1]] : null;
 

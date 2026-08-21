@@ -27,7 +27,6 @@ let realImport = false;
 // Import the real buildBackendAuthHeaders to verify header construction
 let buildBackendAuthHeaders;
 let matchBackendOpenApiPath;
-let matchBackendOpenApiOperation;
 let resolveBackendProxyPath;
 let getBackendProxyCompatibilityFallback;
 try {
@@ -37,7 +36,6 @@ try {
   const proxyRoutingMod = await import("../lib/server/backend-proxy-routing.ts");
   buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
-  matchBackendOpenApiOperation = generatedClientMod.matchBackendOpenApiOperation;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
   getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
   realImport = true;
@@ -55,12 +53,6 @@ try {
     if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
-    return null;
-  };
-  matchBackendOpenApiOperation = (method, path) => {
-    if (method === "GET" && /^\/api\/artifacts\/[^/]+$/.test(path)) {
-      return "get_artifact_api_artifacts__artifact_id__get";
-    }
     return null;
   };
   resolveBackendProxyPath = (path) => {
@@ -206,14 +198,6 @@ describe("Generated backend route allowlist", () => {
   test("routes deleted watcher proxies through the OpenAPI catch-all", () => {
     assert.equal(matchBackendOpenApiPath("/api/watcher/stats/summary"), "/api/watcher/stats/summary");
   });
-
-  test("matches runtime routes to generated operation IDs", () => {
-    assert.equal(
-      matchBackendOpenApiOperation("GET", "/api/artifacts/artifact_123"),
-      "get_artifact_api_artifacts__artifact_id__get",
-    );
-    assert.equal(matchBackendOpenApiOperation("DELETE", "/api/not-a-real-route"), null);
-  });
 });
 
 describe("Backend proxy routing compatibility", () => {
@@ -253,22 +237,18 @@ describe("Backend proxy routing compatibility", () => {
 
 describe("Proxied success responses", () => {
   test("pipe upstream bodies without a JSON clone", async () => {
-    const { createProxiedSuccessInit } = await import("../lib/server/proxy-response.mjs");
+    const { createProxiedSuccessInit } = await import("../lib/server/proxy-response-init.mjs");
     const payload = { habits: [{ id: "h1" }], count: 1 };
     const body = JSON.stringify(payload);
     const upstream = new Response(body, {
       status: 200,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "server-timing": "app;dur=12",
-      },
+      headers: { "content-type": "application/json; charset=utf-8" },
     });
     const init = createProxiedSuccessInit(upstream);
     const proxied = new Response(init.body, init);
     assert.equal(proxied.status, 200);
     assert.equal(proxied.headers.get("cache-control"), "no-store, max-age=0");
     assert.match(proxied.headers.get("content-type") || "", /application\/json/);
-    assert.equal(proxied.headers.get("server-timing"), "app;dur=12");
     assert.deepEqual(await proxied.json(), payload);
   });
 });

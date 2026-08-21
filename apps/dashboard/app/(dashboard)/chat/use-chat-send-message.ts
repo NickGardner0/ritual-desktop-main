@@ -27,6 +27,7 @@ import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { perfInfo } from '@/lib/perf-debug';
 import { parsePhaseLine, labelForChatPhase } from './chat-stream-protocol';
 import { canonicalEntityType, parseEntityMentionTokens } from '@ritual/shared-contracts';
+import { enqueueAssistantTurnOutbox, removeAssistantTurnOutbox } from '@/lib/chat/assistant-turn-outbox';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 
 const HABIT_LOG_LOCATION_PREFLIGHT_PATTERN =
@@ -72,6 +73,7 @@ export function useChatSendMessage({
   loadConversationsList,
   loadMemoryFacts,
   voiceStyleEnabled,
+  bumpChatEpoch,
 }: {
   getToken: () => Promise<string | null>;
   queryClient: ReturnType<typeof useQueryClient>;
@@ -91,8 +93,9 @@ export function useChatSendMessage({
   loadConversationsList: () => Promise<void>;
   loadMemoryFacts: () => Promise<void>;
   voiceStyleEnabled: boolean;
+  bumpChatEpoch?: () => { epoch: number; signal: AbortSignal };
 }) {
-  const sendMessage = useCallback(async (text: string, options?: { entityRefs?: Message['entityRefs'] }): Promise<boolean> => {
+  const sendMessage = useCallback(async (text: string, options?: { entityRefs?: Message['entityRefs']; turnId?: string }): Promise<boolean> => {
     if (isLoading || !text.trim()) return false;
     
     setIsLoading(true);
@@ -152,6 +155,13 @@ export function useChatSendMessage({
     }
     
     let cancelStreamingFlushTimer: (() => void) | null = null;
+    let queuedOutbox: {
+      turnId: string;
+      epoch: number;
+      conversationId: string | null;
+      body: Record<string, unknown>;
+      queuedAt: string;
+    } | null = null;
 
     try {
       const token = await tokenPromise;
@@ -165,21 +175,37 @@ export function useChatSendMessage({
       perfInfo('chat', 'request_start', {
         duration_ms: Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - clickAt).toFixed(2)),
       });
+      const turnSession = bumpChatEpoch?.() ?? { epoch: Date.now(), signal: undefined as AbortSignal | undefined };
+      const turnId = options?.turnId
+        || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `turn_${Date.now()}`);
+      const requestBody = {
+        messages: newMessages.map(m => ({ role: m.role, content: m.content })),
+        timezone,
+        conversationId: conversationId, // Include conversation ID for persistence
+        responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
+        localOverviewActivity,
+        entityRefs: attachedRefs.length ? attachedRefs : undefined,
+        turnId,
+        epoch: turnSession.epoch,
+      };
+      queuedOutbox = {
+        turnId,
+        epoch: turnSession.epoch,
+        conversationId,
+        body: requestBody,
+        queuedAt: new Date().toISOString(),
+      };
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
+        signal: turnSession.signal,
         headers: {
           'Authorization': token ? `Bearer ${token}` : '',
           'Content-Type': 'application/json',
           ...privacySettingsHeaders(),
         },
-        body: JSON.stringify({
-          messages: newMessages.map(m => ({ role: m.role, content: m.content })),
-          timezone,
-          conversationId: conversationId, // Include conversation ID for persistence
-          responseMode: voiceStyleEnabled ? 'voice' : 'text', // Phase 4A: Voice style mode
-          localOverviewActivity,
-          entityRefs: attachedRefs.length ? attachedRefs : undefined,
-        }),
+        body: JSON.stringify(requestBody),
       });
       
       if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
@@ -428,8 +454,23 @@ export function useChatSendMessage({
           });
         }
       }
+      if (userId && queuedOutbox) {
+        removeAssistantTurnOutbox(userId, queuedOutbox.turnId);
+      }
       return true;
     } catch (error) {
+      if ((error as { name?: string })?.name === 'AbortError') {
+        return false;
+      }
+      if (
+        isDesktop
+        && userId
+        && queuedOutbox
+        && typeof navigator !== 'undefined'
+        && navigator.onLine === false
+      ) {
+        enqueueAssistantTurnOutbox(userId, queuedOutbox);
+      }
       console.error('Chat error:', error);
       cancelStreamingFlushTimer?.();
       setStreamingContent('');
@@ -445,7 +486,7 @@ export function useChatSendMessage({
       setCurrentQuestion('');
       setToolStatus(null);
     }
-  }, [messages, isLoading, getToken, conversationId, loadConversationsList, loadMemoryFacts, voiceStyleEnabled, queryClient, timezone, userId, isDesktop]);
+  }, [messages, isLoading, getToken, conversationId, loadConversationsList, loadMemoryFacts, voiceStyleEnabled, queryClient, timezone, userId, isDesktop, bumpChatEpoch]);
 
   return sendMessage;
 }

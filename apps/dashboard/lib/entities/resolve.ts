@@ -26,13 +26,11 @@ import {
 import { canUseDesktopVault, getDesktopVaultRecord, listDesktopVaultRecords } from "@/lib/privacy/vault-client";
 import type { Habit, HabitLog } from "@/contexts/habits-context.types";
 import type { Routine, Task } from "@/lib/tasks/types";
-
-const summaryCache = new Map<string, EntitySummary>();
-const entitySummaryListeners = new Set<() => void>();
-
-function bumpEntitySummaryEpoch() {
-  for (const listener of entitySummaryListeners) listener();
-}
+import {
+  loadEntitySummary,
+  readCachedEntitySummary,
+  writeCachedEntitySummary,
+} from "@/lib/entities/entity-summary-cache.mjs";
 
 const VAULT_COLLECTIONS: Partial<Record<EntityType, string>> = {
   habit: HABIT_DEFINITIONS_COLLECTION,
@@ -173,51 +171,40 @@ export async function resolveEntity(
   options: { userId?: string | null; getToken?: AuthGetter } = {},
 ): Promise<EntitySummary> {
   ref = canonicalizeRef(ref);
-  const key = entityRefKey(ref);
-  const cached = summaryCache.get(key);
-  if (cached) return cached;
-
-  if (ref.type === "day" || ref.type === "time_window") {
-    const parsed =
-      ref.type === "day" && isDayId(ref.id)
-        ? { type: "day" as const, id: ref.id }
-        : ref.type === "time_window" && isTimeWindowId(ref.id)
-          ? { type: "time_window" as const, id: ref.id }
-          : null;
-    const summary = parsed
-      ? virtualDateSummary(parsed)
-      : unavailableEntitySummary(ref, "unknown");
-    summaryCache.set(key, summary);
-    return summary;
-  }
-
-  if (options.userId) {
-    try {
-      const local = await resolveFromVault(ref, options.userId);
-      if (local) {
-        summaryCache.set(key, local);
-        return local;
-      }
-    } catch (error) {
-      console.warn("[entities] vault resolve failed", error);
+  return loadEntitySummary(ref, options.userId, async () => {
+    if (ref.type === "day" || ref.type === "time_window") {
+      const parsed =
+        ref.type === "day" && isDayId(ref.id)
+          ? { type: "day" as const, id: ref.id }
+          : ref.type === "time_window" && isTimeWindowId(ref.id)
+            ? { type: "time_window" as const, id: ref.id }
+            : null;
+      return parsed
+        ? virtualDateSummary(parsed)
+        : unavailableEntitySummary(ref, "unknown");
     }
-  }
 
-  try {
-    const summary = options.getToken
-      ? await apiJsonWithAuth<EntitySummary>(entityLookupPath(ref.type, ref.id), options.getToken, {
-          userId: options.userId,
-        })
-      : await apiJson<EntitySummary>(entityLookupPath(ref.type, ref.id), {
-          userId: options.userId,
-        });
-    summaryCache.set(key, summary);
-    return summary;
-  } catch {
-    const fallback = unavailableEntitySummary(ref, "unknown");
-    summaryCache.set(key, fallback);
-    return fallback;
-  }
+    if (options.userId) {
+      try {
+        const local = await resolveFromVault(ref, options.userId);
+        if (local) return local;
+      } catch (error) {
+        console.warn("[entities] vault resolve failed", error);
+      }
+    }
+
+    try {
+      return options.getToken
+        ? await apiJsonWithAuth<EntitySummary>(entityLookupPath(ref.type, ref.id), options.getToken, {
+            userId: options.userId,
+          })
+        : await apiJson<EntitySummary>(entityLookupPath(ref.type, ref.id), {
+            userId: options.userId,
+          });
+    } catch {
+      return unavailableEntitySummary(ref, "unknown");
+    }
+  });
 }
 
 export async function resolveEntities(
@@ -238,7 +225,7 @@ export async function resolveEntities(
   const resolved = new Map<string, EntitySummary>();
   for (const ref of unique) {
     const key = entityRefKey(ref);
-    const cached = summaryCache.get(key);
+    const cached = readCachedEntitySummary(ref, options.userId);
     if (cached) {
       resolved.set(key, cached);
       continue;
@@ -252,7 +239,7 @@ export async function resolveEntities(
       try {
         const local = await resolveFromVault(ref, options.userId);
         if (local) {
-          summaryCache.set(key, local);
+          writeCachedEntitySummary(ref, options.userId, local);
           resolved.set(key, local);
           continue;
         }
@@ -277,15 +264,13 @@ export async function resolveEntities(
             userId: options.userId,
           });
       for (const item of response.items || []) {
-        const key = entityRefKey(item.ref);
-        summaryCache.set(key, item);
-        resolved.set(key, item);
+        writeCachedEntitySummary(item.ref, options.userId, item);
+        resolved.set(entityRefKey(item.ref), item);
       }
     } catch (error) {
       console.warn("[entities] batch resolve failed", error);
       for (const ref of remaining) {
-        const fallback = unavailableEntitySummary(ref, "unknown");
-        resolved.set(entityRefKey(ref), fallback);
+        resolved.set(entityRefKey(ref), unavailableEntitySummary(ref, "unknown"));
       }
     }
   }
@@ -293,16 +278,39 @@ export async function resolveEntities(
   return unique.map((ref) => resolved.get(entityRefKey(ref)) || unavailableEntitySummary(ref, "unknown"));
 }
 
+const DEFAULT_LOCAL_SEARCH_TYPES: EntityType[] = [
+  "habit",
+  "task",
+  "routine",
+  "calendar_block",
+  "day",
+  "time_window",
+];
+
+export type SearchLocalEntitiesOptions = {
+  types?: EntityType[];
+  limit?: number;
+};
+
+function normalizeSearchOptions(
+  typesOrOptions?: EntityType[] | SearchLocalEntitiesOptions,
+): SearchLocalEntitiesOptions {
+  if (Array.isArray(typesOrOptions)) return { types: typesOrOptions };
+  return typesOrOptions || {};
+}
+
 export async function searchLocalEntities(
   userId: string,
   query: string,
-  types?: EntityType[],
+  typesOrOptions?: EntityType[] | SearchLocalEntitiesOptions,
 ): Promise<EntitySummary[]> {
+  const options = normalizeSearchOptions(typesOrOptions);
+  const cap = Math.max(1, Math.min(options.limit || 20, 40));
   if (!canUseDesktopVault() && !parseDateMentionQuery(query)) return [];
   const needle = query.trim().toLowerCase();
   const parsedDate = parseDateMentionQuery(query);
   const wanted = new Set(
-    (types?.length ? types : (["habit", "habit_log", "task", "routine", "calendar_block", "day", "time_window"] as EntityType[]))
+    (options.types?.length ? options.types : DEFAULT_LOCAL_SEARCH_TYPES)
       .map((item) => canonicalEntityType(item) || item)
       .filter((item): item is EntityType => Boolean(item)),
   );
@@ -310,15 +318,18 @@ export async function searchLocalEntities(
   if (parsedDate && wanted.has(parsedDate.type)) {
     items.push(virtualDateSummary(parsedDate));
   }
-  if (!canUseDesktopVault()) return items.slice(0, 20);
+  if (!canUseDesktopVault()) return items.slice(0, cap);
 
   const matches = (value: string | null | undefined) => {
     if (!needle) return true;
     return (value || "").toLowerCase().includes(needle);
   };
 
+  const listSlice = <T,>(collection: string) =>
+    listDesktopVaultRecords<T>(userId, collection, { maxRecords: cap, limit: cap });
+
   if (wanted.has("habit")) {
-    const records = await listDesktopVaultRecords<Habit>(userId, HABIT_DEFINITIONS_COLLECTION);
+    const records = await listSlice<Habit>(HABIT_DEFINITIONS_COLLECTION);
     for (const record of records || []) {
       if (record.tombstone) continue;
       if (!matches(record.payload.name) && !matches(record.payload.category)) continue;
@@ -327,7 +338,7 @@ export async function searchLocalEntities(
     }
   }
   if (wanted.has("habit_log")) {
-    const records = await listDesktopVaultRecords<HabitLog>(userId, HABIT_LOGS_COLLECTION);
+    const records = await listSlice<HabitLog>(HABIT_LOGS_COLLECTION);
     for (const record of records || []) {
       if (record.tombstone) continue;
       if (!matches(record.payload.habit_name) && !matches(record.payload.notes) && !matches(record.payload.date)) continue;
@@ -336,7 +347,7 @@ export async function searchLocalEntities(
     }
   }
   if (wanted.has("task")) {
-    const records = await listDesktopVaultRecords<Task>(userId, TASKS_COLLECTION);
+    const records = await listSlice<Task>(TASKS_COLLECTION);
     for (const record of records || []) {
       if (record.tombstone) continue;
       if (!matches(record.payload.title) && !matches(record.payload.notes || "")) continue;
@@ -344,7 +355,7 @@ export async function searchLocalEntities(
     }
   }
   if (wanted.has("routine")) {
-    const records = await listDesktopVaultRecords<Routine>(userId, ROUTINES_COLLECTION);
+    const records = await listSlice<Routine>(ROUTINES_COLLECTION);
     for (const record of records || []) {
       if (record.tombstone) continue;
       if (!matches(record.payload.title) && !matches(record.payload.description || "")) continue;
@@ -352,7 +363,7 @@ export async function searchLocalEntities(
     }
   }
   if (wanted.has("calendar_block")) {
-    const records = await listDesktopVaultRecords<ScheduledBlockVault>(userId, "scheduled_blocks");
+    const records = await listSlice<ScheduledBlockVault>("scheduled_blocks");
     for (const record of records || []) {
       if (record.tombstone) continue;
       const payload = record.payload;
@@ -361,38 +372,14 @@ export async function searchLocalEntities(
       if (summary) items.push(summary);
     }
   }
-  return items.slice(0, 20);
+  return items.slice(0, cap);
 }
 
-export function rememberEntitySummary(summary: EntitySummary) {
-  const key = entityRefKey(summary.ref);
-  const previous = summaryCache.get(key);
-  summaryCache.set(key, summary);
-  if (
-    previous
-    && previous.title === summary.title
-    && previous.status === summary.status
-    && previous.subtitle === summary.subtitle
-    && previous.availability === summary.availability
-  ) {
-    return;
-  }
-  bumpEntitySummaryEpoch();
-}
-
-export function forgetEntitySummary(ref: EntityRef) {
-  summaryCache.delete(entityRefKey(ref));
-  bumpEntitySummaryEpoch();
-}
-
-export function subscribeEntitySummaries(listener: () => void) {
-  entitySummaryListeners.add(listener);
-  return () => {
-    entitySummaryListeners.delete(listener);
-  };
-}
-
-export function clearEntitySummaryCache() {
-  summaryCache.clear();
-  bumpEntitySummaryEpoch();
-}
+export {
+  clearEntitySummaryCache,
+  forgetEntitySummary,
+  rememberEntitySummary,
+  setEntitySummaryCacheUser,
+  subscribeEntitySummary,
+  subscribeEntitySummaries,
+} from "@/lib/entities/entity-summary-cache.mjs";

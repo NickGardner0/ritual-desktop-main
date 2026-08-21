@@ -25,6 +25,11 @@ from schemas.entities import (  # noqa: E402
 from services.entity_service import EntityService  # noqa: E402
 
 
+@asynccontextmanager
+async def fake_db_session():
+    yield SimpleNamespace()
+
+
 class _ScalarResult:
     def __init__(self, rows):
         self._rows = list(rows)
@@ -160,7 +165,16 @@ class EntityMentionServiceTests(unittest.IsolatedAsyncioTestCase):
             return None
 
         service._load = AsyncMock(side_effect=load)
-        items = await service.related("user-1", "day", "2026-08-17")
+        async def load_many(_session, _user_id, entity_type, ids):
+            loaded = {}
+            for entity_id in ids:
+                row = await load(_user_id, entity_type, entity_id)
+                if row is not None:
+                    loaded[(entity_type, entity_id)] = row
+            return loaded
+        service._load_many = AsyncMock(side_effect=load_many)
+        with patch("services.entity_service.get_db_session", fake_db_session):
+            items = await service.related("user-1", "day", "2026-08-17")
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].edge.relationship, "logged_on")
         self.assertEqual(items[1].summary.ref.type, "calendar_block")

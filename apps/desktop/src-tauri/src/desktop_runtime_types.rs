@@ -134,64 +134,11 @@ pub struct BiomeIphoneDiagnostics {
 }
 
 #[derive(Clone, Debug, Serialize)]
-#[serde(
-    tag = "phase",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase"
-)]
-pub(crate) enum UpdateStatusPhaseV2 {
-    UpToDate,
-    Available,
-    Downloading {
-        content_length: u64,
-        downloaded: u64,
-        percentage: u8,
-    },
-    Installing,
-    Relaunching,
-    Error {
-        message: String,
-    },
-}
-
-#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateStatusPayload {
-    pub(crate) version: u8,
-    #[serde(flatten)]
-    pub(crate) event: UpdateStatusPhaseV2,
-    // Legacy compatibility fields remain for two native/dashboard release cycles.
     pub(crate) content_length: Option<u64>,
     pub(crate) downloaded: Option<u64>,
     pub(crate) error: Option<String>,
     pub(crate) percentage: Option<u8>,
     pub(crate) status: Option<String>,
-}
-
-#[cfg(test)]
-mod update_status_tests {
-    use super::*;
-
-    #[test]
-    fn update_status_v2_serializes_tagged_phase_and_legacy_fields() {
-        let payload = UpdateStatusPayload {
-            version: 2,
-            event: UpdateStatusPhaseV2::Downloading {
-                content_length: 100,
-                downloaded: 25,
-                percentage: 25,
-            },
-            content_length: Some(100),
-            downloaded: Some(25),
-            error: None,
-            percentage: Some(25),
-            status: Some("DOWNLOADING".to_string()),
-        };
-        let value = serde_json::to_value(payload).expect("serialize updater payload");
-        assert_eq!(value["version"], 2);
-        assert_eq!(value["phase"], "downloading");
-        assert_eq!(value["contentLength"], 100);
-        assert_eq!(value["status"], "DOWNLOADING");
-        assert!(value.get("message").is_none());
-    }
 }

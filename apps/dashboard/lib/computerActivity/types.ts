@@ -1,6 +1,7 @@
 export type {
   AggregatedComputerStatsResponse,
   ComputerActivityRangeParams,
+  ComputerActivityReadSource,
   ComputerDailyResponseRow,
   ComputerSummaryResponse,
   TopAppResponseRow,

@@ -22,6 +22,20 @@ test('vault pagination exhausts datasets larger than the legacy 100,000-record c
   assert.equal(calls, 21);
 });
 
+test('vault pagination can stop after a maxRecords cap', async () => {
+  let calls = 0;
+  const records = await collectVaultRecordPages(async (cursor) => {
+    calls += 1;
+    const start = cursor ? Number(cursor) : 0;
+    return {
+      records: [start, start + 1, start + 2],
+      nextCursor: String(start + 3),
+    };
+  }, { maxRecords: 4 });
+  assert.deepEqual(records, [0, 1, 2, 3]);
+  assert.equal(calls, 2);
+});
+
 test('vault pagination rejects repeated cursors instead of looping forever', async () => {
   await assert.rejects(
     collectVaultRecordPages(async () => ({ records: [], nextCursor: 'same' })),

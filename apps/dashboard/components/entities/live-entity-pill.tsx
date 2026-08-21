@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import type { EntityRef, EntitySummary } from "@ritual/shared-contracts";
 import { EntityPill } from "@/components/entities/entity-pill";
-import { resolveEntity, subscribeEntitySummaries } from "@/lib/entities/resolve";
+import { resolveEntity, subscribeEntitySummary } from "@/lib/entities/resolve";
 
 export function LiveEntityPill({
   entityRef,
@@ -20,7 +20,10 @@ export function LiveEntityPill({
   const [summary, setSummary] = useState<EntitySummary | null>(null);
   const [epoch, setEpoch] = useState(0);
 
-  useEffect(() => subscribeEntitySummaries(() => setEpoch((value) => value + 1)), []);
+  useEffect(
+    () => subscribeEntitySummary(entityRef, () => setEpoch((value) => value + 1), user?.id),
+    [entityRef.id, entityRef.type, user?.id],
+  );
 
   useEffect(() => {
     let cancelled = false;

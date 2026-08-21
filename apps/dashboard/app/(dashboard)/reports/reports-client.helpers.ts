@@ -14,6 +14,10 @@ import type {
 } from "@/lib/workflows/types";
 import { WORKFLOW_WEEKDAY_OPTIONS } from "@/lib/workflows/types";
 
+export function deferStateUpdate(fn: () => void) {
+  queueMicrotask(fn);
+}
+
 export const ARTIFACT_FILTERS: Array<{ key: "all" | ArtifactKind; label: string }> = [
   { key: "all", label: "All" },
   { key: "report", label: "Reports" },

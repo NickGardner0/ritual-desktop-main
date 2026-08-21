@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createProxiedSuccessInit } from "./proxy-response.mjs";
+import { createProxiedSuccessInit } from "./proxy-response-init.mjs";
 
 export { createProxiedSuccessInit };
 

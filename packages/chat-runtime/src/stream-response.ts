@@ -98,9 +98,12 @@ export interface ChatStreamResponseOptions {
   prefaceLine?: string;
   /**
    * Called once the full text is available (after streaming completes).
-   * Use for fire-and-forget persistence.
+   * Persistence should finish before the stream is closed.
    */
-  onComplete?: (fullText: string, canvasToolPayload: Record<string, unknown> | null) => void;
+  onComplete?: (
+    fullText: string,
+    canvasToolPayload: Record<string, unknown> | null,
+  ) => void | Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,7 +204,7 @@ export function createChatStreamResponse(options: ChatStreamResponseOptions): Re
 
       // 5. Notify caller with full text (for persistence)
       if (options.onComplete) {
-        options.onComplete(fullText, finalCanvasToolPayload);
+        await options.onComplete(fullText, finalCanvasToolPayload);
       }
 
       controller.close();

@@ -845,16 +845,6 @@ pub fn initialize_database_with_origin(origin: &str) -> Result<(), String> {
     })
 }
 
-/// Get database or return error
-pub(crate) async fn get_db(
-) -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
-    let guard = RITUAL_DB.read().await;
-    if guard.is_none() {
-        return Err("Database not initialized. Call initialize_database() first.".to_string());
-    }
-    Ok(guard)
-}
-
 /// Get activity database or return error.
 pub(crate) async fn get_activity_db(
 ) -> Result<tokio::sync::RwLockReadGuard<'static, Option<RitualDatabase>>, String> {
@@ -904,120 +894,6 @@ pub fn init_ritual_database(origin: Option<String>) -> Result<String, String> {
     Ok("Database initialized successfully".to_string())
 }
 
-/// Get database statistics
-#[tauri::command]
-pub fn get_ritual_db_stats() -> Result<RitualDbStats, String> {
-    RUNTIME.block_on(async {
-        let guard = get_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-
-        let stats = db
-            .get_stats()
-            .await
-            .map_err(|e| format!("Failed to get stats: {}", e))?;
-
-        Ok(RitualDbStats {
-            activity_event_count: stats.activity_event_count,
-            ocr_frame_count: stats.ocr_frame_count,
-            video_chunk_count: stats.video_chunk_count,
-            sync_queue_pending: stats.sync_queue_pending,
-            db_size_mb: stats.db_size_bytes as f64 / 1024.0 / 1024.0,
-        })
-    })
-}
-
-/// Search response for the frontend
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RitualDbStats {
-    pub activity_event_count: i64,
-    pub ocr_frame_count: i64,
-    pub video_chunk_count: i64,
-    pub sync_queue_pending: i64,
-    pub db_size_mb: f64,
-}
-
-/// Local OCR full-text search.
-#[tauri::command]
-pub fn text_search(query: String, limit: Option<usize>) -> Result<Vec<TextSearchResult>, String> {
-    RUNTIME.block_on(async {
-        let guard = get_db().await?;
-        let db = require_db_ref(guard.as_ref())?;
-
-        let results = db
-            .search_ocr_text(&query, limit.unwrap_or(50))
-            .await
-            .map_err(|e| format!("Search failed: {}", e))?;
-
-        let response: Vec<TextSearchResult> = results
-            .into_iter()
-            .map(|f| TextSearchResult {
-                frame_id: f.id.unwrap_or(0),
-                timestamp: f.timestamp,
-                app_bundle_id: f.app_bundle_id,
-                app_name: f.app_name,
-                window_title: f.window_title,
-                ocr_text: f.ocr_text,
-                thumbnail_path: f.thumbnail_path,
-                video_chunk_id: f.video_chunk_id,
-                frame_offset: f.frame_offset,
-            })
-            .collect();
-
-        Ok(response)
-    })
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TextSearchResult {
-    pub frame_id: i64,
-    pub timestamp: i64,
-    pub app_bundle_id: String,
-    pub app_name: String,
-    pub window_title: Option<String>,
-    pub ocr_text: String,
-    pub thumbnail_path: Option<String>,
-    pub video_chunk_id: Option<i64>,
-    pub frame_offset: Option<i64>,
-}
-
-/// Check migration status for both legacy and split local databases.
-#[tauri::command]
-pub fn check_migration_status() -> Result<MigrationStatus, String> {
-    let ritual_dir = get_ritual_dir();
-    let legacy_ritual_db_path = ritual_dir.join("ritual.db");
-    let activity_db_path = ritual_dir.join("activity.db");
-    let memory_db_path = ritual_dir.join("memory.db");
-    let watcher_db_path = ritual_dir.join("watcher.db");
-    let frames_db_path = ritual_dir.join("frames.db");
-
-    // Check for migrated backups
-    let watcher_migrated = ritual_dir.join("watcher.db.migrated").exists();
-    let frames_migrated = ritual_dir.join("frames.db.migrated").exists();
-
-    Ok(MigrationStatus {
-        ritual_db_exists: legacy_ritual_db_path.exists(),
-        activity_db_exists: activity_db_path.exists(),
-        memory_db_exists: memory_db_path.exists(),
-        legacy_watcher_db_exists: watcher_db_path.exists(),
-        legacy_frames_db_exists: frames_db_path.exists(),
-        watcher_migrated,
-        frames_migrated,
-        is_fully_migrated: activity_db_path.exists() && memory_db_path.exists(),
-    })
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MigrationStatus {
-    pub ritual_db_exists: bool,
-    pub activity_db_exists: bool,
-    pub memory_db_exists: bool,
-    pub legacy_watcher_db_exists: bool,
-    pub legacy_frames_db_exists: bool,
-    pub watcher_migrated: bool,
-    pub frames_migrated: bool,
-    pub is_fully_migrated: bool,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectTimeAttributionHealth {
     pub latest_session_ts: Option<i64>,
@@ -1053,7 +929,6 @@ async fn project_time_incremental_range_start(conn: &libsql::Connection) -> Resu
     Ok(latest.saturating_sub(10 * 60 * 1000).max(fallback))
 }
 
-#[tauri::command]
 pub fn run_project_time_attribution_once(
     days_back: Option<i64>,
     origin: Option<String>,
@@ -1088,7 +963,6 @@ pub fn run_project_time_attribution_once(
     })
 }
 
-#[tauri::command]
 pub fn run_project_time_retention_once(
     retention_days: Option<i64>,
     origin: Option<String>,

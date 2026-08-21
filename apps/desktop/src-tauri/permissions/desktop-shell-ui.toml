@@ -1,0 +1,8 @@
+[[permission]]
+identifier = "desktop-shell-ui"
+description = "Allows the hosted dashboard and detached sidebar to control native window chrome."
+commands.allow = [
+  "sidebar_set_width",
+  "sidebar_navigate",
+  "sidebar_get_main_state",
+]

@@ -421,6 +421,7 @@ export async function executeGetStreaks(token: string, params: {
 async function resolveConversationId(ctx?: {
   conversationId?: string | null;
   conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
 }): Promise<string | null> {
   if (ctx?.conversationId) return ctx.conversationId;
   if (ctx?.conversationIdPromise) {
@@ -448,6 +449,7 @@ export async function executeLogHabit(token: string, params: {
 }, timezone?: string, conversationCtx?: {
   conversationId?: string | null;
   conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
 }) {
   console.log('📝 logHabit called:', params);
 
@@ -486,7 +488,7 @@ export async function executeLogHabit(token: string, params: {
 
     // Step 3: Log the entry
     const today = getLocalDateString(timezone);
-    const clientEventId = newClientEventId();
+    const clientEventId = conversationCtx?.clientEventId || newClientEventId();
     const conversationId = await resolveConversationId(conversationCtx);
     const logBody: Record<string, unknown> = {
       date: today,
@@ -583,11 +585,12 @@ export async function executeCreateHabit(token: string, params: {
 }, conversationCtx?: {
   conversationId?: string | null;
   conversationIdPromise?: Promise<string | null>;
+  clientEventId?: string;
 }) {
   console.log('➕ createHabit called:', params);
 
   try {
-    const clientEventId = newClientEventId();
+    const clientEventId = conversationCtx?.clientEventId || newClientEventId();
     const conversationId = await resolveConversationId(conversationCtx);
     const body: Record<string, unknown> = {
       name: params.name,

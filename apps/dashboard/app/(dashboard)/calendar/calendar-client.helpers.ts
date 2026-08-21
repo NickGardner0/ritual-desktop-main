@@ -1,4 +1,15 @@
-import { format } from 'date-fns';
+import {
+  addMonths,
+  addWeeks,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
+  subWeeks,
+} from 'date-fns';
 import type { HabitLog } from './tracker-events';
 import type { WeekScheduledItem } from './calendar-week-view';
 
@@ -9,8 +20,6 @@ export type ScheduledBlockApi = {
   day: string;
   start_minutes: number;
   end_minutes: number;
-  task_id?: string | null;
-  task_status?: string | null;
 };
 
 export type ScheduledBlockPayload = {
@@ -290,8 +299,6 @@ export function mapScheduledBlockFromApi(item: ScheduledBlockApi): WeekScheduled
     day: item.day,
     startMinutes: item.start_minutes,
     endMinutes: item.end_minutes,
-    taskId: item.task_id ?? null,
-    taskStatus: item.task_status ?? null,
   };
 }
 
@@ -307,4 +314,139 @@ export function parseCalendarBlockSubtitle(subtitle?: string | null): {
     startMinutes: Number(match[2]) * 60 + Number(match[3]),
     endMinutes: Number(match[4]) * 60 + Number(match[5]),
   };
+}
+
+export type CalendarViewMode = 'week' | 'month';
+
+export type CalendarHabitRef = {
+  id: string;
+  name: string;
+  icon?: string;
+  category?: string;
+  unit_type?: string;
+  integration_source?: string;
+  metric_type?: string;
+};
+
+export function calendarVisibleRange(
+  currentDate: Date,
+  viewMode: CalendarViewMode,
+  weekStartsOnMonday: boolean,
+) {
+  const weekStartsOn = weekStartsOnMonday ? 1 : 0;
+  if (viewMode === 'month') {
+    const monthStart = startOfMonth(currentDate);
+    const monthEnd = endOfMonth(currentDate);
+    return {
+      start: startOfWeek(monthStart, { weekStartsOn }),
+      end: endOfWeek(monthEnd, { weekStartsOn }),
+    };
+  }
+  return {
+    start: startOfWeek(currentDate, { weekStartsOn }),
+    end: endOfWeek(currentDate, { weekStartsOn }),
+  };
+}
+
+export function weekDaysForDate(currentDate: Date, weekStartsOnMonday: boolean) {
+  const weekStartsOn = weekStartsOnMonday ? 1 : 0;
+  return eachDayOfInterval({
+    start: startOfWeek(currentDate, { weekStartsOn }),
+    end: endOfWeek(currentDate, { weekStartsOn }),
+  });
+}
+
+export function shiftCalendarDate(current: Date, viewMode: CalendarViewMode, direction: -1 | 1): Date {
+  if (viewMode === 'month') {
+    return direction < 0 ? subMonths(current, 1) : addMonths(current, 1);
+  }
+  return direction < 0 ? subWeeks(current, 1) : addWeeks(current, 1);
+}
+
+export function groupScheduledBlocksByDay(scheduledBlocks: WeekScheduledItem[]) {
+  const grouped = new Map<string, WeekScheduledItem[]>();
+  for (const item of scheduledBlocks) {
+    const existing = grouped.get(item.day) ?? [];
+    existing.push(item);
+    grouped.set(item.day, existing);
+  }
+  for (const [day, items] of grouped.entries()) {
+    items.sort((a, b) => a.startMinutes - b.startMinutes);
+    grouped.set(day, items);
+  }
+  return grouped;
+}
+
+export function groupLogsByDate(
+  logs: HabitLog[],
+  habitMap: Map<string, CalendarHabitRef>,
+): Map<string, HabitLog[]> {
+  const grouped = new Map<string, HabitLog[]>();
+  logs.forEach((log) => {
+    const dateKey = log.date?.split('T')[0];
+    if (!dateKey) return;
+    const existing = grouped.get(dateKey) || [];
+    const habit = habitMap.get(log.habit_id);
+    existing.push({
+      ...log,
+      habit_name: log.habit_name || habit?.name || 'Unknown',
+      unit_type: log.unit_type || habit?.unit_type,
+      metric_type: log.metric_type || habit?.metric_type,
+      integration_source: log.integration_source || habit?.integration_source,
+      icon: log.icon || habit?.icon,
+      category: log.category || habit?.category,
+    });
+    grouped.set(dateKey, existing);
+  });
+  return grouped;
+}
+
+type HeartRateBucketPoint = {
+  bucket_start?: string;
+  sample_count?: number | null;
+  bpm_avg?: number | null;
+  bpm_min?: number | null;
+  bpm_max?: number | null;
+};
+
+export function groupHeartRateSummariesByDay(points: readonly unknown[]) {
+  const grouped = new Map<string, {
+    totalWeightedBpm: number;
+    minBpm: number;
+    maxBpm: number;
+    sampleCount: number;
+  }>();
+
+  for (const raw of points) {
+    const point = raw as HeartRateBucketPoint;
+    if (!raw || typeof raw !== 'object' || !('bucket_start' in raw) || !point.bucket_start || point.sample_count == null || point.bpm_avg == null) {
+      continue;
+    }
+
+    const dayKey = format(new Date(point.bucket_start), 'yyyy-MM-dd');
+    const existing = grouped.get(dayKey) ?? {
+      totalWeightedBpm: 0,
+      minBpm: Number.POSITIVE_INFINITY,
+      maxBpm: Number.NEGATIVE_INFINITY,
+      sampleCount: 0,
+    };
+
+    existing.totalWeightedBpm += point.bpm_avg * point.sample_count;
+    existing.sampleCount += point.sample_count;
+    existing.minBpm = Math.min(existing.minBpm, point.bpm_min ?? point.bpm_avg);
+    existing.maxBpm = Math.max(existing.maxBpm, point.bpm_max ?? point.bpm_avg);
+    grouped.set(dayKey, existing);
+  }
+
+  return new Map(
+    Array.from(grouped.entries()).map(([dayKey, value]) => [
+      dayKey,
+      {
+        averageBpm: value.sampleCount > 0 ? value.totalWeightedBpm / value.sampleCount : 0,
+        minBpm: Number.isFinite(value.minBpm) ? value.minBpm : 0,
+        maxBpm: Number.isFinite(value.maxBpm) ? value.maxBpm : 0,
+        sampleCount: value.sampleCount,
+      },
+    ]),
+  );
 }

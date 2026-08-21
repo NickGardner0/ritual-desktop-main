@@ -3,12 +3,7 @@ identifier = "desktop-shell-bootstrap"
 description = "Allows the local desktop shell to bootstrap the hosted dashboard and report launch diagnostics."
 commands.allow = [
   "get_desktop_shell_bootstrap_config",
-  "check_desktop_hosted_app_reachable",
+  "show_main_window",
   "desktop_record_shell_event",
   "open_settings_window",
-  "open_voice_hud",
-  "hide_voice_hud",
-  "update_voice_hud_state",
-  "get_voice_hotkey_settings",
-  "set_voice_hotkey_settings",
 ]

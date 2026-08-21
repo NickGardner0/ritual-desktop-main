@@ -39,9 +39,6 @@
       ],
       "@ritual/shared-contracts/*": [
         "../../packages/shared-contracts/src/*"
-      ],
-      "@ritual/chat-runtime/*": [
-        "../../packages/chat-runtime/src/*"
       ]
     }
   },
@@ -50,10 +47,11 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
-    "trigger.config.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next/types/app/widget",
+    ".next/dev/types"
   ]
 }

@@ -4,33 +4,21 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use tauri_plugin_updater::UpdaterExt;
 use tracing::instrument;
 
-pub(crate) fn emit_update_status<R: Runtime>(app: &AppHandle<R>, event: UpdateStatusPhaseV2) {
-    let (status, error, content_length, downloaded, percentage) = match &event {
-        UpdateStatusPhaseV2::UpToDate => ("UPTODATE", None, None, None, None),
-        UpdateStatusPhaseV2::Available => ("AVAILABLE", None, None, None, None),
-        UpdateStatusPhaseV2::Downloading {
-            content_length,
-            downloaded,
-            percentage,
-        } => (
-            "DOWNLOADING",
-            None,
-            Some(*content_length),
-            Some(*downloaded),
-            Some(*percentage),
-        ),
-        UpdateStatusPhaseV2::Installing => ("INSTALLING", None, None, None, Some(100)),
-        UpdateStatusPhaseV2::Relaunching => ("DONE", None, None, None, Some(100)),
-        UpdateStatusPhaseV2::Error { message } => {
-            ("ERROR", Some(message.clone()), None, None, None)
-        }
-    };
+pub(crate) fn emit_update_status<R: Runtime>(
+    app: &AppHandle<R>,
+    status: &str,
+    error: Option<String>,
+    progress: Option<(u64, u64, u8)>,
+) {
+    let (content_length, downloaded, percentage) = progress
+        .map(|(content_length, downloaded, percentage)| {
+            (Some(content_length), Some(downloaded), Some(percentage))
+        })
+        .unwrap_or((None, None, None));
 
     let _ = app.emit(
         UPDATE_STATUS_EVENT,
         UpdateStatusPayload {
-            version: 2,
-            event,
             content_length,
             downloaded,
             error,
@@ -75,14 +63,7 @@ pub(crate) async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Resu
         body: update.body.clone(),
     };
     set_pending_update(&app, Some(manifest));
-    emit_update_status(
-        &app,
-        UpdateStatusPhaseV2::Downloading {
-            content_length: 0,
-            downloaded: 0,
-            percentage: 0,
-        },
-    );
+    emit_update_status(&app, "DOWNLOADING", None, Some((0, 0, 0)));
 
     let progress_app = app.clone();
     let installing_app = app.clone();
@@ -105,30 +86,23 @@ pub(crate) async fn install_latest_update<R: Runtime>(app: AppHandle<R>) -> Resu
                 };
                 emit_update_status(
                     &progress_app,
-                    UpdateStatusPhaseV2::Downloading {
-                        content_length,
-                        downloaded,
-                        percentage,
-                    },
+                    "DOWNLOADING",
+                    None,
+                    Some((content_length, downloaded, percentage)),
                 );
             },
             move || {
-                emit_update_status(&installing_app, UpdateStatusPhaseV2::Installing);
+                emit_update_status(&installing_app, "INSTALLING", None, Some((0, 0, 100)));
             },
         )
         .await
         .map_err(|error| {
             let message = format!("Failed to download or install the update: {error}");
-            emit_update_status(
-                &app,
-                UpdateStatusPhaseV2::Error {
-                    message: message.clone(),
-                },
-            );
+            emit_update_status(&app, "ERROR", Some(message.clone()), None);
             message
         })?;
 
-    emit_update_status(&app, UpdateStatusPhaseV2::Relaunching);
+    emit_update_status(&app, "DONE", None, Some((0, 0, 100)));
     app.restart();
     #[allow(unreachable_code)]
     Ok(())
@@ -158,7 +132,7 @@ pub(crate) async fn run_update_check<R: Runtime + 'static>(
 
         let Some(update) = update else {
             set_pending_update(&app, None);
-            emit_update_status(&app, UpdateStatusPhaseV2::UpToDate);
+            emit_update_status(&app, "UPTODATE", None, None);
 
             if matches!(origin, UpdateCheckOrigin::Tray) {
                 show_native_message::<R>(
@@ -179,7 +153,7 @@ pub(crate) async fn run_update_check<R: Runtime + 'static>(
         };
         let latest_version = manifest.version.clone();
         set_pending_update(&app, Some(manifest));
-        emit_update_status(&app, UpdateStatusPhaseV2::Available);
+        emit_update_status(&app, "AVAILABLE", None, None);
 
         log::info!(
             "[DESKTOP_RUNTIME] update {} pending from {:?}; showing sidebar update control",

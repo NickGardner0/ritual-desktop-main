@@ -3,25 +3,12 @@
 import React, { startTransition, useState, useEffect, useMemo, useCallback } from 'react';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { apiFetchWithAuth } from '@/lib/api/client';
-import { Download, Trash2 } from 'lucide-react';
-import { AnimatePresence, motion } from 'framer-motion';
-import { useSearchParams } from 'next/navigation';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@ritual/ui/alert-dialog';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { LogDetailPanel } from '@/components/tables/habit-logs/log-detail-panel';
 import { HabitLogsSearchFilter } from '@/components/habit-logs-search-filter';
 import { HabitLogsActions } from '@/components/habit-logs-actions';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import { resolveEntity } from '@/lib/entities/resolve';
 import type {
   BuiltInFilterPresetId,
   FilterState,
@@ -36,11 +23,12 @@ import {
   cloneFilters,
   defaultFilters,
   getFiltersForPreset,
-  parseListParam,
+  parseLogsSearchParams,
   readDensityFromStorage,
   readSavedViewsFromStorage,
   toLocalDateString,
 } from './logs-client.helpers';
+import { LogsSelectionBar } from './logs-client.selection-bar';
 
 type LogsClientInnerProps = {
   userId: string | null;
@@ -49,6 +37,7 @@ type LogsClientInnerProps = {
 
 export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const savedViewsStorageKey = `ritual-logs-saved-views-${userId ?? 'anonymous'}`;
   const densityStorageKey = `ritual-logs-density-${userId ?? 'anonymous'}`;
 
@@ -75,46 +64,16 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const [updatingLogIds, setUpdatingLogIds] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    const hasPaletteParams = [
-      'q',
-      'date',
-      'start_date',
-      'end_date',
-      'from',
-      'to',
-      'categories',
-      'habits',
-      'statuses',
-      'sources',
-      'sort',
-      'order',
-    ].some((key) => searchParams.has(key));
-
-    if (!hasPaletteParams) return;
-
-    const exactDate = searchParams.get('date');
-    const startDate = searchParams.get('start_date') || searchParams.get('from') || exactDate;
-    const endDate = searchParams.get('end_date') || searchParams.get('to') || exactDate;
-
-    const nextFilters: FilterState = {
-      q: searchParams.get('q') || null,
-      start: startDate || null,
-      end: endDate || null,
-      categories: parseListParam(searchParams.get('categories')),
-      habits: parseListParam(searchParams.get('habits')),
-      statuses: parseListParam(searchParams.get('statuses')),
-      sources: parseListParam(searchParams.get('sources')),
-    };
-    const nextSortColumn = searchParams.get('sort');
-    const nextSortDirection = searchParams.get('order');
+    const parsed = parseLogsSearchParams(searchParams);
+    if (!parsed.hasPaletteParams) return;
 
     startTransition(() => {
-      setFilters(nextFilters);
-      if (nextSortColumn) {
-        setSortColumn(nextSortColumn);
+      setFilters(parsed.filters);
+      if (parsed.sortColumn) {
+        setSortColumn(parsed.sortColumn);
       }
-      if (nextSortDirection === 'asc' || nextSortDirection === 'desc') {
-        setSortDirection(nextSortDirection);
+      if (parsed.sortDirection) {
+        setSortDirection(parsed.sortDirection);
       }
     });
   }, [searchParams]);
@@ -235,6 +194,44 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       meta: firstPage?.meta || {},
     };
   }, [infiniteData]);
+
+  const setLogQuery = useCallback((logId: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (logId) params.set('logId', logId);
+    else params.delete('logId');
+    const query = params.toString();
+    router.replace(query ? `/activity?${query}` : '/activity', { scroll: false });
+  }, [router, searchParams]);
+
+  const openLogDetail = useCallback((log: HabitLog) => {
+    setDetailLog(log);
+    setLogQuery(log.id);
+  }, [setLogQuery]);
+
+  useEffect(() => {
+    const logId = searchParams.get('logId');
+    if (!logId) return;
+    const loaded = logsData?.data || [];
+    const found = loaded.find((item) => item.id === logId);
+    if (found) {
+      setDetailLog((current) => (current?.id === found.id ? current : found));
+      return;
+    }
+    let cancelled = false;
+    void resolveEntity({ type: 'habit_log', id: logId }, { userId, getToken }).then((summary) => {
+      if (cancelled || searchParams.get('logId') !== logId) return;
+      setDetailLog({
+        id: logId,
+        habit_name: summary.availability === 'ok' ? summary.title : 'Unavailable log',
+        category: summary.subtitle || '',
+        date: summary.subtitle || toLocalDateString(new Date()),
+        status: (summary.status as HabitLog['status']) || 'completed',
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, logsData, searchParams, userId]);
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -707,7 +704,7 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
             onQuickEdit={handleQuickEdit}
             updatingLogIds={updatingLogIds}
             density={density}
-            onRowClick={setDetailLog}
+            onRowClick={openLogDetail}
             onLoadMore={() => fetchNextPage()}
             hasMore={hasNextPage}
             isFetchingMore={isFetchingNextPage}
@@ -718,84 +715,24 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
       <LogDetailPanel
         log={detailLog}
         open={detailLog !== null}
-        onClose={() => setDetailLog(null)}
+        onClose={() => {
+          setDetailLog(null);
+          setLogQuery(null);
+        }}
         onQuickEdit={handleQuickEdit}
         isUpdating={detailLog ? Boolean(updatingLogIds[detailLog.id]) : false}
         availableSources={sourceOptions}
       />
 
-      <AnimatePresence>
-        {selectedCount > 0 && (
-          <motion.div
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50"
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
-          >
-            <div className="border border-black/10 bg-white shadow-[0_8px_30px_-12px_rgba(0,0,0,0.2)] rounded-lg h-11 px-4 flex items-center gap-3">
-              <span className="text-[13px] font-medium text-gray-900 tabular-nums">
-                {selectedCount} selected
-              </span>
-
-              <div className="w-px h-5 bg-gray-200" />
-
-              <button
-                type="button"
-                onClick={() => setRowSelection({})}
-                className="h-7 px-2.5 rounded-md text-[13px] text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                Deselect
-              </button>
-
-              <button
-                type="button"
-                onClick={() => exportLogsToCsv(selectedLogs)}
-                className="h-7 px-2.5 rounded-md text-[13px] text-gray-600 hover:bg-gray-100 transition-colors inline-flex items-center gap-1.5"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export
-              </button>
-
-              <div className="w-px h-5 bg-gray-200" />
-
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <button
-                    type="button"
-                    className="h-7 px-2.5 rounded-md text-[13px] text-red-600 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5"
-                    disabled={deleteMutation.isPending || deletableSelectedLogs.length === 0}
-                  >
-                    {deleteMutation.isPending ? (
-                      <BrailleSpinner className="text-sm text-red-600" />
-                    ) : (
-                      <Trash2 className="w-3.5 h-3.5" />
-                    )}
-                    Delete
-                  </button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete selected logs?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will permanently delete {deletableSelectedLogs.length} editable log{deletableSelectedLogs.length === 1 ? '' : 's'}.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel className="rounded-none">Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="rounded-none"
-                      onClick={handleDeleteSelected}
-                    >
-                      Confirm delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <LogsSelectionBar
+        selectedCount={selectedCount}
+        selectedLogs={selectedLogs}
+        deletableSelectedLogs={deletableSelectedLogs}
+        deletePending={deleteMutation.isPending}
+        onDeselect={() => setRowSelection({})}
+        onExport={exportLogsToCsv}
+        onDelete={handleDeleteSelected}
+      />
     </div>
   );
 }

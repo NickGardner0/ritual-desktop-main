@@ -65,7 +65,7 @@ FOR ACTIVITY RECAP / DAILY SUMMARY QUESTIONS ("what did I get done today", "reca
 → Use getActivitySummary — it returns compact project/task workstreams and safe summaries
 → YOUR JOB IS TO SYNTHESIZE INTO A POLISHED NARRATIVE — tell the story of what the user ACCOMPLISHED, not what the watcher recorded
 → INFER the user's actual work from project/task labels, safe artifacts, apps/domains, commits, and time ranges.
-→ Write about WHAT WAS DONE and WHY, not which apps were open. Bad: "You spent time in Cursor with 18 evidence items". Good: "You built out the kanban board, modifying \`KanbanCard.tsx\` and \`KanbanBoard.tsx\` to add drag-and-drop column support."
+→ Write about WHAT WAS DONE and WHY, not which apps were open. Bad: "You spent time in Cursor with 18 evidence items". Good: "You built out habit logging, modifying \`HabitsContext.tsx\` and \`use-habits-query.ts\` to keep optimistic writes consistent."
 → NEVER mention evidence counts, evidence items, supporting items, confidence scores, or any internal retrieval metadata in your response
 → For a COMPREHENSIVE recap, also call getDailyBiometrics and getCalendarEvents to fold in heart rate and schedule context
 
@@ -86,10 +86,6 @@ FOR CALENDAR / SCHEDULE QUESTIONS ("what's on my calendar", "what do I have sche
 → Use getCalendarEvents
 → Present events sorted by time with start/end times
 → These are scheduled blocks from Ritual, not external calendar events
-
-FOR HABIT WRITES ("log 30mg caffeine", "start tracking meditation"):
-→ Use logHabit / createHabit
-→ NEVER log or create habits on recap questions
 
 FOR SPECIFIC COMPUTER ACTIVITY QUESTIONS ("what did I work on in Cursor", "when did I look at X", "find when I was doing Y", "what apps did I use at 3pm"):
 → Use getActivitySummary for recap/workstream questions and getComputerTimeSpentBreakdown for time allocation questions
@@ -113,7 +109,7 @@ Your job is to transform compact project/task attribution into a polished, detai
 
 2. **Workstream sections** — Each section has a **bold title** followed by a narrative PARAGRAPH (not bullets). This is the core of your response:
 
-   **Title format**: Bold text on its own line. Derive specific, descriptive titles from the actual work — files, branches, tools, projects. Good: "**Plaid / Spending Integration**", "**Kanban + Analytics UI Work**", "**Ritual App - Time Stats Debug**". Bad: "Main Event: Research and Design", "Supporting Workstreams", "Concrete Tasks Completed".
+   **Title format**: Bold text on its own line. Derive specific, descriptive titles from the actual work — files, branches, tools, projects. Good: "**Plaid / Spending Integration**", "**Habits + Analytics UI Work**", "**Ritual App - Time Stats Debug**". Bad: "Main Event: Research and Design", "Supporting Workstreams", "Concrete Tasks Completed".
 
    **CROSS-APP PROJECT THREADING**: When adjacent project-time sessions share the same project/task or supporting apps/domains, thread them into ONE workstream. Cursor + Chrome docs + Terminal with the same project label = one implementation workstream. Derive the title from the shared project/task, not any single app.
 
@@ -122,7 +118,7 @@ Your job is to transform compact project/task attribution into a polished, detai
    - Connect related changes into a coherent thread with temporal flow when available
    - For code work: mention what the changes accomplish functionally
    - For debugging: describe the error → investigation → fix arc
-   - Mention specific files (\`KanbanCard.tsx\`, \`KanbanBoard.tsx\`), people, locations, and tools naturally in the prose
+   - Mention specific files (\`HabitsContext.tsx\`, \`use-habits-query.ts\`), people, locations, and tools naturally in the prose
 
 3. **Brief passive activities**: Single line each — "Briefly checked Gmail" or "Glanced at Slack."
 
@@ -204,12 +200,6 @@ FORMAT:
 - Follow-up question (ends with ?)
 
 Keep total response under 500 characters when possible.`;
-
-const DASHBOARD_TASK_WRITE_PROMPT = `FOR TASK WRITES ("add a task", "create a task", "remind me to", "mark X done", "complete that task", "reschedule"):
-→ Use createTask to create a TaskDB row. Use updateTask only when you already have a task id from a [[task:...]] mention or a createTask result in this turn.
-→ NEVER call createTask or updateTask on recap, overview, "what did I do", or "how was my week" questions.
-
-`;
 
 // ---------------------------------------------------------------------------
 // SMS style addendum (appended when channel is 'sms')
@@ -338,13 +328,7 @@ Current date: ${options.today}
 Current year: ${options.currentYear}
 Timezone: ${options.timezone}`;
 
-  const staticPrompt = channel === 'sms'
-    ? STATIC_SYSTEM_PROMPT
-    : STATIC_SYSTEM_PROMPT.replace(
-        'FOR HABIT WRITES',
-        `${DASHBOARD_TASK_WRITE_PROMPT}FOR HABIT WRITES`,
-      );
-  const base = `${header}\n\n${staticPrompt}`;
+  const base = `${header}\n\n${STATIC_SYSTEM_PROMPT}`;
 
   if (channel === 'sms') {
     return base + SMS_STYLE_PROMPT;

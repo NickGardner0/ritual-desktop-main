@@ -24,9 +24,8 @@ import type {
   OverviewResult,
 } from '../types.js';
 import { formatVoiceResponse, generateReplyChips } from '../voice.js';
-import { saveMessage } from '../persistence.js';
 import type { ForcedOverviewTool } from './classifier-router.js';
-import { buildCanvasToolPayload, elapsed, safeJsonParse } from './shared.js';
+import { buildCanvasToolPayload, elapsed, persistAssistantMessage, safeJsonParse } from './shared.js';
 
 export async function executeGetActivitySummary(
   token: string,
@@ -253,6 +252,8 @@ export type FastPathParams = {
   immediateConversationId: string | null;
   deferredConversationIdPromise?: Promise<string | null>;
   conversationIdPromise: Promise<string | null>;
+  userPersistPromise: Promise<boolean>;
+  commitTurn?: (fullText: string, canvasToolPayload: Record<string, unknown> | null) => Promise<void>;
 };
 
 export async function handleDeterministicFastPath(params: FastPathParams): Promise<Response> {
@@ -269,6 +270,8 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
     immediateConversationId,
     deferredConversationIdPromise,
     conversationIdPromise,
+    userPersistPromise,
+    commitTurn,
   } = params;
 
   console.log(`⚡ [${elapsed(t0)}] Fast-path: skipping OpenAI, executing ${forcedToolName} directly`);
@@ -322,14 +325,13 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
       canvasToolPayload: null,
       canvasToolPayloadPromise: overviewResultPromise.then(({ canvasToolPayload }) => canvasToolPayload),
       prefaceLine: '__STREAM_OPEN__',
-      onComplete: (fullText, finalCanvasToolPayload) => {
-        conversationIdPromise.then((conversationId) => {
-          if (!conversationId) return;
-          console.log(`⏱️ [${elapsed(t0)}] Deferred overview stream complete (${fullText.length} chars)`);
-          saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload).catch(err => {
-            console.error('❌ Failed to save assistant message:', err);
-          });
-        });
+      onComplete: async (fullText, finalCanvasToolPayload) => {
+        console.log(`⏱️ [${elapsed(t0)}] Deferred overview stream complete (${fullText.length} chars)`);
+        await Promise.all([
+          userPersistPromise,
+          persistAssistantMessage(conversationIdPromise, token, fullText, finalCanvasToolPayload),
+        ]);
+        await commitTurn?.(fullText, finalCanvasToolPayload);
       },
     });
   }
@@ -387,12 +389,10 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
   const streamSource = buildFastPathStreamSource(forcedToolName, toolResults, overviewPayload, title);
 
   if (streamSource.type === 'complete') {
-    conversationIdPromise.then((conversationId) => {
-      if (!conversationId) return;
-      saveMessage(token, conversationId, 'assistant', streamSource.text, canvasToolPayload).catch(err => {
-        console.error('❌ Failed to save assistant message:', err);
-      });
-    });
+    await Promise.all([
+      userPersistPromise,
+      persistAssistantMessage(conversationIdPromise, token, streamSource.text, canvasToolPayload),
+    ]);
   }
 
   console.log(`⏱️ [${elapsed(t0)}] Fast-path streaming response created`);
@@ -403,14 +403,18 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
     canvasToolPayload,
     prefaceLine: streamSource.type === 'stream' ? '__STREAM_OPEN__' : undefined,
     onComplete: streamSource.type === 'stream'
-      ? (fullText, finalCanvasToolPayload) => {
-          conversationIdPromise.then((conversationId) => {
-            if (!conversationId) return;
-            console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
-            saveMessage(token, conversationId, 'assistant', fullText, finalCanvasToolPayload ?? canvasToolPayload).catch(err => {
-              console.error('❌ Failed to save assistant message:', err);
-            });
-          });
+      ? async (fullText, finalCanvasToolPayload) => {
+          console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
+          await Promise.all([
+            userPersistPromise,
+            persistAssistantMessage(
+              conversationIdPromise,
+              token,
+              fullText,
+              finalCanvasToolPayload ?? canvasToolPayload,
+            ),
+          ]);
+          await commitTurn?.(fullText, finalCanvasToolPayload ?? canvasToolPayload);
         }
       : undefined,
   });

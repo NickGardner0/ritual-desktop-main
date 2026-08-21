@@ -10,8 +10,6 @@ import {
   executeGetStreaks,
   executeLogHabit,
   executeCreateHabit,
-  executeCreateTask,
-  executeUpdateTask,
   executeGetWeeklyOverview,
   executeGetDailyOverview,
   executeGetMonthlyOverview,
@@ -98,6 +96,8 @@ export interface ToolExecutionContext {
   strictThisWeekForWeeklyOverview?: boolean;
   conversationId?: string | null;
   conversationIdPromise?: Promise<string | null>;
+  toolCallId?: string;
+  clientEventId?: string;
 }
 
 /**
@@ -204,19 +204,14 @@ export async function dispatchToolCall(
       return executeLogHabit(token, a, ctx.timezone, {
         conversationId: ctx.conversationId,
         conversationIdPromise: ctx.conversationIdPromise,
+        clientEventId: ctx.clientEventId,
       });
     case 'createHabit':
       return executeCreateHabit(token, a, {
         conversationId: ctx.conversationId,
         conversationIdPromise: ctx.conversationIdPromise,
+        clientEventId: ctx.clientEventId,
       });
-    case 'createTask':
-      return executeCreateTask(token, a, {
-        conversationId: ctx.conversationId,
-        conversationIdPromise: ctx.conversationIdPromise,
-      });
-    case 'updateTask':
-      return executeUpdateTask(token, a);
     case 'getSmsPreferences':
       return executeGetSmsPreferences(token);
     case 'updateSmsPreferences':

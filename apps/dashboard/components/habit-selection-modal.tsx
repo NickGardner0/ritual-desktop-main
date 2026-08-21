@@ -10,7 +10,6 @@ import { useHabits } from '@/contexts/HabitsContext';
 import type { Habit as StoredHabit } from '@/contexts/HabitsContext';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { habitKeys } from '@/hooks/use-habits-query';
-import MiniSearch from 'minisearch';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';

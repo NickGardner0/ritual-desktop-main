@@ -151,18 +151,23 @@ export async function getDesktopVaultRecord<T>(
 export async function listDesktopVaultRecords<T>(
   userId: string,
   collection: string,
-  options: { since?: string; limit?: number } = {},
+  options: { since?: string; limit?: number; maxRecords?: number } = {},
 ): Promise<Array<DesktopVaultRecord<T>> | null> {
   if (!canUseDesktopVault()) return null;
-  const requestedPageSize = Math.min(Math.max(options.limit || 2_000, 1), 5_000);
+  const requestedPageSize = Math.min(
+    Math.max(options.limit || options.maxRecords || 2_000, 1),
+    5_000,
+  );
   try {
-    const records = await collectVaultRecordPages((cursor: string | null) =>
-      invokeDesktopCommand<DesktopVaultRecordsPage<T>>("vault_list_records_page", {
-        userId,
-        collection,
-        cursor,
-        limit: requestedPageSize,
-      }),
+    const records = await collectVaultRecordPages(
+      (cursor: string | null) =>
+        invokeDesktopCommand<DesktopVaultRecordsPage<T>>("vault_list_records_page", {
+          userId,
+          collection,
+          cursor,
+          limit: requestedPageSize,
+        }),
+      { maxRecords: options.maxRecords },
     ) as Array<DesktopVaultRecord<T>>;
     return options.since
       ? records.filter((record) => record.updatedAt > options.since!)
@@ -178,7 +183,7 @@ export async function listDesktopVaultRecords<T>(
       userId,
       collection,
       since: options.since || null,
-      limit: options.limit || null,
+      limit: options.maxRecords || options.limit || null,
     });
   }
 }

@@ -4,36 +4,33 @@ import {
   hasDesktopTauriIpcBridge,
   isDesktopTauriRuntime,
 } from "@/lib/desktop-bridge/environment";
-import {
-  getDesktopProfilingBridgeBase,
-  invokeDesktopProfilingBridgeCommand,
-} from "@/lib/desktop-bridge/profiling-bridge";
+import type {
+  NativeCommandInputs,
+  NativeCommandName,
+  NativeCommandOutputs,
+} from "@/lib/native-gateway-commands.generated";
 
 type OpenDesktopExternalUrlOptions = {
   preferNative?: boolean;
 };
 
-export async function invokeDesktopCommand<T>(
-  command: string,
-  args?: Record<string, unknown>,
-): Promise<T> {
+export async function invokeDesktopCommand<
+  T = never,
+  K extends NativeCommandName = NativeCommandName,
+>(
+  command: K,
+  args?: NativeCommandInputs[K],
+): Promise<[T] extends [never] ? NativeCommandOutputs[K] : T> {
   if (hasDesktopTauriIpcBridge()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<T>(command, args);
-  }
-
-  const profilingBridgeBase = getDesktopProfilingBridgeBase();
-  if (profilingBridgeBase) {
-    return invokeDesktopProfilingBridgeCommand<T>(command, args, profilingBridgeBase);
+    return invoke(command, args) as Promise<[T] extends [never] ? NativeCommandOutputs[K] : T>;
   }
 
   if (!isDesktopTauriRuntime()) {
     throw new Error(`Desktop command "${command}" requires Ritual Desktop.`);
   }
 
-  throw new Error(
-    `Desktop command "${command}" requires native Tauri IPC or the local profiling bridge.`,
-  );
+  throw new Error(`Desktop command "${command}" requires native Tauri IPC.`);
 }
 
 export async function openDesktopExternalUrl(url: string): Promise<void> {

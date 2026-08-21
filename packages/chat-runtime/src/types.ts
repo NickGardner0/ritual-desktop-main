@@ -180,6 +180,7 @@ export interface CalendarEventsResult {
   start_date?: string;
   end_date?: string;
   events?: Array<{
+    id?: string;
     title: string;
     day: string;
     start_time: string;
@@ -227,11 +228,9 @@ export type ChatEntityRef = {
 /** Mutation receipt returned by logHabit / createHabit tools */
 export interface ActionReceiptSummary {
   receipt_id: string;
-  action_kind: 'logHabit' | 'createHabit' | 'createTask' | 'updateTask' | string;
+  action_kind: 'logHabit' | 'createHabit' | string;
   habit_id?: string | null;
   habit_name?: string | null;
-  task_id?: string | null;
-  task_title?: string | null;
   was_inserted?: boolean;
   undoable?: boolean;
   log_id?: string | null;

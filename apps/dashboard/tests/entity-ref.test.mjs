@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 const ENTITY_ROUTES = {
   habit: (id) => `/dashboard?view=metrics&habit=${encodeURIComponent(id)}`,
@@ -257,4 +258,44 @@ test("compact pills prefer status or a short subtitle", () => {
   assert.equal(entityPillMeta({ ref: { type: "habit_log", id: "l1" }, status: "completed", subtitle: "2026-08-17" }), "2026-08-17");
   assert.equal(entityPillMeta({ ref: { type: "calendar_block", id: "b1" }, status: "09:00–10:00", subtitle: "2026-08-17 · 09:00–10:00" }), "09:00–10:00");
   assert.equal(entityPillMeta({ ref: { type: "artifact", id: "a1" }, subtitle: "notebook", status: "published" }), "notebook");
+});
+
+test("entity link picker ignores stale search completions and skips empty-query cloud", async () => {
+  const source = await readFile(new URL("../components/entities/entity-link-picker.tsx", import.meta.url), "utf8");
+  assert.match(source, /let cancelled = false/);
+  assert.match(source, /if \(cancelled\) return/);
+  assert.match(source, /trimmed\s*\n\s*\?[\s\S]*apiJsonWithAuth/);
+  assert.match(source, /Promise\.resolve\(\{ items: \[\] as EntitySummary\[\] \}\)/);
+  assert.match(source, /parseDateMentionQuery\(query\) \? \[\.\.\.AUTOCOMPLETE_TYPES, "habit_log"\] : AUTOCOMPLETE_TYPES/);
+});
+
+test("local entity search defaults skip habit logs and cap vault reads", async () => {
+  const source = await readFile(new URL("../lib/entities/resolve.ts", import.meta.url), "utf8");
+  const defaults = source.match(/const DEFAULT_LOCAL_SEARCH_TYPES: EntityType\[\] = \[([\s\S]*?)\];/);
+  assert.ok(defaults);
+  assert.equal(defaults[1].includes("habit_log"), false);
+  assert.match(source, /maxRecords: cap/);
+});
+
+test("entity summary cache is user scoped, TTL'd, and does not persist unknown", async () => {
+  const source = await readFile(new URL("../lib/entities/entity-summary-cache.mjs", import.meta.url), "utf8");
+  assert.match(source, /\$\{owner\}:\$\{entityRefKey\(ref\)\}/);
+  assert.match(source, /availability !== "unknown"/);
+  assert.match(source, /this\.inflight = new Map/);
+  assert.match(source, /subscribe\(key, listener\)/);
+});
+
+test("live entity pills subscribe per ref instead of a global epoch", async () => {
+  const source = await readFile(new URL("../components/entities/live-entity-pill.tsx", import.meta.url), "utf8");
+  assert.match(source, /subscribeEntitySummary\(entityRef,/);
+  assert.doesNotMatch(source, /subscribeEntitySummaries\(/);
+});
+
+test("query cache restores only after Clerk identity is loaded", async () => {
+  const source = await readFile(new URL("../components/providers.tsx", import.meta.url), "utf8");
+  assert.match(source, /if \(typeof window === 'undefined' \|\| !isLoaded\) return/);
+  assert.match(source, /\$\{QUERY_CACHE_STORAGE_KEY\}:\$\{userId\}/);
+  assert.match(source, /clearEntitySummaryCache\(\)/);
+  assert.match(source, /setEntitySummaryCacheUser\(currentUserId\)/);
+  assert.doesNotMatch(source, /hydrate\(queryClient[\s\S]*useState/);
 });

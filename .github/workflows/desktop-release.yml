@@ -5,63 +5,37 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Existing v-prefixed tag to build and publish (for example, v0.1.98)
-        required: true
-        type: string
 
 concurrency:
-  group: desktop-release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  group: desktop-release-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   macos:
     name: Build macOS desktop release
-    runs-on: macos-26
+    runs-on: macos-15
     permissions:
       contents: read
     env:
       RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
-      MACOSX_DEPLOYMENT_TARGET: "14.0"
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-
-      - name: Validate release tag
-        shell: bash
-        run: |
-          if [[ ! "${RELEASE_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Release tag must be an existing v-prefixed semantic version; got '${RELEASE_TAG}'." >&2
-            exit 1
-          fi
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: "npm"
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Verify macOS 26 SDK
-        run: |
-          xcodebuild -version
-          SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
-          SDK_MAJOR="${SDK_VERSION%%.*}"
-          echo "macOS SDK: ${SDK_VERSION}"
-          if [[ -z "${SDK_VERSION}" || ! "${SDK_MAJOR}" =~ ^[0-9]+$ || "${SDK_MAJOR}" -lt 26 ]]; then
-            echo "Ritual desktop releases must be built with macOS SDK 26.x or newer so AppKit uses the current native window chrome metrics." >&2
-            exit 1
-          fi
+        uses: dtolnay/rust-toolchain@87eb139fed4b08a67bd1fa429a21d1f5d523e03e # 1.92.0
+        with:
+          toolchain: "1.92.0"
 
       - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           workspaces: |
             apps/desktop/src-tauri
@@ -71,14 +45,14 @@ jobs:
 
       - name: Verify release tag matches desktop version
         run: |
-          TAG_VERSION="${RELEASE_TAG#v}"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
           DESKTOP_VERSION="$(node -e "const fs=require('fs'); const cfg=JSON.parse(fs.readFileSync('apps/desktop/src-tauri/tauri.conf.json','utf8')); process.stdout.write(String(cfg.version || ''))")"
           if [[ -z "${DESKTOP_VERSION}" ]]; then
             echo "Could not read desktop version from tauri.conf.json" >&2
             exit 1
           fi
           if [[ "${DESKTOP_VERSION}" != "${TAG_VERSION}" ]]; then
-            echo "Git tag ${RELEASE_TAG} does not match desktop version ${DESKTOP_VERSION}" >&2
+            echo "Git tag ${GITHUB_REF_NAME} does not match desktop version ${DESKTOP_VERSION}" >&2
             exit 1
           fi
 
@@ -169,9 +143,9 @@ jobs:
         run: npm run desktop:release:mac
 
       - name: Upload local release artifacts to workflow run
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: desktop-release-${{ env.RELEASE_TAG }}
+          name: desktop-release-${{ github.ref_name }}
           if-no-files-found: error
           path: |
             apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
@@ -183,7 +157,7 @@ jobs:
       - name: Publish assets to public desktop releases repo
         env:
           GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
-        run: bash scripts/publish-desktop-release-assets.sh "${RELEASE_TAG}"
+        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
 
       - name: Cleanup temporary signing keychain
         if: always()

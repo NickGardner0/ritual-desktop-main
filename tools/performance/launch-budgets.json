@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Five-trial cold/warm launch, RSS, and background-wakeup budgets. CI compares fixture medians and verifies production instrumentation. Live desktop five-trial captures should replace the fixture medians before a public release.",
+  "trials": 5,
+  "requiredMilestones": ["providers_mounted", "native_ready", "shell_bootstrap"],
+  "budgets": {
+    "cold": {
+      "providers_mounted_ms": 4000,
+      "native_ready_ms": 8000,
+      "shell_bootstrap_ms": 2500
+    },
+    "warm": {
+      "providers_mounted_ms": 2000,
+      "native_ready_ms": 4000,
+      "shell_bootstrap_ms": 1500
+    },
+    "rss": {
+      "webview_bytes": 900000000,
+      "watcher_bytes": 250000000
+    },
+    "wakeups": {
+      "legacyAuthPollMsMin": 45000,
+      "legacyRuntimeBridgePollMsMin": 10000,
+      "nativeVoicePollOnlyWhileListening": true
+    }
+  },
+  "fixtureTrials": {
+    "cold": [
+      { "providers_mounted": 820, "native_ready": 2100, "shell_bootstrap": 410, "webview_rss_bytes": 280000000, "watcher_rss_bytes": 42000000 },
+      { "providers_mounted": 910, "native_ready": 1980, "shell_bootstrap": 390, "webview_rss_bytes": 276000000, "watcher_rss_bytes": 41000000 },
+      { "providers_mounted": 760, "native_ready": 2240, "shell_bootstrap": 430, "webview_rss_bytes": 291000000, "watcher_rss_bytes": 43000000 },
+      { "providers_mounted": 880, "native_ready": 2050, "shell_bootstrap": 405, "webview_rss_bytes": 284000000, "watcher_rss_bytes": 41500000 },
+      { "providers_mounted": 845, "native_ready": 2180, "shell_bootstrap": 420, "webview_rss_bytes": 288000000, "watcher_rss_bytes": 42500000 }
+    ],
+    "warm": [
+      { "providers_mounted": 310, "native_ready": 640, "shell_bootstrap": 180, "webview_rss_bytes": 262000000, "watcher_rss_bytes": 40000000 },
+      { "providers_mounted": 295, "native_ready": 610, "shell_bootstrap": 170, "webview_rss_bytes": 258000000, "watcher_rss_bytes": 39800000 },
+      { "providers_mounted": 330, "native_ready": 670, "shell_bootstrap": 190, "webview_rss_bytes": 265000000, "watcher_rss_bytes": 40500000 },
+      { "providers_mounted": 305, "native_ready": 625, "shell_bootstrap": 175, "webview_rss_bytes": 260000000, "watcher_rss_bytes": 40100000 },
+      { "providers_mounted": 320, "native_ready": 655, "shell_bootstrap": 185, "webview_rss_bytes": 263000000, "watcher_rss_bytes": 40300000 }
+    ]
+  }
+}

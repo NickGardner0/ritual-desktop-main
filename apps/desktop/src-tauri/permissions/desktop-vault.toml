@@ -1,0 +1,15 @@
+[[permission]]
+identifier = "desktop-vault"
+description = "Allows the hosted dashboard to read and write the local encrypted Ritual vault."
+commands.allow = [
+  "vault_initialize",
+  "vault_get_status",
+  "vault_put_record",
+  "vault_get_record",
+  "vault_list_records",
+  "vault_tombstone_record",
+  "vault_put_migration_manifest",
+  "vault_list_migration_manifests",
+  "vault_put_deletion_receipt",
+  "vault_list_deletion_receipts",
+]

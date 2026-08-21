@@ -1,0 +1,120 @@
+# Ritual simplification results
+
+**Started:** 2026-08-20  
+**Worktree:** `/Users/nickgardner/Desktop/ritual-desktop-main` at `4afdc5e6` plus the uncommitted source present when this pass began.  
+**Governing rule:** delete unnecessary machinery; do not hide complexity behind new interfaces.  
+**Architecture report:** [`RITUAL_SIMPLIFICATION_ARCHITECTURE_REPORT.md`](./RITUAL_SIMPLIFICATION_ARCHITECTURE_REPORT.md)
+
+## Baseline
+
+Measured with Tokei after the same exclusions used in the audit (node_modules, target, .next, dist, tests, `*.test.*`):
+
+| Bucket | Code lines |
+|---|---:|
+| Dashboard (incl. JSON/assets in that tree) | 99,224 |
+| Dashboard TSX | 53,674 |
+| FastAPI Python (tests/scripts/migrations excluded) | 55,324 |
+| Rust desktop/watcher/ritual-db | 32,127 |
+| chat-api TypeScript | 106 |
+| Unique npm runtime deps (root ∪ dashboard) | 74 |
+
+Unrelated dirty work (entities, experiments, onboarding, routines, chat receipts, etc.) was left in place.
+
+Pre-existing failures from the audit still apply to this dirty tree: dashboard production typecheck was already red. The `aggregate-local-first.ts` `isDesktopRuntime()` allowlist failure is fixed (redundant probe removed).
+
+## Checklist
+
+| Phase | Status | Notes |
+|---|---|---|
+| 1. Delete abandoned/unused surfaces | Done | Kanban, `/widget`, unused shadcn sidebar, `apps/chat-api`, profiling bridge, unused IPC, tracked tmp junk |
+| 2. Collapse desktop IPC | Done | Feature code imports `@/lib/native-gateway`. Generated triad: command name + ACL capability + TS input/output from Rust signatures. `tauri-utils` is a compatibility re-export. `DesktopRuntimeBridge` still owns auth/events/sync lifecycle; shell bootstrap stays a separate early path |
+| 3. Tauri ACL contract | Done | Frontend-needed commands allowed; unused IPC attributes removed from internal-only Rust fns; `scripts/check-tauri-command-acl.mjs` generates/verifies the NativeGateway command/capability/input/output triad |
+| 4. Identity-safe React Query cache | Done | Restore waits for Clerk user id and uses `ritual:react-query-cache:v1:<userId>`. Habit snapshots were folded into this persist path |
+| 5. Chat persistence / AssistantKernel | Done for strangler | `AssistantKernel` owns `queued → running → committing → completed\|failed\|canceled`. Durable FastAPI `assistant_turns` store, dashboard outbox, SMS/web/queue entrypoints, serial mutating tools, epoch cancel |
+| 6. One scheduler | Done | Trigger.dev deleted. FastAPI loops are the only scheduler; job table in `docs/architecture/SCHEDULER_JOBS.md`. Default on when `RAILWAY_ENVIRONMENT` is set. `ENABLE_INTERNAL_SCHEDULER` documented in backend README and `.env.example` |
+| 7. Search/index | Done for Typesense | Typesense client, indexing, privacy destination, erasure target, and leftover write stubs (`/api/search/index-phrase`, `/api/search/reindex`) removed. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics. `/api/search/status` remains as a health check |
+| 8. Telemetry overlap | Partial | Removed Vercel Speed Insights. OpenPanel (product) and Sentry (errors) kept |
+| 9. Local UI preferences | Partial | FastAPI still owns cross-device overview/color prefs. Local cache is now per-user (`ritual:ui-preferences:v2:<userId>`) |
+| 10. Activity ownership | Done for raw/recent desktop | Desktop raw and ≤7-day reads use `activity.db` with observable `local \| synced \| unavailable`. No hidden HTTP/backend mix. Web/iOS and long-range desktop aggregates remain explicit `synced` |
+| 11. Provider soup | Inventoried | `@mui/icons-material` (Toc + habit icons), Lucide, and Paper shaders are still referenced. Deleted unused `use-stick-to-bottom` only |
+| 12. Config/env | Done for dead cloud-memory | Removed Turbopuffer / `RITUAL_MEMORY_CLOUD*` / Cohere embed-rerank env after confirming no TS/Python consumer |
+| 13. Native helper pinning | Done for shipped arm64 | `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. `x86_64-apple-darwin` is an explicit unsupported target until those binaries are committed. Release verifies hashes and no longer rebuilds vision helper unless `RITUAL_REBUILD_SIDECARS=1` |
+
+## Ledger
+
+| Change | LOC before | LOC after | Net LOC | Runtime components removed | Dependencies removed | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| Delete Kanban + TodaysFocusWidget + types/hook | 3,373 physical | 0 | −3,373 | abandoned feature | none (`@dnd-kit` still used by analytics) | No live page imported it |
+| Delete `/widget` route | 337 physical | 0 | −337 | unused Next route | none | Debug timer, unlinked |
+| Delete unused `components/ui/sidebar.tsx` | 774 physical | 0 | −774 | unused primitive | none | App uses `components/sidebar.tsx` |
+| Delete `apps/chat-api` | 106 code | 0 | −106 | extra chat deployable | `@hono/node-server` workspace | Canonical host remains dashboard `/api/chat/stream` |
+| Delete profiling HTTP bridge + tests | 81 + 28 physical | 0 | −109 | fake `:3031` transport | none | Desktop commands now require native Tauri IPC |
+| Remove unused Tauri IPC wrappers | ~230 Rust physical | 0 | ~−230 | 10 unused command exposures | none | Internal watchdog/project-time functions kept |
+| Identity-safe query cache + ACL contract test | n/a | small add | small add | none | none | Restore is per-user after Clerk; registered==allowed==invoked (60) |
+| Hide nonfunctional AI retention / clear-history controls | small | 0 | small | deceptive UI | none | Hidden until a real persistence/erasure path exists |
+| Delete Typesense | ~1,700 search_service + indexing fan-out | SQL search ~850 | ~−850 plus deleted index call sites | Typesense cluster | `typesense` PyPI | Command palette/habit search read Turso. Privacy destination/erasure target removed |
+| Delete Trigger.dev | trigger jobs + client + config | 0 | ~−400 | Trigger.dev cloud cron | `@trigger.dev/sdk`, `@trigger.dev/build` | FastAPI `background_tasks.py` owns wearable/SMS/report/workflow jobs. On by default on Railway |
+| Fold habit snapshots into React Query persist | dedicated localStorage snapshots | 0 | small | extra cache | none | Habits and habit-logs now persist only via identity-keyed React Query cache |
+| Per-user UI preference cache | global `ritual:ui-preferences:v1` | `v2:<userId>` | ~0 | cross-user stale prefs | none | FastAPI remains the cross-device store |
+| Remove Vercel Speed Insights | layout widget | 0 | small | extra web-vitals vendor | `@vercel/speed-insights` | OpenPanel + Sentry remain |
+| Await user-message chat persist | fire-and-forget | awaited with assistant | ~0 | none | none | Same save path; no new outbox |
+| Desktop activity IPC | silent HTTP fallback | local miss returns empty | ~0 | hidden cloud fallback | none | Web still uses `/api/watcher/activity` |
+| Collapse `desktop-runtime.ts` into `desktop-bridge/runtime.ts` | 277 | 277 (moved) | ~0 | extra IPC module | none | Callers import `desktop-bridge` only. `tauri-utils` still re-exports shell |
+| Event-driven native auth in `DesktopRuntimeBridge` | 45s interval + events | events + visibility; legacy interval kept | ~0 | native auth poll | none | `desktop://token-refresh-needed` already existed |
+| Desktop activity `local \| synced \| unavailable` | ~1,150 mix/fallback | api 319 + local-read 115 + policy 156 | ~−500 | hidden backend/local mix, today-correction, background reconcile | none | Recent desktop is activity.db only. Historical/web stay explicit `synced` |
+| Delete leftover Typesense phrase indexer caller | ~30 | 0 | −30 | no-op `/api/search/index-phrase` fan-out from chat habits | none | Caller deleted earlier; stub endpoints also removed |
+| Remove dead Turbopuffer/memory-cloud env | config only | 0 | 0 | unused env surface | none | Confirmed no Python/TS consumer. `ENABLE_INTERNAL_SCHEDULER` documented |
+| Delete unused `use-stick-to-bottom` | n/a | 0 | 0 | unused npm dep | `use-stick-to-bottom` | Zero imports. MUI, Lucide, shaders still have call sites |
+| Pin desktop sidecars | mutable rebuild on release | SHA-256 lock + verify | small add | unpinned vision rebuild | none | arm64 binaries hashed in `sidecar-lock.json`. x86_64 not present in this tree |
+| Delete leftover Typesense write stubs | two no-op POST routes + unused methods | 0 | small | `/api/search/index-phrase`, `/api/search/reindex`, `index_log_phrase`, `ensure_collections` | none | No frontend callers. `/api/search/status` remains as the SQL-search health check |
+| AssistantKernel + durable turn store | stream/SMS/dashboard race | kernel + FastAPI `assistant_turns` + desktop outbox | small add | none as a service; FastAPI is the store | none | Turns have queued→running→committing→completed\|failed\|canceled. Mutating tools serial. Queue items reuse `queue:<id>` |
+| NativeGateway generated command/capability/I-O triad | stringly IPC | `NATIVE_COMMANDS` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` generated from Rust | small add | extra caller import paths | none | `invokeDesktopCommand` is typed from the triad. Implementation modules stay in `desktop-bridge/*` |
+| Five-trial launch/RSS CI budgets | local medians only | `tools/performance/launch-budgets.json` + `scripts/check-launch-budgets.mjs` + desktop-rust RSS tests | small add | none | none | Five cold and five warm fixture trials gated in `repo:check`. Live WKWebView captures should replace fixtures before a public release |
+| Delete unused production surfaces | TimeTrackerWidget, overlay chart, insight cards, computer-time detail, mock reports, unused onboarding/biometrics/task recurrence | 0 | ~−2.2k | dead UI/data | none | Confirmed zero production importers |
+| Pin CI/release toolchains | `actions/*@v4`, `dtolnay/rust-toolchain@stable` | Node/Python/Rust 1.92.0 + commit SHAs | ~0 | mutable `@stable` and version tags | none | Actions pinned to immutable SHAs with version comments |
+| Launch milestones + median log | none | `recordLaunchMilestone` + local median samples + process RSS | small add | none | none | Cold/warm classified via sessionStorage. native_ready logs webview/watcher RSS. No five-trial CI budget yet |
+| Activity cloud sync opt-in | always-on desktop backfill | `plaintext_sync` consent gate | ~0 | unconsented habit backfill | none | Local `activity.db` reads unchanged. Rust plaintext sync already required the same consent |
+| AssistantKernel abort/in-flight fence | disconnect could complete; duplicate delivery could double-run | abort -> canceled; running/committing -> 409; stale running reclaims | small add | second in-flight model loop | none | Failure-injection tests cover disconnect, duplicate delivery, epoch switch, timeout retry |
+| Split DesktopRuntimeBridge | one 532-line owner | auth / native events / legacy signals / backfill / realtime owners | ~0 | native 45s poll already gone; local_only skips websocket; OAuth store-code `setInterval` removed | none | Legacy builds still poll. Settings page hourly habit sync removed |
+| Orphan sidecar + RSS helpers | prefix-matching `ps` parse; no RSS on runtime state | exact `--device-id` match + `process` RSS on runtime state | small add | none | none | Unit tests for parse; live RSS sampled at native_ready |
+| Delete unused dashboard duplicates | leftover onboarding/setup, unused shadcn, unused live-HR widgets, unused server actions, unused React email | 0 | ~−3.5k physical | unused UI/data paths | none | Live onboarding permissions + vault folder remain. Calendar still reads HR range. iOS live biometrics API unchanged |
+| Collapse colliding BFF proxy helper | `@/lib/server/proxy-response` resolved to `.mjs` missing `createProxiedSuccessResponse` | `.ts` NextResponse wrapper + `proxy-response-init.mjs` | ~0 | webpack missing-export path | none | Production webpack build compiles without that warning |
+
+## Aggregate (this pass)
+
+```text
+Production LOC before: ~192.5k (audit)
+Remeasured 2026-08-21 after unused-duplicate deletion (tokei 14.0.0, audit exclusions):
+  Dashboard TS/TSX/JS + CSS: 85,033 (TSX 45,450)
+  Shared packages TS/TSX + UI CSS: 8,748
+  FastAPI Python excluding tests/scripts/migrations: 54,544
+  Rust desktop/watcher/ritual-db: 32,406
+  Desktop JS/JSX shell: 233
+  Browser extension JS+HTML: 965
+  Tinybird pipe/datasource authored: 2,040
+  chat-api: 0
+  Audit-comparable total: ~183.97k (baseline 192,474, −8.5k). Target band 180–185k: met on this dirty tree.
+chat-api deployable: removed
+Schedulers before/after: 2 → 1 (FastAPI loops only; Trigger.dev deleted)
+Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted.
+Frontend↔desktop paths before: commands + tauri-utils + desktop-runtime + runtime bridge + shell bridge + profiling
+Frontend↔desktop paths after: NativeGateway barrel + generated command/capability/input/output triad; desktop-bridge is implementation; DesktopRuntimeBridge split into lifecycle owners; separate shell bootstrap
+Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS loop → AssistantKernel + assistant_turns + local outbox
+Computer activity recent-desktop source: hidden mix → observable local | synced | unavailable
+Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. Intel is not a 0.1.1 ship target.
+Dashboard production typecheck: green. `next build --webpack`: green.
+```
+
+Tests do not count against production reduction.
+
+## Remaining architecture taxes
+
+1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
+2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection.
+3. `@mui/icons-material` and Lucide both remain (real call sites). Paper shaders remain on the onboarding logo. No giant icon rewrite.
+4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
+5. Authored production LOC on the audit-comparable buckets is ~184.0k, inside the 180–185k target band (audit 192.5k). Remaining fat is live product, not unused deployables.
+6. Five-trial CI budgets gate fixture medians plus production launch/RSS instrumentation. Replacing those fixtures with live WKWebView captures is release QA, not missing architecture.
+7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
+8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.
+9. Ops leftover after deploy: disable/delete the Trigger.dev cloud project so it cannot run in parallel with FastAPI. See `TRIGGER_DEV_OPS.md`.

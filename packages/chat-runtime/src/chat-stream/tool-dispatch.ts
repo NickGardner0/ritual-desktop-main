@@ -1,5 +1,7 @@
 import type OpenAI from 'openai';
-import { dispatchToolCall, withToolErrorHandling } from '../runtime-tools.js';
+import { executeDeclaredToolCalls } from '../tool-batch.js';
+import type { AssistantTurnRecord } from '../assistant-turn.js';
+import { defaultAssistantKernel, type AssistantKernel } from '../assistant-kernel.js';
 import { toolSchemas } from '../tool-registry.js';
 import type { ActionReceiptSummary, ChatEntityRef, ChatToolResults } from '../types.js';
 import { streamWeeklyOverviewNarrative, type WeeklyOverviewPayload } from '../narrative/index.js';
@@ -16,7 +18,7 @@ export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef
 
 export function appendEntityRefsFromReceipt(
   toolResults: ChatToolResults,
-  receipt: Pick<ActionReceiptSummary, 'habit_id' | 'habit_name' | 'log_id' | 'task_id' | 'task_title'>,
+  receipt: Pick<ActionReceiptSummary, 'habit_id' | 'habit_name' | 'log_id'>,
 ): void {
   if (receipt.habit_id) {
     appendEntityRef(toolResults, {
@@ -30,13 +32,6 @@ export function appendEntityRefsFromReceipt(
       type: 'habit_log',
       id: receipt.log_id,
       title: receipt.habit_name || undefined,
-    });
-  }
-  if (receipt.task_id) {
-    appendEntityRef(toolResults, {
-      type: 'task',
-      id: receipt.task_id,
-      title: receipt.task_title || undefined,
     });
   }
 }
@@ -55,6 +50,9 @@ export type ToolDispatchContext = {
   strictThisWeekForWeeklyOverview: boolean;
   conversationId?: string | null;
   conversationIdPromise?: Promise<string | null>;
+  turn?: AssistantTurnRecord | null;
+  kernel?: AssistantKernel;
+  signal?: AbortSignal;
 };
 
 export function collectToolResult(toolResults: ChatToolResults, name: string, raw: string): void {
@@ -150,8 +148,6 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
         break;
       case 'logHabit':
       case 'createHabit':
-      case 'createTask':
-      case 'updateTask':
         if (parsed.success && parsed.receipt?.receipt_id) {
           toolResults.actionReceipts = toolResults.actionReceipts || [];
           const receipt = {
@@ -159,8 +155,6 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
             action_kind: name,
             habit_id: parsed.habit_id ?? parsed.receipt.habit_id ?? null,
             habit_name: parsed.habit_name ?? parsed.receipt.habit_name ?? null,
-            task_id: parsed.task_id ?? parsed.receipt.task_id ?? null,
-            task_title: parsed.task_title ?? parsed.receipt.task_title ?? null,
             was_inserted: parsed.receipt.was_inserted ?? parsed.was_inserted ?? true,
             undoable: parsed.receipt.undoable ?? true,
             log_id: parsed.log?.id ?? parsed.receipt.log_id ?? null,
@@ -169,12 +163,6 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
           };
           toolResults.actionReceipts.push(receipt);
           appendEntityRefsFromReceipt(toolResults, receipt);
-        } else if (parsed.success && (name === 'createTask' || name === 'updateTask') && parsed.task_id) {
-          appendEntityRef(toolResults, {
-            type: 'task',
-            id: String(parsed.task_id),
-            title: typeof parsed.task_title === 'string' ? parsed.task_title : undefined,
-          });
         }
         break;
       case 'getSmsPreferences':
@@ -225,6 +213,7 @@ export type StreamingToolLoopOptions = {
   dispatchContext: ToolDispatchContext;
   isVoiceMode: boolean;
   initialToolChoice: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming['tool_choice'];
+  signal?: AbortSignal;
 };
 
 type ToolCallAccumulator = Map<number, { id: string; name: string; arguments: string }>;
@@ -356,38 +345,30 @@ async function executeAssistantToolCalls(
 
   apiMessages.push(assistantMessage);
   const tTools = performance.now();
-  const toolCallResults = await Promise.all(
-    toolCalls.map(async (toolCall) => {
-      const tTool = performance.now();
-      const args = JSON.parse(toolCall.function.arguments || '{}');
-      const result = await withToolErrorHandling(
-        toolCall.function.name,
-        () => dispatchToolCall(
-          toolCall.function.name,
-          dispatchContext.token,
-          args,
-          {
-            timezone: dispatchContext.timezone,
-            localOverviewActivity: dispatchContext.localOverviewActivity,
-            latestUserContent: dispatchContext.latestUserContent,
-            weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
-            strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
-            conversationId: dispatchContext.conversationId,
-            conversationIdPromise: dispatchContext.conversationIdPromise,
-          },
-        ),
-      );
-
-      console.log(
-        `⏱️ [${elapsed(t0)}] 📊 ${toolCall.function.name} done (${(performance.now() - tTool).toFixed(0)}ms, ${result.length} chars)`,
-      );
-      return { toolCall, result };
-    }),
-  );
-  console.log(`⏱️ [${elapsed(t0)}] tools_done (parallel: ${(performance.now() - tTools).toFixed(0)}ms)`);
+  const toolCallResults = await executeDeclaredToolCalls({
+    toolCalls: toolCalls.map((toolCall) => ({
+      id: toolCall.id,
+      name: toolCall.function.name,
+      arguments: toolCall.function.arguments || '{}',
+    })),
+    token: dispatchContext.token,
+    ctx: {
+      timezone: dispatchContext.timezone,
+      localOverviewActivity: dispatchContext.localOverviewActivity,
+      latestUserContent: dispatchContext.latestUserContent,
+      weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
+      strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
+      conversationId: dispatchContext.conversationId,
+      conversationIdPromise: dispatchContext.conversationIdPromise,
+    },
+    turn: dispatchContext.turn,
+    kernel: dispatchContext.kernel || defaultAssistantKernel,
+    signal: dispatchContext.signal,
+  });
+  console.log(`⏱️ [${elapsed(t0)}] tools_done (${(performance.now() - tTools).toFixed(0)}ms, ${toolCallResults.length} calls)`);
 
   for (const { toolCall, result } of toolCallResults) {
-    collectToolResult(toolResults, toolCall.function.name, result);
+    collectToolResult(toolResults, toolCall.name, result);
     apiMessages.push({
       role: 'tool',
       tool_call_id: toolCall.id,
@@ -406,9 +387,19 @@ export async function* runStreamingToolLoop(
     dispatchContext,
     isVoiceMode,
     initialToolChoice,
+    signal,
   } = options;
 
+  const assertNotAborted = () => {
+    if (signal?.aborted || dispatchContext.signal?.aborted) {
+      const error = new Error('client_disconnected');
+      error.name = 'AbortError';
+      throw error;
+    }
+  };
+
   for (let iterations = 1; iterations <= 6; iterations++) {
+    assertNotAborted();
     const toolChoice = iterations === 1 ? initialToolChoice : 'auto';
     yield { type: 'phase', phase: iterations === 1 ? 'searching' : 'answering' };
     console.log(`⏱️ [${elapsed(t0)}] model_start iteration=${iterations} stream=true`);
@@ -431,6 +422,7 @@ export async function* runStreamingToolLoop(
     }
 
     if (consumed.kind === 'tool_calls') {
+      assertNotAborted();
       const toolNames = consumed.message.tool_calls?.map((toolCall) => toolCall.function.name).join(', ') || 'tool';
       yield { type: 'phase', phase: 'tool', label: `Using ${toolNames}...` };
       console.log(`⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`, toolNames);

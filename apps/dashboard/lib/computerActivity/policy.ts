@@ -1,7 +1,8 @@
-import { isTauri } from '@/lib/tauri-utils'
+import { isTauri } from '@/lib/native-gateway'
 import type {
   AggregatedComputerStatsResponse,
   ComputerActivityRangeParams,
+  ComputerActivityReadSource,
   ComputerDailyResponseRow,
   ComputerSummaryResponse,
 } from './types'
@@ -9,11 +10,8 @@ import type {
 export const COMPUTER_ACTIVITY_POLICY = {
   DESKTOP_STATS_DEFAULT_TIMEOUT_MS: 65000,
   DESKTOP_DAILY_TIMEOUT_MS: 65000,
-  SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS: 2,
   DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS: 7,
   DESKTOP_LOCAL_FALLBACK_MAX_DAYS: 45,
-  DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS: 7,
-  DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS: 5 * 60 * 1000,
 } as const
 
 export function getRangeTimestamps(params: ComputerActivityRangeParams) {
@@ -40,11 +38,6 @@ export function getInclusiveRangeDays(params: ComputerActivityRangeParams) {
   return Math.max(1, Math.ceil((endTs - startTs + 1) / (1000 * 60 * 60 * 24)))
 }
 
-export function shouldUseShortRangeNativeFallback(params: ComputerActivityRangeParams) {
-  return rangeIncludesLocalToday(params)
-    && getInclusiveRangeDays(params) <= COMPUTER_ACTIVITY_POLICY.SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS
-}
-
 export function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRangeParams) {
   return isTauri()
     && rangeIncludesLocalToday(params)
@@ -56,13 +49,13 @@ export function shouldReadDesktopAggregateLocalFirst(params: ComputerActivityRan
 }
 
 export function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
-  if (!isTauri()) return true
+  if (!isTauri()) return false
   return rangeIncludesLocalToday(params)
     && getInclusiveRangeDays(params) <= COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_FALLBACK_MAX_DAYS
 }
 
-export function shouldAllowDesktopAggregateLocalFallback(_params: ComputerActivityRangeParams) {
-  return isTauri()
+export function shouldAllowDesktopAggregateLocalFallback(params: ComputerActivityRangeParams) {
+  return shouldAllowDesktopLocalFallback(params)
 }
 
 export function shiftDateString(dateString: string, days: number) {
@@ -81,40 +74,56 @@ export function aggregateHasAnyData(result: AggregatedComputerStatsResponse) {
     || result.domains.length > 0
 }
 
-export function preferDesktopLocalAggregate(
-  backendResult: AggregatedComputerStatsResponse,
-  localResult: AggregatedComputerStatsResponse,
-) {
-  const localMs = Math.max(0, Number(localResult.summary.total_active_ms || 0))
-  const backendMs = Math.max(0, Number(backendResult.summary.total_active_ms || 0))
-  if (localMs <= 0) return false
-
-  return localMs > backendMs + COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS
-}
-
-export function asDesktopLocalTruth(result: AggregatedComputerStatsResponse): AggregatedComputerStatsResponse {
+export function stampReadSource(
+  result: AggregatedComputerStatsResponse,
+  readSource: ComputerActivityReadSource,
+): AggregatedComputerStatsResponse {
   return {
     ...result,
-    source: 'tauri_local_truth',
-    state: 'desktop_local_truth',
+    source: readSource,
+    read_source: readSource,
+    state: readSource,
     summary: {
       ...result.summary,
-      source: 'tauri_local_truth',
+      source: readSource,
     },
     daily: result.daily.map((row) => ({
       ...row,
-      source: row.source || 'tauri_local_truth',
+      source: readSource,
     })),
     apps: result.apps.map((row) => ({
       ...row,
-      source: row.source || 'tauri_local_truth',
+      source: readSource,
     })),
     domains: result.domains.map((row) => ({
       ...row,
-      source: row.source || 'tauri_local_truth',
+      source: readSource,
     })),
-    sync_pending: false,
   }
+}
+
+export function asDesktopLocalTruth(result: AggregatedComputerStatsResponse): AggregatedComputerStatsResponse {
+  return stampReadSource({ ...result, sync_pending: false }, 'local')
+}
+
+export function unavailableComputerStats(): AggregatedComputerStatsResponse {
+  return stampReadSource({
+    summary: {
+      total_active_ms: 0,
+      total_afk_ms: 0,
+      total_hours: 0,
+      total_events: 0,
+      days_tracked: 0,
+      unique_apps: 0,
+      unique_domains: 0,
+      avg_daily_hours: 0,
+      source: 'unavailable',
+    },
+    daily: [],
+    apps: [],
+    domains: [],
+    sync_pending: false,
+  }, 'unavailable')
 }
 
 export function buildSummaryFromDailyRows(
@@ -136,33 +145,6 @@ export function buildSummaryFromDailyRows(
     avg_daily_hours: daysTracked > 0 ? totalActiveMs / (1000 * 60 * 60) / daysTracked : 0,
     source,
   }
-}
-
-export function shouldSupplementTodayFromLocal(
-  params: ComputerActivityRangeParams,
-  backendRows: ComputerDailyResponseRow[],
-) {
-  if (!isTauri()) return false
-  if (!rangeIncludesLocalToday(params)) return false
-
-  const today = getLocalTodayDateString()
-  const todayRow = backendRows.find((row) => row.day === today)
-  return !todayRow || Number(todayRow.active_ms || 0) <= 0
-}
-
-export function mergeTodayRow(
-  backendRows: ComputerDailyResponseRow[],
-  localRows: ComputerDailyResponseRow[],
-): ComputerDailyResponseRow[] {
-  const today = getLocalTodayDateString()
-  const localToday = localRows.find((row) => row.day === today && Number(row.active_ms || 0) > 0)
-  if (!localToday) {
-    return backendRows
-  }
-
-  const rowsWithoutToday = backendRows.filter((row) => row.day !== today)
-  return [...rowsWithoutToday, { ...localToday, source: localToday.source || 'tauri_fallback' }]
-    .sort((a, b) => a.day.localeCompare(b.day))
 }
 
 export function getRangeCacheKey(

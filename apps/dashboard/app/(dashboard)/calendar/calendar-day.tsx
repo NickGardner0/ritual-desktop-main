@@ -2,7 +2,6 @@
 
 import { memo, useCallback } from 'react';
 import { format, formatISO, isToday } from 'date-fns';
-import { HeartRateCalendarOverlay } from '@/components/biometrics/heart-rate-calendar-overlay';
 import { cn } from '@/lib/utils';
 import type { HabitLog } from './tracker-events';
 import type { WeekScheduledItem } from './calendar-week-view';

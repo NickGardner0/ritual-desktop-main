@@ -1,11 +1,9 @@
 /**
  * useComputerActivity Hook
- * 
- * Fetches and derives computer activity data with backend/Turso-first
- * aggregated reads and local Tauri raw-event reads as desktop fallback.
- * iPhone Screen Time remains a separate aggregate source and should not be
- * merged with watcher desktop activity implicitly.
- * Implements caching and optimized loading for different time ranges.
+ *
+ * Desktop raw events come from local activity.db via Tauri IPC.
+ * Web reads the hosted watcher API. Desktop never silently falls through
+ * to cloud HTTP when local IPC fails.
  */
 
 'use client'
@@ -17,6 +15,7 @@ import {
   ActivityBreakdownSource,
   ActivityBreakdownViewModel,
   ActivityEvent,
+  ComputerActivityReadSource,
   TimeRangePreset,
   SessionSegment,
   DrillDownData,
@@ -81,6 +80,8 @@ interface AggregatedComputerStats {
   daily: any[]
   apps: any[]
   domains: any[]
+  source?: string
+  read_source?: ComputerActivityReadSource
 }
 
 async function fetchScreenTimeAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
@@ -154,54 +155,60 @@ export const computerActivityKeys = {
   ) => [...computerActivityKeys.all, 'events', source, rangeKey, limit, skipEventFetch ? 'skip' : 'full'] as const,
 }
 
-async function fetchActivityEvents(startTs: number, endTs: number, limit?: number): Promise<ActivityEvent[]> {
+async function fetchActivityEvents(
+  startTs: number,
+  endTs: number,
+  limit?: number,
+): Promise<{ events: ActivityEvent[]; readSource: ComputerActivityReadSource }> {
   try {
-    // Check if we're in Tauri environment
     if (isDesktopRuntime()) {
-      if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] isDesktop=true, attempting Tauri invoke for detailed activity…') }
       try {
         const response = await invokeDetailedActivityWithInitRetry({
           startTs,
           endTs,
           limit,
         })
-        if (process.env.NODE_ENV !== 'production') { console.log(`[useComputerActivity] Tauri invoke succeeded: ${response.events.length} events, active_ms=${response.total_active_ms}`) }
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[useComputerActivity] local activity.db: ${response.events.length} events`)
+        }
 
-        return response.events.map(e => ({
-          id: e.id,
-          ts_start: e.ts_start,
-          ts_end: e.ts_end,
-          duration_ms: e.duration_ms,
-          app_bundle_id: e.app_bundle_id,
-          app_name: e.app_name,
-          window_title: e.window_title,
-          browser_url: e.browser_url,
-          browser_domain: e.browser_domain,
-          is_afk: e.is_afk,
-          is_incognito: e.is_incognito,
-        }))
+        return {
+          readSource: 'local',
+          events: response.events.map((e) => ({
+            id: e.id,
+            ts_start: e.ts_start,
+            ts_end: e.ts_end,
+            duration_ms: e.duration_ms,
+            app_bundle_id: e.app_bundle_id,
+            app_name: e.app_name,
+            window_title: e.window_title,
+            browser_url: e.browser_url,
+            browser_domain: e.browser_domain,
+            is_afk: e.is_afk,
+            is_incognito: e.is_incognito,
+          })),
+        }
       } catch (tauriError) {
-        console.error('[useComputerActivity] Tauri invoke FAILED — IPC bridge likely unavailable:', tauriError)
-        if (process.env.NODE_ENV !== 'production') { console.log('[useComputerActivity] Falling through to HTTP fetch…') }
+        console.error('[useComputerActivity] activity.db unavailable:', tauriError)
+        return { events: [], readSource: 'unavailable' }
       }
     }
 
-    // Fallback to API for web version
     const params = new URLSearchParams({
       start_ts: startTs.toString(),
       end_ts: endTs.toString(),
     })
-    
+
     const response = await fetch(`/api/watcher/activity?${params}`)
     if (!response.ok) {
-      throw new Error('Failed to fetch activity')
+      return { events: [], readSource: 'unavailable' }
     }
-    
+
     const data = await response.json()
-    return data.events || []
+    return { events: data.events || [], readSource: 'synced' }
   } catch (error) {
     console.error('Failed to fetch activity events:', error)
-    return []
+    return { events: [], readSource: 'unavailable' }
   }
 }
 
@@ -283,18 +290,18 @@ export function useComputerActivity(
     queryKey: computerActivityKeys.events(source, rangeKey, eventLimit, skipEventFetch),
     queryFn: async () => {
       if (source !== 'desktop' || skipEventFetch) {
-        return [] as ActivityEvent[]
+        return { events: [] as ActivityEvent[], readSource: undefined as ComputerActivityReadSource | undefined }
       }
 
-      const rawEvents = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
-      const dedupedEvents = deduplicateEvents(rawEvents)
-      if (dedupedEvents.length < rawEvents.length && process.env.NODE_ENV !== 'production') {
-        console.log(`[useComputerActivity] Deduplicated ${rawEvents.length - dedupedEvents.length} redundant events`)
+      const raw = await fetchActivityEvents(timeRange.start, timeRange.end, eventLimit)
+      const dedupedEvents = deduplicateEvents(raw.events)
+      if (dedupedEvents.length < raw.events.length && process.env.NODE_ENV !== 'production') {
+        console.log(`[useComputerActivity] Deduplicated ${raw.events.length - dedupedEvents.length} redundant events`)
       }
-      return dedupedEvents
+      return { events: dedupedEvents, readSource: raw.readSource }
     },
     enabled: source === 'desktop',
-    placeholderData: (previous) => previous ?? [],
+    placeholderData: (previous) => previous ?? { events: [], readSource: undefined },
     staleTime: QUERY_POLICY.computerEvents.staleTime,
     gcTime: QUERY_POLICY.computerEvents.gcTime,
     refetchOnWindowFocus: false,
@@ -302,8 +309,22 @@ export function useComputerActivity(
     refetchIntervalInBackground: autoRefresh,
   })
 
-  const events = source === 'desktop' ? (eventsQuery.data ?? []) : []
+  const events = source === 'desktop' ? (eventsQuery.data?.events ?? []) : []
+  const eventsReadSource = eventsQuery.data?.readSource
   const aggregatedStats = aggregatedQuery.data ?? null
+  const aggregatedReadSource = aggregatedStats?.read_source
+    || (aggregatedStats?.source === 'local' || aggregatedStats?.source === 'synced' || aggregatedStats?.source === 'unavailable'
+      ? aggregatedStats.source
+      : undefined)
+  const readSource: ComputerActivityReadSource = source !== 'desktop'
+    ? 'synced'
+    : (eventsReadSource === 'unavailable' && aggregatedReadSource === 'unavailable'
+      ? 'unavailable'
+      : eventsReadSource === 'local' || aggregatedReadSource === 'local'
+        ? 'local'
+        : aggregatedReadSource === 'synced' || eventsReadSource === 'synced'
+          ? 'synced'
+          : eventsReadSource || aggregatedReadSource || 'unavailable')
   const hasAggregatedData = Boolean(
     Number(aggregatedStats?.summary?.total_active_ms || 0) > 0
     || (aggregatedStats?.daily?.length || 0) > 0
@@ -499,8 +520,9 @@ export function useComputerActivity(
       },
       isLoading,
       error,
+      readSource,
     }
-  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, source, isLoading, error])
+  }, [events, aggregatedStats, timeRange.start, timeRange.end, range, source, isLoading, error, readSource])
   
   return {
     viewModel,

@@ -9,7 +9,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+} from "@ritual/ui/dropdown-menu";
 import { ToolbarButton } from "@/components/ui/ritual-system";
 import {
   SidebarExperimentIcon,

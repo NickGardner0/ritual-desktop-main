@@ -176,12 +176,6 @@ fn clear_turso_sync_config_file() -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn clear_turso_sync_config() -> Result<(), String> {
-    clear_turso_sync_config_file()?;
-    apply_turso_env(None);
-    Ok(())
-}
-
 fn apply_turso_env(config: Option<&TursoSyncConfig>) {
     if let Some(config) = config {
         std::env::set_var("TURSO_SYNC_URL", &config.sync_url);
@@ -313,67 +307,6 @@ pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf
         .map_err(|e| format!("Failed to set token file permissions: {e}"))?;
 
     Ok(token_file)
-}
-
-pub(crate) fn clear_auth_token_on_disk() -> Result<(), String> {
-    use dirs::home_dir;
-    use std::fs;
-
-    let token_file = home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())?
-        .join(".ritual")
-        .join("auth_token.txt");
-
-    if token_file.exists() {
-        fs::remove_file(&token_file).map_err(|e| format!("Failed to remove token file: {e}"))?;
-    }
-
-    Ok(())
-}
-
-#[tauri::command]
-#[instrument(skip(auth_token), fields(sync_url = %sync_url, expires_at = %expires_at, database_name = %database_name))]
-pub async fn write_turso_sync_config(
-    sync_url: String,
-    auth_token: String,
-    expires_at: String,
-    database_name: String,
-    origin: Option<String>,
-) -> Result<String, String> {
-    let started_at = Instant::now();
-    let origin =
-        normalize_widget_command_origin(origin.as_deref(), "tauri:write_turso_sync_config:unknown");
-    nw_info!("🔄 Applying Turso sync config origin={}...", origin);
-
-    let config = TursoSyncConfig {
-        sync_url: sync_url.trim().to_string(),
-        auth_token: auth_token.trim().to_string(),
-        expires_at: expires_at.trim().to_string(),
-        database_name: database_name.trim().to_string(),
-    };
-
-    if config.sync_url.is_empty()
-        || config.auth_token.is_empty()
-        || config.expires_at.is_empty()
-        || config.database_name.is_empty()
-    {
-        return Err(
-            "Turso sync config requires sync_url, auth_token, expires_at, and database_name"
-                .to_string(),
-        );
-    }
-    let config_file = apply_turso_sync_config_internal(config, Some(&origin)).await?;
-
-    nw_info!(
-        "✅ Turso sync config written to: {:?} origin={}",
-        config_file,
-        origin
-    );
-    nw_info!(
-        "⏱️ Turso sync config command completed in {}ms",
-        started_at.elapsed().as_millis()
-    );
-    Ok(format!("Turso sync config written to: {:?}", config_file))
 }
 
 #[cfg(target_os = "macos")]

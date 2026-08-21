@@ -15,7 +15,7 @@ function loadPolicyModule(isTauri = false) {
   );
   let source = readFileSync(sourcePath, "utf8");
   source = source.replace(
-    /import\s+\{\s*isTauri\s*\}\s+from\s+'@\/lib\/tauri-utils'\s*\n/,
+    /import\s+\{\s*isTauri\s*\}\s+from\s+'@\/lib\/native-gateway'\s*\n/,
     "",
   );
   source = source.replace(
@@ -59,9 +59,30 @@ function makeAggregate(totalActiveMs, overrides = {}) {
   };
 }
 
+function todayParts() {
+  const today = new Date();
+  const endDate = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("-");
+  return { today, endDate };
+}
+
+function rangeEndingToday(days) {
+  const { endDate } = todayParts();
+  const start = new Date(`${endDate}T00:00:00`);
+  start.setDate(start.getDate() - (days - 1));
+  const startDate = [
+    start.getFullYear(),
+    String(start.getMonth() + 1).padStart(2, "0"),
+    String(start.getDate()).padStart(2, "0"),
+  ].join("-");
+  return { startDate, endDate };
+}
+
 const {
   COMPUTER_ACTIVITY_POLICY,
-  preferDesktopLocalAggregate,
   aggregateHasAnyData,
   asDesktopLocalTruth,
   getInclusiveRangeDays,
@@ -70,12 +91,11 @@ const {
   shouldPreferRecentDesktopLocalTruth,
   shouldReadDesktopAggregateLocalFirst,
   shouldAllowDesktopAggregateLocalFallback,
-  shouldSupplementTodayFromLocal,
-  shouldUseShortRangeNativeFallback,
-  mergeTodayRow,
   shiftDateString,
   getRangeCacheKey,
   buildSummaryFromDailyRows,
+  stampReadSource,
+  unavailableComputerStats,
 } = loadPolicyModule(false);
 
 const desktopPolicy = loadPolicyModule(true);
@@ -83,56 +103,9 @@ const desktopPolicy = loadPolicyModule(true);
 test("COMPUTER_ACTIVITY_POLICY exports expected range constants", () => {
   assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_STATS_DEFAULT_TIMEOUT_MS, 65000);
   assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_DAILY_TIMEOUT_MS, 65000);
-  assert.equal(COMPUTER_ACTIVITY_POLICY.SHORT_RANGE_LOCAL_FALLBACK_MAX_DAYS, 2);
   assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_RECENT_LOCAL_TRUTH_MAX_DAYS, 7);
   assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_FALLBACK_MAX_DAYS, 45);
-  assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_SUMMARY_CORRECTION_WINDOW_DAYS, 7);
-  assert.equal(COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS, 5 * 60 * 1000);
 });
-
-const preferDesktopLocalAggregateCases = [
-  {
-    name: "prefers local when delta exceeds minimum threshold",
-    backendMs: 3_600_000,
-    localMs: 3_600_000 + COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS + 1,
-    expected: true,
-  },
-  {
-    name: "does not prefer local when delta equals threshold",
-    backendMs: 3_600_000,
-    localMs: 3_600_000 + COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS,
-    expected: false,
-  },
-  {
-    name: "does not prefer local when backend is higher",
-    backendMs: 5_000_000,
-    localMs: 4_000_000,
-    expected: false,
-  },
-  {
-    name: "does not prefer local when local is zero",
-    backendMs: 0,
-    localMs: 0,
-    expected: false,
-  },
-  {
-    name: "prefers local over empty backend when local has data",
-    backendMs: 0,
-    localMs: COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_TRUTH_MIN_DELTA_MS + 1,
-    expected: true,
-  },
-];
-
-for (const scenario of preferDesktopLocalAggregateCases) {
-  test(`preferDesktopLocalAggregate: ${scenario.name}`, () => {
-    const backend = makeAggregate(scenario.backendMs);
-    const local = makeAggregate(scenario.localMs);
-    assert.equal(
-      preferDesktopLocalAggregate(backend, local),
-      scenario.expected,
-    );
-  });
-}
 
 const aggregateHasAnyDataCases = [
   {
@@ -173,37 +146,50 @@ for (const scenario of aggregateHasAnyDataCases) {
   });
 }
 
-test("asDesktopLocalTruth rewrites source metadata", () => {
+test("asDesktopLocalTruth stamps an observable local source", () => {
   const input = makeAggregate(1000, {
-    daily: [{ day: "2026-06-01", active_hours: 1, active_ms: 1000, events_count: 1, source: "tauri_fallback" }],
+    daily: [{ day: "2026-06-01", active_hours: 1, active_ms: 1000, events_count: 1, source: "synced" }],
     apps: [{
       app_bundle_id: "com.test",
       app_name: "Test",
       total_active_ms: 1000,
       total_events: 1,
       hours: 1,
-      source: "tauri_fallback",
+      source: "synced",
     }],
     domains: [{
       domain: "example.com",
       total_active_ms: 1000,
       total_events: 1,
       hours: 1,
-      source: "tauri_fallback",
+      source: "synced",
     }],
-    source: "tauri_fallback",
-    state: "tauri_fallback",
+    source: "synced",
+    state: "synced",
     sync_pending: true,
   });
 
   const result = asDesktopLocalTruth(input);
-  assert.equal(result.source, "tauri_local_truth");
-  assert.equal(result.state, "desktop_local_truth");
-  assert.equal(result.summary.source, "tauri_local_truth");
-  assert.equal(result.daily[0].source, "tauri_fallback");
-  assert.equal(result.apps[0].source, "tauri_fallback");
-  assert.equal(result.domains[0].source, "tauri_fallback");
+  assert.equal(result.source, "local");
+  assert.equal(result.read_source, "local");
+  assert.equal(result.state, "local");
+  assert.equal(result.summary.source, "local");
+  assert.equal(result.daily[0].source, "local");
+  assert.equal(result.apps[0].source, "local");
+  assert.equal(result.domains[0].source, "local");
   assert.equal(result.sync_pending, false);
+});
+
+test("stampReadSource and unavailableComputerStats expose local|synced|unavailable", () => {
+  const synced = stampReadSource(makeAggregate(10), "synced");
+  assert.equal(synced.read_source, "synced");
+  assert.equal(synced.source, "synced");
+
+  const unavailable = unavailableComputerStats();
+  assert.equal(unavailable.read_source, "unavailable");
+  assert.equal(unavailable.source, "unavailable");
+  assert.equal(unavailable.summary.total_active_ms, 0);
+  assert.equal(unavailable.daily.length, 0);
 });
 
 test("getInclusiveRangeDays counts inclusive calendar span", () => {
@@ -238,202 +224,57 @@ test("buildSummaryFromDailyRows aggregates active time and events", () => {
     { day: "2026-06-01", active_hours: 2, active_ms: 7_200_000, events_count: 10 },
     { day: "2026-06-02", active_hours: 0, active_ms: 0, events_count: 0 },
     { day: "2026-06-03", active_hours: 1, active_ms: 3_600_000, events_count: 5 },
-  ], "test_source");
+  ], "local");
 
   assert.equal(summary.total_active_ms, 10_800_000);
   assert.equal(summary.total_events, 15);
   assert.equal(summary.days_tracked, 2);
-  assert.equal(summary.source, "test_source");
+  assert.equal(summary.source, "local");
 });
 
-test("mergeTodayRow replaces missing or zero backend today with local today", () => {
-  const today = new Date();
-  const todayString = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  const backendRows = [
-    { day: "2026-06-01", active_hours: 1, active_ms: 1000, events_count: 1 },
-  ];
-  const localRows = [
-    { day: todayString, active_hours: 2, active_ms: 2000, events_count: 2, source: "tauri_fallback" },
-  ];
-
-  const merged = mergeTodayRow(backendRows, localRows);
-  assert.equal(merged.length, 2);
-  assert.equal(merged[1].day, todayString);
-  assert.equal(merged[1].active_ms, 2000);
-  assert.equal(merged[1].source, "tauri_fallback");
+test("web does not use desktop local fallback", () => {
+  assert.equal(
+    shouldAllowDesktopLocalFallback({ startDate: "2020-01-01", endDate: "2020-12-31" }),
+    false,
+  );
+  assert.equal(
+    shouldAllowDesktopAggregateLocalFallback({ startDate: "2026-06-01", endDate: "2026-06-07" }),
+    false,
+  );
 });
 
-const desktopFallbackEligibilityCases = [
-  {
-    name: "web always allows local fallback helper",
-    isTauri: false,
-    fn: "shouldAllowDesktopLocalFallback",
-    params: { startDate: "2020-01-01", endDate: "2020-12-31" },
-    expected: true,
-  },
-  {
-    name: "desktop allows fallback for short range including today",
-    isTauri: true,
-    fn: "shouldAllowDesktopLocalFallback",
-    params: null,
-    expected: true,
-    dynamicTodayRange: 7,
-  },
-  {
-    name: "desktop suppresses fallback for large historical range",
-    isTauri: true,
-    fn: "shouldAllowDesktopLocalFallback",
-    params: { startDate: "2020-01-01", endDate: "2020-12-31" },
-    expected: false,
-  },
-  {
-    name: "desktop aggregate fallback only on tauri",
-    isTauri: true,
-    fn: "shouldAllowDesktopAggregateLocalFallback",
-    params: { startDate: "2020-01-01", endDate: "2020-12-31" },
-    expected: true,
-  },
-  {
-    name: "web aggregate fallback helper returns false",
-    isTauri: false,
-    fn: "shouldAllowDesktopAggregateLocalFallback",
-    params: { startDate: "2026-06-01", endDate: "2026-06-07" },
-    expected: false,
-  },
-];
+test("desktop allows offline local reads for recent ranges including today", () => {
+  const params = rangeEndingToday(7);
+  assert.equal(desktopPolicy.shouldAllowDesktopLocalFallback(params), true);
+  assert.equal(desktopPolicy.shouldAllowDesktopAggregateLocalFallback(params), true);
+});
 
-for (const scenario of desktopFallbackEligibilityCases) {
-  test(`desktop policy eligibility: ${scenario.name}`, () => {
-    const mod = loadPolicyModule(scenario.isTauri);
-    let params = scenario.params;
-    if (scenario.dynamicTodayRange) {
-      const today = new Date();
-      const endDate = [
-        today.getFullYear(),
-        String(today.getMonth() + 1).padStart(2, "0"),
-        String(today.getDate()).padStart(2, "0"),
-      ].join("-");
-      const start = new Date(`${endDate}T00:00:00`);
-      start.setDate(start.getDate() - (scenario.dynamicTodayRange - 1));
-      const startDate = [
-        start.getFullYear(),
-        String(start.getMonth() + 1).padStart(2, "0"),
-        String(start.getDate()).padStart(2, "0"),
-      ].join("-");
-      params = { startDate, endDate };
-    }
-
-    assert.equal(mod[scenario.fn](params), scenario.expected);
-  });
-}
+test("desktop suppresses offline local reads for large historical ranges", () => {
+  const params = { startDate: "2020-01-01", endDate: "2020-12-31" };
+  assert.equal(desktopPolicy.shouldAllowDesktopLocalFallback(params), false);
+  assert.equal(desktopPolicy.shouldAllowDesktopAggregateLocalFallback(params), false);
+});
 
 test("shouldPreferRecentDesktopLocalTruth requires tauri and recent range including today", () => {
-  const today = new Date();
-  const endDate = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-  const start = new Date(`${endDate}T00:00:00`);
-  start.setDate(start.getDate() - 6);
-  const startDate = [
-    start.getFullYear(),
-    String(start.getMonth() + 1).padStart(2, "0"),
-    String(start.getDate()).padStart(2, "0"),
-  ].join("-");
-  const params = { startDate, endDate };
-
+  const params = rangeEndingToday(7);
   assert.equal(shouldPreferRecentDesktopLocalTruth(params), false);
   assert.equal(desktopPolicy.shouldPreferRecentDesktopLocalTruth(params), true);
 });
 
 test("shouldReadDesktopAggregateLocalFirst mirrors recent desktop local truth policy", () => {
-  const today = new Date();
-  const endDate = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-  const start = new Date(`${endDate}T00:00:00`);
-  start.setDate(start.getDate() - 6);
-  const startDate = [
-    start.getFullYear(),
-    String(start.getMonth() + 1).padStart(2, "0"),
-    String(start.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  assert.equal(shouldReadDesktopAggregateLocalFirst({ startDate, endDate }), false);
-  assert.equal(desktopPolicy.shouldReadDesktopAggregateLocalFirst({ startDate, endDate }), true);
+  const params = rangeEndingToday(7);
+  assert.equal(shouldReadDesktopAggregateLocalFirst(params), false);
+  assert.equal(desktopPolicy.shouldReadDesktopAggregateLocalFirst(params), true);
   assert.equal(
     desktopPolicy.shouldReadDesktopAggregateLocalFirst({ startDate: "2020-01-01", endDate: "2020-01-07" }),
     false,
   );
 });
 
-test("shouldSupplementTodayFromLocal is desktop-only when backend today is missing", () => {
-  const today = new Date();
-  const todayString = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-  const params = { startDate: todayString, endDate: todayString };
-
-  assert.equal(shouldSupplementTodayFromLocal(params, []), false);
-  assert.equal(desktopPolicy.shouldSupplementTodayFromLocal(params, []), true);
-  assert.equal(
-    desktopPolicy.shouldSupplementTodayFromLocal(params, [{
-      day: todayString,
-      active_hours: 1,
-      active_ms: 1000,
-      events_count: 1,
-    }]),
-    false,
-  );
-});
-
-test("shouldUseShortRangeNativeFallback allows only very short ranges including today", () => {
-  const today = new Date();
-  const endDate = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  assert.equal(
-    shouldUseShortRangeNativeFallback({ startDate: endDate, endDate }),
-    true,
-  );
-
-  const start = new Date(`${endDate}T00:00:00`);
-  start.setDate(start.getDate() - 6);
-  const startDate = [
-    start.getFullYear(),
-    String(start.getMonth() + 1).padStart(2, "0"),
-    String(start.getDate()).padStart(2, "0"),
-  ].join("-");
-
-  assert.equal(
-    shouldUseShortRangeNativeFallback({ startDate, endDate }),
-    false,
-  );
-});
-
 test("rangeIncludesLocalToday detects when today falls inside params", () => {
-  const today = new Date();
-  const todayString = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
-
+  const { endDate } = todayParts();
   assert.equal(
-    rangeIncludesLocalToday({ startDate: "2020-01-01", endDate: todayString }),
+    rangeIncludesLocalToday({ startDate: "2020-01-01", endDate }),
     true,
   );
   assert.equal(

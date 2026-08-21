@@ -113,16 +113,6 @@ pub fn open_screen_recording_settings() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_system_audio_settings() -> Result<(), String> {
-    open_macos_privacy_pane("Privacy_ScreenCapture")
-}
-
-#[tauri::command]
-pub fn open_input_monitoring_settings() -> Result<(), String> {
-    open_macos_privacy_pane("Privacy_ListenEvent")
-}
-
-#[tauri::command]
 pub fn open_location_settings() -> Result<(), String> {
     open_macos_privacy_pane("Privacy_LocationServices")
 }

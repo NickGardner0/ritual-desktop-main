@@ -1,0 +1,72 @@
+/**
+ * NativeGateway is the only dashboard import surface for desktop IPC,
+ * shell window helpers, runtime capabilities, and shell telemetry.
+ */
+export { invokeDesktopCommand, openDesktopExternalUrl, openDesktopExternalUrlWithFallback } from "@/lib/desktop-bridge/commands";
+export {
+  hasDesktopTauriIpcBridge,
+  isDesktopTauriRuntime,
+} from "@/lib/desktop-bridge/environment";
+export {
+  ensureMicrophonePermission,
+  isTauri,
+  showMainWindow,
+  openInBrowser,
+  openInBrowserFromDesktopAuth,
+  openDesktopSettingsWindow,
+  resizeWindow,
+  restoreDashboardWindowSize,
+  setStandardWindowSize,
+  setOnboardingWindowSize,
+  setDashboardWindowSize,
+  ONBOARDING_WINDOW_WIDTH,
+  ONBOARDING_WINDOW_HEIGHT,
+  ONBOARDING_HOME_WINDOW_WIDTH,
+  ONBOARDING_HOME_WINDOW_HEIGHT,
+  ONBOARDING_WELCOME_WINDOW_WIDTH,
+  ONBOARDING_WELCOME_WINDOW_HEIGHT,
+  ONBOARDING_SETUP_WINDOW_WIDTH,
+  ONBOARDING_SETUP_WINDOW_HEIGHT,
+  ONBOARDING_SIGNUP_WINDOW_WIDTH,
+  ONBOARDING_SIGNUP_WINDOW_HEIGHT,
+  ONBOARDING_CARD_WINDOW_WIDTH,
+  ONBOARDING_CARD_WINDOW_HEIGHT,
+  type DesktopSettingsView,
+} from "@/lib/desktop-bridge/shell";
+export {
+  buildDesktopCommandOrigin,
+  checkDesktopForUpdates,
+  clearDesktopRuntimeInfoCache,
+  compareDesktopVersions,
+  desktopHasCapability,
+  desktopSetAuthToken,
+  desktopFrontendReady,
+  getDesktopCompatibilityIssue,
+  getDesktopRuntimeInfo,
+  getDesktopRuntimeState,
+  installDesktopUpdate,
+  readDesktopCompatibilityRequirements,
+  type DesktopRuntimeInfo,
+  type DesktopRuntimeState,
+  type DesktopProcessMetrics,
+  type DesktopCompatibilityIssue,
+  type UpdateManifest,
+} from "@/lib/desktop-bridge/runtime";
+export {
+  recordDesktopShellEvent,
+  recordLaunchMilestone,
+  getLaunchMilestones,
+  summarizeLaunchMilestones,
+  type DesktopShellEventLevel,
+  type LaunchMedianSummary,
+} from "@/lib/desktop-bridge/observability";
+export {
+  NATIVE_COMMANDS,
+  NATIVE_COMMAND_CAPABILITIES,
+  isNativeCommandName,
+  type NativeCommandName,
+  type NativeCommandCapability,
+  type NativeCommandInputs,
+  type NativeCommandOutputs,
+  type NativeCommandContract,
+} from "@/lib/native-gateway-commands.generated";

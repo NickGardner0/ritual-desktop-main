@@ -1,11 +1,10 @@
 'use client'
 
 // Product rule:
-// - User-facing computer activity analytics should read from backend `/api/watcher/stats/*`
-//   first so desktop and web share the same Turso-backed authority.
-// - Native Tauri activity queries remain available only as desktop fallback when the backend
-//   is unavailable/offline. Do not import native computer activity commands directly from UI
-//   components for normal analytics reads.
+// - Desktop raw/recent activity reads local activity.db. The result is
+//   observable as local | synced | unavailable; cloud is not a hidden fallback.
+// - Web/iOS and long-range desktop aggregates read hosted `/api/watcher/stats/*`.
+// - Offline desktop may use activity.db for ranges that include today (explicit local).
 
 export type {
   AggregatedComputerStatsResponse,

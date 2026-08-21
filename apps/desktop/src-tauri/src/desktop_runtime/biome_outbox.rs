@@ -1,17 +1,5 @@
 use super::location_outbox::{append_quarantine_records, quarantine_text};
 use super::*;
-use ritual_db::DeliveryOutboxKind;
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static BIOME_DRAIN_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-
-struct BiomeDrainGuard;
-
-impl Drop for BiomeDrainGuard {
-    fn drop(&mut self) {
-        BIOME_DRAIN_IN_FLIGHT.store(false, Ordering::Release);
-    }
-}
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -480,68 +468,35 @@ pub(crate) fn import_biome_export_into_outbox(
     let Some(outbox_path) = biome_outbox_path() else {
         return Err("Biome outbox path is unavailable".to_string());
     };
-    let result = import_biome_export_into_path(source_path, &outbox_path)?;
-    let read = read_biome_outbox(&outbox_path)?;
-    let database_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".ritual")
-        .join("activity.db");
-    let database = ritual_db::blocking::BlockingDatabase::open_activity_db_with_env(database_path)
-        .map_err(|error| error.to_string())?;
-    for event in read.events {
-        let event_id = biome_event_key(&event);
-        let payload = serde_json::to_string(&event)
-            .map_err(|error| format!("Failed to encode imported Biome event: {error}"))?;
-        database
-            .enqueue_delivery_outbox(DeliveryOutboxKind::Biome, &event_id, &payload)
-            .map_err(|error| error.to_string())?;
-    }
-    fs::rename(&outbox_path, outbox_path.with_extension("jsonl.migrated"))
-        .map_err(|error| format!("Failed to archive imported Biome outbox: {error}"))?;
-    Ok(result)
+    import_biome_export_into_path(source_path, &outbox_path)
 }
 
 fn read_biome_committed_cursors() -> HashMap<String, i64> {
-    let database_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".ritual")
-        .join("activity.db");
-    let Ok(database) =
-        ritual_db::blocking::BlockingDatabase::open_activity_db_with_env(database_path)
-    else {
+    let Some(path) = biome_committed_cursors_path() else {
         return HashMap::new();
     };
-    let mut cursors = database.biome_delivery_cursors().unwrap_or_default();
-    if cursors.is_empty() {
-        if let Some(path) = biome_committed_cursors_path().filter(|path| path.exists()) {
-            if let Some(legacy) = fs::read_to_string(&path)
-                .ok()
-                .and_then(|raw| serde_json::from_str::<HashMap<String, i64>>(&raw).ok())
-            {
-                for (source_key, committed_ts) in &legacy {
-                    let _ = database.advance_biome_delivery_cursor(source_key, *committed_ts);
-                }
-                cursors = legacy;
-                let _ = fs::rename(&path, path.with_extension("json.migrated"));
-            }
-        }
+    if !path.exists() {
+        return HashMap::new();
     }
-    cursors
+    fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str::<HashMap<String, i64>>(&raw).ok())
+        .unwrap_or_default()
 }
 
 fn write_biome_committed_cursors(cursors: &HashMap<String, i64>) -> Result<(), String> {
-    let database_path = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("/tmp"))
-        .join(".ritual")
-        .join("activity.db");
-    let database = ritual_db::blocking::BlockingDatabase::open_activity_db_with_env(database_path)
-        .map_err(|error| error.to_string())?;
-    for (source_key, committed_ts) in cursors {
-        database
-            .advance_biome_delivery_cursor(source_key, *committed_ts)
-            .map_err(|error| error.to_string())?;
+    let Some(path) = biome_committed_cursors_path() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create Biome cursor dir: {error}"))?;
     }
-    Ok(())
+    let raw = serde_json::to_string(cursors)
+        .map_err(|error| format!("Failed to encode Biome committed cursors: {error}"))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, raw).map_err(|error| format!("Failed to write Biome cursors: {error}"))?;
+    fs::rename(&tmp, path).map_err(|error| format!("Failed to replace Biome cursors: {error}"))
 }
 
 fn advance_biome_committed_cursors(events: &[DesktopBiomeActivityEvent]) -> Result<(), String> {
@@ -600,20 +555,24 @@ pub(crate) fn classify_biome_ack(
     Ok((processed_keys, rejected_records, committed_events))
 }
 
-fn submit_biome_outbox_blocking(
-    auth_token: String,
-    backend_base: String,
-    events: Vec<DesktopBiomeActivityEvent>,
-) -> Result<
-    (
-        HashSet<String>,
-        Vec<DesktopBiomeActivityEvent>,
-        Vec<DesktopBiomeActivityEvent>,
-    ),
-    String,
-> {
+fn drain_biome_outbox_blocking(auth_token: String, backend_base: String) -> Result<usize, String> {
+    let Some(path) = biome_outbox_path() else {
+        return Ok(0);
+    };
+    if !path.exists() {
+        return Ok(0);
+    }
+
+    let read = read_biome_outbox(&path)?;
+    if !read.malformed_lines.is_empty() {
+        quarantine_text(&path, "malformed", &read.malformed_lines.join("\n"))?;
+    }
+    let events = read.events;
     if events.is_empty() {
-        return Ok((HashSet::new(), Vec::new(), Vec::new()));
+        if !read.malformed_lines.is_empty() {
+            write_biome_outbox(&path, &[])?;
+        }
+        return Ok(0);
     }
 
     let client = reqwest::blocking::Client::builder()
@@ -623,7 +582,6 @@ fn submit_biome_outbox_blocking(
     let url = format!("{backend_base}/api/watcher/biome-ingest");
     let mut processed_keys: HashSet<String> = HashSet::new();
     let mut committed_events: Vec<DesktopBiomeActivityEvent> = Vec::new();
-    let mut rejected_records_all: Vec<DesktopBiomeActivityEvent> = Vec::new();
 
     for chunk in events.chunks(BIOME_OUTBOX_BATCH_SIZE) {
         let body = serde_json::to_string(&serde_json::json!({ "events": chunk }))
@@ -656,21 +614,23 @@ fn submit_biome_outbox_blocking(
 
         let (chunk_processed_keys, rejected_records, chunk_committed_events) =
             classify_biome_ack(&parsed, chunk)?;
-        rejected_records_all.extend(rejected_records);
+        append_quarantine_records(&path, "rejected", "backend_rejected", &rejected_records)?;
         processed_keys.extend(chunk_processed_keys);
         committed_events.extend(chunk_committed_events);
     }
 
-    Ok((processed_keys, rejected_records_all, committed_events))
+    let remaining: Vec<DesktopBiomeActivityEvent> = events
+        .into_iter()
+        .filter(|event| !processed_keys.contains(&biome_event_key(event)))
+        .collect();
+    write_biome_outbox(&path, &remaining)?;
+    advance_biome_committed_cursors(&committed_events)?;
+    Ok(processed_keys.len())
 }
 
 pub(crate) async fn drain_biome_outbox_once<R: Runtime + 'static>(
     app: AppHandle<R>,
 ) -> Result<usize, String> {
-    if BIOME_DRAIN_IN_FLIGHT.swap(true, Ordering::AcqRel) {
-        return Ok(0);
-    }
-    let _guard = BiomeDrainGuard;
     let auth_state = read_auth_state(&app);
     let auth_token = match auth_state.token.filter(|token| !token.trim().is_empty()) {
         Some(token) => token,
@@ -692,118 +652,12 @@ pub(crate) async fn drain_biome_outbox_once<R: Runtime + 'static>(
         }
     };
 
-    let lease_owner = format!(
-        "tauri-biome-{}-{}",
-        std::process::id(),
-        Utc::now().timestamp_millis()
-    );
-    let db_guard =
-        crate::ritual_database::get_or_initialize_activity_db("biome_outbox:claim").await?;
-    let db = db_guard
-        .as_ref()
-        .ok_or_else(|| "Activity database is unavailable for Biome outbox".to_string())?;
-    let claimed = db
-        .claim_delivery_outbox(
-            DeliveryOutboxKind::Biome,
-            &lease_owner,
-            BIOME_OUTBOX_BATCH_SIZE as i64,
-            90_000,
-        )
-        .await
-        .map_err(|error| error.to_string())?;
-    drop(db_guard);
-    if claimed.is_empty() {
-        write_biome_drain_snapshot(&app, "success", Some(0), None);
-        return Ok(0);
-    }
-    let mut events = Vec::new();
-    let mut malformed_ids = Vec::new();
-    for item in &claimed {
-        match serde_json::from_str::<DesktopBiomeActivityEvent>(&item.payload_json) {
-            Ok(event) => events.push(event),
-            Err(_) => malformed_ids.push(item.event_id.clone()),
-        }
-    }
-    if !malformed_ids.is_empty() {
-        if let Some(path) = biome_outbox_path() {
-            let malformed_payloads: Vec<String> = claimed
-                .iter()
-                .filter(|item| malformed_ids.contains(&item.event_id))
-                .map(|item| item.payload_json.clone())
-                .collect();
-            append_quarantine_records(
-                &path,
-                "malformed",
-                "invalid_sqlite_payload",
-                &malformed_payloads,
-            )?;
-        }
-        let db_guard =
-            crate::ritual_database::get_or_initialize_activity_db("biome_outbox:malformed").await?;
-        if let Some(db) = db_guard.as_ref() {
-            db.acknowledge_delivery_outbox(DeliveryOutboxKind::Biome, &lease_owner, &malformed_ids)
-                .await
-                .map_err(|error| error.to_string())?;
-        }
-    }
-    let submitted = tauri::async_runtime::spawn_blocking(move || {
-        submit_biome_outbox_blocking(auth_token, backend_base, events)
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        drain_biome_outbox_blocking(auth_token, backend_base)
     })
     .await
-    .map_err(|error| format!("Biome outbox drain task failed: {error}"))?;
-    let all_ids: Vec<String> = claimed.iter().map(|item| item.event_id.clone()).collect();
-    let db_guard =
-        crate::ritual_database::get_or_initialize_activity_db("biome_outbox:commit").await?;
-    let db = db_guard
-        .as_ref()
-        .ok_or_else(|| "Activity database is unavailable for Biome outbox".to_string())?;
-    let result = match submitted {
-        Ok((processed, rejected, committed)) => {
-            if let Some(path) = biome_outbox_path() {
-                append_quarantine_records(&path, "rejected", "backend_rejected", &rejected)?;
-            }
-            advance_biome_committed_cursors(&committed)?;
-            let processed_ids: Vec<String> = processed.into_iter().collect();
-            let acknowledged = db
-                .acknowledge_delivery_outbox(
-                    DeliveryOutboxKind::Biome,
-                    &lease_owner,
-                    &processed_ids,
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            let remaining: Vec<String> = all_ids
-                .into_iter()
-                .filter(|event_id| {
-                    !processed_ids.contains(event_id) && !malformed_ids.contains(event_id)
-                })
-                .collect();
-            if !remaining.is_empty() {
-                db.requeue_delivery_outbox(
-                    DeliveryOutboxKind::Biome,
-                    &lease_owner,
-                    &remaining,
-                    Utc::now().timestamp_millis() + 30_000,
-                    "unacknowledged",
-                )
-                .await
-                .map_err(|error| error.to_string())?;
-            }
-            Ok(acknowledged as usize)
-        }
-        Err(error) => {
-            db.requeue_delivery_outbox(
-                DeliveryOutboxKind::Biome,
-                &lease_owner,
-                &all_ids,
-                Utc::now().timestamp_millis() + 30_000,
-                &error,
-            )
-            .await
-            .map_err(|db_error| db_error.to_string())?;
-            Err(error)
-        }
-    };
+    .map_err(|error| format!("Biome outbox drain task failed: {error}"))
+    .and_then(|result| result);
 
     match &result {
         Ok(count) => write_biome_drain_snapshot(&app, "success", Some(*count), None),
@@ -896,7 +750,6 @@ mod tests {
         }
     }
 
-    #[test]
     fn biome_event_key_ignores_legacy_uid_and_end_time() {
         let legacy = biome_event(Some("old:iphone:messages:1000:2000"), 2_000);
         let newer = biome_event(Some("old:iphone:messages:1000:4000"), 4_000);

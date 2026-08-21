@@ -34,7 +34,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test tests/*.test.mjs",
+    "test": "npm run build && RITUAL_ASSISTANT_TURN_STORE=memory node --test tests/*.test.mjs",
     "clean": "rm -rf dist"
   },
   "dependencies": {

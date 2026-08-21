@@ -16,7 +16,7 @@ use crate::desktop_observability::redact_sensitive_url_for_log;
 use crate::desktop_runtime_types::{
     BiomeDeviceDiagnostics, BiomeDrainSnapshot, BiomeIngestResponse, BiomeIphoneDiagnostics,
     BiomeOutboxDiagnostics, DesktopBiomeActivityEvent, DesktopLocationPing, LocationIngestResponse,
-    TursoSyncConfigResponse, UpdateStatusPayload, UpdateStatusPhaseV2,
+    TursoSyncConfigResponse, UpdateStatusPayload,
 };
 
 pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
@@ -26,13 +26,7 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "native-startup-update-fallback-v1",
     "desktop-runtime-state-v1",
     "desktop-auth-handoff-v1",
-    "desktop-auth-clear-v1",
-    "desktop-auth-deep-link-opened-v1",
     "desktop-runtime-events-v1",
-    "vault-pagination-v1",
-    "vault-cas-v1",
-    "updater-status-v2",
-    "sqlite-delivery-outbox-v1",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
 pub(crate) const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
@@ -46,7 +40,6 @@ pub const DASHBOARD_REFRESH_EVENT: &str = "desktop://dashboard-refresh";
 pub const TOKEN_REFRESH_NEEDED_EVENT: &str = "desktop://token-refresh-needed";
 pub const RUNTIME_STATE_CHANGED_EVENT: &str = "desktop://runtime-state-changed";
 pub const AUTH_DEEP_LINK_EVENT: &str = "desktop://auth-deep-link";
-pub const AUTH_DEEP_LINK_OPENED_EVENT: &str = "desktop://auth-deep-link-opened";
 pub const UPDATE_STATUS_EVENT: &str = "tauri://update-status";
 
 #[derive(Clone, Debug, Serialize)]
@@ -81,19 +74,22 @@ pub struct DesktopAuthRuntimeState {
     pub last_turso_error: Option<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopProcessMetrics {
+    pub webview_pid: Option<u32>,
+    pub webview_rss_bytes: Option<u64>,
+    pub watcher_pid: Option<u32>,
+    pub watcher_rss_bytes: Option<u64>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopRuntimeState {
     pub auth: DesktopAuthRuntimeState,
     pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
     pub watcher: crate::watcher::WatcherLifecycleSnapshot,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesktopAuthDeepLinkOpenedPayload {
-    pub route: String,
-    pub received_at_ms: i64,
+    pub process: DesktopProcessMetrics,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -250,41 +246,6 @@ fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: Strin
     *pending = Some(deep_link);
 }
 
-pub(crate) fn clear_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
-    let state = app.state::<DesktopShellState>();
-    let mut pending = state
-        .pending_auth_deep_link
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    *pending = None;
-}
-
-fn sanitized_deep_link_route(deep_link: &str) -> String {
-    let without_scheme = deep_link
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(deep_link);
-    let route = without_scheme
-        .split('?')
-        .next()
-        .unwrap_or("")
-        .trim_matches('/');
-
-    if route.is_empty() {
-        "/".to_string()
-    } else {
-        format!("/{route}")
-    }
-}
-
-pub fn emit_auth_deep_link_opened<R: Runtime>(app: &AppHandle<R>, deep_link: &str) {
-    let payload = DesktopAuthDeepLinkOpenedPayload {
-        route: sanitized_deep_link_route(deep_link),
-        received_at_ms: Utc::now().timestamp_millis(),
-    };
-    let _ = app.emit(AUTH_DEEP_LINK_OPENED_EVENT, payload);
-}
-
 pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
     if frontend_is_ready(app) {
         let redacted_deep_link = redact_sensitive_url_for_log(&deep_link);
@@ -382,17 +343,48 @@ pub(crate) fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
     );
 }
 
+pub(crate) fn parse_ps_rss_bytes(stdout: &str) -> Option<u64> {
+    stdout
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .map(|kilobytes| kilobytes.saturating_mul(1024))
+}
+
+fn process_rss_bytes(pid: u32) -> Option<u64> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_ps_rss_bytes(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn collect_process_metrics(watcher_pid: Option<u32>) -> DesktopProcessMetrics {
+    let webview_pid = std::process::id();
+    DesktopProcessMetrics {
+        webview_pid: Some(webview_pid),
+        webview_rss_bytes: process_rss_bytes(webview_pid),
+        watcher_pid,
+        watcher_rss_bytes: watcher_pid.and_then(process_rss_bytes),
+    }
+}
+
 async fn build_runtime_state<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<DesktopRuntimeState, String> {
     let auth = build_auth_runtime_state(app);
     let database = crate::ritual_database::database_runtime_state_snapshot();
     let watcher = crate::watcher::get_watcher_lifecycle_snapshot().await;
+    let process = collect_process_metrics(watcher.pid);
 
     Ok(DesktopRuntimeState {
         auth,
         database,
         watcher,
+        process,
     })
 }
 
@@ -493,4 +485,15 @@ pub async fn import_biome_iphone_export<R: Runtime + 'static>(
     .await
     .map_err(|error| format!("Biome import task failed: {error}"))??;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_ps_rss_bytes;
+
+    #[test]
+    fn parses_ps_rss_kilobytes_into_bytes() {
+        assert_eq!(parse_ps_rss_bytes("  2048\n"), Some(2048 * 1024));
+        assert_eq!(parse_ps_rss_bytes("not-a-number"), None);
+    }
 }

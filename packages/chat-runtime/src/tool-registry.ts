@@ -1,6 +1,7 @@
 import type OpenAI from 'openai';
 
 import { tools as toolSchemas } from './tools.js';
+import type { ToolSideEffect } from './assistant-turn.js';
 
 export const toolNames = [
   'getHabitStats',
@@ -20,8 +21,6 @@ export const toolNames = [
   'getStreaks',
   'logHabit',
   'createHabit',
-  'createTask',
-  'updateTask',
   'getSmsPreferences',
   'updateSmsPreferences',
 ] as const;
@@ -36,7 +35,6 @@ export type ChatToolOwner =
   | 'biometrics'
   | 'screen-time'
   | 'calendar'
-  | 'tasks'
   | 'sms-preferences';
 
 export interface RegisteredTool {
@@ -44,7 +42,14 @@ export interface RegisteredTool {
   schema: ChatToolSchema;
   channels: readonly ChatToolChannel[];
   owner: ChatToolOwner;
+  sideEffect: ToolSideEffect;
 }
+
+const mutatingTools = new Set<ToolName>([
+  'logHabit',
+  'createHabit',
+  'updateSmsPreferences',
+]);
 
 const dashboardOnlyTools = new Set<ToolName>([
   'getWeeklyOverview',
@@ -55,8 +60,6 @@ const dashboardOnlyTools = new Set<ToolName>([
   'getDailyBiometrics',
   'getScreenTimeSummary',
   'getCalendarEvents',
-  'createTask',
-  'updateTask',
 ]);
 
 const toolOwners: Record<ToolName, ChatToolOwner> = {
@@ -77,8 +80,6 @@ const toolOwners: Record<ToolName, ChatToolOwner> = {
   getStreaks: 'habits',
   logHabit: 'habits',
   createHabit: 'habits',
-  createTask: 'tasks',
-  updateTask: 'tasks',
   getSmsPreferences: 'sms-preferences',
   updateSmsPreferences: 'sms-preferences',
 };
@@ -101,6 +102,7 @@ export const toolRegistry: ReadonlyMap<ToolName, RegisteredTool> = new Map(
         schema,
         owner: toolOwners[name],
         channels: dashboardOnlyTools.has(name) ? ['dashboard'] : ['dashboard', 'sms'],
+        sideEffect: mutatingTools.has(name) ? 'mutating' : 'read_only',
       },
     ];
   }),
@@ -124,6 +126,12 @@ export function getToolsForChannel(channel: ChatToolChannel): ChatToolSchema[] {
   return Array.from(toolRegistry.values())
     .filter((entry) => entry.channels.includes(channel))
     .map((entry) => entry.schema);
+}
+
+export function getToolSideEffect(name: string): ToolSideEffect {
+  const toolName = toToolName(name);
+  if (!toolName) return 'mutating';
+  return toolRegistry.get(toolName)?.sideEffect ?? 'mutating';
 }
 
 export function getToolOwner(name: ToolName): ChatToolOwner {
@@ -170,6 +178,9 @@ export function validateToolRegistry(): string[] {
     }
     if (!entry?.channels.length) {
       errors.push(`ToolName has no channel availability: ${name}`);
+    }
+    if (entry?.sideEffect !== 'read_only' && entry?.sideEffect !== 'mutating') {
+      errors.push(`ToolName has no side-effect class: ${name}`);
     }
   }
 
