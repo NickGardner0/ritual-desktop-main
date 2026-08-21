@@ -94,6 +94,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete catch-all empty-payload fallbacks | GET stubs for connections/status/suggestions | FastAPI responses only | ~−40 | second invented BFF truth | leftover kibo-ui spinner wrapper | Dashed wearable path aliases remain. Whoop/Tesla OAuth code storage shares one in-memory store |
 | Collapse Whoop/Tesla OAuth code bridges | two store-code routes + duplicated callbacks | one store-code route + shared callback helper | ~−150 | two identical desktop OAuth bridges | none | Provider redirect URIs stay on `/whoop/callback` and `/tesla/callback` |
 | Delete unused wearable service facades | `unified_wearables_service.py` + `_impl.py` | `services.wearables_unified` only | ~−10 | unused compatibility re-export | none | Provider OAuth/sync behavior unchanged |
+| Delete unused routines/bootstrap leftovers | unused `routines-ui.tsx` + unused bootstrap client | live routines pages + server bootstrap redirect | ~−750 | unused UI and a bootstrap client the server page never mounted | leftover Trigger.dev env keys | `shell_bootstrap` now records on the live root-providers path. Assistant-turn outbox drain is wired into chat |
 
 ## Aggregate (this pass)
 

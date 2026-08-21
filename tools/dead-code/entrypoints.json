@@ -113,7 +113,9 @@
     "apps/dashboard/components/onboarding/ritual-glass-mark.tsx",
     "apps/dashboard/components/ui/kibo-ui/spinner/index.tsx",
     "apps/dashboard/app/api/integrations/whoop/store-code/route.ts",
-    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts"
+    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts",
+    "apps/dashboard/app/(dashboard)/routines/routines-ui.tsx",
+    "apps/dashboard/app/desktop/bootstrap/page-client.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

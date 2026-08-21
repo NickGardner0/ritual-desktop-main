@@ -67,8 +67,8 @@ Shared language for navigating this codebase. Terms are used consistently in [de
 ```
 ritual-desktop-main/
 ├── apps/
-│   ├── dashboard/          # Next.js 16 — primary UI + BFF + Trigger.dev
-│   ├── backend/            # Python FastAPI — system of record
+│   ├── dashboard/          # Next.js 16 — primary UI + BFF
+│   ├── backend/            # Python FastAPI — system of record + scheduler
 │   ├── desktop/            # Tauri 2 + Rust (ritual-db, ritual-watcher sidecar)
 │   ├── chat-api/           # Hono Node service for chat streaming (partial migration)
 │   ├── ios-companion/      # Swift/SwiftUI — HealthKit, Screen Time, location
@@ -536,7 +536,7 @@ This is the highest-risk architectural tension for privacy and consistency. Docu
 | Desktop native handoff | Tauri `desktop_set_auth_token` | `desktop_runtime/auth_handoff.rs` |
 | Backend API | JWT via Clerk JWKS | `services/auth_service.py` |
 | Backend internal | `INTERNAL_BACKEND_TOKEN` + `x-internal-user-id` | `app_factory.py` |
-| Trigger.dev | `INTERNAL_API_KEY` header | `src/trigger/*.ts` |
+| FastAPI scheduler → Next | `INTERNAL_API_KEY` header | `/api/internal/workflows/execute` |
 | Chat API | Bearer JWT via `jose` + JWKS | `apps/chat-api/src/lib/auth.ts` |
 | iOS companion | Clerk iOS SDK | `Project.swift` |
 | WebSocket | Clerk token in header or query | `app_factory.py` `/ws/{user_id}` |

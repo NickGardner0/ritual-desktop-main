@@ -47,12 +47,11 @@ if (!observability.includes("summarizeLaunchMilestones") || !observability.inclu
 }
 
 const providers = read("apps/dashboard/components/root-providers.tsx");
-const bootstrap = read("apps/dashboard/app/desktop/bootstrap/page-client.tsx");
 if (!providers.includes("providers_mounted") || !providers.includes("native_ready")) {
   errors.push("root-providers.tsx is missing required launch milestones");
 }
-if (!bootstrap.includes("shell_bootstrap")) {
-  errors.push("desktop bootstrap is missing the shell_bootstrap launch milestone");
+if (!providers.includes("shell_bootstrap")) {
+  errors.push("root-providers.tsx is missing the shell_bootstrap launch milestone");
 }
 if (!providers.includes("webview_rss_bytes") || !providers.includes("watcher_rss_bytes")) {
   errors.push("native_ready telemetry is missing RSS fields");

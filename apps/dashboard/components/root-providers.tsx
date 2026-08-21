@@ -1,6 +1,6 @@
 'use client';
 
-import { ReactNode, useEffect, useState } from 'react';
+import { ReactNode, useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ClerkProvider } from '@clerk/nextjs';
@@ -36,9 +36,14 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
   const isDesktopShell = typeof window !== 'undefined' && isDesktop;
+  const shellBootstrapRecordedRef = useRef(false);
 
   useEffect(() => {
     recordLaunchMilestone('providers_mounted', { path: pathname, desktop: isDesktop });
+    if (isDesktop && !shellBootstrapRecordedRef.current) {
+      shellBootstrapRecordedRef.current = true;
+      recordLaunchMilestone('shell_bootstrap', { path: pathname, desktop: true });
+    }
   }, [isDesktop, pathname]);
 
   const isVoiceHudWindow = () => {

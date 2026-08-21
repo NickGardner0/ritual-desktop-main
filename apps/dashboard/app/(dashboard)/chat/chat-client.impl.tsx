@@ -53,6 +53,7 @@ import { useChatOverviewActivityPrefetch } from './use-chat-overview-activity-pr
 import { useChatConversationActions } from './use-chat-conversation-actions';
 import { useChatSendMessage } from './use-chat-send-message';
 import { useChatVoiceInput } from './use-chat-voice-input';
+import { useAssistantTurnOutboxDrain } from './use-assistant-turn-outbox';
 
 export function ChatClient() {
   const { isDesktop } = useDesktopCapabilities();
@@ -64,6 +65,7 @@ export function ChatClient() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const { habits, habitLogs } = useHabits();
+  useAssistantTurnOutboxDrain(user?.id, getToken);
 
   // Time-of-day greeting
   const greeting = useMemo(() => {
