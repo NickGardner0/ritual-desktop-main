@@ -1,36 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useCallback, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
-import { useQuery } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
-import { useHabits } from '@/contexts/HabitsContext';
-import { useUser, useAuth } from '@clerk/nextjs';
 import type { Habit } from '@/contexts/HabitsContext';
-import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
-import { perfInfo } from '@/lib/perf-debug';
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import {
-  buildMetricContextModel,
-  getMetricContextFetchWindow,
-  type MetricContextDailySourceRow,
-} from '@/components/analytics/metric-context-builder';
-import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
-import {
-  buildWearableDailyRows,
-  getWearableDateRange,
-  getWearableMetricType,
-  getWearableProviderForHabit,
-  isWearableBackedHabit,
-  summarizeWearableDailyRows,
-  usesAverageDisplay,
-  type WearableDailyTotal,
-} from '@/lib/wearables-dashboard';
+import { isWearableBackedHabit } from '@/lib/wearables-dashboard';
 import type {
   ComputerDailyResponseRow as ComputerDailyRow,
   ComputerSummaryResponse as ComputerSummaryState,
@@ -38,14 +15,11 @@ import type {
 import {
   buildComputerSummaryFromRows,
   calculateTrackedSpanDays,
-  EMPTY_OVERVIEW_LOGS,
   formatMetricDisplay,
   getComputerSummaryHours,
-  isProjectTimeRollupSnapshot,
   type HabitMetricData,
   type MetricLogEntry,
 } from '@/components/analytics/overview-view.helpers';
-import type { OverviewViewProps } from './types';
 
 
 export type OverviewMetricsComputationInput = {

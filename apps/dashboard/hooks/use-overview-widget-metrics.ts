@@ -1,9 +1,10 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
 import { subDays } from 'date-fns';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useHabits, type Habit, type HabitLog } from '@/contexts/HabitsContext';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
@@ -96,6 +97,7 @@ function pickSleepHours(metrics: WearableDailyTotal['metrics']): number | null {
 
 export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const userId = user?.id ?? null;
   const { habits, habitLogs, isLoading: habitsLoading, isLoadingLogs } = useHabits();
 
@@ -119,20 +121,19 @@ export function useOverviewWidgetMetrics(): OverviewWidgetMetrics {
     refetchOnWindowFocus: false,
     queryFn: async () => {
       const today = new Date();
-      const params = new URLSearchParams({
-        start_date: toLocalIsoDate(subDays(today, 7)),
-        end_date: toLocalIsoDate(today),
-        metric_types: SLEEP_METRIC_TYPES.join(','),
-      });
-      const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to load sleep totals (${response.status})`);
-      }
-      const payload = await response.json();
-      return Array.isArray(payload?.days) ? (payload.days as WearableDailyTotal[]) : [];
+      const payload = await apiOperationWithAuth(
+        'get_wearable_daily_totals_api_wearables_daily_totals_get',
+        getToken,
+        {
+          query: {
+            start_date: toLocalIsoDate(subDays(today, 7)),
+            end_date: toLocalIsoDate(today),
+            metric_types: SLEEP_METRIC_TYPES.join(','),
+          },
+        },
+        userId,
+      );
+      return Array.isArray(payload.days) ? (payload.days as WearableDailyTotal[]) : [];
     },
   });
 

@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '@clerk/nextjs';
 import type { DateRange } from 'react-day-picker';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import { getMetricCategoryForHabit } from '@/components/analytics/metrics-derived';
 import {
@@ -59,6 +61,7 @@ export function useMetricsViewDerived({
   setSummaryMetrics: React.Dispatch<React.SetStateAction<import('../metrics-view.shared').MetricsSummaryByHabit>>;
   setRealtimeRefreshTick: React.Dispatch<React.SetStateAction<number>>;
 }) {
+  const { getToken } = useAuth();
   const dateRangeSyncKey = dateRange?.from && dateRange?.to
     ? `${dateRange.from.toISOString()}|${dateRange.to.toISOString()}`
     : 'all-time';
@@ -177,24 +180,22 @@ export function useMetricsViewDerived({
 
       const responses = await Promise.all(
         Array.from(groupedMetrics.entries()).map(async ([provider, metricTypes]) => {
-          const params = new URLSearchParams({
-            start_date: startDate,
-            end_date: endDate,
-            metric_types: Array.from(metricTypes).join(','),
-          });
-        if (provider !== '__preferred__') {
-            params.set('providers', provider);
-          }
-
-          const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`);
-          if (!response.ok) {
-            throw new Error(`Failed to fetch wearable daily totals (${provider})`);
-          }
-
-          const payload = await response.json();
+          const payload = await apiOperationWithAuth(
+            'get_wearable_daily_totals_api_wearables_daily_totals_get',
+            getToken,
+            {
+              query: {
+                start_date: startDate,
+                end_date: endDate,
+                metric_types: Array.from(metricTypes).join(','),
+                providers: provider !== '__preferred__' ? provider : undefined,
+              },
+            },
+            user?.id,
+          );
           return {
             provider,
-            days: Array.isArray(payload?.days) ? (payload.days as WearableDailyTotal[]) : [],
+            days: Array.isArray(payload.days) ? (payload.days as WearableDailyTotal[]) : [],
           };
         }),
       );
@@ -204,7 +205,7 @@ export function useMetricsViewDerived({
         return acc;
       }, {});
     },
-    [habitById],
+    [getToken, habitById, user?.id],
   );
 
   useEffect(() => {

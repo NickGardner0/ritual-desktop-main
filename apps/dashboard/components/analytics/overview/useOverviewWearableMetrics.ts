@@ -1,26 +1,11 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
 import type { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
-import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import type { Habit } from '@/contexts/HabitsContext';
-import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
-import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
-import { perfInfo } from '@/lib/perf-debug';
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import {
-  buildMetricContextModel,
-  getMetricContextFetchWindow,
-  type MetricContextDailySourceRow,
-} from '@/components/analytics/metric-context-builder';
-import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
-import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import {
   buildWearableDailyRows,
   getWearableDateRange,
@@ -31,21 +16,10 @@ import {
   usesAverageDisplay,
   type WearableDailyTotal,
 } from '@/lib/wearables-dashboard';
-import type {
-  ComputerDailyResponseRow as ComputerDailyRow,
-  ComputerSummaryResponse as ComputerSummaryState,
-} from '@/lib/computerActivity';
 import {
-  buildComputerSummaryFromRows,
-  calculateTrackedSpanDays,
-  EMPTY_OVERVIEW_LOGS,
   formatMetricDisplay,
-  getComputerSummaryHours,
-  isProjectTimeRollupSnapshot,
   type HabitMetricData,
-  type MetricLogEntry,
 } from '@/components/analytics/overview-view.helpers';
-import type { OverviewViewProps } from './types';
 
 
 export function useOverviewWearableMetrics({
@@ -61,6 +35,7 @@ export function useOverviewWearableMetrics({
   effectiveCachedStats: Record<string, import('@/lib/services/analytics-api').HabitStats>;
   isOverviewSnapshotFetching: boolean;
 }) {
+  const { getToken } = useAuth();
   const [allowWearableDailyTotalsRefresh, setAllowWearableDailyTotalsRefresh] = useState(false);
   const wearableHabits = useMemo(
     () => habits.filter((habit) => isWearableBackedHabit(habit)),
@@ -112,26 +87,22 @@ export function useOverviewWearableMetrics({
 
       const responses = await Promise.all(
         Array.from(groupedMetrics.entries()).map(async ([provider, metricTypes]) => {
-          const params = new URLSearchParams({
-            start_date: startDate,
-            end_date: endDate,
-            metric_types: Array.from(metricTypes).join(','),
-          });
-          if (provider !== '__preferred__') {
-            params.set('providers', provider);
-          }
-
-          const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`, {
-            cache: 'no-store',
-            credentials: 'include',
-          });
-          if (!response.ok) {
-            throw new Error(`Failed to fetch wearable daily totals (${provider})`);
-          }
-          const payload = await response.json();
+          const payload = await apiOperationWithAuth(
+            'get_wearable_daily_totals_api_wearables_daily_totals_get',
+            getToken,
+            {
+              query: {
+                start_date: startDate,
+                end_date: endDate,
+                metric_types: Array.from(metricTypes).join(','),
+                providers: provider !== '__preferred__' ? provider : undefined,
+              },
+            },
+            user?.id,
+          );
           return {
             provider,
-            days: Array.isArray(payload?.days) ? (payload.days as WearableDailyTotal[]) : [],
+            days: Array.isArray(payload.days) ? (payload.days as WearableDailyTotal[]) : [],
           };
         }),
       );

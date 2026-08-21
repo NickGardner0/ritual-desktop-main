@@ -7,48 +7,25 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
-import { useQuery } from '@tanstack/react-query';
+import { parseISO } from 'date-fns';
 import * as Sentry from '@sentry/nextjs';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
-import type { HabitStats } from '@/lib/services/analytics-api';
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 import { perfInfo } from '@/lib/perf-debug';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import {
-  buildMetricContextModel,
-  getMetricContextFetchWindow,
-  type MetricContextDailySourceRow,
-} from '@/components/analytics/metric-context-builder';
+import { getMetricContextFetchWindow } from '@/components/analytics/metric-context-builder';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
-import {
-  buildWearableDailyRows,
-  getWearableDateRange,
-  getWearableMetricType,
-  getWearableProviderForHabit,
-  isWearableBackedHabit,
-  summarizeWearableDailyRows,
-  usesAverageDisplay,
-  type WearableDailyTotal,
-} from '@/lib/wearables-dashboard';
 import type {
   ComputerDailyResponseRow as ComputerDailyRow,
   ComputerSummaryResponse as ComputerSummaryState,
 } from '@/lib/computerActivity';
 import {
-  buildComputerSummaryFromRows,
-  calculateTrackedSpanDays,
   EMPTY_OVERVIEW_LOGS,
-  formatMetricDisplay,
-  getComputerSummaryHours,
   isProjectTimeRollupSnapshot,
-  type HabitMetricData,
-  type MetricLogEntry,
 } from '@/components/analytics/overview-view.helpers';
 import type { OverviewViewProps } from './types';
 import { useOverviewWearableMetrics } from './useOverviewWearableMetrics';
@@ -109,7 +86,6 @@ export function useOverviewMetrics({
   const [selectedContextHabitId, setSelectedContextHabitId] = useState<string | null>(null);
   const [optimisticLogs, setOptimisticLogs] = useState<any[]>([]);
   const [orderedHabits, setOrderedHabits] = useState<Habit[]>([]);
-  const [allowWearableDailyTotalsRefresh, setAllowWearableDailyTotalsRefresh] = useState(false);
 
   // History scrubber state
   const [scrubberHoveredDate, setScrubberHoveredDate] = useState<string | null>(null);

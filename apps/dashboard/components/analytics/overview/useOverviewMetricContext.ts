@@ -1,51 +1,30 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useEffect, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
-import * as Sentry from '@sentry/nextjs';
-import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import type { Habit } from '@/contexts/HabitsContext';
-import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { isComputerHabitName } from '@/lib/computer-time-habit';
-import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
-import { perfInfo } from '@/lib/perf-debug';
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import {
   buildMetricContextModel,
   getMetricContextFetchWindow,
   type MetricContextDailySourceRow,
 } from '@/components/analytics/metric-context-builder';
-import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import {
   buildWearableDailyRows,
-  getWearableDateRange,
   getWearableMetricType,
   getWearableProviderForHabit,
   isWearableBackedHabit,
-  summarizeWearableDailyRows,
-  usesAverageDisplay,
   type WearableDailyTotal,
 } from '@/lib/wearables-dashboard';
-import type {
-  ComputerDailyResponseRow as ComputerDailyRow,
-  ComputerSummaryResponse as ComputerSummaryState,
-} from '@/lib/computerActivity';
+import type { ComputerDailyResponseRow as ComputerDailyRow } from '@/lib/computerActivity';
 import {
-  buildComputerSummaryFromRows,
-  calculateTrackedSpanDays,
-  EMPTY_OVERVIEW_LOGS,
   formatMetricDisplay,
-  getComputerSummaryHours,
-  isProjectTimeRollupSnapshot,
   type HabitMetricData,
-  type MetricLogEntry,
 } from '@/components/analytics/overview-view.helpers';
-import type { OverviewViewProps } from './types';
 
 
 export function useOverviewMetricContext({
@@ -75,6 +54,7 @@ export function useOverviewMetricContext({
   contextFetchWindow: ReturnType<typeof getMetricContextFetchWindow>;
   contextComputerDateRange: DateRange;
 }) {
+  const { getToken } = useAuth();
   const selectedContextHabit = useMemo(() => {
     if (!selectedContextHabitId) return null;
     return habitsById.get(selectedContextHabitId)
@@ -113,21 +93,20 @@ export function useOverviewMetricContext({
       contextFetchWindow.endDate,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        output: 'daily',
-        habit_ids: contextHabitIds.join(','),
-        start_date: contextFetchWindow.startDate,
-        end_date: contextFetchWindow.endDate,
-      });
-      const response = await fetch(`/api/analytics/habits/daily-values?${params.toString()}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch context rows (${response.status})`);
-      }
-      const payload = await response.json();
-      return Array.isArray(payload?.data) ? payload.data as MetricContextDailySourceRow[] : [];
+      const payload = await apiOperationWithAuth(
+        'get_habit_daily_values_api_analytics_habits_daily_values_get',
+        getToken,
+        {
+          query: {
+            output: 'daily',
+            habit_ids: contextHabitIds.join(','),
+            start_date: contextFetchWindow.startDate,
+            end_date: contextFetchWindow.endDate,
+          },
+        },
+        user?.id,
+      ) as { data?: MetricContextDailySourceRow[] };
+      return Array.isArray(payload?.data) ? payload.data : [];
     },
     enabled: Boolean(user?.id && selectedContextHabitId && selectedContextHabit && contextHabitIds.length > 0),
     staleTime: 30 * 1000,
@@ -144,24 +123,20 @@ export function useOverviewMetricContext({
       contextFetchWindow.endDate,
     ],
     queryFn: async () => {
-      const params = new URLSearchParams({
-        start_date: contextFetchWindow.startDate,
-        end_date: contextFetchWindow.endDate,
-        metric_types: selectedContextWearableMetricType || '',
-      });
-      if (selectedContextWearableProvider) {
-        params.set('providers', selectedContextWearableProvider);
-      }
-
-      const response = await fetch(`/api/wearables/daily-totals?${params.toString()}`, {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch wearable context rows (${response.status})`);
-      }
-      const payload = await response.json();
-      return Array.isArray(payload?.days) ? payload.days as WearableDailyTotal[] : [];
+      const payload = await apiOperationWithAuth(
+        'get_wearable_daily_totals_api_wearables_daily_totals_get',
+        getToken,
+        {
+          query: {
+            start_date: contextFetchWindow.startDate,
+            end_date: contextFetchWindow.endDate,
+            metric_types: selectedContextWearableMetricType || undefined,
+            providers: selectedContextWearableProvider || undefined,
+          },
+        },
+        user?.id,
+      );
+      return Array.isArray(payload.days) ? payload.days as WearableDailyTotal[] : [];
     },
     enabled: Boolean(user?.id && selectedContextIsWearable && selectedContextWearableMetricType),
     staleTime: 30 * 1000,
