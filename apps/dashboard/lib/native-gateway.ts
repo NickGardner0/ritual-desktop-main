@@ -14,6 +14,10 @@ export {
   openInBrowser,
   openInBrowserFromDesktopAuth,
   openDesktopSettingsWindow,
+  openDesktopVoiceHud,
+  hideDesktopVoiceHud,
+  getVoiceHotkeySettings,
+  setVoiceHotkeySettings,
   resizeWindow,
   restoreDashboardWindowSize,
   setStandardWindowSize,
@@ -32,6 +36,8 @@ export {
   ONBOARDING_CARD_WINDOW_WIDTH,
   ONBOARDING_CARD_WINDOW_HEIGHT,
   type DesktopSettingsView,
+  type OpenDesktopVoiceHudPayload,
+  type VoiceHotkeySettings,
 } from "@/lib/desktop-bridge/shell";
 export {
   buildDesktopCommandOrigin,
@@ -40,6 +46,7 @@ export {
   compareDesktopVersions,
   desktopHasCapability,
   desktopSetAuthToken,
+  desktopClearAuthState,
   desktopFrontendReady,
   getDesktopCompatibilityIssue,
   getDesktopRuntimeInfo,

@@ -1,7 +1,7 @@
 use super::*;
 use chrono::Utc;
 use std::sync::atomic::Ordering;
-use tracing::instrument;
+use tracing::{info, instrument, warn};
 
 fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
     let trimmed_user_id = user_id.trim();
@@ -88,6 +88,46 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
 
     super::location_outbox::trigger_location_outbox_drain(app.clone());
     super::biome_outbox::trigger_biome_outbox_drain(app.clone());
+
+    let runtime_state = build_runtime_state(&app).await?;
+    let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
+    Ok(runtime_state)
+}
+
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn desktop_clear_auth_state<R: Runtime + 'static>(
+    app: AppHandle<R>,
+) -> Result<DesktopRuntimeState, String> {
+    let generation = app
+        .state::<DesktopShellState>()
+        .auth_generation
+        .fetch_add(1, Ordering::SeqCst)
+        + 1;
+
+    if let Err(error) = crate::watcher::lifecycle::stop_watcher().await {
+        warn!(error = %error, "Failed stopping watcher during desktop auth clear");
+    }
+
+    if let Err(error) = crate::watcher::clear_watcher_config() {
+        warn!(error = %error, "Failed clearing watcher config during desktop auth clear");
+    }
+
+    crate::native_widget::clear_auth_token_on_disk()?;
+    crate::native_widget::clear_turso_sync_config()?;
+    super::clear_pending_auth_deep_link(&app);
+
+    update_auth_state(&app, |state| {
+        *state = DesktopAuthState::default();
+    });
+
+    update_auth_state(&app, |state| {
+        state.last_updated_at_ms = Some(Utc::now().timestamp_millis());
+        state.last_turso_error = None;
+        state.turso_refresh_scheduled_for_ms = None;
+    });
+
+    info!(generation, "Desktop auth state cleared");
 
     let runtime_state = build_runtime_state(&app).await?;
     let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());

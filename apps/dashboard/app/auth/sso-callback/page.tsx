@@ -21,7 +21,7 @@ import {
 import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
 import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
 import { initializeDesktopVault } from '@/lib/privacy/vault-client'
-import { restoreDashboardWindowSize } from '@/lib/tauri-utils'
+import { restoreDashboardWindowSize } from '@/lib/native-gateway'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'

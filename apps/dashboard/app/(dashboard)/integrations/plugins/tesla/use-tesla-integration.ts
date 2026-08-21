@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { openInBrowser } from '@/lib/tauri-utils';
+import { openInBrowser } from '@/lib/native-gateway';
 import { formatErrorMessage } from '../../integrations-client.shared';
 import type { IntegrationOrchestratorDeps, TeslaConnection } from '../types';
 

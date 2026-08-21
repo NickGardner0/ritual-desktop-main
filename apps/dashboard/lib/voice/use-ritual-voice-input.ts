@@ -11,7 +11,7 @@ import {
   stopNativeDesktopSpeechRecognition,
 } from '@/lib/native-voice';
 import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
-import { ensureMicrophonePermission } from '@/lib/tauri-utils';
+import { ensureMicrophonePermission } from '@/lib/native-gateway';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 
 export type RitualVoiceInputOptions = {

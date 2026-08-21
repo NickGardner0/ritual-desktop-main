@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
-import { openInBrowserFromDesktopAuth } from '@/lib/tauri-utils';
+import { openInBrowserFromDesktopAuth } from '@/lib/native-gateway';
 
 type DesktopOAuthMode = 'sign_in' | 'sign_up';
 type DesktopOAuthStrategy = 'oauth_google' | 'oauth_apple';

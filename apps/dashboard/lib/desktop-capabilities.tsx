@@ -8,8 +8,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { DesktopRuntimeInfo } from '@/lib/desktop-runtime';
-import { isTauri } from '@/lib/tauri-utils';
+import type { DesktopRuntimeInfo } from '@/lib/native-gateway';
+import { isTauri } from '@/lib/native-gateway';
 
 export type OAuthFlowMode = 'redirect' | 'auto';
 
@@ -81,7 +81,7 @@ export function DesktopCapabilitiesProvider({ children }: DesktopCapabilitiesPro
 
     void (async () => {
       try {
-        const { desktopHasCapability, getDesktopRuntimeInfo } = await import('@/lib/desktop-runtime');
+        const { desktopHasCapability, getDesktopRuntimeInfo } = await import('@/lib/native-gateway');
         const [runtimeInfo, hasNativeAuthBridge] = await Promise.all([
           getDesktopRuntimeInfo(),
           desktopHasCapability('desktop-auth-handoff-v1'),

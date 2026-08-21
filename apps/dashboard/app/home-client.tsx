@@ -9,7 +9,7 @@ import {
   ONBOARDING_HOME_WINDOW_WIDTH,
   restoreDashboardWindowSize,
   setOnboardingWindowSize,
-} from '@/lib/tauri-utils';
+} from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {

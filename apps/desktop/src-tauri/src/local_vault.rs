@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod types;
+mod record_concurrency;
 
 pub use types::*;
 
@@ -890,6 +891,23 @@ pub fn vault_list_records(
     limit: Option<i64>,
 ) -> Result<Vec<VaultRecordOutput>, String> {
     open_default_vault()?.list_records(user_id.trim(), collection.trim(), since, limit)
+}
+
+#[tauri::command]
+pub fn vault_list_records_page(
+    user_id: String,
+    collection: String,
+    cursor: Option<String>,
+    limit: Option<i64>,
+) -> Result<VaultRecordsPage, String> {
+    open_default_vault()?.list_records_page(user_id.trim(), collection.trim(), cursor, limit)
+}
+
+#[tauri::command]
+pub fn vault_compare_and_swap(
+    input: VaultCompareAndSwapInput,
+) -> Result<VaultCompareAndSwapResult, String> {
+    open_default_vault()?.compare_and_swap_record(input)
 }
 
 #[tauri::command]

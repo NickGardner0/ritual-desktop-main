@@ -176,7 +176,7 @@ function rustTypeToTs(rustType) {
 }
 
 function shouldSkipParam(name, type) {
-  if (/^_?(app|window|state)$/i.test(name)) return true;
+  if (/^_?(app|window)$/i.test(name)) return true;
   return /AppHandle|State<|Window<|WebviewWindow|Runtime/.test(type);
 }
 

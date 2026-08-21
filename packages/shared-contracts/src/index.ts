@@ -56,6 +56,7 @@ export type {
   TopAppResponseRow,
   TopDomainResponseRow,
   AggregatedComputerStatsResponse,
+  ComputerActivityReadSource,
 } from "./computer-activity";
 export {
   KIND_COLORS,

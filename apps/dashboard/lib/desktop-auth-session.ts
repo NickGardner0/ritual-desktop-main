@@ -1,6 +1,6 @@
 'use client';
 
-import { desktopClearAuthState } from '@/lib/desktop-runtime';
+import { desktopClearAuthState } from '@/lib/native-gateway';
 import {
   DEVICE_AUTHENTICATED_KEY,
   FROM_WELCOME_KEY,

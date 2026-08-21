@@ -13,8 +13,7 @@ import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-b
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
 import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
 import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { desktopFrontendReady } from '@/lib/desktop-runtime';
-import { showMainWindow } from '@/lib/tauri-utils';
+import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, recordLaunchMilestone, showMainWindow, summarizeLaunchMilestones } from '@/lib/native-gateway';
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
 import { InteractionSounds } from '@/components/interaction-sounds';
 
@@ -37,6 +36,11 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isDesktopBootstrap = pathname === '/desktop/bootstrap';
   const isDesktopShell = typeof window !== 'undefined' && isDesktop;
+
+  useEffect(() => {
+    recordLaunchMilestone('providers_mounted', { path: pathname, desktop: isDesktop });
+  }, [isDesktop, pathname]);
+
   const isVoiceHudWindow = () => {
     if (typeof window === 'undefined') return false;
     const params = new URLSearchParams(window.location.search);
@@ -113,7 +117,22 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       return;
     }
 
-    void desktopFrontendReady();
+    void desktopFrontendReady().then(async () => {
+      const runtimeState = await getDesktopRuntimeState();
+      recordLaunchMilestone('native_ready', {
+        webview_rss_bytes: runtimeState?.process?.webviewRssBytes ?? null,
+        watcher_rss_bytes: runtimeState?.process?.watcherRssBytes ?? null,
+        watcher_pid: runtimeState?.process?.watcherPid ?? null,
+      });
+      const summary = summarizeLaunchMilestones();
+      if (summary) {
+        void recordDesktopShellEvent('launch:summary', 'info', {
+          kind: summary.kind,
+          samples: summary.samples,
+          milestones: summary.milestones,
+        });
+      }
+    });
   }, [isDesktopBootstrap, isDesktopShell]);
 
   useEffect(() => {

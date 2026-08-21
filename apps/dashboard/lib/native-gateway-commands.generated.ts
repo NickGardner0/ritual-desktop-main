@@ -9,6 +9,7 @@ export const NATIVE_COMMANDS = [
   "clear_native_speech_state",
   "clear_watcher_config_cmd",
   "desktop_capture_sentry_smoke",
+  "desktop_clear_auth_state",
   "desktop_frontend_ready",
   "desktop_install_update",
   "desktop_manual_update_check",
@@ -26,7 +27,9 @@ export const NATIVE_COMMANDS = [
   "get_detailed_activity",
   "get_native_speech_state",
   "get_project_time_attribution_health",
+  "get_voice_hotkey_settings",
   "get_watcher_status",
+  "hide_voice_hud",
   "import_biome_iphone_export",
   "init_ritual_database",
   "open_accessibility_settings",
@@ -36,9 +39,11 @@ export const NATIVE_COMMANDS = [
   "open_screen_recording_settings",
   "open_settings_window",
   "open_speech_recognition_settings",
+  "open_voice_hud",
   "reconcile_watcher_config_user_cmd",
   "request_accessibility_permission",
   "save_watcher_config_cmd",
+  "set_voice_hotkey_settings",
   "show_main_window",
   "show_native_microphone_permission_dialog",
   "show_native_speech_recognition_permission_dialog",
@@ -49,12 +54,15 @@ export const NATIVE_COMMANDS = [
   "start_watcher",
   "stop_native_speech_recognition",
   "stop_watcher",
+  "update_voice_hud_state",
+  "vault_compare_and_swap",
   "vault_get_record",
   "vault_get_status",
   "vault_initialize",
   "vault_list_deletion_receipts",
   "vault_list_migration_manifests",
   "vault_list_records",
+  "vault_list_records_page",
   "vault_put_deletion_receipt",
   "vault_put_migration_manifest",
   "vault_put_record",
@@ -74,6 +82,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "clear_native_speech_state": "desktop-runtime",
   "clear_watcher_config_cmd": "desktop-activity",
   "desktop_capture_sentry_smoke": "desktop-observability",
+  "desktop_clear_auth_state": "desktop-runtime",
   "desktop_frontend_ready": "desktop-runtime",
   "desktop_install_update": "desktop-runtime",
   "desktop_manual_update_check": "desktop-runtime",
@@ -91,7 +100,9 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "get_detailed_activity": "desktop-activity",
   "get_native_speech_state": "desktop-runtime",
   "get_project_time_attribution_health": "desktop-activity",
+  "get_voice_hotkey_settings": "desktop-shell-ui",
   "get_watcher_status": "desktop-activity",
+  "hide_voice_hud": "desktop-shell-ui",
   "import_biome_iphone_export": "desktop-runtime",
   "init_ritual_database": "desktop-activity",
   "open_accessibility_settings": "desktop-activity",
@@ -101,9 +112,11 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "open_screen_recording_settings": "desktop-activity",
   "open_settings_window": "desktop-shell-bootstrap",
   "open_speech_recognition_settings": "desktop-activity",
+  "open_voice_hud": "desktop-shell-ui",
   "reconcile_watcher_config_user_cmd": "desktop-activity",
   "request_accessibility_permission": "desktop-activity",
   "save_watcher_config_cmd": "desktop-activity",
+  "set_voice_hotkey_settings": "desktop-shell-ui",
   "show_main_window": "desktop-shell-bootstrap",
   "show_native_microphone_permission_dialog": "desktop-activity",
   "show_native_speech_recognition_permission_dialog": "desktop-activity",
@@ -114,12 +127,15 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "start_watcher": "desktop-activity",
   "stop_native_speech_recognition": "desktop-runtime",
   "stop_watcher": "desktop-activity",
+  "update_voice_hud_state": "desktop-shell-ui",
+  "vault_compare_and_swap": "desktop-vault",
   "vault_get_record": "desktop-vault",
   "vault_get_status": "desktop-vault",
   "vault_initialize": "desktop-vault",
   "vault_list_deletion_receipts": "desktop-vault",
   "vault_list_migration_manifests": "desktop-vault",
   "vault_list_records": "desktop-vault",
+  "vault_list_records_page": "desktop-vault",
   "vault_put_deletion_receipt": "desktop-vault",
   "vault_put_migration_manifest": "desktop-vault",
   "vault_put_record": "desktop-vault",
@@ -139,6 +155,7 @@ export type NativeCommandInputs = {
   clear_native_speech_state: Record<string, never>;
   clear_watcher_config_cmd: Record<string, never>;
   desktop_capture_sentry_smoke: Record<string, never>;
+  desktop_clear_auth_state: Record<string, never>;
   desktop_frontend_ready: Record<string, never>;
   desktop_install_update: Record<string, never>;
   desktop_manual_update_check: Record<string, never>;
@@ -156,7 +173,9 @@ export type NativeCommandInputs = {
   get_detailed_activity: { startTs: number; endTs: number; limit?: number | null; origin?: string | null };
   get_native_speech_state: Record<string, never>;
   get_project_time_attribution_health: { origin?: string | null };
+  get_voice_hotkey_settings: Record<string, never>;
   get_watcher_status: Record<string, never>;
+  hide_voice_hud: Record<string, never>;
   import_biome_iphone_export: { path: string };
   init_ritual_database: { origin?: string | null };
   open_accessibility_settings: Record<string, never>;
@@ -166,9 +185,11 @@ export type NativeCommandInputs = {
   open_screen_recording_settings: Record<string, never>;
   open_settings_window: { initialView?: string | null };
   open_speech_recognition_settings: Record<string, never>;
+  open_voice_hud: { target: string; source?: string | null; submitOnFinal?: boolean | null; anchorRect?: unknown | null };
   reconcile_watcher_config_user_cmd: { userId: string };
   request_accessibility_permission: Record<string, never>;
   save_watcher_config_cmd: { config: unknown };
+  set_voice_hotkey_settings: { settings: unknown };
   show_main_window: Record<string, never>;
   show_native_microphone_permission_dialog: Record<string, never>;
   show_native_speech_recognition_permission_dialog: Record<string, never>;
@@ -179,12 +200,15 @@ export type NativeCommandInputs = {
   start_watcher: { config: unknown };
   stop_native_speech_recognition: Record<string, never>;
   stop_watcher: Record<string, never>;
+  update_voice_hud_state: { state: unknown };
+  vault_compare_and_swap: { input: unknown };
   vault_get_record: { userId: string; collection: string; recordId: string };
   vault_get_status: { userId?: string | null };
   vault_initialize: { userId: string };
   vault_list_deletion_receipts: { userId: string; limit?: number | null };
   vault_list_migration_manifests: { userId: string; limit?: number | null };
   vault_list_records: { userId: string; collection: string; since?: string | null; limit?: number | null };
+  vault_list_records_page: { userId: string; collection: string; cursor?: string | null; limit?: number | null };
   vault_put_deletion_receipt: { input: unknown };
   vault_put_migration_manifest: { input: unknown };
   vault_put_record: { input: unknown };
@@ -202,6 +226,7 @@ export type NativeCommandOutputs = {
   clear_native_speech_state: void;
   clear_watcher_config_cmd: void;
   desktop_capture_sentry_smoke: void;
+  desktop_clear_auth_state: unknown;
   desktop_frontend_ready: unknown;
   desktop_install_update: void;
   desktop_manual_update_check: unknown;
@@ -219,7 +244,9 @@ export type NativeCommandOutputs = {
   get_detailed_activity: unknown;
   get_native_speech_state: unknown;
   get_project_time_attribution_health: unknown;
+  get_voice_hotkey_settings: unknown;
   get_watcher_status: unknown;
+  hide_voice_hud: void;
   import_biome_iphone_export: unknown;
   init_ritual_database: string;
   open_accessibility_settings: void;
@@ -229,9 +256,11 @@ export type NativeCommandOutputs = {
   open_screen_recording_settings: void;
   open_settings_window: void;
   open_speech_recognition_settings: void;
+  open_voice_hud: unknown;
   reconcile_watcher_config_user_cmd: boolean;
   request_accessibility_permission: boolean;
   save_watcher_config_cmd: void;
+  set_voice_hotkey_settings: unknown;
   show_main_window: void;
   show_native_microphone_permission_dialog: boolean;
   show_native_speech_recognition_permission_dialog: boolean;
@@ -242,12 +271,15 @@ export type NativeCommandOutputs = {
   start_watcher: unknown;
   stop_native_speech_recognition: void;
   stop_watcher: unknown;
+  update_voice_hud_state: void;
+  vault_compare_and_swap: unknown;
   vault_get_record: unknown | null;
   vault_get_status: unknown;
   vault_initialize: unknown;
   vault_list_deletion_receipts: Array<unknown>;
   vault_list_migration_manifests: Array<unknown>;
   vault_list_records: Array<unknown>;
+  vault_list_records_page: unknown;
   vault_put_deletion_receipt: unknown;
   vault_put_migration_manifest: unknown;
   vault_put_record: unknown;

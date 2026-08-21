@@ -15,8 +15,6 @@ const FORBIDDEN_PATTERNS = [
 const ALLOWED_PREFIXES = [
   "apps/dashboard/lib/server/",
   "apps/dashboard/app/api/",
-  "apps/dashboard/src/trigger/",
-  "apps/dashboard/lib/api/trigger-client.ts",
   "apps/dashboard/lib/api/server-client.ts",
   "apps/dashboard/lib/server/proxy-helper.ts",
   "apps/dashboard/lib/api-config.ts",

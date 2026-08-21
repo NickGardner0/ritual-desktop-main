@@ -87,6 +87,9 @@ export interface MicroMetrics {
 
 export type ActivityBreakdownSource = 'desktop' | 'iphone'
 
+/** Observable activity-db vs cloud result. Not a hidden fallback. */
+export type ComputerActivityReadSource = 'local' | 'synced' | 'unavailable'
+
 export interface ActivityBreakdownCapabilities {
   supportsDomains: boolean
   domainDisclosure?: string | null
@@ -113,6 +116,7 @@ export interface ComputerActivityViewModel {
   capabilities?: ActivityBreakdownCapabilities
   isLoading: boolean
   error?: string | null
+  readSource?: ComputerActivityReadSource
 }
 
 export interface ActivityBreakdownViewModel extends ComputerActivityViewModel {
@@ -255,6 +259,7 @@ export interface AggregatedComputerStatsResponse {
   apps: TopAppResponseRow[]
   domains: TopDomainResponseRow[]
   source?: string
+  read_source?: ComputerActivityReadSource
   state?: string
   sync_pending?: boolean
   empty_reason?: string

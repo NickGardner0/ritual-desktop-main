@@ -151,32 +151,18 @@ export function useMetricsShare({
         return;
       }
 
-      if (typeof navigator !== 'undefined'
-        && navigator.clipboard?.write
-        && typeof ClipboardItem !== 'undefined') {
-        const item = new ClipboardItem({
-          [blob.type || 'image/png']: blob,
-        });
-        await navigator.clipboard.write([item]);
-        setCopyState('copied');
+      if (typeof navigator === 'undefined'
+        || !navigator.clipboard?.write
+        || typeof ClipboardItem === 'undefined') {
+        setCopyState('failed');
         return;
       }
 
-      if (isDesktop) {
-        const { invoke } = await import('@tauri-apps/api/core');
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        let binary = '';
-        const chunkSize = 0x8000;
-        for (let index = 0; index < bytes.length; index += chunkSize) {
-          binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize));
-        }
-        const png_base64 = btoa(binary);
-        await invoke('copy_png_to_clipboard', { png_base64 });
-        setCopyState('copied');
-        return;
-      }
-
-      setCopyState('failed');
+      const item = new ClipboardItem({
+        [blob.type || 'image/png']: blob,
+      });
+      await navigator.clipboard.write([item]);
+      setCopyState('copied');
     } catch (error) {
       console.error('Failed to copy chart image:', error);
       setCopyState('failed');

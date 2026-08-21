@@ -10,19 +10,16 @@ import { NextRequest, NextResponse } from 'next/server';
 // In-memory storage for OAuth codes (temporary, will be lost on restart)
 // In production, you'd use Redis or a database
 const codeStore = new Map<string, { code: string, sessionToken: string, timestamp: number }>();
+const CODE_TTL_MS = 5 * 60 * 1000;
 
-// Clean up old codes every minute
-setInterval(() => {
+function pruneExpiredCodes() {
   const now = Date.now();
-  const FIVE_MINUTES = 5 * 60 * 1000;
-  
   for (const [sessionId, data] of codeStore.entries()) {
-    if (now - data.timestamp > FIVE_MINUTES) {
+    if (now - data.timestamp > CODE_TTL_MS) {
       codeStore.delete(sessionId);
-      console.log(`🧹 Cleaned up expired code for session: ${sessionId}`);
     }
   }
-}, 60000);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -37,6 +34,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`💾 Storing OAuth code for session: ${sessionId}`);
     
+    pruneExpiredCodes();
     codeStore.set(sessionId, {
       code,
       sessionToken,
@@ -70,6 +68,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    pruneExpiredCodes();
     const stored = codeStore.get(sessionId);
     
     if (!stored || stored.sessionToken !== sessionToken) {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { openInBrowser } from '@/lib/tauri-utils';
+import { openInBrowser } from '@/lib/native-gateway';
 import type { WearableConnection } from './plugins/types';
 
 // Legacy migration shim. Owner: Integrations/Wearables architecture migration.

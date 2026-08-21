@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { openInBrowser } from '@/lib/tauri-utils';
+import { openInBrowser } from '@/lib/native-gateway';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';

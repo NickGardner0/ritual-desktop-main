@@ -49,7 +49,7 @@ for (const file of files) {
   if (
     file === ownScript
     || file === recorderGuardScript
-    || /\.(png|jpg|jpeg|gif|webp|otf|ttf|db|json|pyc)$/.test(file)
+    || /\.(png|jpg|jpeg|gif|webp|otf|ttf|db|json|pyc|tsbuildinfo)$/.test(file)
   ) {
     continue;
   }

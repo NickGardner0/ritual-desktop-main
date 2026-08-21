@@ -3,7 +3,7 @@
 import type { CSSProperties } from 'react';
 import { AlertCircle, ChevronUp, Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { openInBrowser } from '@/lib/tauri-utils';
+import { openInBrowser } from '@/lib/native-gateway';
 import {
   dismissDesktopUpdate,
   remindAboutCurrentDesktopUpdate,

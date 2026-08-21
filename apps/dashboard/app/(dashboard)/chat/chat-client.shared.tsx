@@ -20,7 +20,6 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
-import { ensureMicrophonePermission, isTauri } from '@/lib/tauri-utils';
 import { useDeepgramDictation } from '@/lib/voice/use-deepgram-dictation';
 import { useOverviewActivityQuery } from '@/hooks/use-overview-activity-query';
 import {

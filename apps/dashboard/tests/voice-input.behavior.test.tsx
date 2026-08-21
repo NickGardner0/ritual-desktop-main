@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/lib/desktop-capabilities', () => ({
   useDesktopCapabilities: () => ({ isDesktop: true }),
 }));
-vi.mock('@/lib/tauri-utils', () => ({
+vi.mock('@/lib/native-gateway', () => ({
   ensureMicrophonePermission: async () => mocks.permission,
 }));
 vi.mock('@/lib/native-voice', () => ({

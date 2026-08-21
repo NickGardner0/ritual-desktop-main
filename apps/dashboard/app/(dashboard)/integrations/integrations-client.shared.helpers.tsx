@@ -8,7 +8,7 @@ import Image from 'next/image';
 import { invoke } from '@tauri-apps/api/core';
 import { ChevronRight, Monitor, Search } from 'lucide-react';
 import { getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { openInBrowser } from '@/lib/tauri-utils';
+import { openInBrowser } from '@/lib/native-gateway';
 import { useHabits } from '@/contexts/HabitsContext';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { MetricSelectionTree } from '@/components/metric-selection-tree';

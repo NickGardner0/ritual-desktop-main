@@ -45,7 +45,6 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
 import { MetricsInitialSection } from '@/components/analytics/metrics-initial-section';
 import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
-import { isTauri } from '@/lib/tauri-utils';
 import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
 import {
   COMPUTER_HABIT_DISPLAY_NAME,

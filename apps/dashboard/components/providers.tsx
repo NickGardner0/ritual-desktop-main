@@ -72,8 +72,17 @@ function restorePersistedQueryCache(userId: string) {
 
     const parsed = JSON.parse(raw) as {
       timestamp?: number;
+      userId?: string;
       state?: unknown;
     };
+
+    if (parsed?.userId && parsed.userId !== userId) {
+      window.localStorage.removeItem(queryCacheStorageKey(userId));
+      perfWarn('query-provider', 'restore-cache-identity-mismatch', {
+        key: queryCacheStorageKey(userId),
+      });
+      return;
+    }
 
     if (!parsed?.state) {
       perfWarn('query-provider', 'restore-cache-empty-state', {
@@ -114,6 +123,7 @@ function persistQueryCache(userId: string) {
 
     const payload = JSON.stringify({
       timestamp: Date.now(),
+      userId,
       state: dehydratedState,
     });
 

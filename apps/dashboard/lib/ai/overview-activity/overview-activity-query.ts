@@ -1,5 +1,5 @@
 import { getComputerTimeDaily, getTopApps, getTopDomains } from '@/lib/computerActivity';
-import { getStrictThisWeekRange } from '@/lib/ai/overview-activity/weekly-overview-utils.mjs';
+import { getStrictThisWeekRange } from '@ritual/chat-runtime/weekly-overview-utils';
 import { isDesktopRuntime } from '@/lib/desktop-capabilities';
 
 export type LocalOverviewActivityBundle = {

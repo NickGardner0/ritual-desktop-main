@@ -7,7 +7,7 @@ import {
   getVoiceHotkeySettings,
   setVoiceHotkeySettings,
   type VoiceHotkeySettings as VoiceHotkeySettingsValue,
-} from '@/lib/tauri-utils';
+} from '@/lib/native-gateway';
 import { cn } from '@/lib/utils';
 
 const DEFAULT_SHORTCUT = 'Alt+Space';

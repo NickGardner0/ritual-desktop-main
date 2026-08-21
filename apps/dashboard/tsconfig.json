@@ -39,6 +39,9 @@
       ],
       "@ritual/shared-contracts/*": [
         "../../packages/shared-contracts/src/*"
+      ],
+      "@ritual/chat-runtime/weekly-overview-utils": [
+        "../../packages/chat-runtime/src/weekly-overview-utils.ts"
       ]
     }
   },
@@ -51,7 +54,7 @@
   ],
   "exclude": [
     "node_modules",
-    ".next/types/app/widget",
+    ".next/types",
     ".next/dev/types"
   ]
 }

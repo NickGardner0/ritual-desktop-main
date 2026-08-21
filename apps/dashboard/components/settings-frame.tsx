@@ -9,7 +9,7 @@ import { HexColorPicker } from 'react-colorful';
 import { cn } from '@/lib/utils';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { signOutOfRitual } from '@/lib/desktop-auth-session';
-import { type DesktopSettingsView } from '@/lib/tauri-utils';
+import { type DesktopSettingsView } from '@/lib/native-gateway';
 import { useFont, type FontOption } from '@/contexts/FontContext';
 import { useSidebarMode, type SidebarMode } from '@/contexts/SidebarModeContext';
 import { CHROME_APPEARANCE_OPTIONS, useChromeAppearance } from '@/contexts/ChromeAppearanceContext';

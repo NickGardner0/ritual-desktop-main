@@ -16,6 +16,8 @@
     "desktop-observability",
     "desktop-runtime",
     "desktop-activity",
+    "desktop-shell-ui",
+    "desktop-vault",
     "dialog:allow-open",
     "dialog:allow-save",
     "shell:allow-open",

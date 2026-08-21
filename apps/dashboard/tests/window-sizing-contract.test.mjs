@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 
-const dashboardWindowSourceUrl = new URL('../lib/tauri-utils.ts', import.meta.url)
+const dashboardWindowSourceUrl = new URL('../lib/desktop-bridge/shell.ts', import.meta.url)
 const nativeWindowSourceUrl = new URL('../../desktop/src-tauri/src/main.rs', import.meta.url)
 const homeSourceUrl = new URL('../app/home-client.tsx', import.meta.url)
 const ssoCallbackSourceUrl = new URL('../app/auth/sso-callback/page.tsx', import.meta.url)

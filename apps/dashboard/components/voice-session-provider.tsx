@@ -11,7 +11,7 @@ import {
 } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { openDesktopVoiceHud } from '@/lib/tauri-utils';
+import { openDesktopVoiceHud } from '@/lib/native-gateway';
 import {
   VOICE_EVENTS,
   type VoiceHotkeyOpenPayload,

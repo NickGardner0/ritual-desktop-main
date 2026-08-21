@@ -8,7 +8,7 @@ import { SidebarAccountMenu } from "./sidebar-account-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PanelLeft } from "lucide-react";
-import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/tauri-utils';
+import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/native-gateway';
 import { SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 import { DesktopUpdateControl } from '@/components/desktop-update-control';
 import { CreateMenu } from '@/components/create-menu';

@@ -5,4 +5,9 @@ commands.allow = [
   "sidebar_set_width",
   "sidebar_navigate",
   "sidebar_get_main_state",
+  "open_voice_hud",
+  "hide_voice_hud",
+  "update_voice_hud_state",
+  "get_voice_hotkey_settings",
+  "set_voice_hotkey_settings",
 ]

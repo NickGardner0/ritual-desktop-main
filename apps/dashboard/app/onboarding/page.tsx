@@ -33,7 +33,7 @@ import {
   ONBOARDING_WELCOME_WINDOW_HEIGHT,
   restoreDashboardWindowSize,
   setOnboardingWindowSize,
-} from "@/lib/tauri-utils"
+} from "@/lib/native-gateway"
 import { cn } from "@/lib/utils"
 
 type V3Step = "welcome" | "signup" | "setup"

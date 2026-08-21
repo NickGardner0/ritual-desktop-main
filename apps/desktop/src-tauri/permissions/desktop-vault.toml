@@ -7,6 +7,8 @@ commands.allow = [
   "vault_put_record",
   "vault_get_record",
   "vault_list_records",
+  "vault_list_records_page",
+  "vault_compare_and_swap",
   "vault_tombstone_record",
   "vault_put_migration_manifest",
   "vault_list_migration_manifests",

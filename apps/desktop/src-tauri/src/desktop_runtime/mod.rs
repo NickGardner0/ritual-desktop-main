@@ -246,6 +246,15 @@ fn store_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: Strin
     *pending = Some(deep_link);
 }
 
+pub(crate) fn clear_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
+    let state = app.state::<DesktopShellState>();
+    let mut pending = state
+        .pending_auth_deep_link
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *pending = None;
+}
+
 pub fn emit_auth_deep_link<R: Runtime>(app: &AppHandle<R>, deep_link: String) {
     if frontend_is_ready(app) {
         let redacted_deep_link = redact_sensitive_url_for_log(&deep_link);

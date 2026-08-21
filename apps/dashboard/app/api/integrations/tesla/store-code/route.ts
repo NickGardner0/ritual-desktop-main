@@ -5,17 +5,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const codeStore = new Map<string, { code: string; sessionToken: string; timestamp: number }>();
+const CODE_TTL_MS = 5 * 60 * 1000;
 
-// Clean up expired codes every minute
-setInterval(() => {
+function pruneExpiredCodes() {
   const now = Date.now();
-  const FIVE_MINUTES = 5 * 60 * 1000;
   for (const [sessionId, data] of codeStore.entries()) {
-    if (now - data.timestamp > FIVE_MINUTES) {
+    if (now - data.timestamp > CODE_TTL_MS) {
       codeStore.delete(sessionId);
     }
   }
-}, 60_000);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -23,6 +22,7 @@ export async function POST(request: NextRequest) {
     if (!code || !sessionId || !sessionToken) {
       return NextResponse.json({ error: 'Missing code, sessionId, or sessionToken' }, { status: 400 });
     }
+    pruneExpiredCodes();
     codeStore.set(sessionId, { code, sessionToken, timestamp: Date.now() });
     return NextResponse.json({ success: true });
   } catch {
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
     if (!sessionId || !sessionToken) {
       return NextResponse.json({ error: 'Missing sessionId or sessionToken' }, { status: 400 });
     }
+    pruneExpiredCodes();
     const stored = codeStore.get(sessionId);
     if (!stored || stored.sessionToken !== sessionToken) {
       return NextResponse.json({ found: false });

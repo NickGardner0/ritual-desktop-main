@@ -2235,6 +2235,18 @@
           "markdownDescription": "Allows the local desktop shell to bootstrap the hosted dashboard and report launch diagnostics."
         },
         {
+          "description": "Allows the hosted dashboard and detached sidebar to control native window chrome.",
+          "type": "string",
+          "const": "desktop-shell-ui",
+          "markdownDescription": "Allows the hosted dashboard and detached sidebar to control native window chrome."
+        },
+        {
+          "description": "Allows the hosted dashboard to read and write the local encrypted Ritual vault.",
+          "type": "string",
+          "const": "desktop-vault",
+          "markdownDescription": "Allows the hosted dashboard to read and write the local encrypted Ritual vault."
+        },
+        {
           "description": "Default core plugins set.\n#### This default permission set includes:\n\n- `core:path:default`\n- `core:event:default`\n- `core:window:default`\n- `core:webview:default`\n- `core:app:default`\n- `core:image:default`\n- `core:resources:default`\n- `core:menu:default`\n- `core:tray:default`",
           "type": "string",
           "const": "core:default",

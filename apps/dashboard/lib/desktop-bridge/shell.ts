@@ -6,6 +6,12 @@ import {
   openDesktopExternalUrlWithFallback,
 } from "@/lib/desktop-bridge/commands";
 import { isDesktopTauriRuntime } from "@/lib/desktop-bridge/environment";
+import type {
+  VoiceHudAnchorRect,
+  VoiceSessionSource,
+  VoiceSessionStartPayload,
+  VoiceTarget,
+} from "@/lib/voice/voice-session-contract";
 
 export function isTauri(): boolean {
   return isDesktopTauriRuntime();
@@ -29,8 +35,8 @@ export async function ensureMicrophonePermission(): Promise<boolean> {
 
 let windowShown = false;
 
-const DEFAULT_WINDOW_WIDTH = 1330;
-const DEFAULT_WINDOW_HEIGHT = 820;
+const DEFAULT_WINDOW_WIDTH = 1260;
+const DEFAULT_WINDOW_HEIGHT = 770;
 export const ONBOARDING_WINDOW_WIDTH = 800;
 export const ONBOARDING_WINDOW_HEIGHT = 530;
 export const ONBOARDING_HOME_WINDOW_WIDTH = 860;
@@ -90,15 +96,71 @@ export async function openInBrowserFromDesktopAuth(url: string): Promise<void> {
 
 export type DesktopSettingsView =
   | "account"
+  | "sounds"
   | "privacy"
+  | "voice"
   | "computer-tracking"
   | "place-tagging"
   | "apple-health";
 
+export type OpenDesktopVoiceHudPayload = {
+  target: VoiceTarget;
+  source: VoiceSessionSource;
+  submitOnFinal?: false;
+  anchorRect?: VoiceHudAnchorRect;
+};
+
+export type VoiceHotkeySettings = {
+  enabled: boolean;
+  shortcut: string;
+  registered?: boolean;
+  registrationError?: string | null;
+};
+
 export async function openDesktopSettingsWindow(
   initialView: DesktopSettingsView = "account",
 ): Promise<void> {
-  await invokeDesktopCommand("open_settings_window", { initialView });
+  const maxAttempts = 8;
+  let lastError: unknown;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      await invokeDesktopCommand("open_settings_window", { initialView });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+
+    if (attempt < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error("Failed to open desktop settings window.");
+}
+
+export async function openDesktopVoiceHud(
+  payload: OpenDesktopVoiceHudPayload,
+): Promise<VoiceSessionStartPayload> {
+  return invokeDesktopCommand("open_voice_hud", payload);
+}
+
+export async function hideDesktopVoiceHud(): Promise<void> {
+  await invokeDesktopCommand("hide_voice_hud");
+}
+
+export async function getVoiceHotkeySettings(): Promise<VoiceHotkeySettings> {
+  return invokeDesktopCommand("get_voice_hotkey_settings");
+}
+
+export async function setVoiceHotkeySettings(
+  settings: VoiceHotkeySettings,
+): Promise<VoiceHotkeySettings> {
+  return invokeDesktopCommand("set_voice_hotkey_settings", { settings });
 }
 
 export async function resizeWindow(width: number, height: number): Promise<void> {

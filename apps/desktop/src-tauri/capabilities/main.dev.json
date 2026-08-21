@@ -39,6 +39,8 @@
     "desktop-observability",
     "desktop-runtime",
     "desktop-activity",
+    "desktop-shell-ui",
+    "desktop-vault",
     "deep-link:default",
     "dialog:default",
     "shell:allow-open",

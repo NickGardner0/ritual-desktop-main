@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
+import { recordDesktopShellEvent, recordLaunchMilestone } from '@/lib/desktop-bridge/observability';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { showMainWindow } from '@/lib/tauri-utils';
+import { showMainWindow } from '@/lib/native-gateway';
 import { apiFetch } from '@/lib/api/client';
 
 const BFF_API_BASE = 'BFF /api';
@@ -65,6 +65,10 @@ export function DesktopBootstrapClient({
     () => buildDesktopTarget(searchParams),
     [searchParams],
   );
+
+  useEffect(() => {
+    recordLaunchMilestone('shell_bootstrap', { desktop: isDesktop });
+  }, [isDesktop]);
 
   useEffect(() => {
     if (!isDesktop) {

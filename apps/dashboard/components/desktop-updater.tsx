@@ -9,7 +9,7 @@ import {
   installDesktopUpdate,
   type DesktopRuntimeInfo,
   type UpdateManifest,
-} from '@/lib/desktop-runtime';
+} from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import {
   clearDesktopUpdatePreferencesForNewVersion,
