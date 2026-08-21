@@ -18,6 +18,7 @@ import {
   resolveSsoRedirectRoute,
 } from "@/lib/activation-flow.mjs"
 import { consumeBootstrapHandoff } from "@/lib/bootstrap-handoff"
+import { apiOperationWithAuth } from "@/lib/api/client"
 import { OnboardingWindow } from "@/components/onboarding/onboarding-window"
 import { BrailleSpinner } from "@/components/ui/braille-spinner"
 import { Button } from "@/components/ui/button"
@@ -153,13 +154,10 @@ export default function OnboardingPage() {
   const [error, setError] = useState<string | null>(null)
   const bootstrapSyncUserRef = useRef<string | null>(null)
 
-  const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    const token = await getToken({ skipCache: true })
-    return {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      "Content-Type": "application/json",
-    }
-  }, [getToken])
+  const getOnboardingToken = useCallback(
+    async (opts?: { skipCache?: boolean }) => getToken({ skipCache: opts?.skipCache ?? true }),
+    [getToken],
+  )
 
   const goToStep = useCallback((target: V3Step) => {
     persistReachedStep(target)
@@ -237,16 +235,13 @@ export default function OnboardingPage() {
           return
         }
 
-        const response = await fetch("/api/user/bootstrap", {
-          cache: "no-store",
-          headers: await authHeaders(),
-        })
-
-        if (!response.ok || cancelled) {
-          return
-        }
-
-        const bootstrap = await response.json() as BootstrapResponse
+        const bootstrap = await apiOperationWithAuth(
+          "get_user_bootstrap_api_user_bootstrap_get",
+          getOnboardingToken,
+          {},
+          user?.id,
+        )
+        if (cancelled) return
         await applyBootstrapRoute(bootstrap)
       } catch (bootstrapError) {
         console.warn("Unable to sync onboarding bootstrap route:", bootstrapError)
@@ -258,59 +253,61 @@ export default function OnboardingPage() {
     return () => {
       cancelled = true
     }
-  }, [authHeaders, goToStep, isLoaded, queryStep, router, step, user])
+  }, [getOnboardingToken, goToStep, isLoaded, queryStep, router, step, user])
 
   async function updateChecklist(key: "mac_activity" | "ai_voice" | "place_tagging", status: ChecklistStatus, metadata?: Record<string, unknown>) {
-    const response = await fetch("/api/user/activation/checklist", {
-      method: "PATCH",
-      headers: await authHeaders(),
-      body: JSON.stringify({ key, status, metadata: metadata ?? null }),
-    })
-
-    if (!response.ok) {
-      throw new Error("Failed to update setup item")
-    }
+    await apiOperationWithAuth(
+      "update_activation_checklist_api_user_activation_checklist_patch",
+      getOnboardingToken,
+      { body: { key, status, metadata: metadata ?? null } },
+      user?.id,
+    )
   }
 
   async function ensureWatcherDevice(): Promise<string> {
-    const headers = await authHeaders()
-    const devicesResponse = await fetch("/api/watcher/devices", { headers })
-    if (devicesResponse.ok) {
-      const payload = await devicesResponse.json()
+    try {
+      const payload = await apiOperationWithAuth(
+        "list_devices_api_watcher_devices_get",
+        getOnboardingToken,
+        {},
+        user?.id,
+      ) as { devices?: Array<{ platform?: string; device_id?: string; id?: string }> }
       const existing = Array.isArray(payload.devices)
-        ? payload.devices.find((device: any) => device.platform === "macos") ?? payload.devices[0]
+        ? payload.devices.find((device) => device.platform === "macos") ?? payload.devices[0]
         : null
       const existingId = existing?.device_id ?? existing?.id
       if (existingId) return existingId
+    } catch {
+      // Register a new device when the list is unavailable.
     }
 
-    const deviceResponse = await fetch("/api/watcher/devices", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ device_name: "My Mac", platform: "macos" }),
-    })
-    if (!deviceResponse.ok) {
-      throw new Error("Failed to register watcher device")
-    }
-    const device = await deviceResponse.json()
+    const device = await apiOperationWithAuth(
+      "register_device_api_watcher_devices_post",
+      getOnboardingToken,
+      { body: { device_name: "My Mac", platform: "macos" } },
+      user?.id,
+    )
     return device.device_id
   }
 
   async function ensureComputerTimeHabit() {
-    await fetch("/api/habits", {
-      method: "POST",
-      headers: await authHeaders(),
-      body: JSON.stringify({
-        name: "Computer Time",
-        category: "Productivity",
-        is_custom: false,
-        sensor_type: "Manual",
-        icon: "lucide:monitor",
-        unit_type: "Hours",
-        integration_source: null,
-        metric_type: null,
-      }),
-    }).catch(() => undefined)
+    await apiOperationWithAuth(
+      "create_habit_api_habits_post",
+      getOnboardingToken,
+      {
+        body: {
+          name: "Computer Time",
+          category: "Productivity",
+          is_custom: false,
+          sensor_type: "Manual",
+          icon: "lucide:monitor",
+          unit_type: "Hours",
+          integration_source: null,
+          metric_type: null,
+        },
+      },
+      user?.id,
+    ).catch(() => undefined)
   }
 
   async function bootstrapMacActivityWatcher(): Promise<{ completed: boolean; metadata: Record<string, unknown> }> {
@@ -344,23 +341,23 @@ export default function OnboardingPage() {
     await invoke("start_watcher", { config })
     await invoke("save_watcher_config_cmd", { config })
     await ensureComputerTimeHabit()
-    await fetch(`/api/watcher/devices/${deviceId}/start`, {
-      method: "POST",
-      headers: await authHeaders(),
-    }).catch(() => undefined)
+    await apiOperationWithAuth(
+      "start_watcher_api_watcher_devices__device_id__start_post",
+      getOnboardingToken,
+      { pathParams: { device_id: deviceId } },
+      user?.id,
+    ).catch(() => undefined)
     return { completed: true, metadata: { permission: "accessibility", granted: true, deviceId } }
   }
 
   async function markSetupSeen(): Promise<BootstrapResponse | null> {
     if (!user) return null
-    const response = await fetch("/api/user/activation/permissions-seen", {
-      method: "PATCH",
-      headers: await authHeaders(),
-    })
-    if (!response.ok) {
-      throw new Error("Failed to finish setup")
-    }
-    return response.json()
+    return await apiOperationWithAuth(
+      "mark_activation_permissions_seen_api_user_activation_permissions_seen_patch",
+      getOnboardingToken,
+      {},
+      user?.id,
+    )
   }
 
   async function ensureLocalAccountVault(): Promise<void> {
@@ -379,14 +376,12 @@ export default function OnboardingPage() {
     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone?.trim()
     if (!fullName || fullName.length < 2 || !timezone) return
 
-    const response = await fetch("/api/user/bootstrap/profile", {
-      method: "PATCH",
-      headers: await authHeaders(),
-      body: JSON.stringify({ fullName, timezone }),
-    })
-    if (!response.ok) {
-      throw new Error("Failed to persist onboarding profile")
-    }
+    await apiOperationWithAuth(
+      "update_user_bootstrap_profile_api_user_bootstrap_profile_patch",
+      getOnboardingToken,
+      { body: { fullName, timezone } },
+      user?.id,
+    )
   }
 
   async function openPrivacyPane(invoke: NonNullable<Awaited<ReturnType<typeof getInvoke>>>, command: string) {
