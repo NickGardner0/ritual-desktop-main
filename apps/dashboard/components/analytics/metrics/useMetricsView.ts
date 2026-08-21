@@ -8,18 +8,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import { useAuth, useUser } from '@clerk/nextjs';
 import {
-  Copy,
-  Camera,
-  ChevronDown,
-  Download,
-  X,
-} from 'lucide-react';
-import {
-  DndContext,
-  closestCenter,
   KeyboardSensor,
   PointerSensor,
   useSensor,
@@ -28,111 +18,35 @@ import {
 } from '@dnd-kit/core';
 import {
   arrayMove,
-  SortableContext,
   sortableKeyboardCoordinates,
-  useSortable,
-  rectSortingStrategy,
 } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
 import type { DateRange } from 'react-day-picker';
-import { format, parseISO, startOfDay, differenceInDays, subDays, eachDayOfInterval } from 'date-fns';
-import { analyticsApi } from '@/lib/services/analytics-api';
+import { differenceInDays } from 'date-fns';
 import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
-import { habitToFinanceSeries } from '@/lib/charts/habitToFinanceSeries';
-import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import { ExpandedMetricCard } from '@/components/metrics/ExpandedMetricCard';
-import { MetricsInitialSection } from '@/components/analytics/metrics-initial-section';
-import type { RangeOption } from '@/components/metrics/RangeSegmentedControl';
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { computeMeaningfulPercentChange } from '@/lib/analytics-change';
-import {
-  COMPUTER_HABIT_DISPLAY_NAME,
-  getHabitDisplayName,
-  isComputerHabitName,
-} from '@/lib/computer-time-habit';
+import { isComputerHabitName } from '@/lib/computer-time-habit';
 import {
   buildComputerActivityMetricCardData,
   buildHabitMetricCardData,
-  buildMetricStreakData,
-  buildMetricsBarData,
-  formatMetricBarValue,
-  getMetricCategoryForHabit,
-  inferHigherIsBetter,
-  mapDailyBreakdownRows,
   type MetricCardData,
   type MetricDailyRow,
-  type MetricHabitLike,
 } from '@/components/analytics/metrics-derived';
 import {
-  buildWearableDailyRows,
-  getWearableDateRange,
-  getWearableMetricType,
-  getWearableProviderForHabit,
-  isWearableBackedHabit,
-  summarizeWearableDailyRows,
-  type WearableDailyTotal,
-  type WearableSeriesPoint,
-} from '@/lib/wearables-dashboard';
-import type { HabitSparkSource } from '@/components/analytics/habit-mini-charts-section';
-import {
-  auditLocalStorage,
-  perfError,
-  perfInfo,
-  startPerfTimer,
-} from '@/lib/perf-debug';
-import type { TimeRangePreset } from '@/lib/computerActivity/contracts';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@ritual/ui/select';
-import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
-
-import {
   CARD_ORDER_KEY,
-  CARDS_PER_PAGE,
-  COMPUTER_ACTIVITY_CARD_ID,
-  CompareSelect,
-  ComputerActivitySection,
-  DateRangePicker,
-  DEFAULT_METRICS_SPARKLINE_DAYS,
-  DEFAULT_METRICS_SUMMARY_DAYS,
-  HabitTickerCard,
-  METRIC_CATEGORY_TABS,
-  PerplexityExpandedHabitChart,
-  SortableMetricCard,
-  buildLocalMetricDailyRows,
-  buildLocalMetricSummary,
-  buildWearableMetricDailyRowsForHabit,
-  buildWearableMetricSeriesRows,
   dateRangeToBarListRange,
-  getHeartRateBucket,
-  getRangeDates,
-  hasUsableMetricSummary,
-  isGranularHeartRateHabit,
-  isSleepLikeHabit,
 } from '../metrics-view.shared';
 import type {
-  ChartDataPoint,
-  HabitData,
   HeartRateSeriesRow,
   HeartRateSummaryRow,
-  LocalMetricSummaryRow,
   MetricsRowsByHabit,
   MetricsSummaryByHabit,
   MetricsSyncContext,
   MetricsViewProps,
-  BarListItem,
   BarListRange,
 } from '../metrics-view.shared';
 import { useMetricsDataQueries } from './useMetricsDataQueries';
 import { useMetricsCardSections } from '../metrics-view-card-sections';
-import { MetricsExpandedSection } from '../metrics-expanded-section';
-import { MetricsShareModal } from '../metrics-share-modal';
 import { useMetricsShare } from './useMetricsShare';
 import { useMetricsExpandedQueries } from './useMetricsExpandedQueries';
 import { useMetricsViewDerived } from './useMetricsViewDerived';
@@ -146,7 +60,6 @@ export function useMetricsView({
   initialBarListAnalyticsData,
   initialBarListSummaryMetrics,
 }: MetricsViewProps) {
-  const { isDesktop } = useDesktopCapabilities();
   const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded } = useUser();
   
@@ -199,7 +112,6 @@ export function useMetricsView({
   const lastHydratedCanonicalRangeKeyRef = useRef<string | null>(null);
   const skippedInitialBarListFetchRef = useRef(false);
   const [loading, setLoading] = useState(false);
-  const [habitDropdownOpen, setHabitDropdownOpen] = useState(false);
   const [analyticsData, setAnalyticsData] = useState<MetricsRowsByHabit>(initialAnalyticsData ?? {});
   const [expandedHabit, setExpandedHabit] = useState<string | null>(null);
   const [expandedLogs, setExpandedLogs] = useState<MetricDailyRow[]>([]);
