@@ -88,19 +88,6 @@ export async function apiJson<T>(
   return response.json() as Promise<T>;
 }
 
-export async function apiJsonWithAuth<T>(
-  path: string,
-  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
-  options: ApiFetchOptions = {},
-): Promise<T> {
-  const response = await apiFetchWithAuth(path, getToken, options);
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new ApiError(response.status, text || `Request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-}
-
 function dashboardBaseUrl(): string {
   if (typeof window !== 'undefined') return window.location.origin;
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost';

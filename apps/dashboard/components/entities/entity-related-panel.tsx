@@ -6,15 +6,8 @@ import type { EntityRef, EntitySummary } from "@ritual/shared-contracts";
 import { EntityPill } from "@/components/entities/entity-pill";
 import { UnknownEntity } from "@/components/entities/unknown-entity";
 import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
-import { entityLookupPath, resolveEntities } from "@/lib/entities/resolve";
-import { apiJsonWithAuth } from "@/lib/api/client";
-
-type RelatedResponse = {
-  items: Array<{
-    edge: { relationship: string; source: string; ref: EntityRef };
-    summary: EntitySummary;
-  }>;
-};
+import { resolveEntities, summaryFromCloud } from "@/lib/entities/resolve";
+import { apiOperationWithAuth } from "@/lib/api/client";
 
 export function EntityRelatedPanel({
   entityRef,
@@ -27,7 +20,10 @@ export function EntityRelatedPanel({
 }) {
   const { getToken } = useAuth();
   const { user } = useUser();
-  const [items, setItems] = useState<RelatedResponse["items"]>([]);
+  const [items, setItems] = useState<Array<{
+    edge: { relationship: string; source?: string; ref: EntityRef };
+    summary: EntitySummary;
+  }>>([]);
   const enabled = entityProtocolEnabled();
 
   useEffect(() => {
@@ -35,12 +31,16 @@ export function EntityRelatedPanel({
     let cancelled = false;
     void (async () => {
       try {
-        const response = await apiJsonWithAuth<RelatedResponse>(
-          entityLookupPath(entityRef.type, entityRef.id, "related"),
+        const response = await apiOperationWithAuth(
+          "get_entity_related_query_api_entities_related_get",
           getToken,
-          { userId: user?.id },
+          { query: { entity_type: entityRef.type, entity_id: entityRef.id } },
+          user?.id,
         );
-        if (!cancelled) setItems(response.items || []);
+        if (!cancelled) setItems((response.items || []).map((item) => ({
+          edge: item.edge,
+          summary: summaryFromCloud(item.summary),
+        })));
       } catch {
         if (!cancelled) setItems([]);
       }

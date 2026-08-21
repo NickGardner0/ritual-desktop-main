@@ -264,7 +264,7 @@ test("entity link picker ignores stale search completions and skips empty-query 
   const source = await readFile(new URL("../components/entities/entity-link-picker.tsx", import.meta.url), "utf8");
   assert.match(source, /let cancelled = false/);
   assert.match(source, /if \(cancelled\) return/);
-  assert.match(source, /trimmed\s*\n\s*\?[\s\S]*apiJsonWithAuth/);
+  assert.match(source, /trimmed\s*\n\s*\?[\s\S]*apiOperationWithAuth/);
   assert.match(source, /Promise\.resolve\(\{ items: \[\] as EntitySummary\[\] \}\)/);
   assert.match(source, /parseDateMentionQuery\(query\) \? \[\.\.\.AUTOCOMPLETE_TYPES, "habit_log"\] : AUTOCOMPLETE_TYPES/);
 });

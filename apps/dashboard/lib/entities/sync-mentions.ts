@@ -5,7 +5,7 @@ import {
   parseEntityMentionTokens,
   type EntityRef,
 } from "@ritual/shared-contracts";
-import { apiJson, apiJsonWithAuth } from "@/lib/api/client";
+import { apiJson, apiOperationWithAuth } from "@/lib/api/client";
 import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
 
 type AuthGetter = (opts?: { skipCache?: boolean }) => Promise<string | null>;
@@ -39,11 +39,12 @@ export async function syncEntityMentions(options: {
 
   try {
     if (options.getToken) {
-      await apiJsonWithAuth("/api/entities/references/sync", options.getToken, {
-        method: "POST",
-        userId: options.userId,
-        body: JSON.stringify(payload),
-      });
+      await apiOperationWithAuth(
+        "sync_entity_mentions_api_entities_references_sync_post",
+        options.getToken,
+        { body: payload },
+        options.userId,
+      );
       return;
     }
     await apiJson("/api/entities/references/sync", {

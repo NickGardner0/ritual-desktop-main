@@ -14,7 +14,7 @@ import {
   type EntitySummary,
   type EntityType,
 } from "@ritual/shared-contracts";
-import { apiJson, apiJsonWithAuth } from "@/lib/api/client";
+import { apiJson, apiOperationWithAuth } from "@/lib/api/client";
 import {
   HABIT_DEFINITIONS_COLLECTION,
   HABIT_LOGS_COLLECTION,
@@ -80,6 +80,30 @@ export function entityLookupPath(
   }
   const base = `/api/entities/${type}/${encodeURIComponent(id)}`;
   return kind === "summary" ? base : `${base}/${kind}`;
+}
+
+export function summaryFromCloud(item: {
+  availability?: EntitySummary["availability"] | null;
+  icon?: string | null;
+  privacyClass: string;
+  ref: EntityRef;
+  route: string;
+  status?: string | null;
+  subtitle?: string | null;
+  title: string;
+  updatedAt?: string | null;
+}): EntitySummary {
+  return {
+    ref: item.ref,
+    title: item.title,
+    subtitle: item.subtitle ?? undefined,
+    status: item.status ?? undefined,
+    icon: item.icon ?? undefined,
+    route: item.route,
+    updatedAt: item.updatedAt ?? undefined,
+    privacyClass: item.privacyClass,
+    availability: item.availability ?? "ok",
+  };
 }
 
 function summaryFromHabit(habit: Habit): EntitySummary | null {
@@ -194,13 +218,19 @@ export async function resolveEntity(
     }
 
     try {
-      return options.getToken
-        ? await apiJsonWithAuth<EntitySummary>(entityLookupPath(ref.type, ref.id), options.getToken, {
-            userId: options.userId,
-          })
-        : await apiJson<EntitySummary>(entityLookupPath(ref.type, ref.id), {
-            userId: options.userId,
-          });
+      if (options.getToken) {
+        return summaryFromCloud(
+          await apiOperationWithAuth(
+            "get_entity_summary_query_api_entities_summary_get",
+            options.getToken,
+            { query: { entity_type: ref.type, entity_id: ref.id } },
+            options.userId,
+          ),
+        );
+      }
+      return await apiJson<EntitySummary>(entityLookupPath(ref.type, ref.id), {
+        userId: options.userId,
+      });
     } catch {
       return unavailableEntitySummary(ref, "unknown");
     }
@@ -253,19 +283,21 @@ export async function resolveEntities(
   if (remaining.length) {
     try {
       const response = options.getToken
-        ? await apiJsonWithAuth<{ items: EntitySummary[] }>("/api/entities/resolve", options.getToken, {
-            method: "POST",
-            body: JSON.stringify({ refs: remaining }),
-            userId: options.userId,
-          })
+        ? await apiOperationWithAuth(
+            "resolve_entities_api_entities_resolve_post",
+            options.getToken,
+            { body: { refs: remaining } },
+            options.userId,
+          )
         : await apiJson<{ items: EntitySummary[] }>("/api/entities/resolve", {
             method: "POST",
             body: JSON.stringify({ refs: remaining }),
             userId: options.userId,
           });
       for (const item of response.items || []) {
-        writeCachedEntitySummary(item.ref, options.userId, item);
-        resolved.set(entityRefKey(item.ref), item);
+        const summary = summaryFromCloud(item);
+        writeCachedEntitySummary(item.ref, options.userId, summary);
+        resolved.set(entityRefKey(item.ref), summary);
       }
     } catch (error) {
       console.warn("[entities] batch resolve failed", error);

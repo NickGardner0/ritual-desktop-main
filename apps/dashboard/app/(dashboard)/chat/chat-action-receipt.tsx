@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
-import { apiJsonWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { forgetEntitySummary } from '@/lib/entities/resolve';
 
 export type ChatActionReceipt = {
@@ -84,9 +84,11 @@ function ChatActionReceiptCard({
     setBusy(true);
     setError(null);
     try {
-      await apiJsonWithAuth(`/api/action-receipts/${receipt.receipt_id}/undo`, getToken, {
-        method: 'POST',
-      });
+      await apiOperationWithAuth(
+        'undo_action_receipt_api_action_receipts__receipt_id__undo_post',
+        getToken,
+        { pathParams: { receipt_id: receipt.receipt_id } },
+      );
       setUndone(true);
       if (receipt.task_id) {
         forgetEntitySummary({ type: 'task', id: receipt.task_id });

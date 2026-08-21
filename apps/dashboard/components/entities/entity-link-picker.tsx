@@ -6,8 +6,8 @@ import type { EntityRef, EntitySummary, EntityType } from "@ritual/shared-contra
 import { parseDateMentionQuery, virtualDateSummary } from "@ritual/shared-contracts";
 import { EntityPill } from "@/components/entities/entity-pill";
 import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
-import { apiJsonWithAuth } from "@/lib/api/client";
-import { rememberEntitySummary, searchLocalEntities } from "@/lib/entities/resolve";
+import { apiOperationWithAuth } from "@/lib/api/client";
+import { rememberEntitySummary, searchLocalEntities, summaryFromCloud } from "@/lib/entities/resolve";
 import { mergeEntitySummaries } from "@/lib/entities/search-normalize";
 import { Input } from "@/components/ui/input";
 
@@ -34,17 +34,18 @@ async function searchLinkedEntities(
   const types = localSearchTypes(trimmed);
   const [cloud, local] = await Promise.all([
     trimmed
-      ? apiJsonWithAuth<{ items: EntitySummary[] }>(
-          `/api/entities/search?q=${encodeURIComponent(trimmed)}&limit=${limit}`,
+      ? apiOperationWithAuth(
+          "search_entities_api_entities_search_get",
           getToken,
-          { userId },
+          { query: { q: trimmed, limit } },
+          userId,
         ).catch(() => ({ items: [] as EntitySummary[] }))
       : Promise.resolve({ items: [] as EntitySummary[] }),
     userId ? searchLocalEntities(userId, trimmed, { types, limit }) : Promise.resolve([]),
   ]);
   const parsed = parseDateMentionQuery(trimmed);
   const dateHit = parsed ? [virtualDateSummary(parsed)] : [];
-  return mergeEntitySummaries(dateHit, local, cloud.items);
+  return mergeEntitySummaries(dateHit, local, (cloud.items ?? []).map(summaryFromCloud));
 }
 
 export function EntityLinkPicker({
@@ -79,16 +80,19 @@ export function EntityLinkPicker({
     if (busy || target.availability !== "ok") return;
     setBusy(true);
     try {
-      await apiJsonWithAuth("/api/entities/references", getToken, {
-        method: "POST",
-        userId: user?.id,
-        body: JSON.stringify({
-          source,
-          target: target.ref,
-          relationship: source.type === "experiment" || target.ref.type === "experiment" ? "evidence_for" : "references",
-          provenance: "user",
-        }),
-      });
+      await apiOperationWithAuth(
+        "create_entity_reference_api_entities_references_post",
+        getToken,
+        {
+          body: {
+            source,
+            target: target.ref,
+            relationship: source.type === "experiment" || target.ref.type === "experiment" ? "evidence_for" : "references",
+            provenance: "user",
+          },
+        },
+        user?.id,
+      );
       onLinked?.();
     } finally {
       setBusy(false);

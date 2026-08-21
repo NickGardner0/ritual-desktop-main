@@ -134,7 +134,12 @@
     "apps/dashboard/app/(dashboard)/chat/chat-stream-protocol.ts",
     "apps/dashboard/app/(dashboard)/chat/chat-stream-buffer.ts",
     "apps/dashboard/lib/api/biometrics.ts",
-    "apps/dashboard/lib/types/biometrics.ts"
+    "apps/dashboard/lib/types/biometrics.ts",
+    "apps/dashboard/components/computer-activity/index.ts",
+    "apps/dashboard/components/computer-activity/AttentionIndexHeader.tsx",
+    "apps/dashboard/components/computer-activity/SessionFlowTimeline.tsx",
+    "apps/dashboard/components/computer-activity/MicroMetricsRow.tsx",
+    "apps/dashboard/components/computer-activity/DeepDrillDrawer.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
