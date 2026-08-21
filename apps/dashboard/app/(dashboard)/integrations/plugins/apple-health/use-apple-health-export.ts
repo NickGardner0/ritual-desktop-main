@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { apiOperationWithAuth } from '@/lib/api/client';
 
 type ExportFormat = 'markdown' | 'json' | 'csv';
 type ExportWriteMode = 'overwrite' | 'append' | 'skip';
@@ -85,22 +86,16 @@ const [historyLoaded, setHistoryLoaded] = useState(false);
 async function loadMetricCatalogAndPreferences() {
   if (metricsLoaded) return;
   try {
-    const token = await getToken();
-    if (!token) return;
-    const headers = { Authorization: `Bearer ${token}` };
-
-    const [catalogRes, prefsRes] = await Promise.all([
-      fetch('/api/wearables/apple/metric-catalog', { headers }),
-      fetch('/api/wearables/apple/metric-preferences', { headers }),
+    if (!(await getToken())) return;
+    const [catalogRes, prefsRes] = await Promise.allSettled([
+      apiOperationWithAuth('get_metric_catalog_api_wearables_apple_metric_catalog_get', getToken) as Promise<{ categories?: any[] }>,
+      apiOperationWithAuth('get_metric_preferences_api_wearables_apple_metric_preferences_get', getToken) as Promise<{ selected_metrics?: string[] }>,
     ]);
-
-    if (catalogRes.ok) {
-      const data = await catalogRes.json();
-      setMetricCatalog(data.categories || []);
+    if (catalogRes.status === 'fulfilled') {
+      setMetricCatalog(catalogRes.value.categories || []);
     }
-    if (prefsRes.ok) {
-      const data = await prefsRes.json();
-      setSelectedMetrics(new Set(data.selected_metrics || []));
+    if (prefsRes.status === 'fulfilled') {
+      setSelectedMetrics(new Set(prefsRes.value.selected_metrics || []));
     }
     setMetricsLoaded(true);
   } catch (err) {
@@ -109,16 +104,13 @@ async function loadMetricCatalogAndPreferences() {
 }
 
 async function saveMetricPreferences(selected: string[]) {
-  const token = await getToken();
-  if (!token) throw new Error('Not authenticated');
+  if (!(await getToken())) throw new Error('Not authenticated');
 
-  const res = await fetch('/api/wearables/apple/metric-preferences', {
-    method: 'PUT',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ selected_metrics: selected }),
-  });
-
-  if (!res.ok) throw new Error('Failed to save');
+  await apiOperationWithAuth(
+    'put_metric_preferences_api_wearables_apple_metric_preferences_put',
+    getToken,
+    { body: { selected_metrics: selected } },
+  );
   setSelectedMetrics(new Set(selected));
 }
 
@@ -268,16 +260,13 @@ function downloadBlob(content: string, filename: string, mimeType: string) {
 async function loadExportSchedule() {
   if (scheduleLoaded) return;
   try {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetch('/api/wearables/apple/export-schedule', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.schedule) {
-        setExportSchedule(data.schedule);
-      }
+    if (!(await getToken())) return;
+    const data = await apiOperationWithAuth(
+      'get_export_schedule_api_wearables_apple_export_schedule_get',
+      getToken,
+    ).then((payload) => payload as { schedule?: NonNullable<typeof exportSchedule> }).catch(() => null);
+    if (data?.schedule) {
+      setExportSchedule(data.schedule);
     }
   } catch (err) {
     console.error('Failed to load export schedule:', err);
@@ -289,16 +278,13 @@ async function loadExportSchedule() {
 async function saveExportSchedule(schedule: typeof exportSchedule) {
   setScheduleSaving(true);
   try {
-    const token = await getToken();
-    if (!token) throw new Error('Not authenticated');
-    const res = await fetch('/api/wearables/apple/export-schedule', {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ schedule }),
-    });
-    if (!res.ok) throw new Error('Failed to save schedule');
-    const data = await res.json();
-    setExportSchedule(data.schedule);
+    if (!(await getToken())) throw new Error('Not authenticated');
+    const data = await apiOperationWithAuth(
+      'put_export_schedule_api_wearables_apple_export_schedule_put',
+      getToken,
+      { body: { schedule } },
+    ) as { schedule?: typeof exportSchedule };
+    setExportSchedule(data.schedule ?? null);
   } finally {
     setScheduleSaving(false);
   }
@@ -327,13 +313,12 @@ function updateScheduleField<K extends keyof NonNullable<typeof exportSchedule>>
 async function loadExportHistory() {
   if (historyLoaded) return;
   try {
-    const token = await getToken();
-    if (!token) return;
-    const res = await fetch('/api/wearables/apple/export-history', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      const data = await res.json();
+    if (!(await getToken())) return;
+    const data = await apiOperationWithAuth(
+      'get_export_history_api_wearables_apple_export_history_get',
+      getToken,
+    ).then((payload) => payload as { history?: typeof exportHistory }).catch(() => null);
+    if (data) {
       setExportHistory(data.history || []);
     }
   } catch (err) {
@@ -364,11 +349,11 @@ async function recordExportHistory(entry: {
       file_path: entry.file_path ?? null,
       error: entry.error ?? null,
     };
-    await fetch('/api/wearables/apple/export-history', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entry: fullEntry }),
-    });
+    await apiOperationWithAuth(
+      'add_export_history_api_wearables_apple_export_history_post',
+      getToken,
+      { body: { entry: fullEntry } },
+    );
     // Refresh history
     setExportHistory(prev => [fullEntry, ...prev].slice(0, 50));
   } catch (err) {

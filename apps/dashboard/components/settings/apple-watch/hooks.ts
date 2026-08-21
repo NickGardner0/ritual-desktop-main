@@ -1,5 +1,14 @@
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery } from '@tanstack/react-query';
+import { apiOperationWithAuth } from '@/lib/api/client';
+
+type AppleWatchDevice = {
+  is_active?: boolean;
+  platform?: string;
+  last_sync_at?: string | null;
+  device_name?: string | null;
+  device_id?: string;
+};
 
 export function useAppleWatchStatus() {
   const { user } = useUser();
@@ -8,14 +17,14 @@ export function useAppleWatchStatus() {
   return useQuery({
     queryKey: ['apple-watch-status', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch('/api/wearables/apple/devices', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) throw new Error('Failed to fetch Apple Watch status');
-      const data = await response.json();
+      const data = await apiOperationWithAuth(
+        'list_apple_devices_api_wearables_apple_devices_get',
+        getToken,
+        {},
+        user?.id,
+      ) as { devices?: AppleWatchDevice[] };
       const activeDevices = (data.devices || []).filter(
-        (d: any) => d.is_active && d.platform === 'ios',
+        (device) => device.is_active && device.platform === 'ios',
       );
       return {
         connected: activeDevices.length > 0,
@@ -36,14 +45,17 @@ export function useWearableConnection(provider: string) {
   return useQuery({
     queryKey: ['wearable-connections', user?.id, provider],
     queryFn: async () => {
-      const token = await getToken();
-      const res = await fetch('/api/wearables/connections', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      const connections = data.connections || [];
-      return connections.find((c: any) => c.provider === provider) || null;
+      try {
+        const data = await apiOperationWithAuth(
+          'get_wearable_connections_api_wearables_connections_get',
+          getToken,
+          {},
+          user?.id,
+        );
+        return data.connections.find((connection) => String(connection.provider) === provider) || null;
+      } catch {
+        return null;
+      }
     },
     staleTime: 1000 * 60 * 2,
     enabled: !!user?.id,

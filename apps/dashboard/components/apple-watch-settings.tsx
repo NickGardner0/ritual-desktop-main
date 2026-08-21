@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { cn } from '@/lib/utils';
 import {
@@ -82,20 +83,21 @@ export function AppleWatchSettings() {
   const loadMetricCatalogAndPreferences = useCallback(async () => {
     if (metricsLoaded) return;
     try {
-      const token = await getToken();
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-      const [catalogRes, prefsRes] = await Promise.all([
-        fetch('/api/wearables/apple/metric-catalog', { headers }),
-        fetch('/api/wearables/apple/metric-preferences', { headers }),
+      if (!(await getToken())) return;
+      const [catalog, prefs] = await Promise.all([
+        apiOperationWithAuth('get_metric_catalog_api_wearables_apple_metric_catalog_get', getToken)
+          .then((data) => data as { categories?: MetricCategory[] })
+          .catch(() => null),
+        apiOperationWithAuth('get_metric_preferences_api_wearables_apple_metric_preferences_get', getToken)
+          .then((data) => data as {
+            effective_preferences?: WearableMetricPreferences;
+            preferences?: WearableMetricPreferences;
+          })
+          .catch(() => null),
       ]);
-      if (catalogRes.ok) {
-        const data = await catalogRes.json();
-        setMetricCatalog(data.categories || []);
-      }
-      if (prefsRes.ok) {
-        const data = await prefsRes.json();
-        const nextPreferences = data.effective_preferences || data.preferences || {};
+      if (catalog) setMetricCatalog(catalog.categories || []);
+      if (prefs) {
+        const nextPreferences = prefs.effective_preferences || prefs.preferences || {};
         setMetricPreferences(nextPreferences);
         setLastEnabledSyncModes((prev) =>
           seedLastEnabledSyncModesFromPreferences(nextPreferences, prev),
@@ -111,15 +113,10 @@ export function AppleWatchSettings() {
     if (projectionLoaded || projectionLoading) return;
     try {
       setProjectionLoading(true);
-      const token = await getToken();
-      if (!token) return;
-      const headers = { Authorization: `Bearer ${token}` };
-      const habitsRes = await fetch('/api/habits', { headers });
-      if (!habitsRes.ok) {
-        throw new Error('Failed to fetch habits');
-      }
-
-      const habits = ((await habitsRes.json()) as HabitSummary[])
+      if (!(await getToken())) return;
+      const habits = (
+        (await apiOperationWithAuth('get_habits_api_habits_get', getToken)) as HabitSummary[]
+      )
         .filter((habit) => isAppleProjectionMetric(getWearableMetricType(habit)))
         .sort((left, right) => String(left.name || '').localeCompare(String(right.name || '')));
 
@@ -133,11 +130,11 @@ export function AppleWatchSettings() {
 
       const policyEntries = await Promise.all(
         habits.map(async (habit) => {
-          const res = await fetch(`/api/habits/${habit.id}/projection-policy`, { headers });
-          if (!res.ok) {
-            throw new Error(`Failed to fetch projection policy for ${habit.name}`);
-          }
-          const data = (await res.json()) as HabitProjectionPolicy;
+          const data = await apiOperationWithAuth(
+            'get_habit_projection_policy_api_habits__habit_id__projection_policy_get',
+            getToken,
+            { pathParams: { habit_id: habit.id } },
+          ) as HabitProjectionPolicy;
           return [habit.id, data] as const;
         }),
       );
@@ -155,15 +152,12 @@ export function AppleWatchSettings() {
   const loadExportSchedule = useCallback(async () => {
     if (scheduleLoaded) return;
     try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch('/api/wearables/apple/export-schedule', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.schedule) setExportSchedule(data.schedule);
-      }
+      if (!(await getToken())) return;
+      const data = await apiOperationWithAuth(
+        'get_export_schedule_api_wearables_apple_export_schedule_get',
+        getToken,
+      ).then((payload) => payload as { schedule?: ExportSchedule }).catch(() => null);
+      if (data?.schedule) setExportSchedule(data.schedule);
     } catch (err) {
       console.error('Failed to load export schedule:', err);
     } finally {
@@ -174,15 +168,12 @@ export function AppleWatchSettings() {
   const loadExportHistory = useCallback(async () => {
     if (historyLoaded) return;
     try {
-      const token = await getToken();
-      if (!token) return;
-      const res = await fetch('/api/wearables/apple/export-history', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setExportHistory(data.history || []);
-      }
+      if (!(await getToken())) return;
+      const data = await apiOperationWithAuth(
+        'get_export_history_api_wearables_apple_export_history_get',
+        getToken,
+      ).then((payload) => payload as { history?: ExportHistoryEntry[] }).catch(() => null);
+      if (data) setExportHistory(data.history || []);
     } catch (err) {
       console.error('Failed to load export history:', err);
     } finally {
@@ -238,15 +229,12 @@ export function AppleWatchSettings() {
   );
 
   async function saveMetricPreferences(preferences: WearableMetricPreferences) {
-    const token = await getToken();
-    if (!token) throw new Error('Not authenticated');
-    const res = await fetch('/api/wearables/apple/metric-preferences', {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ preferences }),
-    });
-    if (!res.ok) throw new Error('Failed to save');
-    const data = await res.json();
+    if (!(await getToken())) throw new Error('Not authenticated');
+    const data = await apiOperationWithAuth(
+      'put_metric_preferences_api_wearables_apple_metric_preferences_put',
+      getToken,
+      { body: { preferences } },
+    ) as { effective_preferences?: WearableMetricPreferences; preferences?: WearableMetricPreferences };
     const nextPreferences = data.effective_preferences || data.preferences || preferences;
     setMetricPreferences(nextPreferences);
     setLastEnabledSyncModes((prev) =>
@@ -259,18 +247,18 @@ export function AppleWatchSettings() {
     projectionSourcePriority: string[],
     canonicalMetricType?: string | null,
   ) {
-    const token = await getToken();
-    if (!token) throw new Error('Not authenticated');
-    const res = await fetch(`/api/habits/${habitId}/projection-policy`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        canonical_metric_type: canonicalMetricType || null,
-        projection_source_priority: projectionSourcePriority,
-      }),
-    });
-    if (!res.ok) throw new Error('Failed to save source priority');
-    return (await res.json()) as HabitProjectionPolicy;
+    if (!(await getToken())) throw new Error('Not authenticated');
+    return await apiOperationWithAuth(
+      'put_habit_projection_policy_api_habits__habit_id__projection_policy_put',
+      getToken,
+      {
+        pathParams: { habit_id: habitId },
+        body: {
+          canonical_metric_type: canonicalMetricType || null,
+          projection_source_priority: projectionSourcePriority,
+        },
+      },
+    ) as HabitProjectionPolicy;
   }
 
   async function handleMetricModeChange(metricType: string, syncMode: WearableMetricSyncMode) {
@@ -406,11 +394,11 @@ export function AppleWatchSettings() {
         file_path: entry.file_path ?? null,
         error: entry.error ?? null,
       };
-      await fetch('/api/wearables/apple/export-history', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entry: fullEntry }),
-      });
+      await apiOperationWithAuth(
+        'add_export_history_api_wearables_apple_export_history_post',
+        getToken,
+        { body: { entry: fullEntry } },
+      );
       setExportHistory((prev) => [fullEntry, ...prev].slice(0, 50));
     } catch (err) {
       console.error('Failed to record export history:', err);
@@ -523,16 +511,13 @@ export function AppleWatchSettings() {
   async function saveExportSchedule(schedule: ExportSchedule | null) {
     setScheduleSaving(true);
     try {
-      const token = await getToken();
-      if (!token) throw new Error('Not authenticated');
-      const res = await fetch('/api/wearables/apple/export-schedule', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedule }),
-      });
-      if (!res.ok) throw new Error('Failed to save schedule');
-      const data = await res.json();
-      setExportSchedule(data.schedule);
+      if (!(await getToken())) throw new Error('Not authenticated');
+      const data = await apiOperationWithAuth(
+        'put_export_schedule_api_wearables_apple_export_schedule_put',
+        getToken,
+        { body: { schedule } },
+      ) as { schedule?: ExportSchedule };
+      setExportSchedule(data.schedule ?? null);
     } finally {
       setScheduleSaving(false);
     }
@@ -556,18 +541,19 @@ export function AppleWatchSettings() {
 
   async function handleSyncSettingsUpdate(updates: { auto_sync_enabled?: boolean; sync_hour?: number }) {
     try {
-      const token = await getToken();
-      if (!token) return;
+      if (!(await getToken())) return;
 
       const nextEnabled = updates.auto_sync_enabled ?? connection?.auto_sync_enabled ?? false;
       const nextHour = updates.sync_hour ?? connection?.sync_hour ?? 9;
 
-      const response = await fetch('/api/wearables/connections/apple_health/sync-settings', {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto_sync_enabled: nextEnabled, sync_hour: nextHour }),
-      });
-      if (!response.ok) throw new Error('Failed to update sync settings');
+      await apiOperationWithAuth(
+        'update_wearable_sync_settings_api_wearables_connections__provider__sync_settings_put',
+        getToken,
+        {
+          pathParams: { provider: 'apple_health' },
+          body: { auto_sync_enabled: nextEnabled, sync_hour: nextHour },
+        },
+      );
 
       queryClient.invalidateQueries({ queryKey: ['wearable-connections'] });
       queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
@@ -579,8 +565,7 @@ export function AppleWatchSettings() {
 
   async function handleDisconnect() {
     try {
-      const token = await getToken();
-      if (!token) return;
+      if (!(await getToken())) return;
 
       if (!confirm('Disconnect Apple Watch? You can reconnect using the Ritual iOS companion app.')) {
         return;
@@ -593,11 +578,12 @@ export function AppleWatchSettings() {
       }
 
       for (const device of devices) {
-        const response = await fetch(`/api/wearables/apple/devices/${device.device_id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (!response.ok) throw new Error('Failed to disconnect device');
+        if (!device.device_id) throw new Error('Failed to disconnect device');
+        await apiOperationWithAuth(
+          'deactivate_apple_device_api_wearables_apple_devices__device_id__delete',
+          getToken,
+          { pathParams: { device_id: device.device_id } },
+        );
       }
 
       queryClient.invalidateQueries({ queryKey: ['apple-watch-status'] });
