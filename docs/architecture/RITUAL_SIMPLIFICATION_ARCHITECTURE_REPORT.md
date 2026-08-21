@@ -88,7 +88,7 @@ Desktop
 | Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
 | Remaining projections documented | Tinybird inventory. Typesense deleted. MiniSearch stays for the in-modal picker. Dashboard Tinybird reads go through FastAPI + catch-all. |
 | Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS fixture budgets in `repo:check`; production code records launch milestones and process RSS. Live WKWebView five-trial captures are still release QA. |
-| LOC remeasured | Audit baseline 192,474. Current tokei buckets ~192.6k after product restores. Next compatibility BFF is 23/39. |
+| LOC remeasured | Audit baseline 192,474. Next BFF is 18/39 after unused import parsers were deleted. |
 | Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. The `ChatTurnEngine` wrapper is deleted; BFF routes call `handleChatStreamRequest` / SMS handlers. `chat-stream/*` remains the model-loop adapter behind the kernel. |
 
 ## Intentionally not done

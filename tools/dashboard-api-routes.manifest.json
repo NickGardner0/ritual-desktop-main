@@ -47,29 +47,9 @@
       "category": "voice-boundary",
       "reason": "Server-only Deepgram token minting endpoint."
     },
-    "apps/dashboard/app/api/import/apple-health/import/route.ts": {
-      "category": "import-boundary",
-      "reason": "Upload/import workflow boundary with file parsing and progress behavior."
-    },
-    "apps/dashboard/app/api/import/apple-health/parse/route.ts": {
-      "category": "import-boundary",
-      "reason": "Apple Health file parsing boundary."
-    },
-    "apps/dashboard/app/api/import/extract-from-image/route.ts": {
-      "category": "import-boundary",
-      "reason": "Server-side OCR/image extraction endpoint with provider credentials."
-    },
-    "apps/dashboard/app/api/import/import/route.ts": {
-      "category": "import-boundary",
-      "reason": "Import execution boundary for uploaded data."
-    },
-    "apps/dashboard/app/api/import/parse/route.ts": {
-      "category": "import-boundary",
-      "reason": "Generic file parsing boundary for import previews."
-    },
     "apps/dashboard/app/api/import/preview/route.ts": {
       "category": "import-boundary",
-      "reason": "Import preview boundary that handles uploaded payloads."
+      "reason": "Multipart file upload proxy for FastAPI import preview and staging."
     },
     "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
       "category": "oauth-callback",

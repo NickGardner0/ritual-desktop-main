@@ -123,14 +123,12 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (23)"]
+    BFF["/api/* BFF Routes (18)"]
     CatchAll["Catch-all FastAPI Proxy"]
-    Trigger[Trigger.dev Tasks]
   end
 
   subgraph node [Node Layer]
     ChatRT["@ritual/chat-runtime"]
-    ChatAPI["apps/chat-api :8787"]
   end
 
   subgraph backend [apps/backend — FastAPI]
@@ -146,7 +144,6 @@ flowchart TB
 
   subgraph secondary [Secondary Stores]
     TB[Tinybird]
-    TS[Typesense]
   end
 
   Desktop -->|webview| UI
@@ -158,12 +155,9 @@ flowchart TB
   BFF --> CatchAll
   CatchAll --> Routers
   BFF --> ChatRT
-  ChatAPI --> ChatRT
   ChatRT --> Routers
-  Trigger -->|internal auth| Routers
   Services --> DB
   Services --> TB
-  Services --> TS
   RitualDB -->|cloud sync outbox| DB
 ```
 
@@ -189,7 +183,7 @@ flowchart TB
 
 ### apps/dashboard — Next.js 16 (primary UI + BFF)
 
-**Role:** Product UI, API boundary, OAuth callbacks, import parsing, analytics queries, Trigger.dev host.
+**Role:** Product UI, typed BFF boundary, OAuth callbacks, streaming chat, multipart import preview.
 
 **Entry points:**
 
@@ -206,7 +200,7 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (23 — under the 39 CI budget):**
+**BFF API routes (18 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
@@ -215,7 +209,7 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | `backend-catchall` | OpenAPI-matched FastAPI proxy |
 | `analytics-boundary` | Remaining calendar summary composition |
 | `ai-streaming` | Chat stream, SMS, voice |
-| `import-boundary` | File import parsing |
+| `import-boundary` | Multipart FastAPI import preview proxy |
 | `oauth-callback` | Whoop, Tesla OAuth returns |
 | `webhook` | Sendblue webhooks |
 
@@ -597,22 +591,11 @@ IntegrationPlugin {
 
 ## Background jobs & async work
 
-### Trigger.dev (dashboard-hosted)
+### FastAPI scheduler
 
-**Config:** `apps/dashboard/trigger.config.ts` — project `proj_hctghowrtnzbnyrgoecx`
+Trigger.dev **code** is deleted. Recurring wearable, SMS, report, and workflow jobs run from FastAPI `background_tasks.py`. Disable the leftover Trigger.dev cloud project after deploy (`TRIGGER_DEV_OPS.md`).
 
-**6 scheduled tasks** (`src/trigger/`):
-
-| Task | Schedule | Backend endpoint |
-|------|----------|------------------|
-| `whoop-sync` | Hourly | Wearables sync |
-| `oura-sync` | Hourly | Wearables sync |
-| `garmin-sync` | Hourly | Wearables sync |
-| `plaid-sync` | Hourly | Financial sync |
-| `tesla-sync` | Hourly | Tesla data pull |
-| `proactive-sms` | Configurable | Proactive SMS generation |
-
-Pattern: `triggerBackendFetch()` with `INTERNAL_API_KEY` + privacy consent checks.
+Pattern: internal auth (`INTERNAL_API_KEY`) plus privacy consent checks. Workflow execution still POSTs to Next `/api/internal/workflows/execute` so the TypeScript executor can run.
 
 ### Backend background workers
 
@@ -674,7 +657,7 @@ Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `p
 
 ### 4. BFF route budget
 
-23/39 routes. Dedicated Next Tinybird analytics routes and leftover compatibility wrappers were moved to FastAPI plus the catch-all proxy.
+18/39 routes. Unused Next import parsers were deleted; live imports go through FastAPI preview/runs plus one multipart Next proxy.
 
 ### 5. Remaining Next analytics composition
 

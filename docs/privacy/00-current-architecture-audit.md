@@ -220,7 +220,6 @@ AI/cloud paths are not isolated to chat:
 - `apps/dashboard/app/api/chat/habits/route.ts` uses AI SDK/OpenAI to parse free-form habit logs and then writes logs/search phrases.
 - `apps/backend/services/screenshot_analyzer.py` sends screenshot bytes/base64 and habit context to Gemini or OpenAI and logs raw model responses.
 - `apps/backend/api/screenshot.py` handles screenshot preview/confirm flows.
-- `apps/dashboard/app/api/import/extract-from-image/route.ts` sends image data to OpenAI Vision.
 - `apps/dashboard/app/api/whisper/route.ts` sends audio to Groq Whisper or OpenAI Whisper.
 - `apps/dashboard/lib/voice/use-deepgram-dictation.ts` streams audio to Deepgram via WebSocket after fetching a token.
 - `apps/dashboard/app/api/calendar/summary/route.ts` uses OpenAI to summarize activity/calendar-like context.

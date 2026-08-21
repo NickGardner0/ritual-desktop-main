@@ -100,7 +100,12 @@
     "apps/dashboard/app/api/analytics/habits/logs/all/route.ts",
     "apps/dashboard/app/api/computer-activity/breakdown/route.ts",
     "apps/dashboard/app/api/integrations/whoop/sync/route.ts",
-    "apps/dashboard/app/api/search/route.ts"
+    "apps/dashboard/app/api/search/route.ts",
+    "apps/dashboard/app/api/import/parse/route.ts",
+    "apps/dashboard/app/api/import/apple-health/parse/route.ts",
+    "apps/dashboard/app/api/import/apple-health/import/route.ts",
+    "apps/dashboard/app/api/import/import/route.ts",
+    "apps/dashboard/app/api/import/extract-from-image/route.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

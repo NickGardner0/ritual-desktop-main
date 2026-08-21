@@ -89,6 +89,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Move remaining Tinybird analytics into FastAPI | Next summary/logs/daily-values/correlation/heart-rate routes | FastAPI payloads + catch-all | ~−1.2k Next, small FastAPI add | second Tinybird query owner in Next | none | Dashboard analytics reads FastAPI. Chat name-based correlation still uses Turso SQL |
 | Delete remaining Next compatibility BFF wrappers | logs/all, search, Whoop sync, computer-activity breakdown | FastAPI + catch-all / client shaping | ~−1.0k Next | extra Next owners for FastAPI work | none | Calendar summary remains a streaming OpenAI Next route. Search quick-actions live in FastAPI |
 | Delete unused correlation/list analytics client hooks | unused `useCorrelation` / `useHabitStats` / `useDailyBreakdown` | live `analyticsApi` fallbacks only | ~−150 | unused client wrappers | none | Expanded metrics still uses FastAPI correlation plus `getHabitStats`/`getDailyBreakdown` fallbacks |
+| Delete unused Next import parsers | parse, apple-health parse/import, extract-from-image, legacy import | FastAPI preview + runs | ~−1.1k Next | second XML/OCR import owner | `xml2js`, `fast-xml-parser`, unused form/toast/slider packages | Live import UI already posts multipart to FastAPI. Screenshot OCR is `screenshot_analyzer.py`. Keep Next `/api/import/preview` for FormData |
 
 ## Aggregate (this pass)
 
