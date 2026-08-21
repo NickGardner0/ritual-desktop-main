@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { openInBrowser } from '@/lib/native-gateway';
 import { formatErrorMessage } from '../../integrations-client.shared';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import type { IntegrationOrchestratorDeps, TeslaConnection } from '../types';
 
 type UseTeslaIntegrationParams = Pick<
@@ -183,19 +185,17 @@ function startPollingForTeslaConnection() {
         }
       }
 
-      const response = await fetch(`/api/integrations/tesla/status`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
+      const data = await apiOperationWithAuth(
+        'tesla_status_api_integrations_tesla_status_get',
+        getToken,
+      ) as { connected?: boolean };
 
-      if (response.ok) {
-        const data = await response.json();
-        if (data.connected) {
-          setTeslaConnected(true);
-          setTeslaConnecting(false);
-          refetchOverview();
-          stopTeslaPolling();
-          return;
-        }
+      if (data.connected) {
+        setTeslaConnected(true);
+        setTeslaConnecting(false);
+        refetchOverview();
+        stopTeslaPolling();
+        return;
       }
 
       if (pollCount >= maxPolls) {
@@ -214,13 +214,10 @@ async function handleTeslaSync() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`/api/integrations/tesla/sync`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    });
-
-    if (!response.ok) throw new Error('Tesla sync failed');
-    const result = await response.json();
+    const result = await apiOperationWithAuth(
+      'tesla_sync_api_integrations_tesla_sync_post',
+      getToken,
+    );
     console.log('Tesla sync result:', result);
     refetchOverview();
     fetchHabits();
@@ -245,18 +242,11 @@ async function handleTeslaBackfill() {
     const token = await getToken();
     if (!token) return;
 
-    const response = await fetch(`/api/integrations/tesla/backfill-odometer`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ previous_odometer: odometer, as_of_date: teslaBackfillDate }),
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      throw new Error(err.detail || 'Backfill failed');
-    }
-
-    const result = await response.json();
+    const result = await apiOperationWithAuth(
+      'tesla_backfill_odometer_api_integrations_tesla_backfill_odometer_post',
+      getToken,
+      { body: { previous_odometer: odometer, as_of_date: teslaBackfillDate } },
+    ) as { days_backfilled?: number; total_miles?: number; daily_average?: number };
     alert(`Backfilled ${result.days_backfilled} days (${result.total_miles} total miles, ~${result.daily_average} mi/day)`);
     setTeslaBackfillOdometer('');
     setTeslaBackfillDate('');
@@ -265,7 +255,16 @@ async function handleTeslaBackfill() {
     fetchHabitLogs();
   } catch (error) {
     console.error('Tesla backfill error:', error);
-    alert(`Backfill failed: ${formatErrorMessage(error, 'Unknown error')}`);
+    let message = formatErrorMessage(error, 'Unknown error');
+    if (error instanceof BackendClientError) {
+      try {
+        const parsed = JSON.parse(error.responseBody) as { detail?: string };
+        if (typeof parsed.detail === 'string' && parsed.detail) message = parsed.detail;
+      } catch {
+        // Keep the fallback message when FastAPI doesn't return JSON.
+      }
+    }
+    alert(`Backfill failed: ${message}`);
   } finally {
     setTeslaBackfilling(false);
   }
@@ -276,10 +275,10 @@ async function handleTeslaDisconnect() {
     const token = await getToken();
     if (!token) return;
 
-    await fetch(`/api/integrations/tesla`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    await apiOperationWithAuth(
+      'tesla_disconnect_api_integrations_tesla_delete',
+      getToken,
+    );
 
     setTeslaConnected(false);
     refetchOverview();

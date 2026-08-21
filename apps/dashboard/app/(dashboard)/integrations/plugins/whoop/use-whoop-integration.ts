@@ -7,7 +7,8 @@ import { openInBrowser } from '@/lib/native-gateway';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
-import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import {
   MAX_CUSTOM_WHOOP_DAYS,
   WhoopSyncFeedback,
@@ -15,9 +16,26 @@ import {
   buildWhoopSyncFeedbackMessage,
   formatErrorMessage,
   isLikelyReactEvent,
-  parseApiError,
 } from '../../integrations-client.shared';
 import type { IntegrationOrchestratorDeps, WearableConnection, WhoopStatusData } from '../types';
+
+function whoopApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof BackendClientError) {
+    try {
+      const payload = JSON.parse(error.responseBody) as {
+        detail?: string | { display_message?: string; error_message?: string; message?: string };
+      };
+      const detail = payload?.detail;
+      if (typeof detail === 'string' && detail.trim()) return detail;
+      if (detail && typeof detail === 'object') {
+        return detail.display_message || detail.error_message || detail.message || fallback;
+      }
+    } catch {
+      // Keep the fallback when FastAPI doesn't return JSON.
+    }
+  }
+  return formatErrorMessage(error, fallback);
+}
 
 type UseWhoopIntegrationParams = Pick<
   IntegrationOrchestratorDeps,
@@ -165,20 +183,18 @@ export function useWhoopIntegration({
           }
         }
 
-        const response = await fetch('/api/integrations/whoop/status', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const data = await apiOperationWithAuth(
+          'whoop_status_api_integrations_whoop_status_get',
+          getToken,
+        ) as { connected?: boolean };
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.connected) {
-            setWhoopConnected(true);
-            setWhoopConnecting(false);
-            refetchOverview();
-            stopPolling();
-            alert('Whoop connected successfully!');
-            return;
-          }
+        if (data.connected) {
+          setWhoopConnected(true);
+          setWhoopConnecting(false);
+          refetchOverview();
+          stopPolling();
+          alert('Whoop connected successfully!');
+          return;
         }
 
         if (pollCount >= maxPolls) {
@@ -302,22 +318,25 @@ export function useWhoopIntegration({
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), 90000);
 
-      const response = await fetch('/api/integrations/whoop/sync', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-          ...privacySettingsHeaders(),
+      const result = await apiOperationWithAuth(
+        'whoop_sync_api_integrations_whoop_sync_post',
+        getToken,
+        {
+          query: {
+            days_back: syncRequest.daysBack,
+            force_full_sync: 'forceFullSync' in syncRequest ? syncRequest.forceFullSync : undefined,
+            full_history: syncRequest.fullHistory,
+          },
+          signal: controller.signal,
         },
-        body: JSON.stringify(syncRequest),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response, 'Sync failed'));
-      }
-
-      const result = await response.json();
+        userId,
+      ) as {
+        data?: { counts?: Record<string, number> } & Record<string, number>;
+        data_freshness?: {
+          latest_upstream_sleep_date?: string | null;
+          latest_sleep_date?: string | null;
+        };
+      };
       const rawCounts = result.data?.counts || result.data || {};
       const syncCounts = {
         recovery: Number(rawCounts.recovery || 0),
@@ -361,7 +380,7 @@ export function useWhoopIntegration({
         error instanceof DOMException && error.name === 'AbortError'
           ? 'Sync timed out. The request took too long.'
           : 'Unknown error';
-      const message = `Sync failed: ${formatErrorMessage(error, fallbackMessage)}`;
+      const message = `Sync failed: ${whoopApiErrorMessage(error, fallbackMessage)}`;
       setWhoopSyncFeedback({ type: 'error', message });
       alert(message);
     } finally {
@@ -391,14 +410,10 @@ export function useWhoopIntegration({
         return;
       }
 
-      const response = await fetch('/api/integrations/whoop', {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error(await parseApiError(response, 'Failed to disconnect Whoop'));
-      }
+      await apiOperationWithAuth(
+        'whoop_disconnect_api_integrations_whoop_delete',
+        getToken,
+      );
 
       setWhoopConnected(false);
       refetchOverview();
@@ -406,7 +421,7 @@ export function useWhoopIntegration({
       alert('Whoop disconnected successfully');
     } catch (error) {
       console.error('Error disconnecting Whoop:', error);
-      alert(`Failed to disconnect: ${formatErrorMessage(error, 'Unknown error')}`);
+      alert(`Failed to disconnect: ${whoopApiErrorMessage(error, 'Unknown error')}`);
     }
   }, [callbackProcessedRef, getToken, refetchOverview]);
 

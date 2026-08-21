@@ -5,6 +5,7 @@ import { useAuth, useUser } from '@clerk/nextjs';
 import { invoke } from '@tauri-apps/api/core';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { QUERY_POLICY } from '@/lib/query-policies';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   deriveIphoneTimeIntegrationStatus,
   fetchJsonWithTimeout,
@@ -24,17 +25,12 @@ export function useWhoopStatus() {
   return useQuery({
     queryKey: ['whoop-status', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch('/api/integrations/whoop/status', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch Whoop status');
-      }
-
-      const data = await response.json();
-      return data; // return full status object
+      return await apiOperationWithAuth(
+        'whoop_status_api_integrations_whoop_status_get',
+        getToken,
+        {},
+        user?.id,
+      );
     },
     staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
