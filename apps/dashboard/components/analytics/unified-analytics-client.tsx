@@ -507,6 +507,7 @@ function UnifiedAnalyticsContent() {
         >
           <div className="pointer-events-auto w-full max-w-[660px]">
                 <AIHabitChat
+                onImportData={() => setShowImportModal(true)}
                 onHabitUpdate={async (habitData) => {
                   console.log('🎯 Habit update from AI:', habitData);
                   
