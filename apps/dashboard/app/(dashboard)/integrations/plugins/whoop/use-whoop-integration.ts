@@ -150,7 +150,7 @@ export function useWhoopIntegration({
         const sessionToken = oauthSessionTokenRef.current;
         if (sessionId && sessionToken) {
           const codeResponse = await fetch(
-            `/api/integrations/whoop/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`,
+            `/api/integrations/oauth/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`,
           );
 
           if (codeResponse.ok) {

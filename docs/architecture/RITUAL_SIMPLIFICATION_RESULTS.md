@@ -92,6 +92,8 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused Next import parsers | parse, apple-health parse/import, extract-from-image, legacy import | FastAPI preview + runs | ~−1.1k Next | second XML/OCR import owner | `xml2js`, `fast-xml-parser`, unused form/toast/slider packages | Live import UI already posts multipart to FastAPI. Screenshot OCR is `screenshot_analyzer.py` |
 | Collapse import preview onto the catch-all | Next `/api/import/preview` FormData wrapper | catch-all multipart forwarding | ~−100 Next | second FastAPI import proxy | unused analytics/onboarding shims | Catch-all preserves multipart bytes and boundary. JSON callers still send `application/json` |
 | Delete catch-all empty-payload fallbacks | GET stubs for connections/status/suggestions | FastAPI responses only | ~−40 | second invented BFF truth | leftover kibo-ui spinner wrapper | Dashed wearable path aliases remain. Whoop/Tesla OAuth code storage shares one in-memory store |
+| Collapse Whoop/Tesla OAuth code bridges | two store-code routes + duplicated callbacks | one store-code route + shared callback helper | ~−150 | two identical desktop OAuth bridges | none | Provider redirect URIs stay on `/whoop/callback` and `/tesla/callback` |
+| Delete unused wearable service facades | `unified_wearables_service.py` + `_impl.py` | `services.wearables_unified` only | ~−10 | unused compatibility re-export | none | Provider OAuth/sync behavior unchanged |
 
 ## Aggregate (this pass)
 

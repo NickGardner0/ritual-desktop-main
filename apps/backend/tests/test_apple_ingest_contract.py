@@ -8,7 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from schemas.wearables_apple import AppleIngestRequestV2, AppleIngestResponseV2, AppleSyncTelemetryRequest
-from services.unified_wearables_service import wearable_device_security_service
+from services.wearables_unified import wearable_device_security_service
 
 
 class AppleIngestContractTests(unittest.TestCase):

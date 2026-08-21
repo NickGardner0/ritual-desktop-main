@@ -68,10 +68,9 @@ if (!rustRuntime.includes("webview_rss_bytes") || !rustRuntime.includes("watcher
   errors.push("DesktopProcessMetrics is missing RSS fields");
 }
 
-const teslaStore = read("apps/dashboard/app/api/integrations/tesla/store-code/route.ts");
-const whoopStore = read("apps/dashboard/app/api/integrations/whoop/store-code/route.ts");
-if (teslaStore.includes("setInterval") || whoopStore.includes("setInterval")) {
-  errors.push("OAuth store-code routes must not keep process-level intervals");
+const oauthStore = read("apps/dashboard/lib/server/oauth-code-store.ts");
+if (oauthStore.includes("setInterval")) {
+  errors.push("OAuth store-code must not keep process-level intervals");
 }
 
 if (errors.length) {

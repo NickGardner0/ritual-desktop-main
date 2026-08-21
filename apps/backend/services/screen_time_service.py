@@ -15,7 +15,7 @@ from sqlalchemy import delete, func, select
 from database.connection import get_db_session
 from database.models import ScreenTimeRollupDB, WearableDeviceDB
 from schemas.screen_time import ScreenTimeIngestRequest, ScreenTimeIngestResult
-from services.unified_wearables_service import wearable_device_security_service
+from services.wearables_unified import wearable_device_security_service
 
 logger = logging.getLogger(__name__)
 

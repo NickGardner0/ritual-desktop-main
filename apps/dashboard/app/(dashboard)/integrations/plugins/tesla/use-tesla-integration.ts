@@ -168,7 +168,7 @@ function startPollingForTeslaConnection() {
       const sessionToken = oauthSessionTokenRef.current;
       if (sessionId && sessionToken) {
         const codeResponse = await fetch(
-          `/api/integrations/tesla/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`
+          `/api/integrations/oauth/store-code?sessionId=${encodeURIComponent(sessionId)}&sessionToken=${encodeURIComponent(sessionToken)}`
         );
 
         if (codeResponse.ok) {

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from services.token_crypto import token_crypto
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     wearable_connection_service,
     wearable_sync_service,
 )

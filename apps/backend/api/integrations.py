@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 
 from database.connection import get_db_session
 from database.models import WearableEventDB, WhoopIntegrationDB
-from services.unified_wearables_service import wearable_connection_service
+from services.wearables_unified import wearable_connection_service
 from services.activation_service import activation_service
 from services.wearable_provider_sync_registry import (
     WearableProviderSyncServices,

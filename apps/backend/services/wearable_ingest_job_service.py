@@ -19,7 +19,7 @@ from database.models import (
 )
 from services.garmin_service import garmin_service
 from services.oura_service import oura_service
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     PROVIDER_CAPABILITIES,
     wearable_connection_service,
     wearable_sync_service,

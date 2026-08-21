@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     WearableNormalizationService,
     WearableProjectionService,
     build_wearable_outbox_event_for_event,

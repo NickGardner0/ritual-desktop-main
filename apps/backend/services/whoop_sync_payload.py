@@ -15,7 +15,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from database.connection import get_db_session
 from database.models import WhoopIntegrationDB
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     wearable_connection_service,
     wearable_sync_service,
 )

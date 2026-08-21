@@ -46,21 +46,17 @@
       "category": "voice-boundary",
       "reason": "Server-only Deepgram token minting endpoint."
     },
+    "apps/dashboard/app/api/integrations/oauth/store-code/route.ts": {
+      "category": "oauth-callback",
+      "reason": "Temporary OAuth code bridge for desktop Whoop and Tesla polling."
+    },
     "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
       "category": "oauth-callback",
       "reason": "Third-party OAuth callback boundary."
     },
-    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts": {
-      "category": "oauth-callback",
-      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
-    },
     "apps/dashboard/app/api/integrations/whoop/callback/route.ts": {
       "category": "oauth-callback",
       "reason": "Third-party OAuth callback boundary."
-    },
-    "apps/dashboard/app/api/integrations/whoop/store-code/route.ts": {
-      "category": "oauth-callback",
-      "reason": "OAuth code storage bridge for the desktop/dashboard flow."
     },
     "apps/dashboard/app/api/internal/workflows/execute/route.ts": {
       "category": "internal-trigger",

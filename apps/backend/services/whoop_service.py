@@ -24,7 +24,7 @@ from services.whoop_sync_payload import (
     latest_sleep_record_metadata,
     write_whoop_sync_payload as write_whoop_sync_payload_impl,
 )
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     wearable_connection_service,
 )
 

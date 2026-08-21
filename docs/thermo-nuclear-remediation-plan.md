@@ -393,7 +393,7 @@ npm run typecheck:chat-api
 **Work:**
 - Flip CI dashboard line budget: `RITUAL_DASHBOARD_FILE_LINE_BUDGET=800` in [ci.yml](.github/workflows/ci.yml)
 - Add Rust line budget script (optional, warn at 1000)
-- Remove dead compat facades if safe: [unified_wearables_service_impl.py](apps/backend/services/unified_wearables_service_impl.py) (4 lines — verify unused)
+- Removed dead wearable compat facades: `unified_wearables_service.py` and `unified_wearables_service_impl.py`. Callers import `services.wearables_unified` directly.
 - Update [README.md](README.md) architecture section (minimal — where API client, plugins, capabilities live)
 - Re-run baseline comparison: line counts, `any` count, direct fetch count
 

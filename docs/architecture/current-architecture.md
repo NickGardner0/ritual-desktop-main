@@ -123,7 +123,7 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (17)"]
+    BFF["/api/* BFF Routes (16)"]
     CatchAll["Catch-all FastAPI Proxy"]
   end
 
@@ -200,7 +200,7 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (17 — under the 39 CI budget):**
+**BFF API routes (16 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
@@ -655,7 +655,7 @@ Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `p
 
 ### 4. BFF route budget
 
-17/39 routes. File imports go through the OpenAPI catch-all; the catch-all forwards multipart bodies without rewriting JSON content-type.
+16/39 routes. File imports go through the OpenAPI catch-all; Whoop/Tesla desktop OAuth codes share one store-code route.
 
 ### 5. Remaining Next analytics composition
 

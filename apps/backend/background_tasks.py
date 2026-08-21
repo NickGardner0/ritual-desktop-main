@@ -40,7 +40,7 @@ async def internal_scheduler_loop(tesla_service) -> None:
 
         try:
             from services.whoop_service import whoop_service as _whoop
-            from services.unified_wearables_service import wearable_connection_service as _wc
+            from services.wearables_unified import wearable_connection_service as _wc
             from database.models import WhoopIntegrationDB
             from sqlalchemy import select as _sel
             import json as _json
@@ -379,7 +379,7 @@ async def wearable_maintenance_loop() -> None:
 
     while True:
         try:
-            from services.unified_wearables_service import wearable_sync_service
+            from services.wearables_unified import wearable_sync_service
             from services.wearable_maintenance_service import wearable_maintenance_service
 
             run = await wearable_sync_service.start_sync_run(

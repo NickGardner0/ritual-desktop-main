@@ -20,6 +20,7 @@ function IntegrationSuccessContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'processing' | 'success' | 'error'>('processing');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const providerLabel = searchParams.get('provider') === 'tesla' ? 'Tesla' : 'Whoop';
 
   useEffect(() => {
     const code = searchParams.get('code');
@@ -65,7 +66,7 @@ function IntegrationSuccessContent() {
     try {
       devLog('💾 Storing OAuth code for session:', sessionId);
 
-      const response = await fetch('/api/integrations/whoop/store-code', {
+      const response = await fetch('/api/integrations/oauth/store-code', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -180,7 +181,7 @@ function IntegrationSuccessContent() {
           </h1>
           
           <p className="mb-8 text-sm leading-6 text-black/55">
-            Your Whoop integration has been connected successfully.
+            Your {providerLabel} integration has been connected successfully.
           </p>
 
           <div className="mb-6 rounded-xl border border-black/10 bg-black/[0.03] p-5 text-left">

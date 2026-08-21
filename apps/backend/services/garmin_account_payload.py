@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from services.token_crypto import token_crypto
-from services.unified_wearables_service import wearable_connection_service
+from services.wearables_unified import wearable_connection_service
 
 
 async def fetch_garmin_account_payload(service: Any, user_id: str) -> Dict[str, Any]:

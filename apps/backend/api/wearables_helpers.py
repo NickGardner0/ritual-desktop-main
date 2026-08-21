@@ -97,7 +97,7 @@ ALL_METRIC_TYPES = set(METRIC_INFO.keys())
 
 
 def default_apple_metric_sync_mode(metric_type: str) -> str:
-    from services.unified_wearables_service import default_sync_mode_for_provider_metric
+    from services.wearables_unified import default_sync_mode_for_provider_metric
 
     return default_sync_mode_for_provider_metric("apple_health", metric_type)
 
@@ -397,7 +397,7 @@ def build_tracked_metrics_contract(
     preferences: dict[str, dict[str, str]],
     habit_metric_types: set[str],
 ) -> dict[str, dict[str, Any]]:
-    from services.unified_wearables_service import build_wearable_sync_plan
+    from services.wearables_unified import build_wearable_sync_plan
 
     metrics: dict[str, dict[str, Any]] = {
         metric_type: {

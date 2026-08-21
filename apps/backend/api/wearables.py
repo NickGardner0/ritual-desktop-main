@@ -35,7 +35,7 @@ def create_wearables_router(
     from services.activation_service import activation_service
     from services.garmin_service import garmin_service
     from services.oura_service import oura_service
-    from services.unified_wearables_service import (
+    from services.wearables_unified import (
         wearable_apple_ingest_service,
         wearable_connection_service,
         wearable_device_security_service,

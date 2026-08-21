@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 
 from database.connection import get_db_session
 from database.models import WearableEventDB, WearableRawPayloadDB, WearableSampleDB
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     BUCKET_15M_RETENTION_DAYS,
     BUCKET_1H_RETENTION_DAYS,
     RAW_RETENTION_DAYS,

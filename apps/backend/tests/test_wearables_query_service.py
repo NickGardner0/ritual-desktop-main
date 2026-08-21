@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from services.unified_wearables_service import WearableQueryService
+from services.wearables_unified import WearableQueryService
 from schemas.wearables_unified import WearableQueryParams
 
 

@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from services.token_crypto import token_crypto
-from services.unified_wearables_service import (
+from services.wearables_unified import (
     wearable_connection_service,
 )
 from services import oura_sync_payload

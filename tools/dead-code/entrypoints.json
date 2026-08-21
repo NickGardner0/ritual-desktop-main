@@ -111,7 +111,9 @@
     "apps/dashboard/components/analytics/use-metrics-data-effects.ts",
     "apps/dashboard/components/analytics/use-metrics-expanded-effects.ts",
     "apps/dashboard/components/onboarding/ritual-glass-mark.tsx",
-    "apps/dashboard/components/ui/kibo-ui/spinner/index.tsx"
+    "apps/dashboard/components/ui/kibo-ui/spinner/index.tsx",
+    "apps/dashboard/app/api/integrations/whoop/store-code/route.ts",
+    "apps/dashboard/app/api/integrations/tesla/store-code/route.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
