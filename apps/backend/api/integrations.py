@@ -23,6 +23,7 @@ from services.privacy_policy import (
     request_cloud_consents,
     request_privacy_mode,
 )
+from services.whoop_sync_request import resolve_whoop_sync_options
 
 logger = logging.getLogger(__name__)
 
@@ -235,6 +236,21 @@ def create_whoop_router(
     ):
         try:
             _enforce_provider_sync_consent(request)
+            body: dict[str, Any] = {}
+            content_type = (request.headers.get("content-type") or "").lower()
+            if content_type.startswith("application/json"):
+                try:
+                    raw_body = await request.json()
+                    if isinstance(raw_body, dict):
+                        body = raw_body
+                except Exception:
+                    body = {}
+            days_back, force_full_sync, full_history = resolve_whoop_sync_options(
+                days_back=days_back,
+                force_full_sync=force_full_sync,
+                full_history=full_history,
+                body=body,
+            )
             sync_type = "smart incremental"
             if full_history:
                 sync_type = "full history"

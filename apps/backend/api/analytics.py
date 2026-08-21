@@ -81,6 +81,48 @@ def create_analytics_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
+    @router.get("/habits/logs/all")
+    @limiter.limit("20/minute")
+    async def get_habit_logs_all(
+        request: Request,
+        q: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        categories: Optional[str] = None,
+        habits: Optional[str] = None,
+        statuses: Optional[str] = None,
+        sources: Optional[str] = None,
+        sort: str = "time",
+        order: str = "desc",
+        timezone: Optional[str] = None,
+        limit: int = Query(200, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            from services.habit_logs_all_service import habit_logs_all_service
+
+            return await habit_logs_all_service.get_habit_logs_all(
+                current_user["id"],
+                q=q,
+                start_date=start_date,
+                end_date=end_date,
+                categories=categories,
+                habits=habits,
+                statuses=statuses,
+                sources=sources,
+                sort=sort,
+                order=order,
+                timezone_name=timezone or "UTC",
+                limit=limit,
+                offset=offset,
+            )
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("Habit logs/all failed for user=%s", current_user["id"])
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
     @router.get("/habits/daily-values")
     @limiter.limit("20/minute")
     async def get_habit_daily_values(

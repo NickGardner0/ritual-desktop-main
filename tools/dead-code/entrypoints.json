@@ -96,7 +96,11 @@
     "apps/dashboard/app/api/analytics/habits/logs/route.ts",
     "apps/dashboard/app/api/analytics/habits/summary/route.ts",
     "apps/dashboard/app/api/analytics/heart-rate/series/route.ts",
-    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts"
+    "apps/dashboard/app/api/analytics/heart-rate/summary/route.ts",
+    "apps/dashboard/app/api/analytics/habits/logs/all/route.ts",
+    "apps/dashboard/app/api/computer-activity/breakdown/route.ts",
+    "apps/dashboard/app/api/integrations/whoop/sync/route.ts",
+    "apps/dashboard/app/api/search/route.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

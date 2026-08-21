@@ -123,7 +123,7 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (27)"]
+    BFF["/api/* BFF Routes (23)"]
     CatchAll["Catch-all FastAPI Proxy"]
     Trigger[Trigger.dev Tasks]
   end
@@ -206,7 +206,7 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (27 — under the 39 CI budget):**
+**BFF API routes (23 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
@@ -674,11 +674,11 @@ Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `p
 
 ### 4. BFF route budget
 
-27/39 routes. Dedicated Next Tinybird analytics routes were moved to FastAPI plus the catch-all proxy.
+23/39 routes. Dedicated Next Tinybird analytics routes and leftover compatibility wrappers were moved to FastAPI plus the catch-all proxy.
 
 ### 5. Remaining Next analytics composition
 
-`/api/analytics/habits/logs/all` still aggregates habit + wearable timelines in Next. Calendar summary remains an analytics-boundary route. Dashboard Tinybird reads otherwise go through FastAPI.
+Calendar summary remains a streaming OpenAI Next route. Dashboard Tinybird reads go through FastAPI.
 
 ### 6. Underused shared contracts
 

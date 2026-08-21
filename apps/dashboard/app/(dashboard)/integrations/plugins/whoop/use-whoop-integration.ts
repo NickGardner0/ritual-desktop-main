@@ -318,7 +318,13 @@ export function useWhoopIntegration({
       }
 
       const result = await response.json();
-      const syncCounts = result.data?.counts || {};
+      const rawCounts = result.data?.counts || result.data || {};
+      const syncCounts = {
+        recovery: Number(rawCounts.recovery || 0),
+        sleep: Number(rawCounts.sleep || 0),
+        workouts: Number(rawCounts.workouts || 0),
+        cycles: Number(rawCounts.cycles || 0),
+      };
       const syncLabel = syncRequest.fullHistory
         ? 'full history'
         : syncRequest.daysBack

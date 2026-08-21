@@ -1,6 +1,6 @@
 # Tinybird projections
 
-Tinybird is the remaining analytics projection. Core mutations commit in Turso first. If Tinybird is down, writes still succeed and ingest is retried from service buffers. Dashboard `/api/analytics/*` reads go through FastAPI plus the Next catch-all proxy, except the remaining `/api/analytics/habits/logs/all` compatibility aggregator.
+Tinybird is the remaining analytics projection. Core mutations commit in Turso first. If Tinybird is down, writes still succeed and ingest is retried from service buffers. Dashboard `/api/analytics/*` reads go through FastAPI plus the Next catch-all proxy.
 
 | Pipe / datasource | User-visible caller | Why SQL is not enough | Freshness | Source event | Rebuild | Unavailable behavior |
 |---|---|---|---|---|---|---|

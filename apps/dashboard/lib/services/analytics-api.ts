@@ -7,10 +7,6 @@
 
 import { apiFetch } from '@/lib/api/client';
 
-// ====================
-// TYPES
-// ====================
-
 export interface HabitStats {
   id: string;
   name: string;
@@ -78,58 +74,6 @@ export interface DailyBreakdownResponse {
   daily_data?: DailyDataPoint[];
 }
 
-export interface CorrelationResponse {
-  success: boolean;
-  error?: string;
-  available_habits?: string[];
-  habits?: {
-    habit1: { id: string; name: string; unit: string };
-    habit2: { id: string; name: string; unit: string };
-  };
-  date_range?: {
-    start: string;
-    end: string;
-  };
-  correlation?: {
-    coefficient: number;
-    strength: string;
-    direction: string;
-    interpretation: string;
-  };
-  data_points?: {
-    habit1_days: number;
-    habit2_days: number;
-    overlapping_days: number;
-  };
-  habit1_stats?: {
-    mean: number;
-    total: number;
-  };
-  habit2_stats?: {
-    mean: number;
-    total: number;
-  };
-}
-
-export interface HabitListItem {
-  id: string;
-  name: string;
-  category: string | null;
-  unit: string | null;
-  integration_source: string | null;
-}
-
-export interface ListHabitsResponse {
-  success: boolean;
-  total_habits: number;
-  by_category: Record<string, HabitListItem[]>;
-  habits: HabitListItem[];
-}
-
-// ====================
-// API CLIENT
-// ====================
-
 class AnalyticsApiClient {
   private async fetch<T>(endpoint: string, token: string, params?: Record<string, string | number | undefined>): Promise<T> {
     const searchParams = new URLSearchParams();
@@ -153,7 +97,6 @@ class AnalyticsApiClient {
     });
 
     if (!response.ok) {
-      // Propagate failures so the UI can render explicit error states.
       if (response.status === 429) {
         throw new Error('Analytics API rate limited (429). Please retry shortly.');
       }
@@ -165,9 +108,6 @@ class AnalyticsApiClient {
     return response.json();
   }
 
-  /**
-   * Get comprehensive statistics for one or all habits
-   */
   async getHabitStats(
     token: string,
     options?: {
@@ -187,9 +127,6 @@ class AnalyticsApiClient {
     });
   }
 
-  /**
-   * Get day-by-day breakdown for a specific habit
-   */
   async getDailyBreakdown(
     token: string,
     options: {
@@ -210,160 +147,6 @@ class AnalyticsApiClient {
       timezone: options.timezone,
     });
   }
-
-  /**
-   * Calculate correlation between two habits
-   */
-  async getCorrelation(
-    token: string,
-    options: {
-      habit1Id?: string;
-      habit1Name?: string;
-      habit2Id?: string;
-      habit2Name?: string;
-      daysBack?: number;
-    }
-  ): Promise<CorrelationResponse> {
-    return this.fetch<CorrelationResponse>('/api/analytics/correlation', token, {
-      habit1_id: options.habit1Id,
-      habit1_name: options.habit1Name,
-      habit2_id: options.habit2Id,
-      habit2_name: options.habit2Name,
-      days_back: options.daysBack,
-    });
-  }
-
-  /**
-   * List all habits for the user
-   */
-  async listHabits(token: string): Promise<ListHabitsResponse> {
-    return this.fetch<ListHabitsResponse>('/api/analytics/list-habits', token);
-  }
 }
 
-// Export singleton instance
 export const analyticsApi = new AnalyticsApiClient();
-
-// ====================
-// REACT HOOKS
-// ====================
-
-import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from '@clerk/nextjs';
-
-export function useHabitStats(options?: {
-  habitId?: string;
-  habitName?: string;
-  startDate?: string;
-  endDate?: string;
-  daysBack?: number;
-  enabled?: boolean;
-}) {
-  const { getToken } = useAuth();
-  const [data, setData] = useState<HabitStatsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchStats = useCallback(async () => {
-    if (options?.enabled === false) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const token = await getToken();
-      if (!token) throw new Error('Not authenticated');
-      
-      const result = await analyticsApi.getHabitStats(token, options);
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }, [getToken, options?.habitId, options?.habitName, options?.startDate, options?.endDate, options?.daysBack, options?.enabled]);
-
-  useEffect(() => {
-    fetchStats();
-  }, [fetchStats]);
-
-  return { data, loading, error, refetch: fetchStats };
-}
-
-export function useDailyBreakdown(options: {
-  habitId?: string;
-  habitName?: string;
-  daysBack?: number;
-  enabled?: boolean;
-}) {
-  const { getToken } = useAuth();
-  const [data, setData] = useState<DailyBreakdownResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchBreakdown = useCallback(async () => {
-    if (options?.enabled === false) return;
-    if (!options.habitId && !options.habitName) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const token = await getToken();
-      if (!token) throw new Error('Not authenticated');
-      
-      const result = await analyticsApi.getDailyBreakdown(token, options);
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }, [getToken, options.habitId, options.habitName, options.daysBack, options?.enabled]);
-
-  useEffect(() => {
-    fetchBreakdown();
-  }, [fetchBreakdown]);
-
-  return { data, loading, error, refetch: fetchBreakdown };
-}
-
-export function useCorrelation(options: {
-  habit1Id?: string;
-  habit1Name?: string;
-  habit2Id?: string;
-  habit2Name?: string;
-  daysBack?: number;
-  enabled?: boolean;
-}) {
-  const { getToken } = useAuth();
-  const [data, setData] = useState<CorrelationResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchCorrelation = useCallback(async () => {
-    if (options?.enabled === false) return;
-    if ((!options.habit1Id && !options.habit1Name) || (!options.habit2Id && !options.habit2Name)) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const token = await getToken();
-      if (!token) throw new Error('Not authenticated');
-      
-      const result = await analyticsApi.getCorrelation(token, options);
-      setData(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  }, [getToken, options.habit1Id, options.habit1Name, options.habit2Id, options.habit2Name, options.daysBack, options?.enabled]);
-
-  useEffect(() => {
-    fetchCorrelation();
-  }, [fetchCorrelation]);
-
-  return { data, loading, error, refetch: fetchCorrelation };
-}
