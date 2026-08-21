@@ -29,6 +29,7 @@ let buildBackendAuthHeaders;
 let matchBackendOpenApiPath;
 let resolveBackendProxyPath;
 let getBackendProxyCompatibilityFallback;
+let resolveProxyForwarding;
 try {
   // tsx can resolve TS files with relative paths
   const authMod = await import("../lib/server/backend-auth.ts");
@@ -38,6 +39,7 @@ try {
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
   getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
+  resolveProxyForwarding = authMod.resolveProxyForwarding;
   realImport = true;
 } catch {
   // Fallback: replicate the logic
@@ -50,6 +52,7 @@ try {
   };
   matchBackendOpenApiPath = (path) => {
     if (path === "/api/artifacts") return "/api/artifacts";
+    if (path === "/api/import/preview") return "/api/import/preview";
     if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
@@ -69,6 +72,14 @@ try {
     }
     if (method === "GET" && path === "/api/wearables/connections") return { connections: [] };
     return undefined;
+  };
+  resolveProxyForwarding = (contentTypeHeader) => {
+    const contentType = contentTypeHeader?.trim() || "";
+    const isMultipart = contentType.toLowerCase().includes("multipart/form-data");
+    return {
+      isMultipart,
+      contentType: isMultipart ? contentType : "application/json",
+    };
   };
 }
 
@@ -179,6 +190,25 @@ describe("Fast-path forwarded headers", () => {
       if (origKey === undefined) delete process.env.INTERNAL_API_KEY;
       else process.env.INTERNAL_API_KEY = origKey;
     }
+  });
+});
+
+describe("Catch-all body forwarding", () => {
+  test("keeps JSON content-type for ordinary mutating calls", () => {
+    const forwarding = resolveProxyForwarding("application/json");
+    assert.equal(forwarding.isMultipart, false);
+    assert.equal(forwarding.contentType, "application/json");
+  });
+
+  test("preserves multipart content-type and boundary for import uploads", () => {
+    const header = "multipart/form-data; boundary=----RitualBoundary";
+    const forwarding = resolveProxyForwarding(header);
+    assert.equal(forwarding.isMultipart, true);
+    assert.equal(forwarding.contentType, header);
+  });
+
+  test("routes import preview through the OpenAPI catch-all", () => {
+    assert.equal(matchBackendOpenApiPath("/api/import/preview"), "/api/import/preview");
   });
 });
 

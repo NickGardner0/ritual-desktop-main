@@ -105,7 +105,12 @@
     "apps/dashboard/app/api/import/apple-health/parse/route.ts",
     "apps/dashboard/app/api/import/apple-health/import/route.ts",
     "apps/dashboard/app/api/import/import/route.ts",
-    "apps/dashboard/app/api/import/extract-from-image/route.ts"
+    "apps/dashboard/app/api/import/extract-from-image/route.ts",
+    "apps/dashboard/app/api/import/preview/route.ts",
+    "apps/dashboard/components/analytics/metrics-view.impl.tsx",
+    "apps/dashboard/components/analytics/use-metrics-data-effects.ts",
+    "apps/dashboard/components/analytics/use-metrics-expanded-effects.ts",
+    "apps/dashboard/components/onboarding/ritual-glass-mark.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

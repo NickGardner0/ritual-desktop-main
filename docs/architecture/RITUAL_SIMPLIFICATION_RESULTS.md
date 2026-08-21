@@ -89,7 +89,8 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Move remaining Tinybird analytics into FastAPI | Next summary/logs/daily-values/correlation/heart-rate routes | FastAPI payloads + catch-all | ~−1.2k Next, small FastAPI add | second Tinybird query owner in Next | none | Dashboard analytics reads FastAPI. Chat name-based correlation still uses Turso SQL |
 | Delete remaining Next compatibility BFF wrappers | logs/all, search, Whoop sync, computer-activity breakdown | FastAPI + catch-all / client shaping | ~−1.0k Next | extra Next owners for FastAPI work | none | Calendar summary remains a streaming OpenAI Next route. Search quick-actions live in FastAPI |
 | Delete unused correlation/list analytics client hooks | unused `useCorrelation` / `useHabitStats` / `useDailyBreakdown` | live `analyticsApi` fallbacks only | ~−150 | unused client wrappers | none | Expanded metrics still uses FastAPI correlation plus `getHabitStats`/`getDailyBreakdown` fallbacks |
-| Delete unused Next import parsers | parse, apple-health parse/import, extract-from-image, legacy import | FastAPI preview + runs | ~−1.1k Next | second XML/OCR import owner | `xml2js`, `fast-xml-parser`, unused form/toast/slider packages | Live import UI already posts multipart to FastAPI. Screenshot OCR is `screenshot_analyzer.py`. Keep Next `/api/import/preview` for FormData |
+| Delete unused Next import parsers | parse, apple-health parse/import, extract-from-image, legacy import | FastAPI preview + runs | ~−1.1k Next | second XML/OCR import owner | `xml2js`, `fast-xml-parser`, unused form/toast/slider packages | Live import UI already posts multipart to FastAPI. Screenshot OCR is `screenshot_analyzer.py` |
+| Collapse import preview onto the catch-all | Next `/api/import/preview` FormData wrapper | catch-all multipart forwarding | ~−100 Next | second FastAPI import proxy | unused analytics/onboarding shims | Catch-all preserves multipart bytes and boundary. JSON callers still send `application/json` |
 
 ## Aggregate (this pass)
 
@@ -122,7 +123,7 @@ Tests do not count against production reduction.
 
 1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads.
-3. `@mui/icons-material` and Lucide both remain (real call sites). Paper shaders remain on the onboarding logo. No giant icon rewrite.
+3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
 5. Authored production LOC remasured at ~192.6k with the same tokei buckets (generated client omitted). The earlier ~184k snapshot predates restored product (voice HUD, composer, privacy). Remaining fat is live product plus calendar/OpenAI streaming in Next, not unused deployables.
 6. Five-trial CI budgets gate fixture medians plus production launch/RSS instrumentation. Replacing those fixtures with live WKWebView captures is release QA, not missing architecture.

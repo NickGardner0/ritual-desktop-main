@@ -45,6 +45,7 @@ describe("dashboard API route manifest", () => {
       "apps/dashboard/app/api/import/extract-from-image/route.ts",
       "apps/dashboard/app/api/import/import/route.ts",
       "apps/dashboard/app/api/import/parse/route.ts",
+      "apps/dashboard/app/api/import/preview/route.ts",
       "apps/dashboard/app/api/integrations/whoop/status/route.ts",
       "apps/dashboard/app/api/integrations/whoop/sync/route.ts",
       "apps/dashboard/app/api/search/habits/route.ts",

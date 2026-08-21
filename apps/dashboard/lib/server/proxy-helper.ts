@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getServerBackendBaseUrl } from "@/lib/api/server-client";
-import { buildBackendAuthHeaders } from "@/lib/server/backend-auth";
+import { buildBackendAuthHeaders, resolveProxyForwarding } from "@/lib/server/backend-auth";
 import { createProxiedSuccessResponse } from "@/lib/server/proxy-response";
 
 const FORCE_FRESH_COOKIE = "ritual_force_fresh_until";
@@ -58,20 +58,29 @@ export async function forwardProxyRequest(
 
     // --- Forward to backend ---
     const url = `${getServerBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const forwarding = resolveProxyForwarding(request.headers.get("content-type"));
 
     const fetchInit: RequestInit = {
       method,
       cache: "no-store",
       headers: {
-        ...buildBackendAuthHeaders({ userId, token, forceFresh }),
+        ...buildBackendAuthHeaders({
+          userId,
+          token,
+          forceFresh,
+          contentType: forwarding.contentType,
+        }),
         ...forwardPrivacyHeaders(request),
       },
       signal: AbortSignal.timeout(timeout),
     };
 
-    // Forward body for non-GET methods
+    // Forward body for non-GET methods. Multipart must keep the original
+    // bytes and boundary; JSON callers keep the existing text/json path.
     if (method !== "GET" && method !== "HEAD") {
-      fetchInit.body = await request.text();
+      fetchInit.body = forwarding.isMultipart
+        ? await request.arrayBuffer()
+        : await request.text();
     }
 
     const response = await fetch(url, fetchInit);
@@ -93,10 +102,15 @@ export async function forwardProxyRequest(
         status: response.status,
         body: errorText.slice(0, 300),
       });
-      return NextResponse.json(
-        { error: errorText || `Backend error` },
-        { status: response.status },
-      );
+      let errorPayload: unknown = { error: errorText || "Backend error" };
+      if (errorText) {
+        try {
+          errorPayload = JSON.parse(errorText);
+        } catch {
+          // Keep the wrapped string for non-JSON backend failures.
+        }
+      }
+      return NextResponse.json(errorPayload, { status: response.status });
     }
 
     const nextResponse = createProxiedSuccessResponse(response);

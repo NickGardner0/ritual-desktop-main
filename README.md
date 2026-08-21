@@ -7,7 +7,7 @@ Monorepo for Ritual: dashboard (Next.js), desktop (Tauri), backend (FastAPI), iO
 | Layer | Location | Notes |
 |-------|----------|-------|
 | Browser API | [`apps/dashboard/lib/api/client.ts`](apps/dashboard/lib/api/client.ts) | All client fetches use `/api` BFF proxy |
-| Server/trigger API | [`lib/api/server-client.ts`](apps/dashboard/lib/api/server-client.ts), [`lib/api/trigger-client.ts`](apps/dashboard/lib/api/trigger-client.ts) | Direct backend URL only here |
+| Server API | [`lib/api/server-client.ts`](apps/dashboard/lib/api/server-client.ts) | Direct backend URL only here |
 | Shared DTOs | [`packages/shared-contracts`](packages/shared-contracts) | Habits, computer activity, etc. |
 | Integrations UI | [`apps/dashboard/app/(dashboard)/integrations/plugins/`](apps/dashboard/app/(dashboard)/integrations/plugins/) | Plugin registry per provider |
 | Desktop capabilities | [`apps/dashboard/lib/desktop-capabilities.tsx`](apps/dashboard/lib/desktop-capabilities.tsx) | `useDesktopCapabilities()` instead of scattered `isTauri()` |

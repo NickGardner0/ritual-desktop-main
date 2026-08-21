@@ -8,7 +8,6 @@
     "auth-boundary",
     "compatibility",
     "email-boundary",
-    "import-boundary",
     "internal-trigger",
     "oauth-callback",
     "voice-boundary",
@@ -46,10 +45,6 @@
     "apps/dashboard/app/api/deepgram/token/route.ts": {
       "category": "voice-boundary",
       "reason": "Server-only Deepgram token minting endpoint."
-    },
-    "apps/dashboard/app/api/import/preview/route.ts": {
-      "category": "import-boundary",
-      "reason": "Multipart file upload proxy for FastAPI import preview and staging."
     },
     "apps/dashboard/app/api/integrations/tesla/callback/route.ts": {
       "category": "oauth-callback",

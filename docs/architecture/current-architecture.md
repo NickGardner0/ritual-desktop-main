@@ -123,7 +123,7 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (18)"]
+    BFF["/api/* BFF Routes (17)"]
     CatchAll["Catch-all FastAPI Proxy"]
   end
 
@@ -200,7 +200,7 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (18 — under the 39 CI budget):**
+**BFF API routes (17 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
@@ -209,7 +209,6 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | `backend-catchall` | OpenAPI-matched FastAPI proxy |
 | `analytics-boundary` | Remaining calendar summary composition |
 | `ai-streaming` | Chat stream, SMS, voice |
-| `import-boundary` | Multipart FastAPI import preview proxy |
 | `oauth-callback` | Whoop, Tesla OAuth returns |
 | `webhook` | Sendblue webhooks |
 
@@ -219,7 +218,6 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 |------|----------------|
 | `lib/api/client.ts` | Browser → `/api/*` (no direct backend URL) |
 | `lib/api/server-client.ts` | Server components → backend URL |
-| `lib/api/trigger-client.ts` | Trigger.dev → backend with consent checks |
 | `lib/api/generated/backend-client.ts` | OpenAPI-generated typed client |
 | `lib/desktop-capabilities.tsx` | Canonical Tauri detection/invocation |
 | `lib/desktop-bridge/commands.ts` | `invokeDesktopCommand()` wrapper |
@@ -657,7 +655,7 @@ Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `p
 
 ### 4. BFF route budget
 
-18/39 routes. Unused Next import parsers were deleted; live imports go through FastAPI preview/runs plus one multipart Next proxy.
+17/39 routes. File imports go through the OpenAPI catch-all; the catch-all forwards multipart bodies without rewriting JSON content-type.
 
 ### 5. Remaining Next analytics composition
 
