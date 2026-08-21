@@ -1,11 +1,5 @@
-/**
- * Analytics API Service - Frontend client for Python analytics backend
- *
- * Python analytics is used as a fallback path when Tinybird analytics
- * endpoints are unavailable.
- */
-
-import { apiFetch } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 
 export interface HabitStats {
   id: string;
@@ -74,41 +68,33 @@ export interface DailyBreakdownResponse {
   daily_data?: DailyDataPoint[];
 }
 
-class AnalyticsApiClient {
-  private async fetch<T>(endpoint: string, token: string, params?: Record<string, string | number | undefined>): Promise<T> {
-    const searchParams = new URLSearchParams();
+function tokenGetter(token: string) {
+  return async () => token;
+}
 
-    if (params) {
-      Object.entries(params).forEach(([key, value]) => {
-        if (value !== undefined && value !== null && value !== '') {
-          searchParams.append(key, String(value));
-        }
-      });
+function omitBlank(value?: string): string | undefined {
+  return value ? value : undefined;
+}
+
+async function readAnalyticsOperation<T>(
+  operation: () => Promise<unknown>,
+): Promise<T> {
+  try {
+    return await operation() as T;
+  } catch (error) {
+    if (error instanceof BackendClientError && error.status === 429) {
+      throw new Error('Analytics API rate limited (429). Please retry shortly.');
     }
-
-    const query = searchParams.toString();
-    const path = query ? `${endpoint}?${query}` : endpoint;
-
-    const response = await apiFetch(path, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw new Error('Analytics API rate limited (429). Please retry shortly.');
-      }
-      const errorText = await response.text();
-      console.error(`Analytics API error: ${response.status} - ${errorText}`);
-      throw new Error(`Analytics API error (${response.status}): ${errorText}`);
+    if (error instanceof BackendClientError) {
+      console.error(`Analytics API error: ${error.status} - ${error.responseBody}`);
+      throw new Error(`Analytics API error (${error.status}): ${error.responseBody}`);
     }
-
-    return response.json();
+    throw error;
   }
+}
 
-  async getHabitStats(
+export const analyticsApi = {
+  getHabitStats(
     token: string,
     options?: {
       habitId?: string;
@@ -116,18 +102,24 @@ class AnalyticsApiClient {
       startDate?: string;
       endDate?: string;
       daysBack?: number;
-    }
+    },
   ): Promise<HabitStatsResponse> {
-    return this.fetch<HabitStatsResponse>('/api/analytics/stats', token, {
-      habit_id: options?.habitId,
-      habit_name: options?.habitName,
-      start_date: options?.startDate,
-      end_date: options?.endDate,
-      days_back: options?.daysBack,
-    });
-  }
+    return readAnalyticsOperation(() => apiOperationWithAuth(
+      'get_habit_stats_api_analytics_stats_get',
+      tokenGetter(token),
+      {
+        query: {
+          habit_id: omitBlank(options?.habitId),
+          habit_name: omitBlank(options?.habitName),
+          start_date: omitBlank(options?.startDate),
+          end_date: omitBlank(options?.endDate),
+          days_back: options?.daysBack,
+        },
+      },
+    ));
+  },
 
-  async getDailyBreakdown(
+  getDailyBreakdown(
     token: string,
     options: {
       habitId?: string;
@@ -136,17 +128,21 @@ class AnalyticsApiClient {
       endDate?: string;
       daysBack?: number;
       timezone?: string;
-    }
+    },
   ): Promise<DailyBreakdownResponse> {
-    return this.fetch<DailyBreakdownResponse>('/api/analytics/daily-breakdown', token, {
-      habit_id: options.habitId,
-      habit_name: options.habitName,
-      start_date: options.startDate,
-      end_date: options.endDate,
-      days_back: options.daysBack,
-      timezone: options.timezone,
-    });
-  }
-}
-
-export const analyticsApi = new AnalyticsApiClient();
+    return readAnalyticsOperation(() => apiOperationWithAuth(
+      'get_daily_breakdown_api_analytics_daily_breakdown_get',
+      tokenGetter(token),
+      {
+        query: {
+          habit_id: omitBlank(options.habitId),
+          habit_name: omitBlank(options.habitName),
+          start_date: omitBlank(options.startDate),
+          end_date: omitBlank(options.endDate),
+          days_back: options.daysBack,
+          timezone: omitBlank(options.timezone),
+        },
+      },
+    ));
+  },
+};

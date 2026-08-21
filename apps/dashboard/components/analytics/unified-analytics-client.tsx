@@ -115,11 +115,7 @@ function ViewLoadingFallback() {
 }
 
 // Inner component that uses the filter context
-function UnifiedAnalyticsContent({
-  initialUserId,
-}: {
-  initialUserId?: string | null;
-}) {
+function UnifiedAnalyticsContent() {
   const { viewMode, setViewMode, dateRange, setDateRange, selectedHabits, setSelectedHabits, toggleHabit, selectAllHabits, clearHabitSelection } = useAnalyticsFilters();
   const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
   const isSummaryView = overviewViewMode === 'summary';
@@ -146,11 +142,10 @@ function UnifiedAnalyticsContent({
   const {
     snapshot: dashboardSnapshot,
     isFetching: isDashboardSnapshotFetching,
-  } = useDashboardSnapshotQuery({ initialUserId, dateRange });
+  } = useDashboardSnapshotQuery({ dateRange });
   const {
     snapshot: metricsSnapshot,
   } = useMetricsSnapshotQuery({
-    initialUserId,
     dateRange,
     enabled: viewMode === 'metrics',
   });
@@ -566,17 +561,15 @@ function getInitialViewMode(searchParams: URLSearchParams): ViewMode {
 // Main component with provider wrapper
 export function UnifiedAnalyticsClient({
   initialViewMode,
-  initialUserId,
 }: {
   initialViewMode?: ViewMode;
-  initialUserId?: string | null;
 }) {
   const searchParams = useSearchParams();
   const resolvedInitialViewMode = initialViewMode ?? getInitialViewMode(searchParams);
 
   return (
     <AnalyticsFilterProvider initialViewMode={resolvedInitialViewMode}>
-      <UnifiedAnalyticsContent initialUserId={initialUserId} />
+      <UnifiedAnalyticsContent />
     </AnalyticsFilterProvider>
   );
 }

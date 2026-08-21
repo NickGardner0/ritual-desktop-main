@@ -104,6 +104,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Collapse chat stream protocol onto chat-runtime | dashboard `parsePhaseLine` copy + chat-folder shims | `@ritual/chat-runtime/stream-response` + buffer `.mjs` | ~−80 | second client copy of the stream wire format | unused protocol/buffer re-exports | Token flush policy stays dashboard-only. Client imports the stream-response subpath, not the kernel barrel |
 | Put the AI habit parser on the shared FastAPI helper | Next `/api/chat/habits` raw `PYTHON_API_BASE` fetches + `getServerBackendBaseUrl` wrapper | `fetchPythonApi` + `getBackendBaseUrl` | ~−40 | second FastAPI client in the habit parser | unused URL alias | Calendar summary and Sendblue still fetch FastAPI directly because they are not chat-runtime callers |
 | Collapse calendar heart-rate reads onto the generated client | unused `lib/api/biometrics.ts` wrapper + hand-written HR types | `apiOperationWithAuth` + OpenAPI | ~−50 | second typed client for one FastAPI path | unused biometrics DTO file | Calendar still groups 1m rollups locally |
+| Put dashboard analytics reads on the generated client | leftover SSR `initialUserId` + raw snapshot/analytics fetches | Clerk identity + `apiOperationWithAuth` | ~−80 | second FastAPI client and a dead SSR identity path | unused server-snapshot telemetry | Tinybird-first metrics still fall back to FastAPI `/api/analytics/stats` and `/daily-breakdown` |
 
 ## Aggregate (this pass)
 

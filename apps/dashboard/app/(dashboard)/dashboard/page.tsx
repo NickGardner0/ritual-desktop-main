@@ -54,7 +54,6 @@ export default async function DashboardPage({
       <div className="mx-auto h-full w-full max-w-7xl px-6 pt-7 lg:px-8">
         <ClientDashboard
           initialViewMode={initialViewMode}
-          initialUserId={null}
         />
       </div>
     </div>
