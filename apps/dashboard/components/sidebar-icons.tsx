@@ -3,7 +3,7 @@ import {
   CalendarDays,
   ChartNoAxesCombined,
   FlaskConical,
-  MousePointerClick,
+  List,
   Plug2,
   Repeat2,
   TableProperties,
@@ -55,7 +55,7 @@ export const SidebarReportIcon = ({
 
 export const SidebarMetricIcon = (props: SidebarIconProps) => <ChartNoAxesCombined {...props} />;
 export const SidebarLogIcon = (props: SidebarIconProps) => <TableProperties {...props} />;
-export const SidebarTaskIcon = (props: SidebarIconProps) => <MousePointerClick {...props} />;
+export const SidebarTaskIcon = (props: SidebarIconProps) => <List {...props} />;
 export const SidebarCalendarIcon = (props: SidebarIconProps) => <CalendarDays {...props} />;
 export const SidebarRoutineIcon = (props: SidebarIconProps) => <Repeat2 {...props} />;
 export const SidebarExperimentIcon = (props: SidebarIconProps) => <FlaskConical {...props} />;

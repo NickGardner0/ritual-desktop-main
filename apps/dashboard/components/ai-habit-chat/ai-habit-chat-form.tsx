@@ -81,6 +81,10 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
         : 'h-[114px]';
   const composerActionClass =
     'flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] text-[var(--icon-default)] transition-none hover:bg-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed';
+  const composerSurfaceStyle: React.CSSProperties = {
+    boxShadow:
+      'inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 5%, transparent), 0 0 0 1px color-mix(in srgb, var(--text-primary) 3%, transparent), 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 3px 6px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 8px 16px color-mix(in srgb, var(--text-primary) 6%, transparent), 0 16px 28px color-mix(in srgb, var(--text-primary) 5%, transparent)',
+  };
 
   return (
     <div className="w-full">
@@ -105,9 +109,10 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[768px] overflow-hidden rounded-[18px] bg-[var(--surface-panel)] ring-1 ring-inset ring-[var(--border-muted)] transition-none focus-within:ring-[color-mix(in_srgb,var(--ritual-focus-ring)_28%,transparent)]',
+          'relative mx-auto w-full max-w-[660px] overflow-hidden rounded-[12px] bg-[var(--surface-panel)] transition-none focus-within:outline focus-within:outline-1 focus-within:outline-[var(--ritual-focus-ring)]',
           composerHeightClass
         )}
+        style={composerSurfaceStyle}
       >
         <form onSubmit={handleFormSubmit} className="h-full">
           <div className="relative h-full">
@@ -214,7 +219,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             </div>
 
             <div className="absolute bottom-3 left-4 right-12 flex items-center gap-2 text-[var(--text-secondary)]">
-              <div className="flex h-8 items-center gap-2 rounded-full bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] px-2.5">
+              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
@@ -290,17 +295,11 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className={cn(
-                'absolute bottom-3 right-3',
-                composerActionClass,
-                hasInput && !submitButtonLoading
-                  ? 'text-[var(--text-primary)]'
-                  : 'text-[var(--text-muted)]'
-              )}
+              className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--surface-raised)] transition-none hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed disabled:opacity-35"
               aria-label="Submit"
             >
               {submitButtonLoading ? (
-                <BrailleSpinner className="text-sm text-[var(--text-primary)]" />
+                <BrailleSpinner className="text-sm text-[var(--surface-raised)]" />
               ) : (
                 <ArrowUp className="h-4 w-4" />
               )}

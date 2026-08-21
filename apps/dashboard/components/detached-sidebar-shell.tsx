@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, ChartNoAxesColumn, FileText, FlaskConical, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
-import TocIcon from "@mui/icons-material/Toc";
+import { CalendarDays, ChartNoAxesColumn, FileText, FlaskConical, List, Plug2, Repeat2, Settings, TableProperties } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
@@ -30,7 +29,7 @@ const items = [
   { path: "/dashboard", name: "Index", icon: ILetterIcon },
   { path: "/dashboard?view=metrics", name: "Metrics", icon: ChartNoAxesColumn },
   { path: "/activity", name: "Logs", icon: TableProperties },
-  { path: "/tasks", name: "Tasks", icon: TocIcon },
+  { path: "/tasks", name: "Tasks", icon: List },
   { path: "/calendar", name: "Calendar", icon: CalendarDays },
   { path: "/reports", name: "Reports", icon: FileText },
   { path: "/routines", name: "Routines", icon: Repeat2 },
