@@ -14,7 +14,8 @@ import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 import { categoryMap } from './habit-selection/constants';
-import { fetchWithTimeout, withTimeout } from './habit-selection/helpers';
+import { withTimeout } from './habit-selection/helpers';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useFloatingWithinCard } from './habit-selection/use-floating-within-card';
 import { CategoryList } from './habit-selection/category-list';
 import { CustomizationPanel } from './habit-selection/customization-panel';
@@ -193,15 +194,21 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
 
   const checkComputerTrackingConnection = useCallback(async () => {
     try {
-      const response = await fetchWithTimeout('/api/watcher/devices', {}, 5000);
-      if (response.ok) {
-        const data = await response.json();
-        const devices = data.devices || [];
-        const hasEnabledDevice = devices.some((d: any) => d.is_enabled);
-        if (hasEnabledDevice || devices.length > 0) {
-          setComputerTrackingConnected(true);
-          return;
-        }
+      const data = await withTimeout(
+        apiOperationWithAuth(
+          'list_devices_api_watcher_devices_get',
+          getToken,
+          {},
+          resolvedUserId,
+        ).catch(() => ({ devices: [] as Array<{ is_enabled?: boolean }> })),
+        5000,
+        { devices: [] as Array<{ is_enabled?: boolean }> },
+      ) as { devices?: Array<{ is_enabled?: boolean }> };
+      const devices = data.devices || [];
+      const hasEnabledDevice = devices.some((d) => d.is_enabled);
+      if (hasEnabledDevice || devices.length > 0) {
+        setComputerTrackingConnected(true);
+        return;
       }
 
       if (isDesktop) {
@@ -220,57 +227,65 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
       console.error('Error checking Computer Use connection:', error);
       setComputerTrackingConnected(false);
     }
-  }, []);
+  }, [getToken, isDesktop, resolvedUserId]);
 
   const refreshProviderConnectionStatuses = useCallback(async () => {
     try {
-      const token = await getToken();
-      const authHeaders: HeadersInit = token
-        ? { Authorization: `Bearer ${token}` }
-        : {};
-
-      const fetchJson = async (path: string, fallback: any) => {
-        try {
-          const response = await fetchWithTimeout(path, { headers: authHeaders }, 5000);
-          if (!response.ok) return fallback;
-          return await response.json();
-        } catch {
-          return fallback;
-        }
-      };
-
       const [
         whoopData,
         appleDevicesData,
         wearablesData,
         financialData,
       ] = await Promise.all([
-        fetchJson('/api/integrations/whoop/status', { connected: false }),
-        fetchJson('/api/wearables/apple/devices', { devices: [] }),
-        fetchJson('/api/wearables/connections', { connections: [] }),
-        fetchJson('/api/financial/connections', { connections: [] }),
+        withTimeout(
+          apiOperationWithAuth('whoop_status_api_integrations_whoop_status_get', getToken, {}, resolvedUserId)
+            .catch(() => ({ connected: false })),
+          5000,
+          { connected: false },
+        ),
+        withTimeout(
+          apiOperationWithAuth('list_apple_devices_api_wearables_apple_devices_get', getToken, {}, resolvedUserId)
+            .catch(() => ({ devices: [] as Array<{ is_active?: boolean; platform?: string; device_name?: string }> })),
+          5000,
+          { devices: [] as Array<{ is_active?: boolean; platform?: string; device_name?: string }> },
+        ),
+        withTimeout(
+          apiOperationWithAuth('get_wearable_connections_api_wearables_connections_get', getToken, {}, resolvedUserId)
+            .catch(() => ({ connections: [] as Array<{ provider?: string; status?: string }> })),
+          5000,
+          { connections: [] as Array<{ provider?: string; status?: string }> },
+        ),
+        withTimeout(
+          apiOperationWithAuth('list_financial_connections_api_financial_connections_get', getToken, {}, resolvedUserId)
+            .catch(() => ({ connections: [] as Array<{ provider?: string; status?: string }> })),
+          5000,
+          { connections: [] as Array<{ provider?: string; status?: string }> },
+        ),
       ]);
 
-      setWhoopConnected(Boolean(whoopData?.connected));
+      setWhoopConnected(Boolean((whoopData as { connected?: boolean })?.connected));
 
-      const activeAppleDevices = (appleDevicesData?.devices || []).filter((device: any) => device.is_active && device.platform === 'ios');
+      const appleDevices = appleDevicesData as { devices?: Array<{ is_active?: boolean; platform?: string; device_name?: string }> };
+      const wearables = wearablesData as { connections?: Array<{ provider?: string; status?: string }> };
+      const financial = financialData as { connections?: Array<{ provider?: string; status?: string }> };
+      const activeAppleDevices = (appleDevices.devices || []).filter((device) => device.is_active && device.platform === 'ios');
       setAppleWatchConnected(activeAppleDevices.length > 0);
       setAppleWatchDeviceName(activeAppleDevices[0]?.device_name || null);
 
-      const wearableConnections = wearablesData?.connections || [];
-      const ouraConnection = wearableConnections.find((item: any) => item.provider === 'oura');
-      const garminConnection = wearableConnections.find((item: any) => item.provider === 'garmin');
+      const wearableConnections = wearables.connections || [];
+      const ouraConnection = wearableConnections.find((item) => item.provider === 'oura');
+      const garminConnection = wearableConnections.find((item) => item.provider === 'garmin');
       setOuraConnected(Boolean(ouraConnection && ouraConnection.status === 'active'));
       setGarminConnected(Boolean(garminConnection && garminConnection.status === 'active'));
 
-      const financialConnections = financialData?.connections || [];
-      const plaidConnection = financialConnections.find((item: any) => item.provider === 'plaid');
+      const financialConnections = financial.connections || [];
+      const plaidConnection = financialConnections.find((item) => item.provider === 'plaid');
       setPlaidConnected(Boolean(plaidConnection && plaidConnection.status === 'active'));
     } finally {
       await checkComputerTrackingConnection();
       queryClient.invalidateQueries({ queryKey: ['integrations-overview'] });
     }
-  }, [checkComputerTrackingConnection, getToken, queryClient]);
+  }, [checkComputerTrackingConnection, getToken, queryClient, resolvedUserId]);
 
   // Check provider connection state when the modal opens so already-connected
   // integrations render as Connected immediately instead of defaulting to Connect.
@@ -333,18 +348,14 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         setWhoopConnected(false);
         return;
       }
-      
-      const response = await fetchWithTimeout('/api/integrations/whoop/status', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      }, 5000);
-      
-      if (response.ok) {
-        const data = await response.json();
-        setWhoopConnected(data.connected || false);
-        console.log('✅ Whoop connection status:', data.connected);
-      }
+      const data = await withTimeout(
+        apiOperationWithAuth('whoop_status_api_integrations_whoop_status_get', getToken, {}, resolvedUserId)
+          .catch(() => ({ connected: false })),
+        5000,
+        { connected: false },
+      ) as { connected?: boolean };
+      setWhoopConnected(Boolean(data.connected));
+      console.log('✅ Whoop connection status:', data.connected);
     } catch (error) {
       console.error('Error checking Whoop connection:', error);
       setWhoopConnected(false);
@@ -358,23 +369,18 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
         setAppleWatchConnected(false);
         return;
       }
-      
-      const response = await fetchWithTimeout('/api/wearables/apple/devices', {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      }, 5000);
-      
-      if (response.ok) {
-        const data = await response.json();
-        // Check if there's at least one active iOS device
-        const activeDevices = (data.devices || []).filter((d: any) => d.is_active && d.platform === 'ios');
-        setAppleWatchConnected(activeDevices.length > 0);
-        if (activeDevices.length > 0) {
-          setAppleWatchDeviceName(activeDevices[0].device_name);
-        }
-        console.log('✅ Apple Watch connection status:', activeDevices.length > 0);
+      const data = await withTimeout(
+        apiOperationWithAuth('list_apple_devices_api_wearables_apple_devices_get', getToken, {}, resolvedUserId)
+          .catch(() => ({ devices: [] as Array<{ is_active?: boolean; platform?: string; device_name?: string }> })),
+        5000,
+        { devices: [] as Array<{ is_active?: boolean; platform?: string; device_name?: string }> },
+      ) as { devices?: Array<{ is_active?: boolean; platform?: string; device_name?: string }> };
+      const activeDevices = (data.devices || []).filter((d) => d.is_active && d.platform === 'ios');
+      setAppleWatchConnected(activeDevices.length > 0);
+      if (activeDevices.length > 0) {
+        setAppleWatchDeviceName(activeDevices[0].device_name || null);
       }
+      console.log('✅ Apple Watch connection status:', activeDevices.length > 0);
     } catch (error) {
       console.error('Error checking Apple Watch connection:', error);
       setAppleWatchConnected(false);

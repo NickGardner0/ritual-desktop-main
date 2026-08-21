@@ -6,7 +6,7 @@ import { invokeDesktopCommand } from '@/lib/native-gateway';
 import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/native-gateway';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
-import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { canSendToCloud } from '@ritual/shared-contracts';
 import { readPrivacySettings } from '@/lib/privacy/privacy-settings';
 import {
@@ -77,7 +77,12 @@ export function useDesktopProfileSync(input: {
         const token = await getToken();
         if (!token || cancelled) return;
 
-        await apiFetchWithAuth('/api/user/profile', getToken);
+        await apiOperationWithAuth(
+          'get_user_profile_api_user_profile_get',
+          getToken,
+          {},
+          user?.id,
+        );
       } catch (error) {
         console.warn('Backend profile sync failed:', error);
       }

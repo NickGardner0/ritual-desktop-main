@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { LockKeyhole, ShieldCheck, Trash2 } from 'lucide-react';
 import type { CloudConsent } from '@ritual/shared-contracts';
 import {
@@ -107,6 +108,7 @@ function PrivacyToggle({
 
 export function PrivacySettingsPanel() {
   const { user } = useUser();
+  const { getToken } = useAuth();
   const settings = useSyncExternalStore(
     subscribeToPrivacySettings,
     readPrivacySettings,
@@ -161,17 +163,13 @@ export function PrivacySettingsPanel() {
 
   const refreshInventory = async () => {
     try {
-      const response = await fetch('/api/privacy/migration-inventory', {
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          ...privacySettingsHeaders(settings),
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Inventory failed: ${response.status}`);
-      }
-      setInventory(await response.json() as MigrationInventory);
+      const inventory = await apiOperationWithAuth(
+        'migration_inventory_api_privacy_migration_inventory_get',
+        getToken,
+        { headers: privacySettingsHeaders(settings) },
+        user?.id,
+      ) as MigrationInventory;
+      setInventory(inventory);
       setInventoryMessage('Inventory refreshed.');
     } catch {
       setInventoryMessage('Migration inventory is unavailable.');
@@ -182,23 +180,18 @@ export function PrivacySettingsPanel() {
     if (!user?.id) return;
     try {
       setInventoryMessage('Running dry-run...');
-      const response = await fetch('/api/privacy/migration-dry-run', {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...privacySettingsHeaders(settings),
+      const result = await apiOperationWithAuth(
+        'migration_dry_run_api_privacy_migration_dry_run_post',
+        getToken,
+        {
+          headers: privacySettingsHeaders(settings),
+          body: {
+            categories: ['habit_definitions', 'habit_logs'],
+            sample_limit: 5,
+          },
         },
-        body: JSON.stringify({
-          categories: ['habit_definitions', 'habit_logs'],
-          sample_limit: 5,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Dry-run failed: ${response.status}`);
-      }
-      const result = await response.json() as MigrationDryRun;
+        user.id,
+      ) as MigrationDryRun;
       setDryRun(result);
 
       const status = await vaultSync.initialize(user.id);
@@ -255,22 +248,15 @@ export function PrivacySettingsPanel() {
     if (selectedDeletionCategories.length === 0) return;
     try {
       setDeletionMessage('Planning cloud deletion...');
-      const response = await fetch('/api/privacy/deletion-plan', {
-        method: 'POST',
-        cache: 'no-store',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          ...privacySettingsHeaders(settings),
+      const result = await apiOperationWithAuth(
+        'deletion_plan_api_privacy_deletion_plan_post',
+        getToken,
+        {
+          headers: privacySettingsHeaders(settings),
+          body: { categories: selectedDeletionCategories },
         },
-        body: JSON.stringify({
-          categories: selectedDeletionCategories,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Deletion plan failed: ${response.status}`);
-      }
-      const result = await response.json() as DeletionPlan;
+        user?.id,
+      ) as DeletionPlan;
       setDeletionPlan(result);
       setDeletionMessage(`Deletion plan ready for ${result.total_records} cloud records.`);
     } catch {

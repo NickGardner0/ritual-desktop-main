@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { useAnalytics } from '@/lib/analytics';
 import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import type { AIHabitChatProps, HabitOption, ScreenshotPreview } from './ai-habit-chat.types';
 
 export type UseAiHabitScreenshotOptions = {
@@ -208,42 +210,29 @@ export function useAiHabitScreenshot({
     setError(null);
 
     try {
-      const sessionToken = await getToken();
       const habitName = selectedScreenshotHabit?.name || screenshotPreview.habit_name;
       const habitUnit = selectedScreenshotHabit?.unit_type || screenshotPreview.unit;
-
-      const res = await fetch('/api/screenshot/confirm', {
-        method: 'POST',
-        headers: {
-          'Authorization': sessionToken ? `Bearer ${sessionToken}` : '',
-          'Content-Type': 'application/json',
+      const data = await apiOperationWithAuth(
+        'confirm_screenshot_log_api_screenshot_confirm_post',
+        getToken,
+        {
+          body: {
+            habit_id: selectedHabitId,
+            habit_name: habitName,
+            value: parseFloat(editedValue) || screenshotPreview.value,
+            unit: habitUnit,
+            detected_type: screenshotPreview.detected_type,
+            description: screenshotPreview.description,
+            create_new_habit: screenshotPreview.is_new_habit && !selectedHabitId,
+          },
         },
-        body: JSON.stringify({
-          habit_id: selectedHabitId,
-          habit_name: habitName,
-          value: parseFloat(editedValue) || screenshotPreview.value,
-          unit: habitUnit,
-          detected_type: screenshotPreview.detected_type,
-          description: screenshotPreview.description,
-          create_new_habit: screenshotPreview.is_new_habit && !selectedHabitId,
-        }),
-      });
+      ) as { message?: string; value?: number; unit?: string; habit_name?: string; habit_id?: string };
 
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        setError(errorData.detail || 'Failed to log screenshot data');
-        return;
-      }
-
-      const data = await res.json();
-      
-      // Clear preview state
       setUploadedFileName(null);
       setScreenshotPreview(null);
       setEditedValue('');
       setSelectedHabitId(null);
-      
-      // Trigger habit update callback to refresh dashboard data
+
       if (onHabitUpdate) {
         onHabitUpdate({
           success: true,
@@ -253,17 +242,25 @@ export function useAiHabitScreenshot({
         });
       }
 
-      // Track the successful upload
       trackHabitLogged({
-        habitId: data.habit_id,
-        habitName: data.habit_name,
+        habitId: data.habit_id || selectedHabitId || '',
+        habitName: data.habit_name || habitName,
         value: data.value,
         unit: data.unit,
         source: 'screenshot',
       });
-
     } catch (err: any) {
       console.error('Screenshot confirm error:', err);
+      if (err instanceof BackendClientError) {
+        try {
+          const parsed = JSON.parse(err.responseBody) as { detail?: string };
+          setError(parsed.detail || 'Failed to log screenshot data');
+          return;
+        } catch {
+          setError('Failed to log screenshot data');
+          return;
+        }
+      }
       setError(err.message || 'Failed to confirm. Please try again.');
     } finally {
       setIsConfirming(false);

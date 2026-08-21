@@ -1,12 +1,13 @@
 'use client';
 
 import React, { startTransition, useCallback, useEffect, useRef, useState } from 'react';
-import { useClerk, useUser } from '@clerk/nextjs';
+import { useAuth, useClerk, useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { Brain, Check, ChevronsUpDown, Hash, MapPin, Mic, Monitor, PanelLeft, Palette, Settings2, ShieldCheck, Type, Volume2 } from 'lucide-react';
 import { HexColorPicker } from 'react-colorful';
 
 import { cn } from '@/lib/utils';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { signOutOfRitual } from '@/lib/desktop-auth-session';
 import { type DesktopSettingsView } from '@/lib/native-gateway';
@@ -84,6 +85,7 @@ export function SettingsFrame({
 }: SettingsFrameProps) {
   const { isDesktop } = useDesktopCapabilities();
   const { user } = useUser();
+  const { getToken } = useAuth();
   const { signOut, openUserProfile } = useClerk();
   const router = useRouter();
   const { font, setFont } = useFont();
@@ -172,14 +174,12 @@ export function SettingsFrame({
     setIsDeletingAccount(true);
     setDeleteAccountError(null);
     try {
-      const response = await fetch('/api/user/account', {
-        method: 'DELETE',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) {
-        throw new Error('Ritual could not finish deleting your account. Please try again.');
-      }
+      await apiOperationWithAuth(
+        'delete_current_account_api_user_account_delete',
+        getToken,
+        {},
+        user?.id,
+      );
 
       try {
         await signOutOfRitual(signOut);

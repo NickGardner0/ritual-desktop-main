@@ -10,10 +10,11 @@ import { useRouter } from "next/navigation";
 import { useDebounce } from "@/hooks/use-debounce";
 import { format, parseISO } from "date-fns";
 import { BrailleSpinner } from "@/components/ui/braille-spinner";
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import type { EntitySummary } from "@ritual/shared-contracts";
 import { entityProtocolEnabled } from "@/lib/entities/feature-flag";
-import { rememberEntitySummary, searchLocalEntities } from "@/lib/entities/resolve";
+import { rememberEntitySummary, searchLocalEntities, summaryFromCloud } from "@/lib/entities/resolve";
+import { apiOperationWithAuth } from "@/lib/api/client";
 import { mergeEntitySummaries, summariesFromSearchBuckets } from "@/lib/entities/search-normalize";
 import { ENTITY_TYPE_LABELS } from "@/lib/entities/registry";
 
@@ -140,6 +141,7 @@ export default function CommandPalette({
   
   const router = useRouter();
   const { user } = useUser();
+  const { getToken } = useAuth();
   const { trackQuickActionsOpened, track } = useAnalytics();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = React.useState(0);
@@ -174,41 +176,34 @@ export default function CommandPalette({
       setIsLoading(true);
       
       try {
-        const params = new URLSearchParams();
-        params.set("q", debouncedQuery);
-        params.set("limit", "8");
-        
-        const response = await fetch(`/api/search?${params.toString()}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          let entities: EntitySummary[] = summariesFromSearchBuckets(data);
-          if (entityProtocolEnabled()) {
-            try {
-              const entityResponse = await fetch(`/api/entities/search?q=${encodeURIComponent(debouncedQuery)}&limit=16`);
-              if (entityResponse.ok) {
-                const entityPayload = await entityResponse.json();
-                entities = mergeEntitySummaries(entities, entityPayload.items || []);
-              }
-            } catch {
-              // Keep bucket-normalized results.
-            }
-            if (user?.id) {
-              const local = await searchLocalEntities(user.id, debouncedQuery);
-              entities = mergeEntitySummaries(local, entities);
-            }
+        const data = await apiOperationWithAuth(
+          "global_search_api_search_get",
+          getToken,
+          { query: { q: debouncedQuery, limit: 8 } },
+          user?.id,
+        ) as SearchResults;
+        let entities: EntitySummary[] = summariesFromSearchBuckets(
+          data as unknown as Parameters<typeof summariesFromSearchBuckets>[0],
+        );
+        if (entityProtocolEnabled()) {
+          try {
+            const entityPayload = await apiOperationWithAuth(
+              "search_entities_api_entities_search_get",
+              getToken,
+              { query: { q: debouncedQuery, limit: 16 } },
+              user?.id,
+            );
+            entities = mergeEntitySummaries(entities, (entityPayload.items || []).map(summaryFromCloud));
+          } catch {
+            // Keep bucket-normalized results.
           }
-          for (const item of entities) rememberEntitySummary(item);
-          setResults({ ...data, entities });
-        } else {
-          const fallback = getFallbackResults(debouncedQuery);
-          if (entityProtocolEnabled() && user?.id) {
+          if (user?.id) {
             const local = await searchLocalEntities(user.id, debouncedQuery);
-            for (const item of local) rememberEntitySummary(item);
-            fallback.entities = local;
+            entities = mergeEntitySummaries(local, entities);
           }
-          setResults(fallback);
         }
+        for (const item of entities) rememberEntitySummary(item);
+        setResults({ ...data, entities });
       } catch (error) {
         console.error("Search failed:", error);
         const fallback = getFallbackResults(debouncedQuery);
@@ -230,7 +225,7 @@ export default function CommandPalette({
     if (open) {
       fetchResults();
     }
-  }, [debouncedQuery, open, user?.id]);
+  }, [debouncedQuery, getToken, open, user?.id]);
 
   const paletteActions = React.useMemo(() => {
     const trimmedQuery = debouncedQuery.trim();

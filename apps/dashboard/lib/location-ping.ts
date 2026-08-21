@@ -1,5 +1,7 @@
 'use client';
 
+import { BackendClientError, createBackendClient } from '@/lib/api/generated/backend-client';
+
 type LocationPingSource = 'ios_one_shot' | 'mac_one_shot' | 'manual';
 export type LocationPermissionState = PermissionState | 'unsupported' | 'unknown';
 
@@ -96,20 +98,21 @@ function getPosition(timeoutMs: number): Promise<GeolocationPosition> {
 async function postLocationPing(
   position: GeolocationPosition,
   authToken: string | null | undefined,
-  reason: string | undefined,
+  _reason: string | undefined,
 ): Promise<SubmitLocationPingResult> {
   const source = getLocationSource();
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 5_000);
 
   try {
-    const response = await fetch('/api/user/location-pings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const client = createBackendClient({
+      baseUrl: window.location.origin,
+      getAuthHeaders: async () => ({
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      },
-      body: JSON.stringify({
+      }),
+    });
+    await client.requestOperation('post_location_pings_api_user_location_pings_post', {
+      body: {
         pings: [
           {
             lat: position.coords.latitude,
@@ -121,16 +124,11 @@ async function postLocationPing(
             device_id: getStableDeviceId(),
             client_ts: position.timestamp || Date.now(),
             client_event_id: `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
-            reason,
           },
         ],
-      }),
+      },
       signal: controller.signal,
     });
-
-    if (!response.ok) {
-      return { status: 'failed', reason: `location ingest HTTP ${response.status}` };
-    }
 
     lastSubmittedAt = Date.now();
     return {
@@ -139,6 +137,9 @@ async function postLocationPing(
       accuracyM: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
     };
   } catch (error) {
+    if (error instanceof BackendClientError) {
+      return { status: 'failed', reason: `location ingest HTTP ${error.status}` };
+    }
     const reasonText = error instanceof Error ? error.message : String(error);
     return { status: 'failed', reason: reasonText };
   } finally {

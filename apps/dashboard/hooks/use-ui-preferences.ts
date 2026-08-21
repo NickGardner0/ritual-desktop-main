@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
@@ -57,13 +57,12 @@ export function useUIPreferences() {
   const query = useQuery<UIPreferences>({
     queryKey: [...QUERY_KEY, user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      if (!token) throw new Error('Missing auth token');
-      const response = await apiFetchWithAuth('/api/ui-preferences', getToken);
-      if (!response.ok) {
-        throw new Error(`Failed to load UI preferences (${response.status})`);
-      }
-      const data = await response.json();
+      const data = await apiOperationWithAuth(
+        'get_ui_preferences_api_ui_preferences_get',
+        getToken,
+        {},
+        user?.id,
+      ) as { habit_text_color?: string | null; overview_view_mode?: unknown };
       const prefs: UIPreferences = {
         habit_text_color:
           typeof data?.habit_text_color === 'string' ? data.habit_text_color : null,
@@ -93,17 +92,16 @@ export function useUIPreferences() {
       queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
       writeCachedPreferences(next);
 
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await apiFetchWithAuth('/api/ui-preferences', getToken, {
-        method: 'PATCH',
-        body: JSON.stringify({ habit_text_color: color }),
-      });
-
-      if (!response.ok) {
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { habit_text_color: color } },
+          user?.id,
+        );
+      } catch {
         queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
-        throw new Error(`Failed to save UI preferences (${response.status})`);
+        throw new Error('Failed to save UI preferences');
       }
     },
     [getToken, queryClient, query.data, user?.id],
@@ -119,17 +117,16 @@ export function useUIPreferences() {
       queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
       writeCachedPreferences(next);
 
-      const token = await getToken();
-      if (!token) return;
-
-      const response = await apiFetchWithAuth('/api/ui-preferences', getToken, {
-        method: 'PATCH',
-        body: JSON.stringify({ overview_view_mode: mode }),
-      });
-
-      if (!response.ok) {
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { overview_view_mode: mode } },
+          user?.id,
+        );
+      } catch {
         queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
-        throw new Error(`Failed to save UI preferences (${response.status})`);
+        throw new Error('Failed to save UI preferences');
       }
     },
     [getToken, queryClient, query.data, user?.id],

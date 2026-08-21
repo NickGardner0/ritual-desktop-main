@@ -11,7 +11,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { habitKeys, habitLogKeys } from './use-habits-query';
 import { QUERY_POLICY } from '@/lib/query-policies';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
 
 /**
  * Prefetch habits on hover
@@ -34,11 +34,12 @@ export function usePrefetchHabits() {
       queryFn: async () => {
         console.log('⚡ [Prefetch] Loading habits in background...');
 
-        const response = await apiFetchWithAuth('/api/habits', getToken);
-
-        if (!response.ok) throw new Error('Failed to prefetch habits');
-
-        const habits = await response.json();
+        const habits = await apiOperationWithAuth(
+          'get_habits_api_habits_get',
+          getToken,
+          {},
+          user.id,
+        );
         console.log('✅ [Prefetch] Habits loaded!');
         return habits;
       },
@@ -68,11 +69,12 @@ export function usePrefetchHabitLogs() {
       queryFn: async () => {
         console.log('⚡ [Prefetch] Loading habit logs in background...');
 
-        const response = await apiFetchWithAuth('/api/habit-logs', getToken);
-
-        if (!response.ok) throw new Error('Failed to prefetch logs');
-
-        const logs = await response.json();
+        const logs = await apiOperationWithAuth(
+          'get_all_habit_logs_api_habit_logs_get',
+          getToken,
+          {},
+          user.id,
+        );
         console.log('✅ [Prefetch] Habit logs loaded!');
         return logs;
       },
