@@ -25,6 +25,7 @@ class AIConversationDB(Base):
     user = orm_relationship("UserDB", backref="ai_conversations")
     experiment = orm_relationship("ExperimentDB", back_populates="threads")
     messages = orm_relationship("AIMessageDB", back_populates="conversation", cascade="all, delete-orphan", order_by="AIMessageDB.created_at")
+    assistant_turns = orm_relationship("AssistantTurnDB", back_populates="conversation", cascade="all, delete-orphan")
 
 
 
@@ -69,5 +70,33 @@ class ConversationQueueItemDB(Base):
 
     conversation = orm_relationship("AIConversationDB")
     user = orm_relationship("UserDB")
+
+
+class AssistantTurnDB(Base):
+    """Durable assistant turn owner for web/SMS chat."""
+    __tablename__ = "assistant_turns"
+
+    id = Column(String, primary_key=True)
+    user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    conversation_id = Column(String, ForeignKey("ai_conversations.id", ondelete="CASCADE"), nullable=True)
+    channel = Column(String, nullable=False, default="dashboard")
+    status = Column(String, nullable=False, default="queued")
+    epoch = Column(Integer, nullable=False, default=0)
+    sequence = Column(Integer, nullable=False, default=0)
+    receipt_ids_json = Column(Text, nullable=False, default="[]")
+    assistant_text = Column(Text, nullable=True)
+    tool_payload_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utcnow_naive)
+    updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
+    completed_at = Column(DateTime, nullable=True)
+
+    user = orm_relationship("UserDB")
+    conversation = orm_relationship("AIConversationDB", back_populates="assistant_turns")
+
+    __table_args__ = (
+        Index("idx_assistant_turns_user_created", "user_id", "created_at"),
+        Index("idx_assistant_turns_conversation_sequence", "conversation_id", "sequence"),
+    )
 
 

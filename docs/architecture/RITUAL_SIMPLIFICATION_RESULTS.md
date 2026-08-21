@@ -99,6 +99,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Collapse dashboard SSR fetchers onto the client catch-all | Midday `lib/server/data.ts` + metrics preload | client React Query + FastAPI catch-all | ~−400 | second habits/logs/summary fetch owner | unused `reference-task-shell.tsx` | Overview already skipped SSR. `?view=` still selects overview/metrics/chat |
 | Delete leftover analytics re-exports and Midday logger | overview/metrics shims + computer-activity wrapper + `lib/logger.ts` | live OverviewView / MetricsView / ComputerActivityPanel + console in two API routes | ~−200 | unused re-export path and unused Sentry-window logger | leftover MetricsView import soup in `metrics-view.shared.tsx` | Metrics still lazy-loads the live panel. Whisper and habit-parser keep their Next routes |
 | Strip leftover MetricsView imports from the live hook | `useMetricsView.ts` still imported the pre-split view | hook-only deps | ~−80 | unused MetricsView coupling | none | Drag/share/fetch behavior unchanged |
+| Mount the durable assistant-turn API that chat already calls | FastAPI service/schema/migration existed but were unreachable | one `/api/assistant-turns` owner | small add | silent 404 fallback in chat-runtime | none | Kernel already posts here. Privacy inventory now deletes the same table |
 
 ## Aggregate (this pass)
 

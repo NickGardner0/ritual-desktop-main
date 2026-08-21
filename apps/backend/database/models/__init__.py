@@ -8,6 +8,7 @@ from database.models.artifacts import (
 from database.models.conversations import (
     AIConversationDB,
     AIMessageDB,
+    AssistantTurnDB,
     ConversationQueueItemDB,
 )
 from database.models.experiments import ExperimentDB, ExperimentEntryDB
@@ -129,6 +130,7 @@ __all__ = [
     "ArtifactDB",
     "ArtifactLinkDB",
     "ArtifactRevisionDB",
+    "AssistantTurnDB",
     "BehaviorBaselineSnapshotDB",
     "ConversationQueueItemDB",
     "EntityReferenceDB",

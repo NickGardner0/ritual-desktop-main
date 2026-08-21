@@ -23,6 +23,7 @@ from database.models import (
     AfkEventDB,
     AiFactDB,
     ArtifactDB,
+    AssistantTurnDB,
     ExperimentDB,
     ExperimentEntryDB,
     DailyActivityRollupDB,
@@ -76,6 +77,7 @@ DIRECT_USER_SPECS: tuple[InventoryCategorySpec, ...] = (
     InventoryCategorySpec("backend_turso", "desktop_domain_rollups", DomainDailyRollupDB, "Desktop domain rollups"),
     InventoryCategorySpec("backend_turso", "desktop_sync_outbox", WatcherSyncOutboxDB, "Desktop sync outbox rows"),
     InventoryCategorySpec("backend_turso", "ai_conversations", AIConversationDB, "AI conversations"),
+    InventoryCategorySpec("backend_turso", "assistant_turns", AssistantTurnDB, "Assistant turns"),
     InventoryCategorySpec("backend_turso", "ai_facts", AiFactDB, "AI facts"),
     InventoryCategorySpec("backend_turso", "artifacts", ArtifactDB, "Generated artifacts"),
     InventoryCategorySpec("backend_turso", "experiments", ExperimentDB, "Experiment workspaces"),
@@ -95,6 +97,7 @@ SUPPORTED_MIGRATION_CATEGORIES = {
     "ai_conversations": "AI conversations",
     "ai_facts": "AI facts",
     "ai_messages": "AI messages",
+    "assistant_turns": "Assistant turns",
     "artifacts": "Generated artifacts",
     "experiments": "Experiment workspaces",
     "experiment_entries": "Experiment workspace entries",
@@ -124,7 +127,7 @@ SUPPORTED_DELETION_CATEGORIES = {
 }
 
 DELETION_PARENT_DEPENDENCIES = {
-    "ai_conversations": {"ai_messages"},
+    "ai_conversations": {"ai_messages", "assistant_turns"},
     "financial_accounts": {"financial_transactions"},
     "habit_definitions": {"habit_logs"},
     "import_runs": {"import_items"},
@@ -136,6 +139,7 @@ DELETION_PARENT_DEPENDENCIES = {
 DIRECT_MIGRATION_MODELS = {
     "ai_conversations": (AIConversationDB, "ai_conversation"),
     "ai_facts": (AiFactDB, "ai_fact"),
+    "assistant_turns": (AssistantTurnDB, "assistant_turn"),
     "artifacts": (ArtifactDB, "artifact"),
     "experiments": (ExperimentDB, "experiment"),
     "experiment_entries": (ExperimentEntryDB, "experiment_entry"),
@@ -653,6 +657,7 @@ def _deletion_execution_order(categories: Iterable[str]) -> List[str]:
         "habit_logs",
         "import_items",
         "ai_messages",
+        "assistant_turns",
         "financial_transactions",
         "wearable_samples",
         "wearable_events",

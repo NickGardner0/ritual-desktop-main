@@ -17,6 +17,7 @@ from database.models import (
     AIMessageDB,
     AiFactDB,
     ArtifactDB,
+    AssistantTurnDB,
     Base,
     ExperimentDB,
     ExperimentEntryDB,
@@ -207,6 +208,18 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
                     conversation_id="conversation-private",
                     role="user",
                     content="private AI message",
+                )
+            )
+            session.add(
+                AssistantTurnDB(
+                    id="turn-private",
+                    user_id="user-privacy-inventory",
+                    conversation_id="conversation-private",
+                    channel="dashboard",
+                    status="completed",
+                    epoch=1,
+                    sequence=1,
+                    assistant_text="private assistant turn",
                 )
             )
             session.add(
