@@ -27,7 +27,7 @@ import { AiHabitChatForm } from './ai-habit-chat/ai-habit-chat-form';
 
 const MAX_VISIBLE_INLINE_SUGGESTIONS = 2;
 
-export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
+export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [input, setInput] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -524,6 +524,7 @@ export function AIHabitChat({ onHabitUpdate }: AIHabitChatProps) {
       handleInlineOptionSelect={handleInlineOptionSelect}
       startVoiceRecognition={startVoiceRecognition}
       handleUploadClick={screenshot.handleUploadClick}
+      onImportData={onImportData}
       handleFileChange={screenshot.handleFileChange}
       handleCancelScreenshot={screenshot.handleCancelScreenshot}
       handleConfirmScreenshot={screenshot.handleConfirmScreenshot}

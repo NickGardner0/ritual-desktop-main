@@ -2,7 +2,13 @@
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, ArrowUpRight, AudioLines, Paperclip } from 'lucide-react';
+import { ArrowUp, ArrowUpRight, AudioLines, Download, FileUp, Plus } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@ritual/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { VoiceWaveform, VoiceWaveformMini } from '../voice-waveform';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -51,6 +57,7 @@ export type AiHabitChatFormProps = {
   handleInlineOptionSelect: (option: InlineSuggestionOption) => void;
   startVoiceRecognition: () => void;
   handleUploadClick: () => void;
+  onImportData: () => void;
   handleFileChange: React.ChangeEventHandler<HTMLInputElement>;
   handleCancelScreenshot: () => void;
   handleConfirmScreenshot: () => void;
@@ -66,25 +73,21 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
     selectedSuggestionIndex, setSelectedSuggestionIndex, keyboardSuggestionActive, setKeyboardSuggestionActive,
     showSuggestions, clarifications, setClarifications, textareaRef, fileInputRef, handleFormSubmit, handleKeyDown,
     handleInputFocus, handleInputBlur, handleInlineOptionSelect, startVoiceRecognition, handleUploadClick,
-    handleFileChange, handleCancelScreenshot, handleConfirmScreenshot, adjustEditedValue,
+    onImportData, handleFileChange, handleCancelScreenshot, handleConfirmScreenshot, adjustEditedValue,
   } = props;
 
   const hasInput = input.trim().length > 0;
   const hasExtraInput = input.length > 120 || input.includes('\n');
   const hasSuggestionContent = visibleInlineOptions.length > 0 || clarifications.length > 0;
   const composerHeightClass = showSuggestions && hasSuggestionContent
-    ? 'h-[194px]'
+    ? 'h-[184px]'
     : error
-      ? 'h-[142px]'
+      ? 'h-[132px]'
       : hasExtraInput
-        ? 'h-[132px]'
-        : 'h-[114px]';
+        ? 'h-[124px]'
+        : 'h-[104px]';
   const composerActionClass =
     'flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] text-[var(--icon-default)] transition-none hover:bg-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed';
-  const composerSurfaceStyle: React.CSSProperties = {
-    boxShadow:
-      'inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 5%, transparent), 0 0 0 1px color-mix(in srgb, var(--text-primary) 3%, transparent), 0 1px 2px color-mix(in srgb, var(--text-primary) 4%, transparent), 0 3px 6px color-mix(in srgb, var(--text-primary) 5%, transparent), 0 8px 16px color-mix(in srgb, var(--text-primary) 6%, transparent), 0 16px 28px color-mix(in srgb, var(--text-primary) 5%, transparent)',
-  };
 
   return (
     <div className="w-full">
@@ -109,14 +112,13 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[660px] overflow-hidden rounded-[12px] bg-[var(--surface-panel)] transition-none focus-within:outline focus-within:outline-1 focus-within:outline-[var(--ritual-focus-ring)]',
+          'relative mx-auto w-full max-w-[660px] overflow-hidden rounded-[12px] bg-[var(--surface-panel)]',
           composerHeightClass
         )}
-        style={composerSurfaceStyle}
       >
         <form onSubmit={handleFormSubmit} className="h-full">
           <div className="relative h-full">
-            <div className="absolute inset-x-0 top-0 px-5 pt-4">
+            <div className="absolute inset-x-0 top-0 px-4 pt-3">
               {isListening && audioStream ? (
                 <div className="flex h-[36px] w-full items-center justify-center">
                   <VoiceWaveform isActive={true} audioStream={audioStream} className="h-8 w-full" />
@@ -146,7 +148,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                   }
                   className={cn(
                     "w-full resize-none border-0 bg-transparent font-normal text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] disabled:opacity-60",
-                    "min-h-[42px] max-h-[80px] py-0.5 text-[17px] leading-6"
+                    "min-h-[36px] max-h-[64px] px-1 py-0.5 text-[15px] leading-5"
                   )}
                   rows={1}
                   aria-label={mode === 'log' ? 'Log an activity' : 'Ask about your personal data'}
@@ -218,14 +220,50 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <div className="absolute bottom-3 left-4 right-12 flex items-center gap-2 text-[var(--text-secondary)]">
+            <div className="absolute bottom-2.5 left-4 right-12 flex items-center gap-2 text-[var(--text-secondary)]">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      composerActionClass,
+                      "data-[state=open]:bg-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] data-[state=open]:text-[var(--text-primary)]"
+                    )}
+                    aria-label="Add an attachment or import data"
+                    title="Add"
+                  >
+                    <Plus className="h-[18px] w-[18px] stroke-[1.5]" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  side="top"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="w-44"
+                  aria-label="Add to composer"
+                >
+                  <DropdownMenuItem
+                    onSelect={handleUploadClick}
+                    disabled={isUploadingScreenshot}
+                  >
+                    <FileUp className="h-4 w-4 text-[var(--icon-default)]" strokeWidth={1.75} />
+                    <span>Attach file</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onImportData}>
+                    <Download className="h-4 w-4 text-[var(--icon-default)]" strokeWidth={1.75} />
+                    <span>Import data</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
                   className={cn(
-                    "relative h-4 w-8 rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]",
+                    "relative h-5 w-10 rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]",
                     mode === 'chat'
                       ? "bg-primary"
                       : "bg-[color-mix(in_srgb,var(--text-primary)_16%,transparent)]"
@@ -236,8 +274,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-[var(--surface-raised)] shadow-sm transition-transform duration-150 ease-out",
-                      mode === 'chat' ? "translate-x-4" : "translate-x-0"
+                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[var(--surface-raised)] shadow-sm transition-transform duration-150 ease-out",
+                      mode === 'chat' ? "translate-x-5" : "translate-x-0"
                     )}
                   />
                 </button>
@@ -265,23 +303,6 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 )}
               </button>
 
-              <button
-                type="button"
-                className={cn(
-                  composerActionClass,
-                  isUploadingScreenshot && "text-[var(--text-primary)]"
-                )}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={handleUploadClick}
-                disabled={isUploadingScreenshot}
-                aria-label="Upload Screen Time screenshot"
-              >
-                {isUploadingScreenshot ? (
-                  <BrailleSpinner className="text-sm text-[var(--text-primary)]" />
-                ) : (
-                  <Paperclip className="h-4 w-4 stroke-[1.5]" />
-                )}
-              </button>
             </div>
 
             <input
@@ -295,7 +316,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-3 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--surface-raised)] transition-none hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed disabled:opacity-35"
+              className="absolute bottom-2.5 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--surface-raised)] transition-none hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed disabled:opacity-35"
               aria-label="Submit"
             >
               {submitButtonLoading ? (
