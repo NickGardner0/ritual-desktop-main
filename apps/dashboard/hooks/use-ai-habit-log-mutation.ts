@@ -9,6 +9,8 @@ import {
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import type { DashboardSnapshot } from '@/app/(dashboard)/dashboard/dashboard-initial-data';
 import { submitCurrentLocationPing } from '@/lib/location-ping';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 
 type HabitUpdateHandler = ((habitData: any) => void) | undefined;
 
@@ -82,6 +84,48 @@ type ClarificationParams = {
   habitName: string;
 };
 
+type BatchLogResult = {
+  success?: boolean;
+  error?: string;
+  message?: string;
+  results?: Array<{ success?: boolean }>;
+  overview_snapshot?: LoggingResult['overview_snapshot'];
+};
+
+async function batchLogHabits(
+  getToken: GetToken,
+  body: {
+    items: Array<{
+      habit_id: string;
+      date: string;
+      amount?: number | null;
+      duration?: number | null;
+      unit?: string | null;
+      source?: string;
+      notes?: string | null;
+    }>;
+    client_event_id?: string | null;
+  },
+  userId?: string | null,
+  fallbackMessage = 'Failed to log habit',
+): Promise<BatchLogResult> {
+  try {
+    return await apiOperationWithAuth(
+      'batch_log_habits_api_logs_batch_post',
+      getToken,
+      { body },
+      userId,
+    ) as BatchLogResult;
+  } catch (error) {
+    if (error instanceof BackendClientError) {
+      let parsed: BatchLogResult | null = null;
+      try { parsed = JSON.parse(error.responseBody) as BatchLogResult; } catch { parsed = null; }
+      throw new Error(parsed?.error || parsed?.message || fallbackMessage);
+    }
+    throw error;
+  }
+}
+
 function getLocalDateString() {
   const now = new Date();
   const year = now.getFullYear();
@@ -143,13 +187,9 @@ export function useAiHabitLogMutation({
         reason: 'ai_habit_chat_direct_log',
       });
       const clientEventId = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-      const response = await fetch('/api/logs/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        },
-        body: JSON.stringify({
+      const result = await batchLogHabits(
+        getToken,
+        {
           items: [
             {
               habit_id: matchedHabit.id,
@@ -162,12 +202,12 @@ export function useAiHabitLogMutation({
             },
           ],
           client_event_id: clientEventId,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
+        },
+        userId,
+        'Direct log failed',
+      );
       const firstResult = result?.results?.[0];
-      if (!response.ok || !result?.success || !firstResult?.success) {
+      if (!result?.success || !firstResult?.success) {
         throw new Error(result?.error || result?.message || 'Direct log failed');
       }
 
@@ -272,14 +312,9 @@ export function useAiHabitLogMutation({
       });
     },
     mutationFn: async ({ clarification, habitId, habitName }: ClarificationParams) => {
-      const sessionToken = await getToken();
-      const response = await fetch('/api/logs/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        },
-        body: JSON.stringify({
+      const result = await batchLogHabits(
+        getToken,
+        {
           items: [{
             habit_id: habitId,
             date: clarification.date,
@@ -289,11 +324,11 @@ export function useAiHabitLogMutation({
             notes: `Logged via clarification: ${clarification.habit_hint}`,
           }],
           client_event_id: `clarify-${Date.now()}`,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-      if (!response.ok || !result?.success) {
+        },
+        userId,
+        'Clarification log failed',
+      );
+      if (!result?.success) {
         throw new Error(result?.error || result?.message || 'Clarification log failed');
       }
 

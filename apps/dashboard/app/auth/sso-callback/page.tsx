@@ -22,14 +22,12 @@ import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
 import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
 import { initializeDesktopVault } from '@/lib/privacy/vault-client'
 import { restoreDashboardWindowSize } from '@/lib/native-gateway'
+import { apiOperationWithAuth } from '@/lib/api/client'
+import { BackendClientError } from '@/lib/api/generated/backend-client'
 
 const DASHBOARD_RETURN_URL_KEY = 'ritual:dashboard-return-url:v1'
 const ONBOARDING_V3_STEP_KEY = 'ritual:onboarding-v3-step'
 const BOOTSTRAP_TIMEOUT_MS = 30_000
-
-type BootstrapResponse = {
-  nextRoute?: string
-}
 
 type BootstrapFailure = {
   code: string
@@ -46,14 +44,14 @@ class BootstrapError extends Error {
   }
 }
 
-async function readBootstrapFailure(response: Response): Promise<BootstrapFailure> {
+function readBootstrapFailureFromBody(body: string): BootstrapFailure {
   const fallback = {
     code: 'account_setup_failed',
     message: 'Ritual could not finish creating your account. Please try again.',
   }
 
   try {
-    const payload = await response.json() as {
+    const payload = JSON.parse(body) as {
       detail?: unknown
       error?: unknown
     }
@@ -121,19 +119,20 @@ function resolveBootstrapRedirect(nextRoute: unknown, dashboardReturnUrl: string
   return onboardingRouteForStep(resolvedStep)
 }
 
-async function fetchBootstrap(token: string): Promise<Response> {
+async function fetchBootstrap(
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  userId?: string | null,
+) {
   const controller = new AbortController()
   const timeoutId = window.setTimeout(() => controller.abort(), BOOTSTRAP_TIMEOUT_MS)
 
   try {
-    return await fetch('/api/user/bootstrap', {
-      cache: 'no-store',
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    })
+    return await apiOperationWithAuth(
+      'get_user_bootstrap_api_user_bootstrap_get',
+      async (opts) => getToken({ skipCache: opts?.skipCache ?? true }),
+      { signal: controller.signal },
+      userId,
+    )
   } finally {
     window.clearTimeout(timeoutId)
   }
@@ -180,33 +179,34 @@ export default function SSOCallback() {
         clearSignUpIntent()
 
         setStatus('Setting up your account...')
-        const token = await getToken({ skipCache: true })
-        if (!token) {
-          router.replace('/sign-in')
-          return
-        }
-
         const bootstrapStartedAt = window.performance.now()
-        const response = await fetchBootstrap(token)
+        let bootstrap
+        try {
+          bootstrap = await fetchBootstrap(getToken, user.id)
+        } catch (error) {
+          const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
+          const status = error instanceof BackendClientError ? error.status : null
+          console.info('[Ritual][account-bootstrap] completed', {
+            duration_ms: Math.round(bootstrapDurationMs),
+            status,
+          })
+          if (
+            (error instanceof Error && error.message === 'No auth token available')
+            || (error instanceof BackendClientError && (error.status === 401 || error.status === 403))
+          ) {
+            router.replace('/sign-in')
+            return
+          }
+          if (error instanceof BackendClientError) {
+            throw new BootstrapError(readBootstrapFailureFromBody(error.responseBody))
+          }
+          throw error
+        }
         const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
         console.info('[Ritual][account-bootstrap] completed', {
           duration_ms: Math.round(bootstrapDurationMs),
-          backend_duration_ms: response.headers.get('x-ritual-bootstrap-duration-ms'),
-          mode: response.headers.get('x-ritual-bootstrap-mode'),
-          server_timing: response.headers.get('server-timing'),
-          status: response.status,
+          status: 200,
         })
-
-        if (response.status === 401 || response.status === 403) {
-          router.replace('/sign-in')
-          return
-        }
-
-        if (!response.ok) {
-          throw new BootstrapError(await readBootstrapFailure(response))
-        }
-
-        const bootstrap = await response.json() as BootstrapResponse
         if (getDesktopCapabilities().isDesktop) {
           setStatus('Creating your private local vault...')
           const vaultStatus = await initializeDesktopVault(user.id)

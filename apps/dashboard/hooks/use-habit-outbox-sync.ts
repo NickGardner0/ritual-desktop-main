@@ -3,7 +3,8 @@
 import { useEffect } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import {
@@ -26,30 +27,35 @@ async function replayHabitLogCreate(
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
 ) {
   const input = item.payload.input;
-  const token = await getToken();
-  const response = await fetch('/api/logs/batch', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({
-      items: [{
-        habit_id: input.habit_id,
-        duration: input.duration,
-        amount: input.amount,
-        date: input.date,
-        completed_at: input.completed_at,
-        unit: input.unit,
-        source: 'manual',
-        notes: input.notes,
-      }],
-      client_event_id: item.clientEventId,
-    }),
-  });
-  const result = await response.json().catch(() => null);
-  if (!response.ok || !result?.success || !result?.results?.[0]?.success) {
-    throw new Error(result?.error || result?.message || `Habit log outbox replay failed: ${response.status}`);
+  let result: { success?: boolean; results?: Array<{ success?: boolean }>; error?: string; message?: string };
+  try {
+    result = await apiOperationWithAuth(
+      'batch_log_habits_api_logs_batch_post',
+      getToken,
+      {
+        body: {
+          items: [{
+            habit_id: input.habit_id,
+            duration: input.duration,
+            amount: input.amount,
+            date: input.date,
+            completed_at: input.completed_at,
+            unit: input.unit,
+            source: 'manual',
+            notes: input.notes,
+          }],
+          client_event_id: item.clientEventId,
+        },
+      },
+    ) as typeof result;
+  } catch (error) {
+    if (error instanceof BackendClientError) {
+      throw new Error(error.responseBody || `Habit log outbox replay failed: ${error.status}`);
+    }
+    throw error;
+  }
+  if (!result?.success || !result?.results?.[0]?.success) {
+    throw new Error(result?.error || result?.message || 'Habit log outbox replay failed');
   }
 }
 
@@ -57,13 +63,17 @@ async function replayHabitCreate(
   item: HabitCreateOutboxItem,
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
 ) {
-  const response = await apiFetchWithAuth('/api/habits', getToken, {
-    method: 'POST',
-    body: JSON.stringify(item.payload.input),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(text || `Habit create outbox replay failed: ${response.status}`);
+  try {
+    await apiOperationWithAuth(
+      'create_habit_api_habits_post',
+      getToken,
+      { body: item.payload.input },
+    );
+  } catch (error) {
+    if (error instanceof BackendClientError) {
+      throw new Error(error.responseBody || `Habit create outbox replay failed: ${error.status}`);
+    }
+    throw error;
   }
 }
 

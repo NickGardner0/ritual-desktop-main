@@ -13,9 +13,11 @@ import {
   Monitor,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { useAuth } from '@clerk/nextjs';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { cn } from '@/lib/utils';
 
 interface WatcherConfig {
@@ -127,6 +129,7 @@ interface ComputerTrackingSettingsProps {
 }
 
 export function ComputerTrackingSettings({ userId, showAttributionHealth = false, onClose }: ComputerTrackingSettingsProps) {
+  const { getToken } = useAuth();
   const { habits, createHabit, fetchHabits } = useHabits();
   const cachedState = useRef(getCachedState());
 
@@ -158,19 +161,18 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   const syncToHabit = useCallback(async () => {
     try {
       setIsSyncing(true);
-      const response = await fetch('/api/watcher/sync-to-habit', { method: 'POST' });
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success && result.synced) {
-          setLastSyncTime(new Date());
-        }
+      const result = await apiOperationWithAuth(
+        'sync_to_computer_use_habit_api_watcher_sync_to_habit_post', getToken, {}, userId,
+      ) as { success?: boolean; synced?: boolean };
+      if (result.success && result.synced) {
+        setLastSyncTime(new Date());
       }
     } catch (e) {
       console.error('Failed to sync to habit:', e);
     } finally {
       setIsSyncing(false);
     }
-  }, []);
+  }, [getToken, userId]);
 
   useEffect(() => {
     if (!isRunning || !isEnabled) return;
@@ -241,27 +243,26 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       });
 
       try {
-        const response = await fetch(`/api/watcher/devices`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.devices && data.devices.length > 0) {
-            const device = data.devices[0];
-            setDeviceId(device.device_id);
-            if (!status?.is_running) setIsEnabled(device.is_enabled);
-            setTitleMode(device.state?.title_mode || 'off');
-            setPollInterval(device.state?.poll_interval_ms || 2000);
-            setExcludedApps(device.state?.excluded_bundle_ids || []);
-            setSyncAnalytics(device.state?.sync_analytics || false);
-            setAfkTimeout(device.state?.afk_timeout_seconds || 900);
+        const data = await apiOperationWithAuth(
+          'list_devices_api_watcher_devices_get', getToken, {}, userId,
+        ) as { devices?: Array<{ device_id: string; is_enabled?: boolean; state?: Record<string, any> }> };
+        if (data.devices && data.devices.length > 0) {
+          const device = data.devices[0];
+          setDeviceId(device.device_id);
+          if (!status?.is_running) setIsEnabled(Boolean(device.is_enabled));
+          setTitleMode((device.state?.title_mode || 'off') as CachedWatcherState['titleMode']);
+          setPollInterval(device.state?.poll_interval_ms || 2000);
+          setExcludedApps(device.state?.excluded_bundle_ids || []);
+          setSyncAnalytics(Boolean(device.state?.sync_analytics));
+          setAfkTimeout(device.state?.afk_timeout_seconds || 900);
 
-            setCachedState({
-              isRunning: status?.is_running ?? false,
-              isEnabled: status?.is_running || device.is_enabled,
-              accessibilityGranted: accessGranted,
-              deviceId: device.device_id,
-              titleMode: device.state?.title_mode || 'off'
-            });
-          }
+          setCachedState({
+            isRunning: status?.is_running ?? false,
+            isEnabled: Boolean(status?.is_running || device.is_enabled),
+            accessibilityGranted: accessGranted,
+            deviceId: device.device_id,
+            titleMode: (device.state?.title_mode || 'off') as CachedWatcherState['titleMode'],
+          });
         }
       } catch (fetchErr) {
         console.log('Could not fetch watcher devices (using local state):', fetchErr);
@@ -272,7 +273,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       setIsLoading(false);
       setIsStatusLoading(false);
     }
-  }, []);
+  }, [getToken, userId]);
 
   useEffect(() => { loadSettings(); }, [loadSettings]);
 
@@ -323,13 +324,12 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   const toggleWatcher = async () => {
     if (!deviceId && !isEnabled) {
       try {
-        const response = await fetch('/api/watcher/devices', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_name: 'My Mac', platform: 'macos' })
-        });
-        if (!response.ok) throw new Error('Failed to register device');
-        const data = await response.json();
+        const data = await apiOperationWithAuth(
+          'register_device_api_watcher_devices_post',
+          getToken,
+          { body: { device_name: 'My Mac', platform: 'macos' } },
+          userId,
+        );
         setDeviceId(data.device_id);
       } catch (e) {
         setError('Failed to register device');
@@ -346,7 +346,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         await getBrowserExtensionDiagnostics();
         setCachedState({ isRunning: false, isEnabled: false, accessibilityGranted, deviceId, titleMode });
         if (deviceId) {
-          await fetch(`/api/watcher/devices/${deviceId}/stop`, { method: 'POST' });
+          await apiOperationWithAuth('stop_watcher_api_watcher_devices__device_id__stop_post', getToken, { pathParams: { device_id: deviceId } }, userId).catch(() => null);
         }
       } catch (e) {
         console.error('Failed to stop watcher:', e);
@@ -377,7 +377,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         await getBrowserExtensionDiagnostics();
         setCachedState({ isRunning: true, isEnabled: true, accessibilityGranted, deviceId, titleMode });
         if (deviceId) {
-          await fetch(`/api/watcher/devices/${deviceId}/start`, { method: 'POST' });
+          await apiOperationWithAuth('start_watcher_api_watcher_devices__device_id__start_post', getToken, { pathParams: { device_id: deviceId } }, userId).catch(() => null);
         }
       } catch (e) {
         console.error('Failed to start watcher:', e);
@@ -398,18 +398,15 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
 
       if (!deviceId) return;
 
-      const response = await fetch(`/api/watcher/devices/${deviceId}/settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          poll_interval_ms: pollInterval,
-          title_mode: titleMode,
-          excluded_bundle_ids: excludedApps,
-          sync_analytics: syncAnalytics,
-          afk_timeout_seconds: afkTimeout
-        })
-      });
-      if (!response.ok) throw new Error('Failed to save settings');
+      await apiOperationWithAuth(
+        'update_watcher_settings_api_watcher_devices__device_id__settings_put',
+        getToken,
+        {
+          pathParams: { device_id: deviceId },
+          body: { poll_interval_ms: pollInterval, title_mode: titleMode, excluded_bundle_ids: excludedApps, sync_analytics: syncAnalytics, afk_timeout_seconds: afkTimeout },
+        },
+        userId,
+      );
 
       if (isRunning) {
         await invoke('stop_watcher');

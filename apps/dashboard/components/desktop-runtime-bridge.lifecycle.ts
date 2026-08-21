@@ -6,9 +6,9 @@ import { invokeDesktopCommand } from '@/lib/native-gateway';
 import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/native-gateway';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
 import { canSendToCloud } from '@ritual/shared-contracts';
-import { privacySettingsHeaders, readPrivacySettings } from '@/lib/privacy/privacy-settings';
+import { readPrivacySettings } from '@/lib/privacy/privacy-settings';
 import {
   COMPUTER_HISTORY_BACKFILL_DAYS,
   COMPUTER_HISTORY_BACKFILL_DELAY_MS,
@@ -351,10 +351,11 @@ export function useDesktopNativeEvents(input: {
 export function useDesktopActivityBackfill(input: {
   isDesktop: boolean;
   bridgeMode: DesktopBridgeMode;
+  getToken: () => Promise<string | null>;
   queryClient: QueryClient;
   userId?: string;
 }): void {
-  const { isDesktop, bridgeMode, queryClient, userId } = input;
+  const { isDesktop, bridgeMode, getToken, queryClient, userId } = input;
 
   useEffect(() => {
     if (!isDesktop || bridgeMode === 'probing' || !userId) return;
@@ -387,19 +388,16 @@ export function useDesktopActivityBackfill(input: {
       }
 
       try {
-        const response = await fetch(`/api/watcher/sync-to-habit?days_back=${COMPUTER_HISTORY_BACKFILL_DAYS}`, {
-          method: 'POST',
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            ...privacySettingsHeaders(privacy),
-          },
-        });
+        const result = await apiOperationWithAuth(
+          'sync_to_computer_use_habit_api_watcher_sync_to_habit_post',
+          getToken,
+          { query: { days_back: COMPUTER_HISTORY_BACKFILL_DAYS } },
+          userId,
+        ) as { success?: boolean; synced?: boolean };
         window.localStorage.setItem(storageKey, String(Date.now()));
 
-        if (!response.ok || cancelled) return;
+        if (cancelled) return;
 
-        const result = await response.json().catch(() => null);
         if (result?.success && result?.synced) {
           markReadConsistencyRequired(userId);
           await invalidateAfterComputerSync(queryClient, userId);
@@ -417,7 +415,7 @@ export function useDesktopActivityBackfill(input: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [bridgeMode, isDesktop, queryClient, userId]);
+  }, [bridgeMode, getToken, isDesktop, queryClient, userId]);
 }
 
 export function useDesktopRealtimeSync(input: {

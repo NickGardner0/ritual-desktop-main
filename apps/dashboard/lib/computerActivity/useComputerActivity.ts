@@ -10,6 +10,7 @@
 
 import { useState, useCallback, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAuth, useUser } from '@clerk/nextjs'
 import { isDesktopRuntime } from '@/lib/desktop-capabilities'
 import {
   ActivityBreakdownSource,
@@ -31,7 +32,7 @@ import {
 } from './tauri-activity'
 import { getAggregatedComputerStats } from './api'
 import { QUERY_POLICY } from '@/lib/query-policies'
-import { getReadConsistencyHeaders } from '@/lib/read-consistency'
+import { apiOperationWithAuth } from '@/lib/api/client'
 
 // ============================================================
 // Time range helpers
@@ -79,47 +80,27 @@ interface AggregatedComputerStats {
   read_source?: ComputerActivityReadSource
 }
 
-async function fetchScreenTimeAggregatedStats(startTs: number, endTs: number): Promise<AggregatedComputerStats | null> {
+async function fetchScreenTimeAggregatedStats(
+  getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
+  userId: string | undefined,
+  startTs: number,
+  endTs: number,
+): Promise<AggregatedComputerStats | null> {
   try {
     const startDate = toLocalDateString(startTs)
     const endDate = toLocalDateString(endTs)
-
-    const [summaryRes, appsRes, domainsRes] = await Promise.all([
-      fetch(`/api/screen-time/stats/summary?start_date=${startDate}&end_date=${endDate}`, {
-        cache: 'no-store',
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-      fetch(`/api/screen-time/stats/top-apps?start_date=${startDate}&end_date=${endDate}&limit=10`, {
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-      fetch(`/api/screen-time/stats/top-domains?start_date=${startDate}&end_date=${endDate}&limit=10`, {
-        headers: {
-          ...getReadConsistencyHeaders(),
-        },
-      }),
-    ])
-
-    if (!summaryRes.ok || !appsRes.ok || !domainsRes.ok) {
-      return null
-    }
-
+    const query = { start_date: startDate, end_date: endDate }
     const [summaryPayload, appsPayload, domainsPayload] = await Promise.all([
-      summaryRes.json(),
-      appsRes.json(),
-      domainsRes.json(),
+      apiOperationWithAuth('get_screen_time_summary_api_screen_time_stats_summary_get', getToken, { query }, userId),
+      apiOperationWithAuth('get_screen_time_top_apps_api_screen_time_stats_top_apps_get', getToken, { query: { ...query, limit: 10 } }, userId),
+      apiOperationWithAuth('get_screen_time_top_domains_api_screen_time_stats_top_domains_get', getToken, { query: { ...query, limit: 10 } }, userId),
     ])
-
     const summary = summaryPayload?.data || {}
-
     return {
       summary,
-      daily: Array.isArray(summary.daily) ? summary.daily : [],
-      apps: appsPayload?.data || [],
-      domains: domainsPayload?.data || [],
+      daily: Array.isArray((summary as { daily?: unknown }).daily) ? (summary as { daily: unknown[] }).daily : [],
+      apps: (appsPayload as { data?: unknown[] } | null)?.data || [],
+      domains: (domainsPayload as { data?: unknown[] } | null)?.data || [],
     }
   } catch (error) {
     console.error('Failed to fetch aggregated screen time stats:', error)
@@ -237,6 +218,8 @@ export function useComputerActivity(
     skipEventFetch = false,
   } = options
   const queryClient = useQueryClient()
+  const { getToken } = useAuth()
+  const { user } = useUser()
   const [range, setRange] = useState<TimeRangePreset>(initialRange)
 
   // Computed time range
@@ -261,7 +244,7 @@ export function useComputerActivity(
     queryFn: () => (
       source === 'desktop'
         ? fetchAggregatedStats(timeRange.start, timeRange.end)
-        : fetchScreenTimeAggregatedStats(timeRange.start, timeRange.end)
+        : fetchScreenTimeAggregatedStats(getToken, user?.id, timeRange.start, timeRange.end)
     ),
     placeholderData: (previous) => previous ?? null,
     staleTime: QUERY_POLICY.computerSnapshot.staleTime,

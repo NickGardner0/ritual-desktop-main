@@ -9,15 +9,15 @@ import { useAnalytics } from '@/lib/analytics';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import { applyCanonicalOverviewSnapshot, applyOptimisticOverviewStatDelta, invalidateAfterHabitWrite, invalidateHabitData } from '@/lib/query-invalidation';
 import { habitKeys as canonicalHabitKeys, habitLogKeys as canonicalHabitLogKeys } from '@/lib/dashboard/query-keys';
-import { clearReadConsistencyRequirement, getReadConsistencyHeaders, markReadConsistencyRequired, shouldForceFreshRead } from '@/lib/read-consistency';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { clearReadConsistencyRequirement, markReadConsistencyRequired, shouldForceFreshRead } from '@/lib/read-consistency';
+import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import { putLocalVaultHabit, putLocalVaultHabitLog, putLocalVaultHabitWriteOutboxItem, readLocalVaultHabitLogs, readLocalVaultHabits, readLocalVaultHabitWriteOutboxItems } from '@/lib/privacy/habit-vault-adapter';
 import { buildHabitCreateOutboxItem, buildHabitLogCreateOutboxItem, buildOptimisticHabit, buildOptimisticHabitLog, createHabitClientEventId, getHabitLogOptimisticDelta, getHabitLogOptimisticUnit, markOutboxItemFailed, markOutboxItemSynced, mergeHabitLogsWithOutbox, mergeHabitsWithOutbox, upsertById, type HabitLogMutationInput, type HabitWriteOutboxItem, type OptimisticHabit, type OptimisticHabitLog } from '@/lib/habits/local-first-writes';
 import { useHabitWriteOutboxSync } from './use-habit-outbox-sync';
 import { playInteractionSound } from '@/lib/interaction-sounds';
 
 const LOCAL_HABITS_API = '/api/habits';
-const LOCAL_HABIT_LOGS_API = '/api/habit-logs';
 const HABITS_SNAPSHOT_STORAGE_KEY = 'ritual:habits-snapshot:v1';
 const HABIT_LOGS_SNAPSHOT_STORAGE_KEY = 'ritual:habit-logs-snapshot:v1';
 const SNAPSHOT_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 7;
@@ -28,6 +28,13 @@ export const habitLogKeys = canonicalHabitLogKeys;
 type PersistedSnapshot<T> = { updatedAt: number; data: T };
 type SnapshotEnvelope<T> = { byUser?: Record<string, PersistedSnapshot<T>> };
 type MutationErrorWithStatus = Error & { status?: number };
+type BatchLogResult = {
+  success?: boolean;
+  results?: Array<{ success?: boolean; habit_name?: string }>;
+  error?: string;
+  message?: string;
+  overview_snapshot?: unknown;
+};
 type LogHabitMutationContext = { previousLogs?: HabitLog[]; rollbackOverview?: () => void; optimisticLog?: OptimisticHabitLog; outboxItem?: HabitWriteOutboxItem; hadLocalVaultLogs?: boolean };
 type CreateHabitMutationContext = { previousHabits?: Habit[]; optimisticHabit?: OptimisticHabit; outboxItem?: HabitWriteOutboxItem; hadLocalVaultHabits?: boolean };
 
@@ -149,6 +156,7 @@ async function fetchWithAuthRetry(
  */
 export function useHabitsQuery() {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   useHabitWriteOutboxSync();
   const bypassPersistedSnapshot = useMemo(
@@ -181,19 +189,12 @@ export function useHabitsQuery() {
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habits for user:', user.primaryEmailAddress?.emailAddress); }
 
       try {
-        const response = await fetch(LOCAL_HABITS_API, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            ...getReadConsistencyHeaders(user.id),
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch habits: ${response.status}`);
-        }
-
-        const habits = await response.json();
+        const habits = await apiOperationWithAuth(
+          'get_habits_api_habits_get',
+          getToken,
+          {},
+          user.id,
+        );
         const mergedHabits = mergeHabitsWithOutbox(habits as Habit[], outboxItems);
         persistSnapshot(HABITS_SNAPSHOT_STORAGE_KEY, mergedHabits, user.id);
         clearReadConsistencyRequirement(user.id);
@@ -224,6 +225,7 @@ export function useHabitLogsQuery({
   enabled?: boolean;
 } = {}) {
   const { user, isLoaded } = useUser();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const bypassPersistedSnapshot = useMemo(
     () => shouldForceFreshRead(user?.id),
@@ -259,20 +261,13 @@ export function useHabitLogsQuery({
       if (process.env.NODE_ENV !== 'production') { console.log('🔄 [React Query] Fetching habit logs...'); }
 
       try {
-        const response = await fetch(LOCAL_HABIT_LOGS_API, {
-          cache: 'no-store',
-          credentials: 'include',
-          headers: {
-            ...getReadConsistencyHeaders(user.id),
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to fetch habit logs: ${response.status}`);
-        }
-
-        const logs = await response.json();
-        const processedLogs = logs.map((log: any) => ({
+        const logs = await apiOperationWithAuth(
+          'get_all_habit_logs_api_habit_logs_get',
+          getToken,
+          {},
+          user.id,
+        );
+        const processedLogs = logs.map((log) => ({
           ...log,
           duration: log.duration || 0,
         }));
@@ -320,7 +315,6 @@ export function useLogHabitMutation() {
   return useMutation<any, Error, HabitLogMutationInput, LogHabitMutationContext>({
     mutationFn: async (habitLog) => {
       if (!user?.id) throw new Error('No user');
-      const token = await getToken();
       habitLog.client_event_id = habitLog.client_event_id || createHabitClientEventId({
         kind: 'habit_log_create',
         entityId: habitLog.habit_id,
@@ -328,32 +322,37 @@ export function useLogHabitMutation() {
       });
       if (process.env.NODE_ENV !== 'production') { console.log('📝 [React Query] Logging habit:', habitLog); }
 
-      const response = await fetch('/api/logs/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          items: [{
-            habit_id: habitLog.habit_id,
-            duration: habitLog.duration,
-            amount: habitLog.amount,
-            date: habitLog.date,
-            completed_at: habitLog.completed_at,
-            unit: habitLog.unit,
-            source: 'manual',
-            notes: habitLog.notes,
-          }],
-          client_event_id: habitLog.client_event_id,
-        }),
-      });
-
-      const result = await response.json().catch(() => null);
-      if (!response.ok) {
-        console.error('❌ Failed to log habit:', result);
-        const error = new Error(result?.error || result?.detail?.message || `Failed to log habit: ${response.status}`) as MutationErrorWithStatus;
-        error.status = response.status;
+      let result: BatchLogResult;
+      try {
+        result = await apiOperationWithAuth(
+          'batch_log_habits_api_logs_batch_post',
+          getToken,
+          {
+            body: {
+              items: [{
+                habit_id: habitLog.habit_id,
+                duration: habitLog.duration,
+                amount: habitLog.amount,
+                date: habitLog.date,
+                completed_at: habitLog.completed_at,
+                unit: habitLog.unit,
+                source: 'manual',
+                notes: habitLog.notes,
+              }],
+              client_event_id: habitLog.client_event_id,
+            },
+          },
+          user.id,
+        ) as BatchLogResult;
+      } catch (error) {
+        if (error instanceof BackendClientError) {
+          let parsed: BatchLogResult | null = null;
+          try { parsed = JSON.parse(error.responseBody) as BatchLogResult; } catch { parsed = null; }
+          console.error('❌ Failed to log habit:', parsed);
+          const failed = new Error(parsed?.error || `Failed to log habit: ${error.status}`) as MutationErrorWithStatus;
+          failed.status = error.status;
+          throw failed;
+        }
         throw error;
       }
       if (!result?.success || !result?.results?.[0]?.success) {

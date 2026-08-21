@@ -12,7 +12,7 @@ const railwayConfigUrl = new URL('../../backend/railway.json', import.meta.url)
 test('account callback performs one bootstrap request without automatic retries', async () => {
   const source = await readFile(callbackSourceUrl, 'utf8')
 
-  assert.match(source, /const response = await fetchBootstrap\(token\)/)
+  assert.match(source, /bootstrap = await fetchBootstrap\(getToken, user.id\)/)
   assert.doesNotMatch(source, /BOOTSTRAP_RETRY_DELAYS_MS/)
   assert.doesNotMatch(source, /Still setting up your account/)
 })

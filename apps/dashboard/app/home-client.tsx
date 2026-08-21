@@ -11,6 +11,7 @@ import {
   setOnboardingWindowSize,
 } from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import {
   hasDeviceAuthenticated,
@@ -172,28 +173,26 @@ export function HomeClient() {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-        const response = await fetch('/api/user/bootstrap', {
-          cache: 'no-store',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'X-Ritual-Force-Fresh': '1',
-          },
-          signal: controller.signal
-        }).catch((err) => {
-          console.error('Bootstrap fetch error:', err);
-          return null;
-        }).finally(() => clearTimeout(timeoutId));
-
-        if (response && response.ok) {
-          const bootstrap = await response.json();
-          const redirectRoute = resolveSsoRedirectRoute(bootstrap?.nextRoute, undefined);
+        try {
+          const bootstrap = await apiOperationWithAuth(
+            'get_user_bootstrap_api_user_bootstrap_get',
+            getToken,
+            {
+              headers: { 'X-Ritual-Force-Fresh': '1' },
+              signal: controller.signal,
+            },
+            user?.id,
+          );
+          const redirectRoute = resolveSsoRedirectRoute(bootstrap.nextRoute, undefined);
           if (restoreDashboardOnRedirect && redirectRoute.startsWith('/dashboard')) {
             await restoreDashboardWindowSize();
           }
           router.replace(redirectRoute);
-        } else {
+        } catch (err) {
+          console.error('Bootstrap fetch error:', err);
           router.replace('/sign-in');
+        } finally {
+          clearTimeout(timeoutId);
         }
       } catch (error) {
         console.error('Error checking bootstrap:', error);

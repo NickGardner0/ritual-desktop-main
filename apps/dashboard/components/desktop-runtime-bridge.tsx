@@ -75,6 +75,7 @@ function RuntimeSyncBridge() {
   useDesktopActivityBackfill({
     isDesktop,
     bridgeMode,
+    getToken,
     queryClient,
     userId: user?.id,
   });
