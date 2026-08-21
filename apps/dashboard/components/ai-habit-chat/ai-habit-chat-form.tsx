@@ -79,6 +79,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
       : hasExtraInput
         ? 'h-[132px]'
         : 'h-[114px]';
+  const composerActionClass =
+    'flex h-8 w-8 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] text-[var(--icon-default)] transition-none hover:bg-[color-mix(in_srgb,var(--text-primary)_11%,transparent)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed';
 
   return (
     <div className="w-full">
@@ -103,7 +105,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
 
       <div
         className={cn(
-          'relative mx-auto w-full max-w-[660px] transform-none overflow-hidden rounded-[12px] border border-[rgba(24,24,27,0.14)] bg-[var(--content-bg)] shadow-[0_1px_2px_rgba(24,24,27,0.08),0_16px_40px_rgba(24,24,27,0.04)] transition-colors duration-150 ease-out hover:border-[rgba(24,24,27,0.2)] focus-within:border-[rgba(24,24,27,0.26)]',
+          'relative mx-auto w-full max-w-[768px] overflow-hidden rounded-[18px] bg-[var(--surface-panel)] ring-1 ring-inset ring-[var(--border-muted)] transition-none focus-within:ring-[color-mix(in_srgb,var(--ritual-focus-ring)_28%,transparent)]',
           composerHeightClass
         )}
       >
@@ -138,10 +140,11 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                       : "Ask about your personal data..."
                   }
                   className={cn(
-                    "w-full resize-none border-0 bg-transparent font-normal text-gray-900 outline-none placeholder:text-[#9ca3af] disabled:opacity-60",
+                    "w-full resize-none border-0 bg-transparent font-normal text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)] disabled:opacity-60",
                     "min-h-[42px] max-h-[80px] py-0.5 text-[17px] leading-6"
                   )}
                   rows={1}
+                  aria-label={mode === 'log' ? 'Log an activity' : 'Ask about your personal data'}
                   disabled={submitButtonLoading}
                   readOnly={isListening}
                 />
@@ -154,7 +157,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                     animate={{ opacity: 1, filter: 'blur(0px)' }}
                     exit={{ opacity: 0, filter: 'blur(4px)' }}
                     transition={{ duration: 0.14, ease: 'easeOut' }}
-                    className="mt-1 max-h-[102px] overflow-y-auto border-t border-gray-200/70 pt-0.5"
+                    className="mt-1 max-h-[102px] overflow-y-auto border-t border-[var(--border-subtle)] pt-0.5"
                   >
                     {visibleInlineOptions.map((option, idx) => (
                       <button
@@ -169,14 +172,14 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                         className={cn(
                           "group flex w-full items-center justify-between gap-3 px-0 py-[7px] text-left text-[13px] transition-colors",
                           idx === selectedSuggestionIndex
-                            ? "text-gray-950"
-                            : "text-gray-500 hover:text-gray-900"
+                            ? "text-[var(--text-primary)]"
+                            : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                         )}
                       >
                         <div className="min-w-0">
                           <div className="truncate leading-snug">{option.label}</div>
                           {option.kind === 'clarification' && option.sublabel && (
-                            <div className="truncate text-[11px] leading-snug text-gray-400">
+                            <div className="truncate text-[11px] leading-snug text-[var(--text-muted)]">
                               {option.sublabel}
                             </div>
                           )}
@@ -184,7 +187,9 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                         <ArrowUpRight
                           className={cn(
                             "h-3 w-3 flex-shrink-0 transition-colors",
-                            idx === selectedSuggestionIndex ? "text-gray-500" : "text-gray-300 group-hover:text-gray-500"
+                            idx === selectedSuggestionIndex
+                              ? "text-[var(--icon-default)]"
+                              : "text-[var(--icon-muted)] group-hover:text-[var(--icon-default)]"
                           )}
                         />
                       </button>
@@ -208,15 +213,17 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <div className="absolute bottom-3.5 left-5 right-14 flex items-center gap-2 text-gray-600">
-              <div className="flex items-center gap-1.5">
+            <div className="absolute bottom-3 left-4 right-12 flex items-center gap-2 text-[var(--text-secondary)]">
+              <div className="flex h-8 items-center gap-2 rounded-full bg-[color-mix(in_srgb,var(--text-primary)_7%,transparent)] px-2.5">
                 <button
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
                   className={cn(
-                    "relative h-5 w-10 rounded-full transition-colors duration-150 ease-out focus:outline-none",
-                    mode === 'chat' ? "bg-[#2b2b2b]" : "bg-[#d9d9d9]"
+                    "relative h-4 w-8 rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]",
+                    mode === 'chat'
+                      ? "bg-primary"
+                      : "bg-[color-mix(in_srgb,var(--text-primary)_16%,transparent)]"
                   )}
                   role="switch"
                   aria-checked={mode === 'chat'}
@@ -224,12 +231,12 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 >
                   <span
                     className={cn(
-                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-150 ease-out",
-                      mode === 'chat' ? "translate-x-5" : "translate-x-0"
+                      "absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-[var(--surface-raised)] shadow-sm transition-transform duration-150 ease-out",
+                      mode === 'chat' ? "translate-x-4" : "translate-x-0"
                     )}
                   />
                 </button>
-                <span className="text-[13px] font-normal text-gray-500">
+                <span className="text-[13px] font-normal text-[var(--text-secondary)]">
                   {mode === 'chat' ? 'Chat' : 'Log'}
                 </span>
               </div>
@@ -237,8 +244,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               <button
                 type="button"
                 className={cn(
-                  "flex h-8 w-8 items-center justify-center bg-transparent transition-colors duration-150",
-                  isListening || isProcessingVoice ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+                  composerActionClass,
+                  (isListening || isProcessingVoice) && "text-[var(--text-primary)]"
                 )}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={startVoiceRecognition}
@@ -247,7 +254,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 {isListening ? (
                   <VoiceWaveformMini isActive={isListening} />
                 ) : isProcessingVoice ? (
-                  <BrailleSpinner className="text-sm text-gray-900" />
+                  <BrailleSpinner className="text-sm text-[var(--text-primary)]" />
                 ) : (
                   <AudioLines className="h-[18px] w-[18px] stroke-[1.5]" />
                 )}
@@ -256,8 +263,8 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               <button
                 type="button"
                 className={cn(
-                  "flex h-8 w-8 items-center justify-center transition-colors duration-150",
-                  isUploadingScreenshot ? "text-gray-900" : "text-gray-600 hover:text-gray-900"
+                  composerActionClass,
+                  isUploadingScreenshot && "text-[var(--text-primary)]"
                 )}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={handleUploadClick}
@@ -265,7 +272,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 aria-label="Upload Screen Time screenshot"
               >
                 {isUploadingScreenshot ? (
-                  <BrailleSpinner className="text-sm text-gray-900" />
+                  <BrailleSpinner className="text-sm text-[var(--text-primary)]" />
                 ) : (
                   <Paperclip className="h-4 w-4 stroke-[1.5]" />
                 )}
@@ -283,11 +290,17 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
             <button
               type="submit"
               disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-3.5 right-4 flex h-8 w-8 items-center justify-center rounded-full bg-black text-white transition-opacity duration-150 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-35"
+              className={cn(
+                'absolute bottom-3 right-3',
+                composerActionClass,
+                hasInput && !submitButtonLoading
+                  ? 'text-[var(--text-primary)]'
+                  : 'text-[var(--text-muted)]'
+              )}
               aria-label="Submit"
             >
               {submitButtonLoading ? (
-                <BrailleSpinner className="text-sm text-white" />
+                <BrailleSpinner className="text-sm text-[var(--text-primary)]" />
               ) : (
                 <ArrowUp className="h-4 w-4" />
               )}
