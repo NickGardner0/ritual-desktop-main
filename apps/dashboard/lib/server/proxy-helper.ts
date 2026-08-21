@@ -14,10 +14,6 @@ interface ProxyOptions {
   timeout?: number;
   /** Log tag for console messages (e.g. "habits") */
   tag?: string;
-  /** Compatibility payload for legacy dashboard callers when a backend resource is missing. */
-  notFoundFallback?: unknown;
-  /** Compatibility payload for legacy dashboard callers when the backend is unavailable. */
-  errorFallback?: unknown;
 }
 
 export async function forwardProxyRequest(
@@ -87,16 +83,6 @@ export async function forwardProxyRequest(
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      if (response.status === 404 && opts.notFoundFallback !== undefined) {
-        console.warn(`[Ritual][${tag}-proxy] backend-not-found-fallback`, {
-          duration_ms: Date.now() - startedAt,
-          status: response.status,
-        });
-        return NextResponse.json(opts.notFoundFallback, {
-          headers: { "Cache-Control": "no-store, max-age=0" },
-        });
-      }
-
       console.warn(`[Ritual][${tag}-proxy] backend-error`, {
         duration_ms: Date.now() - startedAt,
         status: response.status,
@@ -127,16 +113,6 @@ export async function forwardProxyRequest(
     }
     return nextResponse;
   } catch (error) {
-    if (opts.errorFallback !== undefined) {
-      console.warn(`[Ritual][${tag}-proxy] exception-fallback`, {
-        duration_ms: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return NextResponse.json(opts.errorFallback, {
-        headers: { "Cache-Control": "no-store, max-age=0" },
-      });
-    }
-
     console.error(`[Ritual][${tag}-proxy] exception`, {
       duration_ms: Date.now() - startedAt,
       error: error instanceof Error ? error.message : String(error),

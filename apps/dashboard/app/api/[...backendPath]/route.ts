@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { matchBackendOpenApiPath } from "@/lib/api/generated/backend-client";
-import {
-  getBackendProxyCompatibilityFallback,
-  resolveBackendProxyPath,
-} from "@/lib/server/backend-proxy-routing";
+import { resolveBackendProxyPath } from "@/lib/server/backend-proxy-routing";
 import { forwardProxyRequest } from "@/lib/server/proxy-helper";
 
 export const dynamic = "force-dynamic";
@@ -24,17 +21,9 @@ async function proxyBackendRequest(request: NextRequest, context: RouteContext) 
     return NextResponse.json({ error: "Unknown API route" }, { status: 404 });
   }
 
-  const compatibilityFallback = getBackendProxyCompatibilityFallback(
-    request.method,
-    backendApiPath,
-    request.nextUrl.searchParams,
-  );
-
   return forwardProxyRequest(request, backendApiPath, {
     tag: `backend:${matchedPath}`,
     timeout: 120_000,
-    notFoundFallback: compatibilityFallback,
-    errorFallback: compatibilityFallback,
   });
 }
 

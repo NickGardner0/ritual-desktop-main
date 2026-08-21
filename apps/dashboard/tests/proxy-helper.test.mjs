@@ -28,7 +28,6 @@ let realImport = false;
 let buildBackendAuthHeaders;
 let matchBackendOpenApiPath;
 let resolveBackendProxyPath;
-let getBackendProxyCompatibilityFallback;
 let resolveProxyForwarding;
 try {
   // tsx can resolve TS files with relative paths
@@ -38,7 +37,6 @@ try {
   buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
-  getBackendProxyCompatibilityFallback = proxyRoutingMod.getBackendProxyCompatibilityFallback;
   resolveProxyForwarding = authMod.resolveProxyForwarding;
   realImport = true;
 } catch {
@@ -53,7 +51,9 @@ try {
   matchBackendOpenApiPath = (path) => {
     if (path === "/api/artifacts") return "/api/artifacts";
     if (path === "/api/import/preview") return "/api/import/preview";
+    if (path === "/api/suggestions") return "/api/suggestions";
     if (path === "/api/wearables/apple/metric_preferences") return "/api/wearables/apple/metric_preferences";
+    if (path === "/api/wearables/connections") return "/api/wearables/connections";
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
     return null;
@@ -61,17 +61,6 @@ try {
   resolveBackendProxyPath = (path) => {
     if (path === "/api/wearables/apple/metric-preferences") return "/api/wearables/apple/metric_preferences";
     return path;
-  };
-  getBackendProxyCompatibilityFallback = (method, path, searchParams) => {
-    if (method === "GET" && path === "/api/suggestions") {
-      return {
-        suggestions: [],
-        mode: searchParams?.get("mode") || "chat",
-        query: searchParams?.get("q") || "",
-      };
-    }
-    if (method === "GET" && path === "/api/wearables/connections") return { connections: [] };
-    return undefined;
   };
   resolveProxyForwarding = (contentTypeHeader) => {
     const contentType = contentTypeHeader?.trim() || "";
@@ -230,7 +219,7 @@ describe("Generated backend route allowlist", () => {
   });
 });
 
-describe("Backend proxy routing compatibility", () => {
+describe("Backend proxy routing", () => {
   test("maps legacy dashed dashboard wearable paths to backend snake_case paths", () => {
     assert.equal(
       resolveBackendProxyPath("/api/wearables/apple/metric-preferences"),
@@ -242,26 +231,9 @@ describe("Backend proxy routing compatibility", () => {
     );
   });
 
-  test("keeps GET fallbacks scoped away from mutating requests", () => {
-    assert.deepEqual(
-      getBackendProxyCompatibilityFallback("GET", "/api/wearables/connections"),
-      { connections: [] },
-    );
-    assert.equal(
-      getBackendProxyCompatibilityFallback("POST", "/api/wearables/connections"),
-      undefined,
-    );
-  });
-
-  test("preserves query-shaped fallback payloads after deleting suggestion proxy route", () => {
-    assert.deepEqual(
-      getBackendProxyCompatibilityFallback(
-        "GET",
-        "/api/suggestions",
-        new URLSearchParams("mode=log&q=sleep"),
-      ),
-      { suggestions: [], mode: "log", query: "sleep" },
-    );
+  test("forwards live FastAPI suggestion and connection routes instead of empty stubs", () => {
+    assert.equal(matchBackendOpenApiPath("/api/suggestions"), "/api/suggestions");
+    assert.equal(matchBackendOpenApiPath("/api/wearables/connections"), "/api/wearables/connections");
   });
 });
 

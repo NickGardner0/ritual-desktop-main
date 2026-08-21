@@ -1,7 +1,7 @@
 'use client';
 
 import { createPortal } from 'react-dom';
-import { Spinner } from '@/components/ui/kibo-ui/spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 
 interface OverviewDeleteModalProps {
   habitToDelete: string;
@@ -60,7 +60,7 @@ export function OverviewDeleteModal({
             disabled={isDeleting}
             className="inline-flex h-8 items-center justify-center rounded-md border border-black bg-black px-3 text-[12.5px] font-normal text-white transition-none hover:bg-[#3D3C38] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {isDeleting ? <Spinner className="h-4 w-4" /> : 'Delete'}
+            {isDeleting ? <BrailleSpinner className="h-4 w-4" /> : 'Delete'}
           </button>
         </div>
       </div>

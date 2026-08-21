@@ -110,7 +110,8 @@
     "apps/dashboard/components/analytics/metrics-view.impl.tsx",
     "apps/dashboard/components/analytics/use-metrics-data-effects.ts",
     "apps/dashboard/components/analytics/use-metrics-expanded-effects.ts",
-    "apps/dashboard/components/onboarding/ritual-glass-mark.tsx"
+    "apps/dashboard/components/onboarding/ritual-glass-mark.tsx",
+    "apps/dashboard/components/ui/kibo-ui/spinner/index.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

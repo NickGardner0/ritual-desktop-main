@@ -91,6 +91,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused correlation/list analytics client hooks | unused `useCorrelation` / `useHabitStats` / `useDailyBreakdown` | live `analyticsApi` fallbacks only | ~−150 | unused client wrappers | none | Expanded metrics still uses FastAPI correlation plus `getHabitStats`/`getDailyBreakdown` fallbacks |
 | Delete unused Next import parsers | parse, apple-health parse/import, extract-from-image, legacy import | FastAPI preview + runs | ~−1.1k Next | second XML/OCR import owner | `xml2js`, `fast-xml-parser`, unused form/toast/slider packages | Live import UI already posts multipart to FastAPI. Screenshot OCR is `screenshot_analyzer.py` |
 | Collapse import preview onto the catch-all | Next `/api/import/preview` FormData wrapper | catch-all multipart forwarding | ~−100 Next | second FastAPI import proxy | unused analytics/onboarding shims | Catch-all preserves multipart bytes and boundary. JSON callers still send `application/json` |
+| Delete catch-all empty-payload fallbacks | GET stubs for connections/status/suggestions | FastAPI responses only | ~−40 | second invented BFF truth | leftover kibo-ui spinner wrapper | Dashed wearable path aliases remain. Whoop/Tesla OAuth code storage shares one in-memory store |
 
 ## Aggregate (this pass)
 

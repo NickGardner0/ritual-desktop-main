@@ -6,7 +6,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { Spinner } from '@/components/ui/kibo-ui/spinner';
+import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
 import { MetricContextPanel } from '@/components/analytics/metric-context-panel';
 import { OverviewBackendUnavailable } from './OverviewBackendUnavailable';
@@ -31,7 +31,7 @@ export function OverviewView(props: OverviewViewProps) {
   if (metrics.shouldShowLoadingSpinner) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
-        <Spinner className="w-8 h-8" />
+        <BrailleSpinner className="w-8 h-8" />
       </div>
     );
   }
