@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { format, differenceInDays } from 'date-fns';
 import { analyticsApi } from '@/lib/services/analytics-api';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   getWearableMetricType,
   getWearableProviderForHabit,
@@ -19,6 +20,10 @@ import {
   type HabitData,
 } from '../metrics-view.shared';
 import { mapDailyBreakdownRows } from '@/components/analytics/metrics-derived';
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === 'object' ? value as Record<string, any> : {};
+}
 
 export function useMetricsExpandedQueries(ctx: Record<string, any>) {
   const {
@@ -59,15 +64,22 @@ const correlationEnabled = Boolean(
 const correlationQuery = useQuery({
   queryKey: ['metrics-correlation', expandedHabit, compareHabitId],
   queryFn: async () => {
-    const params = new URLSearchParams({
-      habit1_id: String(expandedHabit),
-      habit2_id: String(compareHabitId),
-      days_back: '90',
-    });
-    const res = await fetch(`/api/analytics/correlation?${params.toString()}`);
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data.success && data.data ? data.data : null;
+    try {
+      const data = asRecord(await apiOperationWithAuth(
+        'get_correlation_api_analytics_correlation_get',
+        getToken,
+        {
+          query: {
+            habit1_id: String(expandedHabit),
+            habit2_id: String(compareHabitId),
+            days_back: 90,
+          },
+        },
+      ));
+      return data.success && data.data ? data.data : null;
+    } catch {
+      return null;
+    }
   },
   enabled: correlationEnabled,
   staleTime: 60_000,
@@ -93,46 +105,40 @@ useEffect(() => {
     return;
   }
 
-  const controller = new AbortController();
+  let cancelled = false;
   const rangeDates = hasCustomDateRange
     ? { from: dateRange!.from!, to: dateRange!.to! }
     : getRangeDates(expandedTimeRange);
   const rangeSpanDays = differenceInDays(rangeDates.to, rangeDates.from) + 1;
   const bucket = getHeartRateBucket(expandedTimeRange, rangeSpanDays);
-  const params = new URLSearchParams({
+  const query = {
     start_date: format(rangeDates.from, 'yyyy-MM-dd'),
     end_date: format(rangeDates.to, 'yyyy-MM-dd'),
-    bucket,
-  });
+  };
 
   const fetchExpandedHeartRate = async () => {
     setLoadingExpandedLogs(true);
     try {
-      const [summaryRes, seriesRes] = await Promise.all([
-        fetch(`/api/analytics/heart-rate/summary?${params.toString()}`, { signal: controller.signal }),
-        fetch(`/api/analytics/heart-rate/series?${params.toString()}`, { signal: controller.signal }),
-      ]);
-
-      if (!summaryRes.ok || !seriesRes.ok) {
-        throw new Error(`Failed to load heart-rate detail (summary=${summaryRes.status}, series=${seriesRes.status})`);
-      }
-
       const [summaryPayload, seriesPayload] = await Promise.all([
-        summaryRes.json(),
-        seriesRes.json(),
+        apiOperationWithAuth('get_heart_rate_summary_api_analytics_heart_rate_summary_get', getToken, { query }),
+        apiOperationWithAuth('get_heart_rate_series_api_analytics_heart_rate_series_get', getToken, {
+          query: { ...query, bucket },
+        }),
       ]);
 
-      if (controller.signal.aborted) return;
+      if (cancelled) return;
 
-      setHeartRateExpandedSummary(summaryPayload?.data || null);
-      setHeartRateExpandedSeries(Array.isArray(seriesPayload?.data) ? seriesPayload.data : []);
+      const summary = asRecord(summaryPayload);
+      const series = asRecord(seriesPayload);
+      setHeartRateExpandedSummary(summary.data || null);
+      setHeartRateExpandedSeries(Array.isArray(series.data) ? series.data : []);
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (cancelled) return;
       console.warn('Failed to load expanded heart-rate analytics:', error);
       setHeartRateExpandedSummary(null);
       setHeartRateExpandedSeries([]);
     } finally {
-      if (!controller.signal.aborted) {
+      if (!cancelled) {
         setLoadingExpandedLogs(false);
       }
     }
@@ -140,13 +146,16 @@ useEffect(() => {
 
   fetchExpandedHeartRate();
 
-  return () => controller.abort();
+  return () => {
+    cancelled = true;
+  };
 }, [
   expandedHabitUsesGranularHeartRate,
   expandedTimeRange,
   hasCustomDateRange,
   dateRange?.from?.toISOString(),
   dateRange?.to?.toISOString(),
+  getToken,
 ]);
 
 // Fetch expanded logs
@@ -187,21 +196,21 @@ useEffect(() => {
     }
 
     try {
-      const params = new URLSearchParams({
-        habits: habitId,
-        statuses: 'completed',
-        start_date: startDate,
-        end_date: endDate,
-        sort: 'date',
-        order: 'asc',
-        limit: '1000',
-      });
-      const response = await fetch(`/api/analytics/habits/logs/all?${params.toString()}`);
-      if (!response.ok) {
-        return rows;
-      }
-
-      const payload = await response.json();
+      const payload = asRecord(await apiOperationWithAuth(
+        'get_habit_logs_all_api_analytics_habits_logs_all_get',
+        getToken,
+        {
+          query: {
+            habits: habitId,
+            statuses: 'completed',
+            start_date: startDate,
+            end_date: endDate,
+            sort: 'date',
+            order: 'asc',
+            limit: 1000,
+          },
+        },
+      ));
       const logs = Array.isArray(payload?.data) ? payload.data : [];
       if (logs.length === 0) {
         return rows;
@@ -322,24 +331,21 @@ useEffect(() => {
       if (expandedHabitData && isWearableBackedHabit(expandedHabitData)) {
         const metricType = getWearableMetricType(expandedHabitData);
         if (metricType) {
-          const params = new URLSearchParams({
-            metric_type: metricType,
-            start_time: `${startDate}T00:00:00Z`,
-            end_time: `${endDate}T23:59:59Z`,
-            resolution: 'daily',
-            limit: '4000',
-          });
           const provider = getWearableProviderForHabit(expandedHabitData);
-          if (provider) {
-            params.set('provider', provider);
-          }
-
-          const response = await fetch(`/api/wearables/series?${params.toString()}`);
-          if (!response.ok) {
-            throw new Error(`Failed to load wearable series (${response.status})`);
-          }
-
-          const payload = await response.json();
+          const payload = await apiOperationWithAuth(
+            'get_wearable_series_api_wearables_series_get',
+            getToken,
+            {
+              query: {
+                metric_type: metricType,
+                start_time: `${startDate}T00:00:00Z`,
+                end_time: `${endDate}T23:59:59Z`,
+                resolution: 'daily',
+                limit: 4000,
+                provider: provider || undefined,
+              },
+            },
+          );
           setExpandedSyncContext({ source: 'wearables-series' });
           setExpandedLogs(buildWearableMetricSeriesRows(
             expandedHabitData,
@@ -374,12 +380,24 @@ useEffect(() => {
         }
       }
 
-      const response = await fetch(
-        `/api/analytics/habits/daily-values?output=daily&habit_id=${expandedHabit}&start_date=${startDate}&end_date=${endDate}`
-      );
-
-      const result = await response.json();
-      if (result.success && result.data?.length > 0) {
+      let result: Record<string, any> | null = null;
+      try {
+        result = asRecord(await apiOperationWithAuth(
+          'get_habit_daily_values_api_analytics_habits_daily_values_get',
+          getToken,
+          {
+            query: {
+              output: 'daily',
+              habit_id: expandedHabit,
+              start_date: startDate,
+              end_date: endDate,
+            },
+          },
+        ));
+      } catch {
+        result = null;
+      }
+      if (result?.success && result.data?.length > 0) {
         setExpandedSyncContext(null);
         const enrichedRows = await enrichRowsWithSleepMetadata(
           result.data,
@@ -458,24 +476,21 @@ useEffect(() => {
       if (compareHabit && isWearableBackedHabit(compareHabit)) {
         const metricType = getWearableMetricType(compareHabit);
         if (metricType) {
-          const params = new URLSearchParams({
-            metric_type: metricType,
-            start_time: `${startDate}T00:00:00Z`,
-            end_time: `${endDate}T23:59:59Z`,
-            resolution: 'daily',
-            limit: '4000',
-          });
           const provider = getWearableProviderForHabit(compareHabit);
-          if (provider) {
-            params.set('provider', provider);
-          }
-
-          const response = await fetch(`/api/wearables/series?${params.toString()}`);
-          if (!response.ok) {
-            throw new Error(`Failed to load wearable comparison series (${response.status})`);
-          }
-
-          const payload = await response.json();
+          const payload = await apiOperationWithAuth(
+            'get_wearable_series_api_wearables_series_get',
+            getToken,
+            {
+              query: {
+                metric_type: metricType,
+                start_time: `${startDate}T00:00:00Z`,
+                end_time: `${endDate}T23:59:59Z`,
+                resolution: 'daily',
+                limit: 4000,
+                provider: provider || undefined,
+              },
+            },
+          );
           setComparisonLogs(buildWearableMetricSeriesRows(
             compareHabit,
             Array.isArray(payload?.points) ? (payload.points as WearableSeriesPoint[]) : [],
@@ -498,12 +513,24 @@ useEffect(() => {
         }
       }
 
-      const response = await fetch(
-        `/api/analytics/habits/daily-values?output=daily&habit_id=${compareHabitId}&start_date=${startDate}&end_date=${endDate}`
-      );
-
-      const result = await response.json();
-      if (result.success && result.data?.length > 0) {
+      let result: Record<string, any> | null = null;
+      try {
+        result = asRecord(await apiOperationWithAuth(
+          'get_habit_daily_values_api_analytics_habits_daily_values_get',
+          getToken,
+          {
+            query: {
+              output: 'daily',
+              habit_id: compareHabitId,
+              start_date: startDate,
+              end_date: endDate,
+            },
+          },
+        ));
+      } catch {
+        result = null;
+      }
+      if (result?.success && result.data?.length > 0) {
         setComparisonLogs(result.data);
       } else {
         const token = await getToken();

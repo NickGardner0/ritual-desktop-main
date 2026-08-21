@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { format, subDays } from 'date-fns';
 import { analyticsApi } from '@/lib/services/analytics-api';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   buildLocalMetricSummary,
   buildWearableMetricDailyRowsForHabit,
@@ -398,12 +399,11 @@ export function useMetricsCanonicalEffects(ctx: MetricsDataEffectsContext) {
 
           if (!backfillAttempted.current) {
             backfillAttempted.current = true;
-            fetch('/api/analytics/tinybird-backfill', {
-              method: 'POST',
-              headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            }).then(r => r.json())
-              .then(res => console.log('📊 Tinybird backfill result:', res))
-              .catch(err => console.warn('⚠️ Tinybird backfill failed (non-critical):', err));
+            void apiOperationWithAuth(
+              'tinybird_backfill_api_analytics_tinybird_backfill_post',
+              getToken,
+            ).then((res) => console.log('📊 Tinybird backfill result:', res))
+              .catch((err) => console.warn('⚠️ Tinybird backfill failed (non-critical):', err));
           }
         } catch (fallbackError) {
           lastCanonicalFetchKeyRef.current = null;

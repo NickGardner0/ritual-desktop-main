@@ -415,9 +415,6 @@ export function useComputerActivity(
       primaryValueMs: useAggregated && (summaryActiveMs > 0 || dailyTotals.length > 0)
         ? (summaryActiveMs > 0 ? summaryActiveMs : dailyTotals.reduce((sum: number, point: any) => sum + (point.yMs || 0), 0))
         : calculateUniqueActiveTime(events),
-      deltaPct: null,
-      deltaMs: null,
-      sparkline: [],
     }
 
     const capabilities = {

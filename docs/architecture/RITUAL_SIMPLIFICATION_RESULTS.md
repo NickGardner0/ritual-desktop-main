@@ -108,6 +108,8 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused computer-activity leftovers | unused barrel + AttentionIndexHeader / SessionFlowTimeline / MicroMetricsRow / DeepDrillDrawer | live ComputerActivityPanel + RankedBars + UsageBreakdownCard | ~−710 | second unused computer-activity UI that the live panel never mounted | none | Metrics still lazy-loads ComputerActivityPanel |
 | Put entity/receipt FastAPI reads on the generated client | leftover `apiJsonWithAuth` path strings | `apiOperationWithAuth` | ~−20 | second typed JSON helper for authenticated FastAPI JSON | unused `apiJsonWithAuth` | Cookie-only entity resolve still uses `apiJson`. Calendar summary and Sendblue stay raw FastAPI fetches |
 | Strip unused computer-activity timeline/micro/sparkline path | derive + hook still built segments, micro, drill-down, sparkline | live panel totals + ranked bars + usage breakdown | ~−500 | unused ActivityWatch-style timeline/drill-down owner | none | Desktop still reads local `activity.db`; iPhone still reads synced aggregates |
+| Delete leftover computer-activity contract types | SessionSegment / MicroMetrics / sparkline / KIND_COLORS | live AttentionHeader totals + ranked bars | ~−120 | unused timeline/micro types after the panel rewrite | none | Rust DailyRollup and FastAPI DailyRollupRequest are unrelated watcher sync types |
+| Put expanded metrics FastAPI reads on the generated client | raw fetch for correlation / HR / logs-all / series / daily-values / Tinybird backfill | `apiOperationWithAuth` | ~−40 | second untyped FastAPI client in expanded metrics | none | Tinybird-first canonical load still uses `analytics-loader`. Overview cookie reads still use catch-all fetch |
 
 ## Aggregate (this pass)
 

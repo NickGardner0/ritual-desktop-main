@@ -33,20 +33,14 @@ export { buildCanonicalString } from "./apple_ingest";
 // Computer activity analytics contracts
 export type {
   ActivityEvent,
-  SessionKind,
-  SessionSegment,
-  SparklinePoint,
   AttentionHeader,
   RankedBar,
-  MicroMetrics,
   ActivityBreakdownSource,
   ActivityBreakdownCapabilities,
   ComputerActivityViewModel,
   ActivityBreakdownViewModel,
   TimeRangePreset,
   TimeRange,
-  DailyRollup,
-  DrillDownData,
   UsageBreakdownKind,
   BreakdownPoint,
   BreakdownResponse,
@@ -57,10 +51,6 @@ export type {
   TopDomainResponseRow,
   AggregatedComputerStatsResponse,
   ComputerActivityReadSource,
-} from "./computer-activity";
-export {
-  KIND_COLORS,
-  KIND_COLORS_ACCENT,
 } from "./computer-activity";
 
 export type {
