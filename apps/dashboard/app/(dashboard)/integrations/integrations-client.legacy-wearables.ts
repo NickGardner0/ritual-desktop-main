@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { openInBrowser } from '@/lib/native-gateway';
 import type { WearableConnection } from './plugins/types';
 
@@ -30,8 +31,7 @@ export function useLegacyWearableHandlers({
 }: LegacyWearableHandlersParams) {
   const handleAppleWatchDisconnect = useCallback(async () => {
     try {
-      const token = await getToken();
-      if (!token) return;
+      if (!(await getToken())) return;
 
       if (
         !confirm(
@@ -48,14 +48,11 @@ export function useLegacyWearableHandlers({
       }
 
       for (const device of devices) {
-        const response = await fetch(`/api/wearables/apple/devices/${device.device_id}`, {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to disconnect device');
-        }
+        await apiOperationWithAuth(
+          'deactivate_apple_device_api_wearables_apple_devices__device_id__delete',
+          getToken,
+          { pathParams: { device_id: device.device_id } },
+        );
       }
 
       refetchOverview();
@@ -82,22 +79,13 @@ export function useLegacyWearableHandlers({
     async (provider: 'oura' | 'garmin') => {
       try {
         setWearableConnectingProvider(provider);
-        const token = await getToken();
-        if (!token) return;
+        if (!(await getToken())) return;
 
-        const response = await fetch(`/api/wearables/connections/${provider}/authorize`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to start wearable authorization');
-        }
-
-        const result = await response.json();
+        const result = await apiOperationWithAuth(
+          'authorize_wearable_provider_api_wearables_connections__provider__authorize_post',
+          getToken,
+          { pathParams: { provider } },
+        );
         if (result.authorization_url) {
           await openInBrowser(result.authorization_url);
           return;
@@ -116,24 +104,17 @@ export function useLegacyWearableHandlers({
   const handleWearableProviderDisconnect = useCallback(
     async (provider: 'oura' | 'garmin') => {
       try {
-        const token = await getToken();
-        if (!token) return;
+        if (!(await getToken())) return;
 
         if (!confirm(`Disconnect ${provider === 'oura' ? 'Oura' : 'Garmin'}?`)) {
           return;
         }
 
-        const response = await fetch(`/api/wearables/connections/${provider}/disconnect`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to disconnect wearable');
-        }
+        await apiOperationWithAuth(
+          'disconnect_wearable_provider_api_wearables_connections__provider__disconnect_post',
+          getToken,
+          { pathParams: { provider } },
+        );
 
         await refetchOverview();
         alert(`${provider === 'oura' ? 'Oura' : 'Garmin'} disconnected.`);
@@ -149,22 +130,13 @@ export function useLegacyWearableHandlers({
     async (provider: 'oura' | 'garmin') => {
       try {
         setWearableSyncingProvider(provider);
-        const token = await getToken();
-        if (!token) return;
+        if (!(await getToken())) return;
 
-        const response = await fetch(`/api/wearables/connections/${provider}/sync`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error('Wearable sync failed');
-        }
-
-        const result = await response.json();
+        const result = await apiOperationWithAuth(
+          'sync_wearable_provider_api_wearables_connections__provider__sync_post',
+          getToken,
+          { pathParams: { provider } },
+        );
         await Promise.all([refetchOverview(), fetchHabits(), fetchHabitLogs()]);
         alert(result.message || `${provider} sync finished.`);
       } catch (error) {
@@ -214,8 +186,7 @@ export async function handleWearableSyncSettingsUpdate(
   } = params;
 
   try {
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
     const connection =
       provider === 'whoop'
@@ -235,21 +206,17 @@ export async function handleWearableSyncSettingsUpdate(
       (connection as { sync_hour?: number })?.sync_hour ??
       (provider === 'whoop' ? whoopSyncHour : 9);
 
-    const response = await fetch(`/api/wearables/connections/${provider}/sync-settings`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    await apiOperationWithAuth(
+      'update_wearable_sync_settings_api_wearables_connections__provider__sync_settings_put',
+      getToken,
+      {
+        pathParams: { provider },
+        body: {
+          auto_sync_enabled: nextEnabled,
+          sync_hour: nextHour,
+        },
       },
-      body: JSON.stringify({
-        auto_sync_enabled: nextEnabled,
-        sync_hour: nextHour,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to update sync settings');
-    }
+    );
 
     if (provider === 'whoop') {
       setWhoopSyncHour(nextHour);
