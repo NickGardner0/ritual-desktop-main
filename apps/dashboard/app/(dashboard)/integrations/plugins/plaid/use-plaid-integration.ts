@@ -1,7 +1,26 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { parseApiError } from '../../integrations-client.shared';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
+
+function plaidApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof BackendClientError) {
+    try {
+      const payload = JSON.parse(error.responseBody) as {
+        detail?: string | { display_message?: string; error_message?: string; message?: string };
+      };
+      const detail = payload?.detail;
+      if (typeof detail === 'string' && detail.trim()) return detail;
+      if (detail && typeof detail === 'object') {
+        return detail.display_message || detail.error_message || detail.message || fallback;
+      }
+    } catch {
+      // Keep the fallback when FastAPI doesn't return JSON.
+    }
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 interface UsePlaidIntegrationParams {
   fetchHabitLogs: () => unknown;
@@ -80,23 +99,15 @@ useEffect(() => {
   (async () => {
     try {
       setPlaidConnecting(true);
-      const token = await getToken();
-      if (!token) throw new Error('Authentication required');
+      if (!(await getToken())) throw new Error('Authentication required');
 
       await ensurePlaidLoaded();
 
-      const linkTokenResponse = await fetch(`/api/financial/plaid/link-token`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ account_selection_enabled: true }),
-      });
-      if (!linkTokenResponse.ok) {
-        throw new Error('Failed to initialize Plaid Link for OAuth return');
-      }
-      const { link_token } = await linkTokenResponse.json();
+      const { link_token } = await apiOperationWithAuth(
+        'create_plaid_link_token_api_financial_plaid_link_token_post',
+        getToken,
+        { body: { account_selection_enabled: true } },
+      );
 
       if (!window.Plaid) throw new Error('Plaid Link did not load');
 
@@ -106,28 +117,23 @@ useEffect(() => {
         receivedRedirectUri,
         onSuccess: async (publicToken, metadata) => {
           try {
-            const exchangeResponse = await fetch(`/api/financial/plaid/exchange-public-token`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
+            const result = await apiOperationWithAuth(
+              'exchange_plaid_public_token_api_financial_plaid_exchange_public_token_post',
+              getToken,
+              {
+                body: {
+                  public_token: publicToken,
+                  institution_id: metadata?.institution?.institution_id || null,
+                  institution_name: metadata?.institution?.name || null,
+                  auto_backfill: true,
+                },
               },
-              body: JSON.stringify({
-                public_token: publicToken,
-                institution_id: metadata?.institution?.institution_id || null,
-                institution_name: metadata?.institution?.name || null,
-                auto_backfill: true,
-              }),
-            });
-            if (!exchangeResponse.ok) {
-              throw new Error('Failed to connect bank account');
-            }
-            const result = await exchangeResponse.json();
+            );
             await refetchAfterFinancialSync();
             alert(result.message || 'Bank connected successfully.');
           } catch (error) {
             console.error('❌ Error exchanging Plaid public token:', error);
-            alert(`Failed to connect bank: ${error}`);
+            alert(`Failed to connect bank: ${plaidApiErrorMessage(error, 'Unknown error')}`);
           } finally {
             setPlaidConnecting(false);
             plaidHandlerRef.current = null;
@@ -149,7 +155,7 @@ useEffect(() => {
       plaidHandlerRef.current.open();
     } catch (error) {
       console.error('❌ Error resuming Plaid OAuth:', error);
-      alert(`Failed to complete bank connection: ${error}`);
+      alert(`Failed to complete bank connection: ${plaidApiErrorMessage(error, 'Unknown error')}`);
       setPlaidConnecting(false);
     }
   })();
@@ -162,30 +168,23 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
     //   throw new Error('Multi-factor authentication must be enabled before connecting a bank account.');
     // }
     setPlaidConnecting(true);
-    const token = await getToken();
-    if (!token) {
+    if (!(await getToken())) {
       throw new Error('Authentication required');
     }
 
     await ensurePlaidLoaded();
 
-    const linkTokenResponse = await fetch(`/api/financial/plaid/link-token`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    const linkTokenResult = await apiOperationWithAuth(
+      'create_plaid_link_token_api_financial_plaid_link_token_post',
+      getToken,
+      {
+        body: {
+          connection_id: options?.updateMode ? plaidConnection?.id : null,
+          update_mode: Boolean(options?.updateMode),
+          account_selection_enabled: true,
+        },
       },
-      body: JSON.stringify({
-        connection_id: options?.updateMode ? plaidConnection?.id : null,
-        update_mode: Boolean(options?.updateMode),
-        account_selection_enabled: true,
-      }),
-    });
-    if (!linkTokenResponse.ok) {
-      throw new Error(await parseApiError(linkTokenResponse, 'Failed to initialize Plaid Link'));
-    }
-
-    const linkTokenResult = await linkTokenResponse.json();
+    );
     if (!window.Plaid) {
       throw new Error('Plaid Link did not load');
     }
@@ -199,46 +198,34 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
             if (!plaidConnection?.id) {
               throw new Error('Plaid connection not found');
             }
-            const syncResponse = await fetch(`/api/financial/connections/${plaidConnection.id}/sync`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-            });
-            if (!syncResponse.ok) {
-              throw new Error(await parseApiError(syncResponse, 'Failed to refresh Plaid connection'));
-            }
+            await apiOperationWithAuth(
+              'sync_financial_connection_api_financial_connections__connection_id__sync_post',
+              getToken,
+              { pathParams: { connection_id: plaidConnection.id } },
+            );
 
             await refetchAfterFinancialSync();
             alert('Plaid connection refreshed successfully.');
             return;
           }
 
-          const exchangeResponse = await fetch(`/api/financial/plaid/exchange-public-token`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
+          const result = await apiOperationWithAuth(
+            'exchange_plaid_public_token_api_financial_plaid_exchange_public_token_post',
+            getToken,
+            {
+              body: {
+                public_token: publicToken,
+                institution_id: metadata?.institution?.institution_id || null,
+                institution_name: metadata?.institution?.name || null,
+                auto_backfill: true,
+              },
             },
-            body: JSON.stringify({
-              public_token: publicToken,
-              institution_id: metadata?.institution?.institution_id || null,
-              institution_name: metadata?.institution?.name || null,
-              auto_backfill: true,
-            }),
-          });
-
-          if (!exchangeResponse.ok) {
-            throw new Error(await parseApiError(exchangeResponse, 'Failed to connect Plaid'));
-          }
-
-          const result = await exchangeResponse.json();
+          );
           await refetchAfterFinancialSync();
           alert(result.message || 'Plaid connected successfully.');
         } catch (error) {
           console.error('❌ Error exchanging Plaid public token:', error);
-          alert(`Failed to connect Plaid: ${error}`);
+          alert(`Failed to connect Plaid: ${plaidApiErrorMessage(error, 'Unknown error')}`);
         } finally {
           setPlaidConnecting(false);
           plaidHandlerRef.current = null;
@@ -257,7 +244,7 @@ const handlePlaidLink = useCallback(async (options?: { updateMode?: boolean }) =
     plaidHandlerRef.current.open();
   } catch (error) {
     console.error('❌ Error connecting Plaid:', error);
-    alert(`Failed to connect Plaid: ${error}`);
+    alert(`Failed to connect Plaid: ${plaidApiErrorMessage(error, 'Unknown error')}`);
     setPlaidConnecting(false);
   }
 }, [ensurePlaidLoaded, getToken, openUserProfile, plaidConnection?.id, plaidMfaRequired, refetchAfterFinancialSync]);
@@ -282,32 +269,27 @@ async function handlePlaidSyncSettingsUpdate(
       return;
     }
     setPlaidSettingsSaving(true);
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
     const nextEnabled = updates.auto_sync_enabled ?? plaidConnection.auto_sync_enabled ?? true;
     const nextHour = updates.sync_hour ?? plaidConnection.sync_hour ?? 9;
 
-    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/sync-settings`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    await apiOperationWithAuth(
+      'update_financial_sync_settings_api_financial_connections__connection_id__sync_settings_put',
+      getToken,
+      {
+        pathParams: { connection_id: plaidConnection.id },
+        body: {
+          auto_sync_enabled: nextEnabled,
+          sync_hour: nextHour,
+        },
       },
-      body: JSON.stringify({
-        auto_sync_enabled: nextEnabled,
-        sync_hour: nextHour,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to update Plaid sync settings');
-    }
+    );
 
     await refetchOverview();
   } catch (error) {
     console.error('❌ Error updating Plaid sync settings:', error);
-    alert(`Failed to update Plaid sync settings: ${error}`);
+    alert(`Failed to update Plaid sync settings: ${plaidApiErrorMessage(error, 'Unknown error')}`);
   } finally {
     setPlaidSettingsSaving(false);
   }
@@ -319,28 +301,24 @@ async function handlePlaidAccountInclusion(accountId: string, includeInSpending:
       return;
     }
     setPlaidAccountSavingId(accountId);
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
-    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/accounts/${accountId}`, {
-      method: 'PUT',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
+    await apiOperationWithAuth(
+      'update_financial_account_preferences_api_financial_connections__connection_id__accounts__account_id__put',
+      getToken,
+      {
+        pathParams: {
+          connection_id: plaidConnection.id,
+          account_id: accountId,
+        },
+        body: { include_in_spending: includeInSpending },
       },
-      body: JSON.stringify({
-        include_in_spending: includeInSpending,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to update account preference');
-    }
+    );
 
     await refetchAfterFinancialSync();
   } catch (error) {
     console.error('❌ Error updating Plaid account preference:', error);
-    alert(`Failed to update account preference: ${error}`);
+    alert(`Failed to update account preference: ${plaidApiErrorMessage(error, 'Unknown error')}`);
   } finally {
     setPlaidAccountSavingId(null);
   }
@@ -352,22 +330,13 @@ async function handlePlaidBackfill() {
       throw new Error('Plaid connection not found');
     }
     setPlaidBackfilling(true);
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
-    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/backfill`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Backfill failed');
-    }
-
-    const result = await response.json();
+    const result = await apiOperationWithAuth(
+      'backfill_financial_connection_api_financial_connections__connection_id__backfill_post',
+      getToken,
+      { pathParams: { connection_id: plaidConnection.id } },
+    );
     await refetchAfterFinancialSync();
     alert(
       `Backfill completed.\n\n` +
@@ -376,7 +345,7 @@ async function handlePlaidBackfill() {
     );
   } catch (error) {
     console.error('❌ Error backfilling Plaid history:', error);
-    alert(`Failed to backfill Plaid history: ${error}`);
+    alert(`Failed to backfill Plaid history: ${plaidApiErrorMessage(error, 'Unknown error')}`);
   } finally {
     setPlaidBackfilling(false);
   }
@@ -388,22 +357,13 @@ async function handlePlaidSync() {
       throw new Error('Plaid connection not found');
     }
     setPlaidSyncing(true);
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
-    const response = await fetch(`/api/financial/connections/${plaidConnection.id}/sync`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Sync failed');
-    }
-
-    const result = await response.json();
+    const result = await apiOperationWithAuth(
+      'sync_financial_connection_api_financial_connections__connection_id__sync_post',
+      getToken,
+      { pathParams: { connection_id: plaidConnection.id } },
+    );
     await refetchAfterFinancialSync();
     alert(
       `Sync completed.\n\n` +
@@ -413,7 +373,7 @@ async function handlePlaidSync() {
     );
   } catch (error) {
     console.error('❌ Error syncing Plaid:', error);
-    alert(`Failed to sync Plaid: ${error}`);
+    alert(`Failed to sync Plaid: ${plaidApiErrorMessage(error, 'Unknown error')}`);
   } finally {
     setPlaidSyncing(false);
   }
@@ -424,29 +384,23 @@ async function handlePlaidDisconnect() {
     if (!plaidConnection?.id) {
       return;
     }
-    const token = await getToken();
-    if (!token) return;
+    if (!(await getToken())) return;
 
     if (!confirm('Disconnect Plaid? Existing spending logs will remain unless you resync later.')) {
       return;
     }
 
-    const response = await fetch(`/api/financial/connections/${plaidConnection.id}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to disconnect Plaid');
-    }
+    await apiOperationWithAuth(
+      'disconnect_financial_connection_api_financial_connections__connection_id__delete',
+      getToken,
+      { pathParams: { connection_id: plaidConnection.id } },
+    );
 
     await refetchOverview();
     alert('Plaid disconnected successfully.');
   } catch (error) {
     console.error('❌ Error disconnecting Plaid:', error);
-    alert(`Failed to disconnect Plaid: ${error}`);
+    alert(`Failed to disconnect Plaid: ${plaidApiErrorMessage(error, 'Unknown error')}`);
   }
 }
 
