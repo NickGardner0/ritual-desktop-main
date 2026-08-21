@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import {
-  streamChatTurn,
+  handleChatStreamRequest,
   type ChatStreamRequestBody,
 } from '@ritual/chat-runtime';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
@@ -43,5 +43,5 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json() as ChatStreamRequestBody;
-  return streamChatTurn({ token, body });
+  return handleChatStreamRequest({ token, body });
 }

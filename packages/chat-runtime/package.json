@@ -25,10 +25,6 @@
     "./tool-registry": {
       "types": "./dist/tool-registry.d.ts",
       "import": "./dist/tool-registry.js"
-    },
-    "./chat-turn-engine": {
-      "types": "./dist/chat-turn-engine.d.ts",
-      "import": "./dist/chat-turn-engine.js"
     }
   },
   "scripts": {

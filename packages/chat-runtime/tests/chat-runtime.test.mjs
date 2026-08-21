@@ -5,9 +5,6 @@ import {
   handleChatStreamRequest,
   handleSmsChatRequest,
   handleSmsProactiveRequest,
-  runSmsChatTurn,
-  runSmsProactiveTurn,
-  streamChatTurn,
   splitSmsSegments,
   tools,
 } from '../dist/index.js';
@@ -23,47 +20,6 @@ test('handleChatStreamRequest rejects empty token', async () => {
       messages: [],
     },
   });
-
-  assert.equal(response.status, 401);
-  assert.match(await response.text(), /Unauthorized/);
-});
-
-test('streamChatTurn delegates through the chat turn engine boundary', async () => {
-  const response = await streamChatTurn({
-    token: '',
-    body: {
-      messages: [],
-    },
-  });
-
-  assert.equal(response.status, 401);
-  assert.match(await response.text(), /Unauthorized/);
-});
-
-test('runSmsChatTurn delegates through the chat turn engine boundary', async () => {
-  const response = await runSmsChatTurn(new Request('http://localhost/sms', {
-    method: 'POST',
-    body: JSON.stringify({
-      user_id: 'user_1',
-      conversation_id: 'conv_1',
-      user_message: 'how was my sleep?',
-      recent_messages: [],
-    }),
-  }));
-
-  assert.equal(response.status, 401);
-  assert.match(await response.text(), /Unauthorized/);
-});
-
-test('runSmsProactiveTurn delegates through the chat turn engine boundary', async () => {
-  const response = await runSmsProactiveTurn(new Request('http://localhost/sms/proactive', {
-    method: 'POST',
-    body: JSON.stringify({
-      user_id: 'user_1',
-      trigger_type: 'morning',
-      trigger_prompt: 'Send a morning brief.',
-    }),
-  }));
 
   assert.equal(response.status, 401);
   assert.match(await response.text(), /Unauthorized/);

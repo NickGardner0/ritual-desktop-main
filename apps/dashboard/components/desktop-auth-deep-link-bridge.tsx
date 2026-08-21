@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
+import { recordDesktopShellEvent } from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { scheduleDesktopAssetRecoveryReload } from "@/lib/desktop-asset-recovery";
-import { isDesktopTauriRuntime } from "@/lib/desktop-bridge/environment";
+import { isDesktopTauriRuntime } from "@/lib/native-gateway";
 
 export function DesktopAssetRecoveryBridge() {
   useEffect(() => {

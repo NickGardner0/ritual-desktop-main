@@ -1,7 +1,6 @@
 "use client";
 
-import { invokeDesktopCommand } from "../desktop-bridge/commands";
-import { isDesktopTauriRuntime } from "../desktop-bridge/environment";
+import { invokeDesktopCommand, isDesktopTauriRuntime } from "@/lib/native-gateway";
 import { collectVaultRecordPages } from "./vault-pagination.mjs";
 
 export type DesktopVaultStatus = {

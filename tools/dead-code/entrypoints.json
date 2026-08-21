@@ -74,7 +74,11 @@
     "apps/dashboard/components/ui/badge.tsx",
     "apps/dashboard/components/analytics/index.ts",
     "apps/dashboard/components/analytics/analytics-view-toggle.tsx",
-    "apps/dashboard/lib/tauri-utils.ts"
+    "apps/dashboard/lib/tauri-utils.ts",
+    "apps/dashboard/lib/ai/agents",
+    "apps/dashboard/lib/ai/context.ts",
+    "apps/dashboard/types/ai-sdk-tools.d.ts",
+    "packages/chat-runtime/src/chat-turn-engine.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
@@ -92,7 +96,12 @@
     "computerActivity/tauri-fallback",
     "copy_png_to_clipboard",
     "@trigger.dev",
-    "lib/api/trigger-client"
+    "lib/api/trigger-client",
+    "ai-sdk-tools",
+    "@ai-sdk-tools",
+    "@vercel/speed-insights",
+    "chat-turn-engine",
+    "lib/ai/agents"
   ],
   "allowlist": []
 }

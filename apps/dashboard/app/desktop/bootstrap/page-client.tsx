@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { recordDesktopShellEvent, recordLaunchMilestone } from '@/lib/desktop-bridge/observability';
+import { recordDesktopShellEvent, recordLaunchMilestone, showMainWindow } from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { showMainWindow } from '@/lib/native-gateway';
 import { apiFetch } from '@/lib/api/client';
 
 const BFF_API_BASE = 'BFF /api';

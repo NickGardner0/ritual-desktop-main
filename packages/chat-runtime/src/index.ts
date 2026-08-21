@@ -17,7 +17,6 @@ export {
 
 export * from './executors/index.js';
 export * from './narrative/index.js';
-export * from './chat-turn-engine.js';
 export * from './assistant-turn.js';
 export {
   AssistantKernel,

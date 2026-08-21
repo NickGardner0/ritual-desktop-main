@@ -33,7 +33,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | 5. Chat persistence / AssistantKernel | Done for strangler | `AssistantKernel` owns `queued → running → committing → completed\|failed\|canceled`. Durable FastAPI `assistant_turns` store, dashboard outbox, SMS/web/queue entrypoints, serial mutating tools, epoch cancel |
 | 6. One scheduler | Done | Trigger.dev deleted. FastAPI loops are the only scheduler; job table in `docs/architecture/SCHEDULER_JOBS.md`. Default on when `RAILWAY_ENVIRONMENT` is set. `ENABLE_INTERNAL_SCHEDULER` documented in backend README and `.env.example` |
 | 7. Search/index | Done for Typesense | Typesense client, PyPI dep, indexing fan-out, `/api/search/index-phrase`, `/api/search/reindex`, and erasure target removed on the release tree. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics. `/api/search/status` is a SQL-search health check |
-| 8. Telemetry overlap | Partial | Removed Vercel Speed Insights. OpenPanel (product) and Sentry (errors) kept |
+| 8. Telemetry overlap | Done for Speed Insights | Removed Vercel Speed Insights from the root layout and dashboard dependency. OpenPanel (product) and Sentry (errors) kept |
 | 9. Local UI preferences | Partial | FastAPI still owns cross-device overview/color prefs. Local cache is now per-user (`ritual:ui-preferences:v2:<userId>`) |
 | 10. Activity ownership | Done for raw/recent desktop | Desktop raw and ≤7-day reads use `activity.db` with observable `local \| synced \| unavailable`. No hidden HTTP/backend mix. Web/iOS and long-range desktop aggregates remain explicit `synced` |
 | 11. Provider soup | Inventoried | `@mui/icons-material` (Toc + habit icons), Lucide, and Paper shaders are still referenced. Deleted unused `use-stick-to-bottom` only |
@@ -56,7 +56,9 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete Trigger.dev | trigger jobs + client + config | 0 | ~−400 | Trigger.dev cloud cron | `@trigger.dev/sdk`, `@trigger.dev/build` | FastAPI `background_tasks.py` owns wearable/SMS/report/workflow jobs. On by default on Railway |
 | Fold habit snapshots into React Query persist | dedicated localStorage snapshots | 0 | small | extra cache | none | Habits and habit-logs now persist only via identity-keyed React Query cache |
 | Per-user UI preference cache | global `ritual:ui-preferences:v1` | `v2:<userId>` | ~0 | cross-user stale prefs | none | FastAPI remains the cross-device store |
-| Remove Vercel Speed Insights | layout widget | 0 | small | extra web-vitals vendor | `@vercel/speed-insights` | OpenPanel + Sentry remain |
+| Delete unused Midday agent stack | unused `lib/ai/agents` + `ai-sdk-tools` | 0 | ~−500 plus npm tree | unused agent runtime | `ai-sdk-tools` | Chat already owns tools via `@ritual/chat-runtime` |
+| Remove Vercel Speed Insights (completed on release tree) | layout widget + dashboard dep | 0 | small | extra web-vitals vendor | `@vercel/speed-insights` | OpenPanel + Sentry remain |
+| Collapse ChatTurnEngine wrapper | `chat-turn-engine.ts` + route aliases | 0 | ~−50 | extra chat entry class | none | BFF routes call `handleChatStreamRequest` / SMS handlers directly |
 | Await user-message chat persist | fire-and-forget | awaited with assistant | ~0 | none | none | Same save path; no new outbox |
 | Desktop activity IPC | silent HTTP fallback | local miss returns empty | ~0 | hidden cloud fallback | none | Web still uses `/api/watcher/activity` |
 | Collapse `desktop-runtime.ts` into `desktop-bridge/runtime.ts` | 277 | 277 (moved) | ~0 | extra IPC module | none | Callers import `desktop-bridge` only. `tauri-utils` still re-exports shell |

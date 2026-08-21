@@ -43,7 +43,7 @@ export async function getLocationPermissionState(): Promise<LocationPermissionSt
 
 export async function openLocationServicesSettings(): Promise<boolean> {
   try {
-    const { invokeDesktopCommand } = await import('@/lib/desktop-bridge/commands');
+    const { invokeDesktopCommand } = await import('@/lib/native-gateway');
     await invokeDesktopCommand('open_location_settings');
     return true;
   } catch {

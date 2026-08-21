@@ -89,7 +89,7 @@ Desktop
 | Remaining projections documented | Tinybird inventory. Typesense client, PyPI dep, index routes, and erasure target deleted; command palette/habit search read Turso SQL. MiniSearch stays for the in-modal picker. |
 | Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS fixture budgets in `repo:check`; production code records launch milestones and process RSS. Live WKWebView five-trial captures are still release QA. |
 | LOC remeasured | Audit baseline 192,474. Typesense `search_service.py` 1,703 → 824 SQL lines on this tree, plus deleted index fan-out. Voice HUD restore added native code back after the collapse commit. |
-| Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. `packages/chat-runtime/src/chat-stream/*` still exists as the model-loop adapter behind the kernel; it is not a second turn owner. |
+| Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. The `ChatTurnEngine` wrapper is deleted; BFF routes call `handleChatStreamRequest` / SMS handlers. `chat-stream/*` remains the model-loop adapter behind the kernel. |
 
 ## Intentionally not done
 

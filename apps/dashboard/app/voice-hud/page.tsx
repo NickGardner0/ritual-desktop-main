@@ -6,8 +6,7 @@ import { Maximize2 } from 'lucide-react';
 import { BrailleSpinner } from '@/components/ai-habit-chat/braille-spinner';
 import { VoiceWaveform } from '@/components/voice-waveform';
 import { FontProvider } from '@/contexts/FontContext';
-import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
-import { hideDesktopVoiceHud } from '@/lib/native-gateway';
+import { invokeDesktopCommand, hideDesktopVoiceHud } from '@/lib/native-gateway';
 import { cn } from '@/lib/utils';
 import { useRitualVoiceInput } from '@/lib/voice/use-ritual-voice-input';
 import {

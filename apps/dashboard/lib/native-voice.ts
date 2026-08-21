@@ -1,6 +1,6 @@
 "use client";
 
-import { invokeDesktopCommand } from "@/lib/desktop-bridge/commands";
+import { invokeDesktopCommand } from "@/lib/native-gateway";
 import { isDesktopRuntime } from "@/lib/desktop-capabilities";
 
 export type NativeSpeechState = {
