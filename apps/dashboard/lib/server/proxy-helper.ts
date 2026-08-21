@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getServerBackendBaseUrl } from "@/lib/api/server-client";
+import { getBackendBaseUrl } from "@/lib/api/backend-url";
 import { buildBackendAuthHeaders, resolveProxyForwarding } from "@/lib/server/backend-auth";
 import { createProxiedSuccessResponse } from "@/lib/server/proxy-response";
 
@@ -53,7 +53,7 @@ export async function forwardProxyRequest(
     }
 
     // --- Forward to backend ---
-    const url = `${getServerBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
+    const url = `${getBackendBaseUrl()}${backendPath}${queryString ? `?${queryString}` : ""}`;
     const forwarding = resolveProxyForwarding(request.headers.get("content-type"));
 
     const fetchInit: RequestInit = {

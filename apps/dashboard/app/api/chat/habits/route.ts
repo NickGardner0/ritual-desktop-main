@@ -3,10 +3,9 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { fetchPythonApi, fetchPythonApiPost } from '@ritual/chat-runtime';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 import {
-  PYTHON_API_BASE,
-  type LogIntent,
   type LogResult,
   type ResolvedIntent,
   resolveHabit,
@@ -15,6 +14,8 @@ import {
   checkUnitCompatibility,
 } from './route.resolver';
 import { buildHabitLogSystemPrompt } from './route.prompt';
+
+const FASTAPI_TIMEOUT_MS = 15000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -60,31 +61,25 @@ export async function POST(req: NextRequest) {
 
     // Fetch user's habits
     let userHabits: Array<{ id: string; name: string; category: string; unit_type: string }> = [];
-    const headers: Record<string, string> = {};
-    if (effectiveToken) {
-      headers['Authorization'] = `Bearer ${effectiveToken}`;
-    }
-    
-    try {
-      const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, { headers, signal: AbortSignal.timeout(15000) });
-      if (habitsResponse.ok) {
-        userHabits = await habitsResponse.json();
-        console.info('✅ Fetched habits:', userHabits.length);
-      }
-    } catch (error) {
-      console.error('❌ Error fetching habits:', error);
-    }
-
-    // Fetch aliases for fuzzy matching
     let aliasesMap: Record<string, string[]> = {};
-    try {
-      const aliasesResponse = await fetch(`${PYTHON_API_BASE}/api/habits/aliases`, { headers, signal: AbortSignal.timeout(15000) });
-      if (aliasesResponse.ok) {
-        aliasesMap = await aliasesResponse.json();
+
+    if (effectiveToken) {
+      try {
+        userHabits = await fetchPythonApi('/api/habits', effectiveToken, undefined, {
+          timeoutMs: FASTAPI_TIMEOUT_MS,
+        });
+        console.info('✅ Fetched habits:', userHabits.length);
+      } catch (error) {
+        console.error('❌ Error fetching habits:', error);
       }
-    } catch {
-      // Aliases are optional - continue without them
-      console.warn('⚠️ Could not fetch aliases, continuing with name matching only');
+
+      try {
+        aliasesMap = await fetchPythonApi('/api/habits/aliases', effectiveToken, undefined, {
+          timeoutMs: FASTAPI_TIMEOUT_MS,
+        });
+      } catch {
+        console.warn('⚠️ Could not fetch aliases, continuing with name matching only');
+      }
     }
 
     // Date helpers - IMPORTANT: Use local timezone, not UTC!
@@ -258,53 +253,46 @@ export async function POST(req: NextRequest) {
       });
 
       try {
-        const batchResponse = await fetch(`${PYTHON_API_BASE}/api/logs/batch`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${effectiveToken}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
+        if (!effectiveToken) {
+          throw new Error('Missing auth token');
+        }
+        const batchResult = await fetchPythonApiPost(
+          '/api/logs/batch',
+          effectiveToken,
+          {
             items: batchItems,
-            client_event_id: clientEventId
-          }),
-          signal: AbortSignal.timeout(15000),
-        });
+            client_event_id: clientEventId,
+          },
+          { timeoutMs: FASTAPI_TIMEOUT_MS },
+        );
+        console.info('✅ Batch log result:', batchResult);
+        overviewSnapshot = batchResult.overview_snapshot;
+        affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
+        affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
 
-        if (batchResponse.ok) {
-          const batchResult = await batchResponse.json();
-          console.info('✅ Batch log result:', batchResult);
-          overviewSnapshot = batchResult.overview_snapshot;
-          affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
-          affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
-          
-          for (const result of batchResult.results || []) {
-            const intent = toLog[result.index];
-            logResults.push({
-              index: result.index,
-              success: result.success,
-              habit_id: intent.habit_id!,
-              habit_name: intent.habit_name!,
-              value: intent.converted_value ?? intent.value ?? 1,
-              unit: intent.unit || 'count',
-              date: intent.date,
-              error: result.error
-            });
-          }
-        } else {
-          console.error('❌ Batch log failed:', await batchResponse.text());
-          // Add failures for all items
-          toLog.forEach((intent, index) => {
-            logResults.push({
-              index,
-              success: false,
-              habit_name: intent.habit_name ?? undefined,
-              error: 'Batch log request failed'
-            });
+        for (const result of batchResult.results || []) {
+          const intent = toLog[result.index];
+          logResults.push({
+            index: result.index,
+            success: result.success,
+            habit_id: intent.habit_id!,
+            habit_name: intent.habit_name!,
+            value: intent.converted_value ?? intent.value ?? 1,
+            unit: intent.unit || 'count',
+            date: intent.date,
+            error: result.error
           });
         }
       } catch (error) {
         console.error('❌ Batch log error:', error);
+        toLog.forEach((intent, index) => {
+          logResults.push({
+            index,
+            success: false,
+            habit_name: intent.habit_name ?? undefined,
+            error: 'Batch log request failed'
+          });
+        });
       }
     }
 

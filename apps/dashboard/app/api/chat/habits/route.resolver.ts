@@ -1,7 +1,3 @@
-import { getServerBackendBaseUrl } from '@/lib/api/server-client';
-
-export const PYTHON_API_BASE = getServerBackendBaseUrl();
-
 export interface LogIntent {
   habit_hint: string;
   value: number | null;

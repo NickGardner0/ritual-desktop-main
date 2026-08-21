@@ -6,7 +6,12 @@
  * avoid circular imports between orchestrator ↔ executors.
  */
 
-export const PYTHON_API_BASE = process.env.PYTHON_API_URL || process.env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000';
+export const PYTHON_API_BASE = (
+  process.env.PYTHON_API_URL
+  || process.env.BACKEND_URL
+  || process.env.NEXT_PUBLIC_PYTHON_API_URL
+  || 'http://127.0.0.1:8000'
+).replace(/\/$/, '');
 
 interface PythonApiRequestOptions {
   timeoutMs?: number;

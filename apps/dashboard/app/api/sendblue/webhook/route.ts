@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServerBackendBaseUrl } from "@/lib/api/server-client";
+import { getBackendBaseUrl } from "@/lib/api/backend-url";
 
 const WEBHOOK_PROXY_TIMEOUT_MS = Number(
   process.env.SENDBLUE_WEBHOOK_PROXY_TIMEOUT_MS || 45000,
@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       request.headers.get("x-webhook-secret") ||
       "";
 
-    const backendResponse = await fetch(`${getServerBackendBaseUrl()}/api/sendblue/webhook`, {
+    const backendResponse = await fetch(`${getBackendBaseUrl()}/api/sendblue/webhook`, {
       method: "POST",
       headers: {
         "Content-Type": contentType,

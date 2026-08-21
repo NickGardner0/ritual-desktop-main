@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
-import { getServerBackendBaseUrl } from '@/lib/api/server-client';
+import { getBackendBaseUrl } from '@/lib/api/backend-url';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 
@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
       limit: '24',
     });
 
-    const backendBaseUrl = getServerBackendBaseUrl();
+    const backendBaseUrl = getBackendBaseUrl();
     const [projectRollups, projectSessions, appsData, domainsData, gitData] = await Promise.all([
       fetch(
         `${backendBaseUrl}/api/watcher/project-time/rollups?${params}&group_by=task`,
