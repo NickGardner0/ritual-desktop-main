@@ -2,7 +2,7 @@
 
 import React, { startTransition, useState, useEffect, useMemo, useCallback } from 'react';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
-import { apiFetchWithAuth } from '@/lib/api/client';
+import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { LogDetailPanel } from '@/components/tables/habit-logs/log-detail-panel';
@@ -82,12 +82,12 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   const { data: habitsData } = useQuery({
     queryKey: ['habits', userId],
     queryFn: async () => {
-      const res = await fetch('/api/habits', {
-        cache: 'no-store',
-        credentials: 'include',
-      });
-      if (!res.ok) throw new Error('Failed to fetch habits');
-      return res.json();
+      return await apiOperationWithAuth(
+        'get_habits_api_habits_get',
+        getToken,
+        {},
+        userId,
+      );
     },
     enabled: !!userId,
     staleTime: 5 * 60 * 1000,
@@ -130,25 +130,40 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   } = useInfiniteQuery({
     queryKey: ['habit-logs', userId, filterParamsKey],
     queryFn: async ({ pageParam = 0, signal }) => {
-      const params = new URLSearchParams(filterParamsKey);
-      params.set('limit', String(LOGS_PAGE_SIZE));
-      params.set('offset', String(pageParam));
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 20000);
       const abortFromQuery = () => controller.abort();
       signal?.addEventListener('abort', abortFromQuery, { once: true });
 
       try {
-        const res = await fetch(`/api/logs/read-model?${params.toString()}`, {
-          cache: 'no-store',
-          signal: controller.signal,
-          credentials: 'include',
-        });
-        if (!res.ok) {
-          const message = await res.text().catch(() => '');
-          throw new Error(message || 'Failed to fetch logs');
-        }
-        const payload = await res.json();
+        const payload = await apiOperationWithAuth(
+          'get_logs_read_model_api_logs_read_model_get',
+          getToken,
+          {
+            query: {
+              q: filters.q || undefined,
+              start_date: filters.start || undefined,
+              end_date: filters.end || undefined,
+              categories: filters.categories?.length ? filters.categories.join(',') : undefined,
+              habits: filters.habits?.length ? filters.habits.join(',') : undefined,
+              statuses: filters.statuses?.length ? filters.statuses.join(',') : undefined,
+              sources: filters.sources?.length ? filters.sources.join(',') : undefined,
+              sort: sortColumn || undefined,
+              order: sortColumn ? sortDirection : undefined,
+              limit: LOGS_PAGE_SIZE,
+              offset: Number(pageParam) || 0,
+            },
+            signal: controller.signal,
+          },
+          userId,
+        ) as {
+          rows?: HabitLog[];
+          meta?: {
+            totals?: { count?: number; totalDuration?: number; totalAmount?: number };
+          };
+          pagination?: { hasMore?: boolean; total?: number };
+          sourceCounts?: Record<string, unknown>;
+        };
         return {
           data: Array.isArray(payload?.rows) ? payload.rows : [],
           meta: {
@@ -353,7 +368,18 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
   }, [baseLogs, localEdits]);
 
   const scopedLogs = logs;
-  const logsMeta = logsData?.meta || {};
+  const logsMeta = (logsData?.meta || {}) as {
+    totals?: {
+      count?: number;
+      totalDuration?: number;
+      totalAmount?: number;
+      completedCount?: number;
+      completionRate?: number;
+    };
+    hasMore?: boolean;
+    total?: number;
+    sourceCounts?: Record<string, unknown>;
+  };
   const logsQueryError = isError
     ? (error instanceof Error ? error.message : 'Failed to load logs')
     : null;

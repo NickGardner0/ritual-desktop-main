@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import {
   LEGACY_SCHEDULED_BLOCK_KEYS,
@@ -23,7 +24,8 @@ export function useLegacyScheduledBlockMigration() {
     if (!user?.id) return;
     if (typeof window === 'undefined') return;
 
-    const migrationMarkerKey = `calendar-scheduled-blocks-migrated:${LEGACY_SCHEDULED_BLOCK_MIGRATION_VERSION}:${user.id}`;
+    const userId = user.id;
+    const migrationMarkerKey = `calendar-scheduled-blocks-migrated:${LEGACY_SCHEDULED_BLOCK_MIGRATION_VERSION}:${userId}`;
 
     if (window.localStorage.getItem(migrationMarkerKey)) {
       return;
@@ -85,15 +87,12 @@ export function useLegacyScheduledBlockMigration() {
       const token = await getToken();
       if (!token) return;
 
-      const existingRes = await fetch('/api/calendar/scheduled-blocks', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!existingRes.ok) {
-        throw new Error('Failed to fetch existing scheduled blocks before migration');
-      }
-
-      const existingBlocks = (await existingRes.json()) as ScheduledBlockApi[];
+      const existingBlocks = await apiOperationWithAuth(
+        'get_scheduled_blocks_api_calendar_scheduled_blocks_get',
+        getToken,
+        {},
+        userId,
+      ) as ScheduledBlockApi[];
       const existingSignatures = new Set(existingBlocks.map(signatureFromApi));
 
       const dedupedLegacyBlocks = new Map<string, ScheduledBlockPayload>();
@@ -114,19 +113,16 @@ export function useLegacyScheduledBlockMigration() {
           continue;
         }
 
-        const createRes = await fetch('/api/calendar/scheduled-blocks', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(block),
-        });
-
-        if (createRes.ok) {
+        try {
+          await apiOperationWithAuth(
+            'create_scheduled_block_api_calendar_scheduled_blocks_post',
+            async () => token,
+            { body: block },
+            userId,
+          );
           created += 1;
           existingSignatures.add(signature);
-        } else {
+        } catch {
           skipped += 1;
           hasCreateFailure = true;
         }

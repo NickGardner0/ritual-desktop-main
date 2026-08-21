@@ -110,7 +110,8 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Strip unused computer-activity timeline/micro/sparkline path | derive + hook still built segments, micro, drill-down, sparkline | live panel totals + ranked bars + usage breakdown | ~−500 | unused ActivityWatch-style timeline/drill-down owner | none | Desktop still reads local `activity.db`; iPhone still reads synced aggregates |
 | Delete leftover computer-activity contract types | SessionSegment / MicroMetrics / sparkline / KIND_COLORS | live AttentionHeader totals + ranked bars | ~−120 | unused timeline/micro types after the panel rewrite | none | Rust DailyRollup and FastAPI DailyRollupRequest are unrelated watcher sync types |
 | Put expanded metrics FastAPI reads on the generated client | raw fetch for correlation / HR / logs-all / series / daily-values / Tinybird backfill | `apiOperationWithAuth` | ~−40 | second untyped FastAPI client in expanded metrics | none | Tinybird-first canonical load still uses `analytics-loader` |
-| Put chat conversation FastAPI reads on the generated client | cookie/Bearer `fetch` for conversations, queue, artifacts, facts, suggestions | `apiOperationWithAuth` | ~−40 | second untyped FastAPI client in chat | none | Chat stream stays on Next `/api/chat/stream`. Logs, calendar, import, and Apple Watch still use catch-all cookie fetch |
+| Put chat conversation FastAPI reads on the generated client | cookie/Bearer `fetch` for conversations, queue, artifacts, facts, suggestions | `apiOperationWithAuth` | ~−40 | second untyped FastAPI client in chat | none | Chat stream stays on Next `/api/chat/stream` |
+| Put calendar and activity FastAPI reads on the generated client | cookie/Bearer `fetch` for habits, calendar read-model, logs read-model, project-time, scheduled-block migration | `apiOperationWithAuth` | ~−40 | second untyped FastAPI client in calendar/logs | none | Calendar summary stream stays on Next. Logs bulk-delete and inline log PUT still use catch-all because FastAPI has no generated ops for them. Import and Apple Watch still use catch-all cookie fetch |
 
 ## Aggregate (this pass)
 
@@ -142,7 +143,7 @@ Tests do not count against production reduction.
 ## Remaining architecture taxes
 
 1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
-2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Overview/metrics daily-totals and chat conversation/queue/artifact/fact reads now use the generated client; logs, calendar, import, and Apple Watch still use catch-all cookie fetch.
+2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Overview/metrics, chat conversation, calendar, and activity logs now use the generated client; import, Apple Watch, onboarding, privacy, and watcher settings still use catch-all cookie fetch.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
 5. Authored production LOC remasured at ~192.6k with the same tokei buckets (generated client omitted). The earlier ~184k snapshot predates restored product (voice HUD, composer, privacy). Remaining fat is live product plus calendar/OpenAI streaming in Next, not unused deployables.

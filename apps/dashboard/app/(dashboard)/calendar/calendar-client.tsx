@@ -13,6 +13,7 @@ import {
 import { useHotkeys } from 'react-hotkeys-hook';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useHeartRateRange } from '@/hooks/useHeartRateRange';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import { resolveEntity } from '@/lib/entities/resolve';
 
@@ -80,16 +81,16 @@ export function CalendarClient() {
     queryKey: ['calendar-project-time-sessions', selectedDate],
     queryFn: async () => {
       if (!selectedDate) return { success: true, data: [] } as ProjectTimeSessionsResponse;
-      const params = new URLSearchParams({
-        start_date: selectedDate,
-        end_date: selectedDate,
-        limit: '16',
-      });
-      const response = await fetch(`/api/watcher/project-time/sessions?${params}`, {
-        cache: 'no-store',
-      });
-      if (!response.ok) return { success: false, data: [] } as ProjectTimeSessionsResponse;
-      return response.json() as Promise<ProjectTimeSessionsResponse>;
+      try {
+        return await apiOperationWithAuth(
+          'get_sessions_api_watcher_project_time_sessions_get',
+          getToken,
+          { query: { start_date: selectedDate, end_date: selectedDate, limit: 16 } },
+          user?.id,
+        ) as ProjectTimeSessionsResponse;
+      } catch {
+        return { success: false, data: [] } as ProjectTimeSessionsResponse;
+      }
     },
     enabled: Boolean(selectedDate),
     staleTime: 60_000,
@@ -112,14 +113,9 @@ export function CalendarClient() {
 
   const { data: habits = [] } = useQuery<CalendarHabitRef[]>({
     queryKey: ['habits', user?.id],
-    queryFn: async () => {
-      const token = await getToken();
-      const res = await fetch('/api/habits', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Failed to fetch habits');
-      return res.json();
-    },
+    queryFn: async () => (
+      await apiOperationWithAuth('get_habits_api_habits_get', getToken, {}, user?.id) as CalendarHabitRef[]
+    ),
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000,
   });
@@ -135,23 +131,22 @@ export function CalendarClient() {
     return { start, end, key: `${start}:${end}` };
   }, [dateRange.end, dateRange.start]);
 
-  const calendarReadModelQuery = useQuery({
+  const calendarReadModelQuery = useQuery<{
+    habitLogs?: HabitLog[];
+    scheduledBlocks?: ScheduledBlockApi[];
+  }>({
     queryKey: dashboardQueryKeys.calendarReadModel.detail(
       user?.id ?? 'anonymous',
       calendarReadModelRange.key,
     ),
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        start_date: calendarReadModelRange.start,
-        end_date: calendarReadModelRange.end,
-      });
-      const res = await fetch(`/api/calendar/read-model?${params}`, {
-        credentials: 'include',
-        cache: 'no-store',
-      });
-      if (!res.ok) throw new Error('Failed to fetch calendar read model');
-      return res.json();
-    },
+    queryFn: async () => (
+      await apiOperationWithAuth(
+        'get_calendar_read_model_api_calendar_read_model_get',
+        getToken,
+        { query: { start_date: calendarReadModelRange.start, end_date: calendarReadModelRange.end } },
+        user?.id,
+      ) as { habitLogs?: HabitLog[]; scheduledBlocks?: ScheduledBlockApi[] }
+    ),
     enabled: !!user?.id,
     staleTime: 30 * 1000,
   });
