@@ -132,7 +132,9 @@
     "apps/dashboard/lib/chat-stream-protocol.mjs",
     "apps/dashboard/lib/chat-stream-protocol.mjs.d.ts",
     "apps/dashboard/app/(dashboard)/chat/chat-stream-protocol.ts",
-    "apps/dashboard/app/(dashboard)/chat/chat-stream-buffer.ts"
+    "apps/dashboard/app/(dashboard)/chat/chat-stream-buffer.ts",
+    "apps/dashboard/lib/api/biometrics.ts",
+    "apps/dashboard/lib/types/biometrics.ts"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

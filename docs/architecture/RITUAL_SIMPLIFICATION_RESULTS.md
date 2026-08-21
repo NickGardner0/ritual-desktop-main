@@ -103,6 +103,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete leftover routine-editor and share one FastAPI helper in chat | unused `routine-editor.ts` + a second fetch to PYTHON_API_BASE | live weekday options + `fetchPythonApi` | ~−50 | leftover split-pane editor and a second chat HTTP client | duplicate WEEKDAYS list | Conversation/message/fact/mention writes still fail open |
 | Collapse chat stream protocol onto chat-runtime | dashboard `parsePhaseLine` copy + chat-folder shims | `@ritual/chat-runtime/stream-response` + buffer `.mjs` | ~−80 | second client copy of the stream wire format | unused protocol/buffer re-exports | Token flush policy stays dashboard-only. Client imports the stream-response subpath, not the kernel barrel |
 | Put the AI habit parser on the shared FastAPI helper | Next `/api/chat/habits` raw `PYTHON_API_BASE` fetches + `getServerBackendBaseUrl` wrapper | `fetchPythonApi` + `getBackendBaseUrl` | ~−40 | second FastAPI client in the habit parser | unused URL alias | Calendar summary and Sendblue still fetch FastAPI directly because they are not chat-runtime callers |
+| Collapse calendar heart-rate reads onto the generated client | unused `lib/api/biometrics.ts` wrapper + hand-written HR types | `apiOperationWithAuth` + OpenAPI | ~−50 | second typed client for one FastAPI path | unused biometrics DTO file | Calendar still groups 1m rollups locally |
 
 ## Aggregate (this pass)
 
