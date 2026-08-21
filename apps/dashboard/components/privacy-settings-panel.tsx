@@ -18,6 +18,9 @@ import {
   SettingsGroup,
   SettingsRow,
 } from '@/components/ui/ritual-system';
+import { PrivacyExternalErasureSection } from '@/components/privacy-external-erasure-section';
+import { PrivacyPrivateSyncSection } from '@/components/privacy-private-sync-section';
+import { PrivacyVaultExportSection } from '@/components/privacy-vault-export-section';
 import { cn } from '@/lib/utils';
 
 function subscribeToPrivacySettings(onStoreChange: () => void) {
@@ -217,6 +220,22 @@ export function PrivacySettingsPanel() {
           Local vault ready · {vaultStatus.recordCount} records on this device
         </p>
       ) : null}
+
+      <PrivacyPrivateSyncSection
+        userId={user?.id}
+        settings={settings}
+        onVaultStatus={setVaultStatus}
+      />
+
+      <PrivacyVaultExportSection
+        userId={user?.id}
+        onVaultStatus={setVaultStatus}
+      />
+
+      <PrivacyExternalErasureSection
+        userId={user?.id}
+        onVaultStatus={setVaultStatus}
+      />
     </div>
   );
 }
