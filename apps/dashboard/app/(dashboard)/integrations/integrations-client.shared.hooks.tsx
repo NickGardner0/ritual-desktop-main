@@ -8,7 +8,6 @@ import { QUERY_POLICY } from '@/lib/query-policies';
 import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   deriveIphoneTimeIntegrationStatus,
-  fetchJsonWithTimeout,
   getLocalWatcherRuntimeStatus,
   type BiomeIphoneDiagnostics,
   type IphoneTimeIntegrationStatus,
@@ -48,18 +47,13 @@ export function useAppleWatchStatus() {
   return useQuery({
     queryKey: ['apple-watch-status', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch('/api/wearables/apple/devices', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch Apple Watch status');
-      }
-
-      const data = await response.json();
-      // Check if there's at least one active iOS device
-      const activeDevices = (data.devices || []).filter((d: any) => d.is_active && d.platform === 'ios');
+      const data = await apiOperationWithAuth(
+        'list_apple_devices_api_wearables_apple_devices_get',
+        getToken,
+        {},
+        user?.id,
+      ) as { devices?: Array<{ is_active?: boolean; platform?: string; last_sync_at?: string | null; device_name?: string | null }> };
+      const activeDevices = (data.devices || []).filter((d) => d.is_active && d.platform === 'ios');
       return {
         connected: activeDevices.length > 0,
         devices: activeDevices,
@@ -79,16 +73,12 @@ export function useWearableConnections() {
   return useQuery({
     queryKey: ['wearable-connections', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch('/api/wearables/connections', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch wearable connections');
-      }
-
-      return response.json();
+      return await apiOperationWithAuth(
+        'get_wearable_connections_api_wearables_connections_get',
+        getToken,
+        {},
+        user?.id,
+      );
     },
     staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
@@ -102,16 +92,12 @@ export function useFinancialConnections() {
   return useQuery({
     queryKey: ['financial-connections', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const response = await fetch('/api/financial/connections', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch financial connections');
-      }
-
-      return response.json();
+      return await apiOperationWithAuth(
+        'list_financial_connections_api_financial_connections_get',
+        getToken,
+        {},
+        user?.id,
+      );
     },
     staleTime: QUERY_POLICY.staticResource.staleTime,
     enabled: !!user?.id,
@@ -124,21 +110,21 @@ export function useFinancialConnections() {
  */
 export function useComputerTrackingStatus() {
   const { user } = useUser();
+  const { getToken } = useAuth();
 
   return useQuery({
     queryKey: ['computer-tracking-status', user?.id],
     queryFn: async () => {
       try {
-        const response = await fetch('/api/watcher/devices');
-        
-        if (!response.ok) {
-          return { connected: false, enabled: false, deviceName: null };
-        }
-
-        const data = await response.json();
+        const data = await apiOperationWithAuth(
+          'list_devices_api_watcher_devices_get',
+          getToken,
+          {},
+          user?.id,
+        ) as { devices?: Array<{ is_enabled?: boolean; device_name?: string; device_id?: string }> };
         const devices = data.devices || [];
-        const activeDevice = devices.find((d: any) => d.is_enabled);
-        
+        const activeDevice = devices.find((d) => d.is_enabled);
+
         return {
           connected: devices.length > 0,
           enabled: !!activeDevice,
@@ -161,24 +147,28 @@ export function useIntegrationsOverview() {
   return useQuery({
     queryKey: ['integrations-overview', user?.id],
     queryFn: async () => {
-      const token = await getToken();
-      const authHeaders: HeadersInit = token
-        ? { Authorization: `Bearer ${token}` }
-        : {};
-
-      const fetchBackendJson = async (path: string, fallback: any) => {
+      const fetchBackendJson = async (
+        operation:
+          | 'whoop_status_api_integrations_whoop_status_get'
+          | 'list_apple_devices_api_wearables_apple_devices_get'
+          | 'get_wearable_connections_api_wearables_connections_get'
+          | 'list_financial_connections_api_financial_connections_get'
+          | 'list_devices_api_watcher_devices_get',
+        fallback: any,
+      ) => {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 8000);
         try {
-          const response = await fetchJsonWithTimeout(
-            path,
-            { headers: authHeaders },
-            8000,
+          return await apiOperationWithAuth(
+            operation,
+            getToken,
+            { signal: controller.signal },
+            user?.id,
           );
-          if (!response.ok) {
-            return fallback;
-          }
-          return await response.json();
         } catch {
           return fallback;
+        } finally {
+          window.clearTimeout(timeoutId);
         }
       };
 
@@ -189,11 +179,11 @@ export function useIntegrationsOverview() {
         financialResponse,
         computerTrackingResponse,
       ] = await Promise.all([
-        fetchBackendJson('/api/integrations/whoop/status', { connected: false, sync_hour: 9 }),
-        fetchBackendJson('/api/wearables/apple/devices', { devices: [] }),
-        fetchBackendJson('/api/wearables/connections', { connections: [] }),
-        fetchBackendJson('/api/financial/connections', { connections: [] }),
-        fetchBackendJson('/api/watcher/devices', { devices: [] }),
+        fetchBackendJson('whoop_status_api_integrations_whoop_status_get', { connected: false, sync_hour: 9 }),
+        fetchBackendJson('list_apple_devices_api_wearables_apple_devices_get', { devices: [] }),
+        fetchBackendJson('get_wearable_connections_api_wearables_connections_get', { connections: [] }),
+        fetchBackendJson('list_financial_connections_api_financial_connections_get', { connections: [] }),
+        fetchBackendJson('list_devices_api_watcher_devices_get', { devices: [] }),
       ]);
       const whoopStatusPayload = whoopResponse;
       const appleWatchPayload = appleWatchResponse;
