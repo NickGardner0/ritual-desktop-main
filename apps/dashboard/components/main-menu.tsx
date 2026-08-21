@@ -6,7 +6,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown } from "lucide-react";
-import { usePrefetchDashboard, usePrefetchAnalytics } from "@/hooks/use-prefetch";
+import { usePrefetchHabits } from "@/hooks/use-prefetch";
 import { NavList, NavRowSurface } from "@/components/ui/ritual-system";
 import { listExperiments } from "@/lib/experiments";
 import { SIDEBAR_ICONS } from "@/components/sidebar-icons";
@@ -143,17 +143,15 @@ const Item = ({
   const hasChildren = item.children && item.children.length > 0;
   const isCollapsedActive = isActive && !isExpanded;
 
-  // Prefetch data on hover (Midday-style optimization)
-  const prefetchDashboard = usePrefetchDashboard();
-  const prefetchAnalytics = usePrefetchAnalytics();
-  
-  // Get the right prefetch function for this item
+  const prefetchHabits = usePrefetchHabits();
   const getPrefetchProps = () => {
     switch (item.path) {
-      case '/dashboard': return prefetchDashboard;
-      case '/dashboard?view=metrics': return prefetchAnalytics;
-      case '/analytics': return prefetchAnalytics;
-      default: return {};
+      case '/dashboard':
+      case '/dashboard?view=metrics':
+      case '/analytics':
+        return prefetchHabits;
+      default:
+        return {};
     }
   };
 

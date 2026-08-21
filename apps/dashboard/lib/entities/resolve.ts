@@ -68,20 +68,6 @@ function canonicalizeRef(ref: EntityRef): EntityRef {
 
 type AuthGetter = (opts?: { skipCache?: boolean }) => Promise<string | null>;
 
-export function entityLookupPath(
-  type: EntityType | string,
-  id: string,
-  kind: "summary" | "related" | "references" = "summary",
-): string {
-  if (id.includes("/")) {
-    const params = new URLSearchParams({ entity_type: type, entity_id: id });
-    if (kind === "summary") return `/api/entities/summary?${params.toString()}`;
-    return `/api/entities/${kind}?${params.toString()}`;
-  }
-  const base = `/api/entities/${type}/${encodeURIComponent(id)}`;
-  return kind === "summary" ? base : `${base}/${kind}`;
-}
-
 export function summaryFromCloud(item: {
   availability?: EntitySummary["availability"] | null;
   icon?: string | null;

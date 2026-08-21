@@ -10,16 +10,6 @@ import {
   type BackendOperationResponse,
 } from '@/lib/api/generated/backend-client';
 
-export class ApiError extends Error {
-  status: number;
-
-  constructor(status: number, message: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-  }
-}
-
 function normalizeApiPath(path: string): string {
   if (path.startsWith('/api/')) return path;
   const trimmed = path.replace(/^\/+/, '');
@@ -29,20 +19,6 @@ function normalizeApiPath(path: string): string {
 export type ApiFetchOptions = RequestInit & {
   userId?: string | null;
 };
-
-export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
-  const { userId, headers, ...rest } = options;
-  return fetch(normalizeApiPath(path), {
-    cache: 'no-store',
-    credentials: 'include',
-    ...rest,
-    headers: {
-      ...getReadConsistencyHeaders(userId),
-      ...privacySettingsHeaders(),
-      ...(headers ?? {}),
-    },
-  });
-}
 
 export async function apiFetchWithAuth(
   path: string,
@@ -74,18 +50,6 @@ export async function apiFetchWithAuth(
   }
 
   return response;
-}
-
-export async function apiJson<T>(
-  path: string,
-  options: ApiFetchOptions = {},
-): Promise<T> {
-  const response = await apiFetch(path, options);
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new ApiError(response.status, text || `Request failed: ${response.status}`);
-  }
-  return response.json() as Promise<T>;
 }
 
 function dashboardBaseUrl(): string {

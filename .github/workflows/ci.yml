@@ -73,7 +73,7 @@ jobs:
         run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_project_time_service.py apps/backend/tests/test_turso_user_service.py
 
       - name: Python backend architecture boundary tests
-        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_wearable_provider_sync_registry.py apps/backend/tests/test_wearable_provider_pipeline.py apps/backend/tests/test_sync_job_registry.py
+        run: PYTHONPATH=apps/backend pytest -q apps/backend/tests/test_wearable_provider_sync_registry.py
 
       - name: Python backend full test suite
         run: PYTHONPATH=apps/backend pytest -q apps/backend/tests
