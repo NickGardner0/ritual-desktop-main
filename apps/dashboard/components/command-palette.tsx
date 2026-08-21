@@ -728,6 +728,3 @@ export default function CommandPalette({
 
   return createPortal(modal, document.body);
 }
-
-// Also export as HabitSelector for backward compatibility
-export { CommandPalette as HabitSelector };

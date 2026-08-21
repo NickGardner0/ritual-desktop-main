@@ -18,7 +18,7 @@ const Sidebar = dynamic(
 );
 
 const CommandPalette = dynamic(
-  () => import('@/components/habit-selector'),
+  () => import('@/components/command-palette'),
   { ssr: false }
 );
 

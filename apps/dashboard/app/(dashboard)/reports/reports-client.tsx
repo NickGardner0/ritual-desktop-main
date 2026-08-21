@@ -29,19 +29,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import type {
-  ActionProfile,
-  ActionProfileListResponse,
-  ApprovalListResponse,
-  AiFact,
-  AiFactListResponse,
   ArtifactDetail,
   ArtifactKind,
-  ArtifactLink,
-  ConversationQueueItem,
-  ReportRun,
-  ReportRunListResponse,
-  ReportSchedule,
-  ReportScheduleListResponse,
   WorkflowDefinition,
   WorkflowDefinitionFamily,
   WorkflowRun,
@@ -67,12 +56,20 @@ import {
   buildDefaultProjectTimeRange,
   buildUnifiedRuns,
   deferStateUpdate,
+  approveFactForReportsSurface,
+  dismissFactForReportsSurface,
+  fetchActionProfilesForReportsSurface,
+  fetchApprovalsForReportsSurface,
   fetchArtifactDetailForReportsSurface,
   fetchArtifactLibraryForReportsSurface,
   fetchArtifactsForReportsSurface,
-  fetchJson,
+  fetchFactsForReportsSurface,
+  fetchProjectTimeRollupsForReportsSurface,
+  fetchReportRunsForReportsSurface,
+  fetchReportSchedulesForReportsSurface,
   fetchWorkflowDefinitionsForReportsSurface,
   fetchWorkflowRunsForReportsSurface,
+  patchWorkflowDefinitionById,
   formatDateTime,
   formatKind,
   formatLocalClock,
@@ -83,10 +80,8 @@ import {
   patchWorkflowDefinitionForReportsSurface,
   runWorkflowForReportsSurface,
   saveArtifactForReportsSurface,
-  saveWorkflowDefinitionForReportsSurface,
   toEditorState,
   type ArtifactEditorState,
-  type ProjectTimeRollupResponse,
   type WorkflowEditorState,
 } from "./reports-client.helpers";
 
@@ -130,13 +125,13 @@ export function ReportsClient() {
 
   const reportSchedulesQuery = useQuery({
     queryKey: ["report-schedules"],
-    queryFn: async () => (await fetchJson<ReportScheduleListResponse>("/api/reports/schedules")).schedules || [],
+    queryFn: fetchReportSchedulesForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const reportRunsQuery = useQuery({
     queryKey: ["report-runs"],
-    queryFn: async () => (await fetchJson<ReportRunListResponse>("/api/reports/runs?limit=8")).runs || [],
+    queryFn: fetchReportRunsForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
@@ -148,19 +143,19 @@ export function ReportsClient() {
 
   const actionProfilesQuery = useQuery({
     queryKey: ["action-profiles"],
-    queryFn: async () => (await fetchJson<ActionProfileListResponse>("/api/action-profiles")).items || [],
+    queryFn: fetchActionProfilesForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const factsQuery = useQuery({
     queryKey: ["ai-facts"],
-    queryFn: async () => (await fetchJson<AiFactListResponse>("/api/ai-facts")).items || [],
+    queryFn: fetchFactsForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
   const approvalsQuery = useQuery({
     queryKey: ["approvals"],
-    queryFn: async () => (await fetchJson<ApprovalListResponse>("/api/approvals")).items || [],
+    queryFn: fetchApprovalsForReportsSurface,
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
@@ -173,9 +168,7 @@ export function ReportsClient() {
 
   const projectTimeQuery = useQuery({
     queryKey: ["project-time-rollups", "reports", projectTimeRange.start, projectTimeRange.end],
-    queryFn: () => fetchJson<ProjectTimeRollupResponse>(
-      `/api/watcher/project-time/rollups?start_date=${projectTimeRange.start}&end_date=${projectTimeRange.end}&group_by=project&limit=8`,
-    ),
+    queryFn: () => fetchProjectTimeRollupsForReportsSurface(projectTimeRange),
     staleTime: QUERY_POLICY.general.staleTime,
   });
 
@@ -225,14 +218,7 @@ export function ReportsClient() {
     mutationFn: async ({ status }: { status: WorkflowStatus }) => {
       if (!editor) throw new Error("No workflow selected for editing.");
       const payload = buildDefinitionPayload(editor, status);
-      const selected = workflowDefinitions.find((item) => item.id === editor.id);
-      if (selected) {
-        return saveWorkflowDefinitionForReportsSurface({ definition: selected, patch: payload });
-      }
-      return fetchJson<WorkflowDefinition>(`/api/workflows/definitions/${editor.id}`, {
-        method: "PATCH",
-        body: JSON.stringify(payload),
-      });
+      return patchWorkflowDefinitionById(editor.id, payload);
     },
     onSuccess: () => {
       toast.success("Workflow updated.");
@@ -283,7 +269,7 @@ export function ReportsClient() {
   });
 
   const factApproveMutation = useMutation({
-    mutationFn: async (factId: string) => fetchJson<AiFact>(`/api/ai-facts/${factId}/approve`, { method: "POST" }),
+    mutationFn: approveFactForReportsSurface,
     onSuccess: () => {
       toast.success("Fact approved.");
       void queryClient.invalidateQueries({ queryKey: ["ai-facts"] });
@@ -295,7 +281,7 @@ export function ReportsClient() {
   });
 
   const factDismissMutation = useMutation({
-    mutationFn: async (factId: string) => fetchJson<AiFact>(`/api/ai-facts/${factId}/dismiss`, { method: "POST" }),
+    mutationFn: dismissFactForReportsSurface,
     onSuccess: () => {
       toast.success("Fact dismissed.");
       void queryClient.invalidateQueries({ queryKey: ["ai-facts"] });

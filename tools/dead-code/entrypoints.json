@@ -139,7 +139,8 @@
     "apps/dashboard/components/computer-activity/AttentionIndexHeader.tsx",
     "apps/dashboard/components/computer-activity/SessionFlowTimeline.tsx",
     "apps/dashboard/components/computer-activity/MicroMetricsRow.tsx",
-    "apps/dashboard/components/computer-activity/DeepDrillDrawer.tsx"
+    "apps/dashboard/components/computer-activity/DeepDrillDrawer.tsx",
+    "apps/dashboard/components/habit-selector.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",
@@ -172,6 +173,7 @@
     "components/ritual-wordmark",
     "components/team-dropdown",
     "tasks/window-side-panel",
+    "components/habit-selector",
     "@/components/ui/popover",
     "@/components/ui/dropdown-menu",
     "@/components/ui/select",

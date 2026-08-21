@@ -30,6 +30,8 @@ import { cn } from '@/lib/utils';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { clearPersistedDashboardSnapshots } from '@/hooks/use-dashboard-snapshot-query';
+import { apiOperation } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 
 type UnknownObjectMap = { [key: string]: unknown };
 
@@ -428,23 +430,31 @@ export function useIphoneTimeIntegrationStatus() {
       const desktop = isDesktop;
       const endDate = todayISODate();
       const token = await getToken();
-      const headers: HeadersInit = token ? { Authorization: `Bearer ${token}` } : {};
       let backendSummary: ScreenTimeSummary | null = null;
       let localError: string | null = null;
 
       try {
-        const response = await fetchJsonWithTimeout(
-          `/api/screen-time/stats/summary?start_date=2000-01-01&end_date=${endDate}`,
-          { headers },
-          8000,
-        );
-        if (response.ok) {
-          backendSummary = extractScreenTimeSummary(await response.json());
-        } else {
-          localError = `Screen Time summary returned HTTP ${response.status}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        try {
+          const payload = await apiOperation(
+            'get_screen_time_summary_api_screen_time_stats_summary_get',
+            {
+              query: { start_date: '2000-01-01', end_date: endDate },
+              signal: controller.signal,
+            },
+            token ? { getToken, userId: user?.id } : { userId: user?.id },
+          );
+          backendSummary = extractScreenTimeSummary(payload);
+        } finally {
+          clearTimeout(timeoutId);
         }
       } catch (error) {
-        localError = formatErrorMessage(error, 'Screen Time summary is unavailable.');
+        if (error instanceof BackendClientError) {
+          localError = `Screen Time summary returned HTTP ${error.status}`;
+        } else {
+          localError = formatErrorMessage(error, 'Screen Time summary is unavailable.');
+        }
       }
 
       let diagnostics: BiomeIphoneDiagnostics | null = null;
@@ -473,43 +483,4 @@ export function useIphoneTimeIntegrationStatus() {
     staleTime: QUERY_POLICY.general.staleTime,
     enabled: !!user?.id,
   });
-}
-
-export async function fetchJsonWithTimeout(
-  input: RequestInfo | URL,
-  init: RequestInit,
-  timeoutMs: number,
-) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    return await fetch(input, {
-      ...init,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-export async function parseApiError(response: Response, fallbackMessage: string): Promise<string> {
-  try {
-    const payload = await response.json();
-    const detail = payload?.detail;
-    if (typeof detail === 'string' && detail.trim()) {
-      return detail;
-    }
-    if (detail && typeof detail === 'object') {
-      return (
-        detail.display_message ||
-        detail.error_message ||
-        detail.message ||
-        fallbackMessage
-      );
-    }
-  } catch {
-    // ignore parse failures and fall back below
-  }
-  return fallbackMessage;
 }
