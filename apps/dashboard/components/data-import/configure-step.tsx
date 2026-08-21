@@ -63,13 +63,7 @@ export function ConfigureStep({ imp }: Props) {
                           <button
                             onClick={async () => {
                               try {
-                                const response = await fetch(`/api/import/runs/${previewData.import_run_id}/auto-fix`, {
-                                  method: "POST",
-                                });
-                                if (response.ok) {
-                                  // Refresh preview data
-                                  imp.handleFetchPreview();
-                                }
+                                await imp.handleAutoFix(previewData.import_run_id);
                               } catch (e) {
                                 console.error("Auto-fix failed:", e);
                               }

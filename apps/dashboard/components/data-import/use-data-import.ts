@@ -2,12 +2,17 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type React from "react";
+import { useAuth } from "@clerk/nextjs";
+import { apiOperationWithAuth } from "@/lib/api/client";
+import { BackendClientError } from "@/lib/api/generated/backend-client";
 import {
   DATA_SOURCES,
   type AggregationPeriod,
   type ConflictPolicy,
   type DataSource,
   type ImportPreviewResponse,
+  type ImportRun,
+  type ImportRunSummary,
 } from "../data-import-modal.config";
 import {
   importWorkflowReducer,
@@ -15,6 +20,20 @@ import {
 } from "./import-workflow";
 
 const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
+
+function messageFromImportError(error: unknown, fallback: string) {
+  if (error instanceof BackendClientError) {
+    try {
+      const parsed = JSON.parse(error.responseBody) as { detail?: unknown; error?: string };
+      if (typeof parsed.detail === "string" && parsed.detail) return parsed.detail;
+      if (parsed.error) return parsed.error;
+    } catch {
+      // Keep the caller-facing fallback.
+    }
+    return fallback;
+  }
+  return error instanceof Error ? error.message : fallback;
+}
 
 export type ImportStep =
   | "select_source"
@@ -34,6 +53,7 @@ const stepByState = {
 } as const satisfies Record<string, ImportStep>;
 
 export function useDataImport(onClose: () => void, onImportComplete: () => void) {
+  const { getToken } = useAuth();
   const [workflow, dispatch] = useReducer(importWorkflowReducer, initialImportWorkflowState);
   const [isDragging, setIsDragging] = useState(false);
   const [auxLoading, setAuxLoading] = useState(false);
@@ -251,16 +271,17 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
 
     const fail = (message: string) => dispatch({ type: "IMPORT_FAILED", attempt, error: message });
     try {
-      const response = await fetch(`/api/import/runs/${workflow.runId}/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ import_run_id: workflow.runId, conflict_policy: conflictPolicy, create_habits: true }),
-        signal: controller.signal,
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || result.error || "Import failed");
+      const result = await apiOperationWithAuth(
+        "start_import_api_import_runs__run_id__start_post",
+        getToken,
+        {
+          pathParams: { run_id: workflow.runId },
+          body: { import_run_id: workflow.runId, conflict_policy: conflictPolicy, create_habits: true },
+          signal: controller.signal,
+        },
+      ) as { status?: string; summary?: ImportRunSummary };
       if (result.status === "completed") {
-        dispatch({ type: "IMPORT_COMPLETED", attempt, result: result.summary });
+        dispatch({ type: "IMPORT_COMPLETED", attempt, result: result.summary as ImportRunSummary });
         onImportComplete();
         return;
       }
@@ -274,18 +295,27 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
           return;
         }
         try {
-          const statusResponse = await fetch(`/api/import/runs/${workflow.runId}`, { signal: controller.signal });
-          const status = await statusResponse.json();
-          if (status.progress_total > 0) {
+          const status = await apiOperationWithAuth(
+            "get_import_run_api_import_runs__run_id__get",
+            getToken,
+            { pathParams: { run_id: workflow.runId }, signal: controller.signal },
+          ) as {
+            progress_total?: number;
+            progress_current?: number;
+            status?: string;
+            summary?: ImportRunSummary;
+            errors?: Array<{ error?: string }>;
+          };
+          if ((status.progress_total || 0) > 0) {
             dispatch({
               type: "IMPORT_PROGRESS",
               attempt,
-              current: status.progress_current,
-              total: status.progress_total,
+              current: status.progress_current || 0,
+              total: status.progress_total || 0,
             });
           }
           if (status.status === "completed") {
-            dispatch({ type: "IMPORT_COMPLETED", attempt, result: status.summary });
+            dispatch({ type: "IMPORT_COMPLETED", attempt, result: status.summary as ImportRunSummary });
             onImportComplete();
             return;
           }
@@ -302,30 +332,37 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
       };
       pollTimerRef.current = setTimeout(poll, interval(0));
     } catch (error) {
-      if (!controller.signal.aborted) fail(error instanceof Error ? error.message : "Import failed");
+      if (!controller.signal.aborted) fail(messageFromImportError(error, "Import failed"));
     }
-  }, [cancelActiveAttempt, conflictPolicy, onImportComplete, workflow]);
+  }, [cancelActiveAttempt, conflictPolicy, getToken, onImportComplete, workflow]);
 
   const handleCancelImport = useCallback(async () => {
     if (workflow.kind !== "importing") return;
     const { runId, attempt } = workflow;
     cancelActiveAttempt();
     try {
-      await fetch(`/api/import/runs/${runId}/cancel`, { method: "POST" });
+      await apiOperationWithAuth(
+        "cancel_import_api_import_runs__run_id__cancel_post",
+        getToken,
+        { pathParams: { run_id: runId } },
+      );
     } finally {
       dispatch({ type: "IMPORT_FAILED", attempt, error: "Import was canceled" });
     }
-  }, [cancelActiveAttempt, workflow]);
+  }, [cancelActiveAttempt, getToken, workflow]);
 
   const fetchImportHistory = useCallback(async () => {
     try {
-      const response = await fetch("/api/import/runs?limit=20");
-      const data = await response.json();
+      const data = await apiOperationWithAuth(
+        "list_import_runs_api_import_runs_get",
+        getToken,
+        { query: { limit: 20 } },
+      ) as { runs?: ImportRun[] };
       dispatch({ type: "HISTORY_LOADED", runs: data.runs || [] });
     } catch {
       dispatch({ type: "HISTORY_LOADED", runs: [] });
     }
-  }, []);
+  }, [getToken]);
 
   const handleShowHistory = useCallback(() => {
     cancelActiveAttempt();
@@ -337,18 +374,29 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
     if (!confirm("Are you sure you want to undo this import? All imported data will be deleted.")) return;
     setAuxLoading(true);
     try {
-      const response = await fetch(`/api/import/runs/${runId}/undo`, { method: "POST" });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.detail || "Failed to undo import");
+      const result = await apiOperationWithAuth(
+        "undo_import_run_api_import_runs__run_id__undo_post",
+        getToken,
+        { pathParams: { run_id: runId } },
+      ) as { logs_deleted?: number };
       if (workflow.kind === "history") void fetchImportHistory();
       alert(`Undo complete: ${result.logs_deleted} logs deleted`);
       onImportComplete();
     } catch (error) {
-      console.error(error instanceof Error ? error.message : "Failed to undo import");
+      console.error(messageFromImportError(error, "Failed to undo import"));
     } finally {
       setAuxLoading(false);
     }
-  }, [fetchImportHistory, onImportComplete, workflow.kind]);
+  }, [fetchImportHistory, getToken, onImportComplete, workflow.kind]);
+
+  const handleAutoFix = useCallback(async (runId: string) => {
+    await apiOperationWithAuth(
+      "auto_fix_import_items_api_import_runs__run_id__auto_fix_post",
+      getToken,
+      { pathParams: { run_id: runId } },
+    );
+    await handleFetchPreview();
+  }, [getToken, handleFetchPreview]);
 
   const handleBack = useCallback(() => {
     if (workflow.kind === "importing") {
@@ -405,6 +453,7 @@ export function useDataImport(onClose: () => void, onImportComplete: () => void)
     handleStartImport,
     handleCancelImport,
     handleUndoImport,
+    handleAutoFix,
     fetchImportHistory,
     handleShowHistory,
     sourceConfig,
