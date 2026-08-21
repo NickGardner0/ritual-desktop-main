@@ -36,7 +36,7 @@ import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
 import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
 import { DateRangePicker } from '@/components/date-range-picker';
-import { OverviewView } from './overview-view';
+import { OverviewView } from './overview/OverviewView';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 // Import from separate file to avoid pulling in recharts (~500KB)
@@ -86,7 +86,7 @@ async function playHabitSuccessSound() {
 // Keep heavy views lazy. Overview and the titlebar date picker load with the page
 // so the default dashboard does not hit a post-navigation Loading... boundary.
 const MetricsView = dynamic(
-  () => import('./metrics-view').then(m => ({ default: m.MetricsView })),
+  () => import('./metrics/MetricsView').then(m => ({ default: m.MetricsView })),
   { loading: () => <ViewLoadingFallback /> }
 );
 

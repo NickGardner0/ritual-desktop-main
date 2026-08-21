@@ -97,6 +97,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused routines/bootstrap leftovers | unused `routines-ui.tsx` + unused bootstrap client | live routines pages + server bootstrap redirect | ~−750 | unused UI and a bootstrap client the server page never mounted | leftover Trigger.dev env keys | `shell_bootstrap` now records on the live root-providers path. Assistant-turn outbox drain is wired into chat |
 | Delete leftover split-pane routines UI | unused list/detail/runs + old AI templates + ui helpers | compact list + configure modal + `lib/routines/templates.ts` | ~−1.4k | second unused routines surface | unused `lib/routines/ui.tsx` | Live routines still fetch runs for toasts/notifications |
 | Collapse dashboard SSR fetchers onto the client catch-all | Midday `lib/server/data.ts` + metrics preload | client React Query + FastAPI catch-all | ~−400 | second habits/logs/summary fetch owner | unused `reference-task-shell.tsx` | Overview already skipped SSR. `?view=` still selects overview/metrics/chat |
+| Delete leftover analytics re-exports and Midday logger | overview/metrics shims + computer-activity wrapper + `lib/logger.ts` | live OverviewView / MetricsView / ComputerActivityPanel + console in two API routes | ~−200 | unused re-export path and unused Sentry-window logger | leftover MetricsView import soup in `metrics-view.shared.tsx` | Metrics still lazy-loads the live panel. Whisper and habit-parser keep their Next routes |
 
 ## Aggregate (this pass)
 

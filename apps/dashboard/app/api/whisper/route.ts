@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { logger } from '@/lib/logger';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 
 const HABIT_LOGGING_TRANSCRIPTION_PROMPT = [
@@ -43,12 +42,12 @@ export async function POST(req: NextRequest) {
     const openaiApiKey = process.env.OPENAI_API_KEY;
     
     // Don't log API key presence in production
-    logger.info('🔍 Checking API keys...');
-    logger.info(`  GROQ_API_KEY: ${groqApiKey ? '✅ Found' : '❌ Not found'}`);
-    logger.info(`  OPENAI_API_KEY: ${openaiApiKey ? '✅ Found' : '❌ Not found'}`);
+    console.info('🔍 Checking API keys...');
+    console.info(`  GROQ_API_KEY: ${groqApiKey ? '✅ Found' : '❌ Not found'}`);
+    console.info(`  OPENAI_API_KEY: ${openaiApiKey ? '✅ Found' : '❌ Not found'}`);
     
     if (!groqApiKey && !openaiApiKey) {
-      logger.error('❌ Neither GROQ_API_KEY nor OPENAI_API_KEY found');
+      console.error('❌ Neither GROQ_API_KEY nor OPENAI_API_KEY found');
       return NextResponse.json({ error: 'API key not configured' }, { status: 500 });
     }
 
@@ -65,13 +64,13 @@ export async function POST(req: NextRequest) {
       apiUrl = 'https://api.groq.com/openai/v1/audio/transcriptions';
       apiKey = groqApiKey;
       modelName = 'whisper-large-v3'; // Groq's fastest Whisper model
-      logger.info('🚀 Using Groq Whisper for transcription');
+      console.info('🚀 Using Groq Whisper for transcription');
     } else {
       // Fallback to OpenAI Whisper
       apiUrl = 'https://api.openai.com/v1/audio/transcriptions';
       apiKey = openaiApiKey!;
       modelName = 'whisper-1';
-      logger.info('🔄 Using OpenAI Whisper for transcription');
+      console.info('🔄 Using OpenAI Whisper for transcription');
     }
 
     apiFormData.append('model', modelName);
@@ -91,18 +90,18 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const error = await response.text();
-      logger.error('❌ Whisper API error:', error);
+      console.error('❌ Whisper API error:', error);
       return NextResponse.json({ error: 'Failed to transcribe audio' }, { status: response.status });
     }
 
     const result = await response.json();
     const duration = Date.now() - startTime;
-    logger.info(`✅ Transcription completed in ${duration}ms`);
+    console.info(`✅ Transcription completed in ${duration}ms`);
     
     return NextResponse.json({ text: result.text });
     
   } catch (error) {
-    logger.error('Error in whisper API route:', error);
+    console.error('Error in whisper API route:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

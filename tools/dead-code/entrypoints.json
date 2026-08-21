@@ -123,7 +123,11 @@
     "apps/dashboard/lib/routines/ui.tsx",
     "apps/dashboard/app/(dashboard)/dashboard/dashboard-server-data.ts",
     "apps/dashboard/lib/server/data.ts",
-    "apps/dashboard/lib/tasks/reference-task-shell.tsx"
+    "apps/dashboard/lib/tasks/reference-task-shell.tsx",
+    "apps/dashboard/lib/logger.ts",
+    "apps/dashboard/components/analytics/computer-activity.tsx",
+    "apps/dashboard/components/analytics/overview-view.tsx",
+    "apps/dashboard/components/analytics/metrics-view.tsx"
   ],
   "forbiddenImportPatterns": [
     "screen-recorder",

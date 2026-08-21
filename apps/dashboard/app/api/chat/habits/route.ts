@@ -3,7 +3,6 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { logger } from '@/lib/logger';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
 import {
   PYTHON_API_BASE,
@@ -44,7 +43,7 @@ export async function POST(req: NextRequest) {
         }
       }
     } catch (authError) {
-      logger.error('⚠️ Clerk auth() error:', authError);
+      console.error('⚠️ Clerk auth() error:', authError);
     }
 
     const { messages, userId, selectedDate, clientEventId }: { 
@@ -57,7 +56,7 @@ export async function POST(req: NextRequest) {
     const effectiveUserId = clerkUserId || userId;
     const effectiveToken = token;
     
-    logger.info('🔍 Phase 5A: /api/chat/habits called (multi-intent)');
+    console.info('🔍 Phase 5A: /api/chat/habits called (multi-intent)');
 
     // Fetch user's habits
     let userHabits: Array<{ id: string; name: string; category: string; unit_type: string }> = [];
@@ -70,10 +69,10 @@ export async function POST(req: NextRequest) {
       const habitsResponse = await fetch(`${PYTHON_API_BASE}/api/habits`, { headers, signal: AbortSignal.timeout(15000) });
       if (habitsResponse.ok) {
         userHabits = await habitsResponse.json();
-        logger.info('✅ Fetched habits:', userHabits.length);
+        console.info('✅ Fetched habits:', userHabits.length);
       }
     } catch (error) {
-      logger.error('❌ Error fetching habits:', error);
+      console.error('❌ Error fetching habits:', error);
     }
 
     // Fetch aliases for fuzzy matching
@@ -85,7 +84,7 @@ export async function POST(req: NextRequest) {
       }
     } catch {
       // Aliases are optional - continue without them
-      logger.warn('⚠️ Could not fetch aliases, continuing with name matching only');
+      console.warn('⚠️ Could not fetch aliases, continuing with name matching only');
     }
 
     // Date helpers - IMPORTANT: Use local timezone, not UTC!
@@ -139,7 +138,7 @@ export async function POST(req: NextRequest) {
     });
 
     const parsed = result.object;
-    logger.info('📝 Parsed intents:', JSON.stringify(parsed.intents));
+    console.info('📝 Parsed intents:', JSON.stringify(parsed.intents));
 
     // No intents found
     if (!parsed.intents || parsed.intents.length === 0) {
@@ -211,7 +210,7 @@ export async function POST(req: NextRequest) {
         converted_value: convertedValue ?? undefined
       });
 
-      logger.info('🎯 Intent resolution', {
+      console.info('🎯 Intent resolution', {
         hint: intent.habit_hint,
         value: intent.value,
         unit: intent.unit,
@@ -274,7 +273,7 @@ export async function POST(req: NextRequest) {
 
         if (batchResponse.ok) {
           const batchResult = await batchResponse.json();
-          logger.info('✅ Batch log result:', batchResult);
+          console.info('✅ Batch log result:', batchResult);
           overviewSnapshot = batchResult.overview_snapshot;
           affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];
           affectedDates = Array.isArray(batchResult.affectedDates) ? batchResult.affectedDates : [];
@@ -293,7 +292,7 @@ export async function POST(req: NextRequest) {
             });
           }
         } else {
-          logger.error('❌ Batch log failed:', await batchResponse.text());
+          console.error('❌ Batch log failed:', await batchResponse.text());
           // Add failures for all items
           toLog.forEach((intent, index) => {
             logResults.push({
@@ -305,7 +304,7 @@ export async function POST(req: NextRequest) {
           });
         }
       } catch (error) {
-        logger.error('❌ Batch log error:', error);
+        console.error('❌ Batch log error:', error);
       }
     }
 
@@ -355,7 +354,7 @@ export async function POST(req: NextRequest) {
     }), { headers: { 'Content-Type': 'application/json' } });
 
   } catch (error) {
-    logger.error('❌ Error in Phase 5A chat API:', error);
+    console.error('❌ Error in Phase 5A chat API:', error);
     return new Response(JSON.stringify({
       success: false,
       message: 'Error processing your request. Please try again.',
