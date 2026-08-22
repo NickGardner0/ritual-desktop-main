@@ -18,7 +18,7 @@ jobs:
       matrix:
         include:
           - target: aarch64-apple-darwin
-            runner: macos-15
+            runner: macos-26
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read

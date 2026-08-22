@@ -58,6 +58,7 @@ test('release matrix and sidecar contract ship Apple Silicon only', async () => 
   const publisher = await readFile('scripts/publish-apple-silicon-desktop-release-assets.sh', 'utf8');
   const lock = await readJson('apps/desktop/src-tauri/binaries/sidecar-lock.json');
   assert.match(workflow, /target: aarch64-apple-darwin/);
+  assert.match(workflow, /runner: macos-26/);
   assert.doesNotMatch(workflow, /x86_64-apple-darwin|ritual-intel|darwin-x86_64/);
   assert.match(workflow, /publish-apple-silicon-desktop-release-assets\.sh/);
   assert.match(publisher, /_aarch64\.dmg/);
