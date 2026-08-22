@@ -2,7 +2,7 @@
 
 The registry and durable occurrence owner is `apps/backend/services/scheduler_service.py`; domain execution remains in `apps/backend/background_tasks.py`. `apps/backend/lifespan.py` starts all eight loops whenever `ENABLE_INTERNAL_SCHEDULER=1`, independently of `ENABLE_STARTUP_MAINTENANCE_TASK`.
 
-Clock jobs use `scheduler_occurrence_claims` with unique `(job_key, scope_key, scheduled_for)` identity and a fenced lease. Queue jobs retain their domain row identity and claim it with an atomic `status = queued` compare-and-set. Authenticated evidence is exposed at `GET /api/internal/scheduler/health`; `npm run ops:scheduler:health` fails until all 13 owners have succeeded recently and no overlapping live lease exists.
+Clock jobs use `scheduler_occurrence_claims` with unique `(job_key, scope_key, scheduled_for)` identity and a fenced lease. Queue jobs retain their domain row identity and claim it with an atomic `status = queued` compare-and-set. Authenticated evidence is exposed at `GET /api/internal/scheduler/health`; schema v2 reports duplicate occurrence identities and `npm run ops:scheduler:health` fails unless the schema is current, all 13 owners have succeeded recently, and both the duplicate-identity and overlapping-live-lease lists are empty.
 
 | Job key | Loop | Cadence | Claim owner | Domain owner |
 |---|---|---|---|---|

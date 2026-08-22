@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Iterable, Literal, Optional
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 
 from database.connection import force_local_replica_sync, get_db_session
 from database.models import SchedulerOccurrenceClaimDB
@@ -223,18 +223,30 @@ class SchedulerRuntimeRegistry:
             })
 
         active_leases, overlapping_leases = await self._lease_health(now)
+        duplicate_occurrence_identities = await self._duplicate_occurrence_identities()
         if readiness["status"] == "disabled":
             status = "disabled"
         elif readiness["status"] != "ready":
             status = "degraded"
         elif never_succeeded:
-            status = "starting" if not stale_jobs and not overlapping_leases else "degraded"
-        elif stale_jobs or overlapping_leases or any(item["last_error"] for item in jobs):
+            status = (
+                "starting"
+                if not stale_jobs
+                and not overlapping_leases
+                and not duplicate_occurrence_identities
+                else "degraded"
+            )
+        elif (
+            stale_jobs
+            or overlapping_leases
+            or duplicate_occurrence_identities
+            or any(item["last_error"] for item in jobs)
+        ):
             status = "degraded"
         else:
             status = "healthy"
         return {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "status": status,
             "enabled": self.enabled,
             "startedAt": self.started_at,
@@ -244,8 +256,38 @@ class SchedulerRuntimeRegistry:
             "staleJobs": stale_jobs,
             "activeLeases": active_leases,
             "overlappingLeases": overlapping_leases,
+            "duplicateOccurrenceIdentities": duplicate_occurrence_identities,
             "jobs": jobs,
         }
+
+    async def _duplicate_occurrence_identities(self) -> list[dict[str, Any]]:
+        """Return any identity that could permit a clock effect more than once."""
+        claim_count = func.count(SchedulerOccurrenceClaimDB.id)
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(
+                    SchedulerOccurrenceClaimDB.job_key,
+                    SchedulerOccurrenceClaimDB.scope_key,
+                    SchedulerOccurrenceClaimDB.scheduled_for,
+                    claim_count.label("claim_count"),
+                )
+                .group_by(
+                    SchedulerOccurrenceClaimDB.job_key,
+                    SchedulerOccurrenceClaimDB.scope_key,
+                    SchedulerOccurrenceClaimDB.scheduled_for,
+                )
+                .having(claim_count > 1)
+            )
+            rows = result.all()
+        return [
+            {
+                "jobKey": row.job_key,
+                "scopeKey": row.scope_key,
+                "scheduledFor": _utc_iso(row.scheduled_for),
+                "claimCount": int(row.claim_count),
+            }
+            for row in rows
+        ]
 
     async def _lease_health(self, now: datetime) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         now_naive = _utc_naive(now)

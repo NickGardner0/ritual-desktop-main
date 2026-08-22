@@ -18,4 +18,7 @@ class SchedulerHealthResponse(BaseModel):
     stale_jobs: List[str] = Field(alias="staleJobs")
     active_leases: List[Dict[str, Any]] = Field(alias="activeLeases")
     overlapping_leases: List[Dict[str, Any]] = Field(alias="overlappingLeases")
+    duplicate_occurrence_identities: List[Dict[str, Any]] = Field(
+        alias="duplicateOccurrenceIdentities"
+    )
     jobs: List[Dict[str, Any]]

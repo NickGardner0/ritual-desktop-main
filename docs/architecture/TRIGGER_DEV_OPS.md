@@ -8,7 +8,7 @@ Closeout sequence:
 
 1. Confirm the reviewed scheduler deployment SHA/digest and migration predeploy remain current.
 2. Run `railway run --service backend-api --environment production npm run ops:scheduler:health` after at least two production cadences and retain its 13-job JSON output.
-3. Verify the duplicate-effect query is empty and the health response has no overlapping lease.
+3. Verify the schema-v2 health response has an empty `duplicateOccurrenceIdentities` integrity query and no overlapping lease. This proves the occurrence fence has no duplicate identity rows; the shared-entrypoint tests separately prove retained external deliveries enter that same fence.
 4. Open `proj_hctghowrtnzbnyrgoecx` and pause/delete `whoop-sync-hour-0..23`, `oura-sync-hour-0..23`, `garmin-sync-hour-0..23`, `plaid-sync-hour-0..23`, `tesla-sync-hour-0..23`, and `proactive-sms-hourly`—121 schedules total.
 5. Retain a screenshot/export of schedule state and run history proving no later invocation.
 6. Revoke Trigger credentials only after Railway remains healthy.

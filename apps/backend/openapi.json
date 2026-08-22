@@ -10711,6 +10711,14 @@
             "title": "Activeleases",
             "type": "array"
           },
+          "duplicateOccurrenceIdentities": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Duplicateoccurrenceidentities",
+            "type": "array"
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -10790,6 +10798,7 @@
           "staleJobs",
           "activeLeases",
           "overlappingLeases",
+          "duplicateOccurrenceIdentities",
           "jobs"
         ],
         "title": "SchedulerHealthResponse",

@@ -3,7 +3,7 @@
 **Source audit:** [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md)  
 **Scope:** proposed work only; this plan does not implement application changes.  
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
-**Canonical current baseline:** 190,908 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
+**Canonical current baseline:** 190,952 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
 
 **Implementation status:** All ten workstreams have repository implementations. `AssistantKernel.runTurn` owns the durable lifecycle; `model-engine/*` owns provider translation only. FastAPI owns a 13-job registry with durable occurrence fencing and authenticated health, verified healthy on Railway implementation SHA `23308ee6`. External closeout remains for Trigger cloud disablement, the production Resend secret, real Intel artifacts/hardware, signed launch captures, v0.1.99 publication/adoption, and protocol-v1 removal.
 

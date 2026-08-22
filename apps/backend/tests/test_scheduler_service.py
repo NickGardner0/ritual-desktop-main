@@ -337,6 +337,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         starting = await registry.health_snapshot(tasks)
         self.assertEqual(starting["status"], "starting")
         self.assertEqual(len(starting["neverSucceeded"]), 13)
+        self.assertEqual(starting["duplicateOccurrenceIdentities"], [])
         for definition in SCHEDULER_JOB_DEFINITIONS:
             started = registry.record_attempt(definition.job_key, lease_state="test")
             registry.record_success(definition.job_key, started)
@@ -344,6 +345,21 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(healthy["status"], "healthy")
         self.assertEqual(healthy["neverSucceeded"], [])
         self.assertEqual(healthy["overlappingLeases"], [])
+        self.assertEqual(healthy["duplicateOccurrenceIdentities"], [])
+
+        registry._duplicate_occurrence_identities = AsyncMock(
+            return_value=[
+                {
+                    "jobKey": "proactive_sms",
+                    "scopeKey": "global",
+                    "scheduledFor": "2026-08-22T10:00:00+00:00",
+                    "claimCount": 2,
+                }
+            ]
+        )
+        duplicate = await registry.health_snapshot(tasks)
+        self.assertEqual(duplicate["status"], "degraded")
+        self.assertEqual(len(duplicate["duplicateOccurrenceIdentities"]), 1)
 
     async def test_wearable_ingest_duplicate_delivery_reaches_one_row_claim(self):
         async with self.Session() as session:
@@ -406,7 +422,20 @@ class SchedulerHealthApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_health_is_non_200_until_all_jobs_are_current(self):
-        snapshot = {"status": "starting", "enabled": True, "jobs": []}
+        snapshot = {
+            "schemaVersion": 2,
+            "status": "starting",
+            "enabled": True,
+            "startedAt": None,
+            "jobCount": 13,
+            "readiness": {},
+            "neverSucceeded": [],
+            "staleJobs": [],
+            "activeLeases": [],
+            "overlappingLeases": [],
+            "duplicateOccurrenceIdentities": [],
+            "jobs": [],
+        }
         with (
             patch("api.scheduler.INTERNAL_BACKEND_TOKEN", "secret"),
             patch.object(service_module.scheduler_runtime, "health_snapshot", AsyncMock(return_value=snapshot)),

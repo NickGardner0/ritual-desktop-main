@@ -35,11 +35,22 @@ try {
 }
 
 const body = await response.json().catch(() => null);
-if (!response.ok || body?.status !== 'healthy' || body?.jobCount !== 13) {
+if (
+  !response.ok
+  || body?.schemaVersion !== 2
+  || body?.status !== 'healthy'
+  || body?.jobCount !== 13
+  || !Array.isArray(body?.duplicateOccurrenceIdentities)
+) {
   console.error(JSON.stringify({ httpStatus: response.status, health: body }, null, 2));
   process.exit(1);
 }
-if (body.neverSucceeded?.length || body.staleJobs?.length || body.overlappingLeases?.length) {
+if (
+  body.neverSucceeded?.length
+  || body.staleJobs?.length
+  || body.overlappingLeases?.length
+  || body.duplicateOccurrenceIdentities?.length
+) {
   console.error(JSON.stringify(body, null, 2));
   process.exit(1);
 }

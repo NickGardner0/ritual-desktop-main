@@ -21,7 +21,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
 | Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate parser budgets, but cannot certify a live release. Schema v2 now records missing watcher RSS honestly as null/not-applicable and marks release evidence incomplete. |
 | Reproducible builds / immutable releases | **Repository gates complete; external Intel evidence pending.** Runtime verifies target, Mach-O architecture, and SHA. The dual-architecture workflow publishes one updater manifest only after both real-hardware jobs pass. Only arm64 sidecars are currently pinned, so Intel fails closed. |
-| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **190,908** after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
+| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **190,952** after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
 
@@ -37,7 +37,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
 | Launch / RSS budgets | **Stored webview fixtures exist; live provenance and watcher RSS do not.** |
-| Authored LOC in 180k–185k | **No.** Canonical implementation total is **190,908**. |
+| Authored LOC in 180k–185k | **No.** Canonical implementation total is **190,952**. |
 | Legacy orchestration deleted after parity | **Yes.** `AssistantKernel.runTurn` owns durable lifecycle for web, SMS, proactive SMS, scheduled workflow synthesis, and desktop-outbox replay. `model-engine/*` is provider-only; `chat-stream/*` is routing/pure helpers. |
 
 Rough score: **the architecture goal is implemented; the “materially smaller” goal is not proven; a short list of product/ops bugs remains.**
@@ -85,7 +85,7 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
-1. **Canonical LOC is 190,908**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
+1. **Canonical LOC is 190,952**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
 2. **Repository scheduler ownership is resolved; Trigger.dev external closure is not.** FastAPI registers all 13 jobs, fences normalized occurrences in `scheduler_occurrence_claims`, and reports health. Project `proj_hctghowrtnzbnyrgoecx` may still fire 121 schedules until directly paused/deleted and evidenced.
 3. **Resolved: explicit BFF ownership.** The generic proxy rejects unknown methods, unknown paths, non-JSON content, and the three explicitly owned paths. Import preview, screenshot preview, and Apple export use fixed adapters. Habit-log inline edit uses an idempotent FastAPI PATCH with optimistic revision conflict handling.
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
@@ -164,7 +164,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 | **New desktop `.app` containing this native code** | Not yet published | v0.1.99 is configured; arm64/Intel signing, notarization, hardware smoke, updater merge, and publication remain release gates. |
 | **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
 | **Production report mail secret** | Vercel project configuration | `RESEND_API_KEY` is absent; authenticated report delivery fails closed with 503. |
-| **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 190,908 and no product deletion is authorized for the metric. |
+| **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 190,952 and no product deletion is authorized for the metric. |
 
 ---
 
@@ -175,6 +175,6 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 3. Provision the labeled real Intel runner, build/pin both x86_64 sidecars, and run the two-architecture release matrix.
 4. Publish and install the next desktop patch, verify channel-bound auth and updater selection, then remove temporary auth protocol v1.
 5. Capture signed enabled/disabled launch trials on both architectures and attach raw artifact hashes.
-6. Keep the 180k–185k band as a deletion/consolidation target only. If 190,908 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+6. Keep the 180k–185k band as a deletion/consolidation target only. If 190,952 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.
