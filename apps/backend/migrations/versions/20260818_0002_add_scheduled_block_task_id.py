@@ -8,7 +8,6 @@ Create Date: 2026-08-18
 from __future__ import annotations
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision = "20260818_0002"
@@ -41,14 +40,12 @@ def _column_exists(connection, table_name: str, column_name: str) -> bool:
 def upgrade() -> None:
     bind = op.get_bind()
     if _table_exists(bind, "scheduled_blocks") and not _column_exists(bind, "scheduled_blocks", "task_id"):
-        op.add_column(
-            "scheduled_blocks",
-            sa.Column(
-                "task_id",
-                sa.String(),
-                sa.ForeignKey("tasks.id", ondelete="SET NULL"),
-                nullable=True,
-            ),
+        # SQLite/Turso can add a nullable REFERENCES column directly, but
+        # SQLAlchemy's generic add_column path splits the foreign key into a
+        # second ALTER CONSTRAINT statement that SQLite does not support.
+        bind.exec_driver_sql(
+            "ALTER TABLE scheduled_blocks "
+            "ADD COLUMN task_id VARCHAR REFERENCES tasks(id) ON DELETE SET NULL"
         )
     if _table_exists(bind, "scheduled_blocks") and not _index_exists(bind, "idx_scheduled_blocks_user_task"):
         op.create_index(

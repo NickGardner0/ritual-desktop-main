@@ -31,6 +31,20 @@ CREATE TABLE import_items (id TEXT PRIMARY KEY,import_run_id TEXT NOT NULL,habit
 CREATE TABLE import_mapping_presets (id TEXT PRIMARY KEY,user_id TEXT NOT NULL,name TEXT NOT NULL,source TEXT NOT NULL,mapping_json TEXT NOT NULL);
 CREATE TABLE user_ui_preferences (user_id TEXT PRIMARY KEY, habit_text_color TEXT);
 
+CREATE TABLE scheduled_blocks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    notes TEXT,
+    day TEXT NOT NULL,
+    start_minutes INTEGER NOT NULL,
+    end_minutes INTEGER NOT NULL,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+INSERT INTO scheduled_blocks(id,user_id,title,day,start_minutes,end_minutes)
+VALUES ('sb1','u1','Legacy block','2026-01-01',540,600);
+
 CREATE TABLE watcher_devices (device_id TEXT PRIMARY KEY,user_id TEXT NOT NULL,device_name TEXT NOT NULL,platform TEXT NOT NULL,os_version TEXT,created_at INTEGER NOT NULL,last_seen_at INTEGER);
 CREATE TABLE watcher_state (id INTEGER PRIMARY KEY,device_id TEXT NOT NULL,is_enabled INTEGER NOT NULL DEFAULT 0,poll_interval_ms INTEGER NOT NULL DEFAULT 2000,last_seen_ts INTEGER,accessibility_status TEXT NOT NULL DEFAULT 'unknown',title_mode TEXT NOT NULL DEFAULT 'off',truncate_length INTEGER,excluded_bundle_ids TEXT,sync_analytics INTEGER NOT NULL DEFAULT 0,sync_raw_to_cloud INTEGER NOT NULL DEFAULT 0,updated_at INTEGER NOT NULL);
 CREATE TABLE activity_events (id INTEGER PRIMARY KEY AUTOINCREMENT,device_id TEXT NOT NULL,user_id TEXT NOT NULL,ts_start INTEGER NOT NULL,ts_end INTEGER NOT NULL,app_bundle_id TEXT NOT NULL,app_name TEXT NOT NULL,window_title TEXT,window_title_hash TEXT,window_owner_pid INTEGER,is_afk INTEGER NOT NULL DEFAULT 0,source TEXT NOT NULL DEFAULT 'ritual_watcher_v1',created_at INTEGER NOT NULL);
@@ -137,6 +151,20 @@ class MigrationUpgradeTests(unittest.TestCase):
             self.assertIn(
                 "overview_view_mode",
                 self._columns(connection, "user_ui_preferences"),
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT title FROM scheduled_blocks WHERE id='sb1'"
+                ).fetchone()[0],
+                "Legacy block",
+            )
+            self.assertTrue(
+                any(
+                    row[2] == "tasks" and row[3] == "task_id" and row[4] == "id"
+                    for row in connection.execute(
+                        "PRAGMA foreign_key_list(scheduled_blocks)"
+                    ).fetchall()
+                )
             )
 
 

@@ -4,7 +4,7 @@ This is the single executable LOC baseline for the Ritual ship branch. It measur
 
 - Command: `npm run audit:loc`
 - Verification: `npm run audit:loc:check`
-- Head at measurement: `dba1bd181ecdf1f1d9a28a3fe75347edb81c90ba`
+- Head at measurement: `ab76af3d5308ae89adfd541109dcd7cca7c96bf6`
 - Source digest: `6064fd4bf2a2290980a02638e339de2febef57f6f9a079f6be2158004196394e`
 - Tokei: `14.0.0`
 - Total: **190,851**
