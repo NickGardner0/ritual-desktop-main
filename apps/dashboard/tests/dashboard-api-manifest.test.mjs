@@ -45,7 +45,6 @@ describe("dashboard API route manifest", () => {
       "apps/dashboard/app/api/import/extract-from-image/route.ts",
       "apps/dashboard/app/api/import/import/route.ts",
       "apps/dashboard/app/api/import/parse/route.ts",
-      "apps/dashboard/app/api/import/preview/route.ts",
       "apps/dashboard/app/api/integrations/whoop/status/route.ts",
       "apps/dashboard/app/api/integrations/whoop/sync/route.ts",
       "apps/dashboard/app/api/search/habits/route.ts",
@@ -56,14 +55,24 @@ describe("dashboard API route manifest", () => {
     ];
 
     for (const route of deletedProxyRoutes) {
-      assert.equal(existsSync(join(root, route)), false, `${route} should be handled by the catch-all proxy`);
+      assert.equal(existsSync(join(root, route)), false, `${route} should be handled by the generated JSON boundary`);
     }
   });
 
   test("requires custom remaining routes to declare a boundary reason", () => {
     for (const [route, entry] of Object.entries(manifest.routes)) {
       assert.ok(entry.category, `${route} must declare a category`);
+      assert.ok(entry.owner, `${route} must declare an owner`);
+      assert.ok(entry.contentClass, `${route} must declare a content class`);
+      assert.ok(entry.methods.length > 0, `${route} must declare methods`);
+      assert.ok(entry.callers.length > 0, `${route} must declare callers`);
       assert.ok(entry.reason.length >= 20, `${route} must explain why it remains in Next app/api`);
     }
+  });
+
+  test("keeps non-JSON FastAPI operations on fixed adapters", () => {
+    assert.equal(manifest.routes["apps/dashboard/app/api/import/preview/route.ts"].contentClass, "multipart-json");
+    assert.equal(manifest.routes["apps/dashboard/app/api/screenshot/preview/route.ts"].contentClass, "multipart-json");
+    assert.equal(manifest.routes["apps/dashboard/app/api/wearables/apple/export/route.ts"].contentClass, "mixed-export");
   });
 });

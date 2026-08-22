@@ -47,6 +47,8 @@ class HabitLogDB(Base):
     source = Column(String, nullable=True)  # Phase 5A: Source of the log (ai_log_v2, screenshot, manual)
     actor_type = Column(String, nullable=True)  # user | assistant | import | integration | system
     actor_ref = Column(String, nullable=True)  # conversation id, import run id, integration name, etc.
+    revision = Column(Integer, nullable=False, default=1, server_default=text("1"))
+    last_update_idempotency_key = Column(String, nullable=True)
     origin_record_kind = Column(String, nullable=True)  # sample, event
     origin_record_id = Column(String, nullable=True)  # canonical wearable record ID
     
@@ -159,6 +161,5 @@ class HabitProjectionPolicyDB(Base):
     __table_args__ = (
         Index("idx_habit_projection_policies_habit", "habit_id", unique=True),
     )
-
 
 

@@ -28,6 +28,7 @@ if (!existsSync(manifestPath)) {
 
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 const allowedCategories = new Set(manifest.categories || []);
+const allowedContentClasses = new Set(manifest.contentClasses || []);
 const manifestRoutes = manifest.routes || {};
 const actualRoutes = routeFiles(apiRoot);
 const actualRouteSet = new Set(actualRoutes);
@@ -50,6 +51,31 @@ for (const route of actualRoutes) {
 
   if (typeof entry.reason !== "string" || entry.reason.trim().length < 20) {
     console.error(`Dashboard API route needs a concrete reason in the manifest: ${route}`);
+    failed = true;
+  }
+
+  if (typeof entry.owner !== "string" || entry.owner.trim().length < 5) {
+    console.error(`Dashboard API route needs a concrete owner in the manifest: ${route}`);
+    failed = true;
+  }
+
+  if (!allowedContentClasses.has(entry.contentClass)) {
+    console.error(`Dashboard API route has invalid contentClass "${entry.contentClass}": ${route}`);
+    failed = true;
+  }
+
+  if (!Array.isArray(entry.callers) || entry.callers.length === 0 || entry.callers.some((caller) => typeof caller !== "string" || !caller.trim())) {
+    console.error(`Dashboard API route must list at least one concrete caller: ${route}`);
+    failed = true;
+  }
+
+  const source = readFileSync(join(root, route), "utf8");
+  const actualMethods = [...source.matchAll(/export\s+(?:async\s+function|const)\s+(GET|POST|PUT|PATCH|DELETE|HEAD)\b/g)]
+    .map((match) => match[1])
+    .sort();
+  const declaredMethods = Array.isArray(entry.methods) ? [...entry.methods].sort() : [];
+  if (JSON.stringify(actualMethods) !== JSON.stringify(declaredMethods)) {
+    console.error(`Dashboard API route method mismatch for ${route}: source=${actualMethods.join(",")} manifest=${declaredMethods.join(",")}`);
     failed = true;
   }
 }

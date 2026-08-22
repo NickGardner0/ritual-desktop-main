@@ -10,6 +10,7 @@ export type HabitLog = {
   amount?: number;
   unit_type?: string;
   status: 'completed' | 'skipped' | 'missed';
+  revision?: number;
   notes?: string;
   integration_source?: string;
   metric_type?: string;

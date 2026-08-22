@@ -6,6 +6,9 @@
     "apps/dashboard/app/api/chat/stream/route.ts",
     "apps/dashboard/app/api/chat/sms/route.ts",
     "apps/dashboard/app/api/chat/sms/proactive/route.ts",
+    "apps/dashboard/app/api/import/preview/route.ts",
+    "apps/dashboard/app/api/screenshot/preview/route.ts",
+    "apps/dashboard/app/api/wearables/apple/export/route.ts",
     "apps/desktop/src-tauri/src/main.rs",
     "apps/desktop/src-tauri/bin/ritual-watcher/src/main.rs",
     "packages/chat-runtime/src/index.ts"
@@ -106,7 +109,6 @@
     "apps/dashboard/app/api/import/apple-health/import/route.ts",
     "apps/dashboard/app/api/import/import/route.ts",
     "apps/dashboard/app/api/import/extract-from-image/route.ts",
-    "apps/dashboard/app/api/import/preview/route.ts",
     "apps/dashboard/components/analytics/metrics-view.impl.tsx",
     "apps/dashboard/components/analytics/use-metrics-data-effects.ts",
     "apps/dashboard/components/analytics/use-metrics-expanded-effects.ts",

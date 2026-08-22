@@ -3,6 +3,7 @@
 import type {
   BuiltInFilterPresetId,
   FilterState,
+  HabitLog,
   SavedFilterView,
   TableDensity,
 } from '@/components/habit-logs/types';
@@ -55,6 +56,26 @@ export function buildDateTimeForUpdatedDate(nextDate: string, completedAt?: stri
 
   const time = isoTime || spacedTime || (shortTime ? `${shortTime}:00` : '12:00:00');
   return `${nextDate} ${time}`;
+}
+
+export function buildHabitLogEditIdempotencyKey(
+  log: Pick<HabitLog, 'id' | 'revision'>,
+  updates: Partial<Pick<HabitLog, 'status' | 'date' | 'completed_at' | 'integration_source'>>,
+): string {
+  const identity = JSON.stringify({
+    logId: log.id,
+    revision: log.revision ?? 1,
+    status: updates.status ?? null,
+    date: updates.date ?? null,
+    completedAt: updates.completed_at ?? null,
+    integrationSource: updates.integration_source ?? null,
+  });
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < identity.length; index += 1) {
+    hash ^= identity.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return `habit-log-edit:${log.id}:${log.revision ?? 1}:${(hash >>> 0).toString(16).padStart(8, '0')}`;
 }
 
 export function readSavedViewsFromStorage(storageKey: string): SavedFilterView[] {

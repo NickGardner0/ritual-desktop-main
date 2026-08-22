@@ -123,8 +123,8 @@ flowchart TB
 
   subgraph dashboard [apps/dashboard — Next.js]
     UI[App Router Pages]
-    BFF["/api/* BFF Routes (16)"]
-    CatchAll["Catch-all FastAPI Proxy"]
+    BFF["/api/* BFF Routes (19)"]
+    CatchAll["JSON-only OpenAPI Proxy + 3 Fixed Non-JSON Adapters"]
   end
 
   subgraph node [Node Layer]
@@ -183,7 +183,7 @@ flowchart TB
 
 ### apps/dashboard — Next.js 16 (primary UI + BFF)
 
-**Role:** Product UI, typed BFF boundary, OAuth callbacks, streaming chat, multipart import preview.
+**Role:** Product UI, typed BFF boundary, OAuth callbacks, streaming chat, and fixed non-JSON FastAPI adapters.
 
 **Entry points:**
 
@@ -200,13 +200,15 @@ flowchart TB
 - Auth/onboarding: `sign-in`, `sign-up`, `onboarding`, `auth/callback`, `auth/desktop-*`
 - Desktop-specific: `desktop-only`, `desktop/bootstrap`, `settings-window`, `widget`, `sidebar`
 
-**BFF API routes (16 — under the 39 CI budget):**
+**BFF API routes (19 — under the 39 CI budget):**
 
 Categories from `tools/dashboard-api-routes.manifest.json`:
 
 | Category | Purpose |
 |----------|---------|
-| `backend-catchall` | OpenAPI-matched FastAPI proxy |
+| `backend-catchall` | Method/path-matched, JSON-only FastAPI proxy |
+| `multipart-adapter` | Fixed import and screenshot preview operations |
+| `export-adapter` | Fixed Apple export operation with mixed response types |
 | `analytics-boundary` | Remaining calendar summary composition |
 | `ai-streaming` | Chat stream, SMS, voice |
 | `oauth-callback` | Whoop, Tesla OAuth returns |
@@ -655,7 +657,7 @@ Privacy/vault spans dashboard TS (~15 modules), backend Python (`privacy.py`, `p
 
 ### 4. BFF route budget
 
-16/39 routes. File imports go through the OpenAPI catch-all; Whoop/Tesla desktop OAuth codes share one store-code route.
+19/39 routes. The generated client uses the JSON-only OpenAPI catch-all. Import preview, screenshot preview, and Apple export have fixed non-JSON adapters; Whoop/Tesla desktop OAuth codes share one store-code route.
 
 ### 5. Remaining Next analytics composition
 

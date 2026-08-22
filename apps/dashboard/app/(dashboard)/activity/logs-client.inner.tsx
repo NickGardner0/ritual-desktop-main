@@ -2,7 +2,9 @@
 
 import React, { startTransition, useState, useEffect, useMemo, useCallback } from 'react';
 import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
-import { apiFetchWithAuth, apiOperationWithAuth } from '@/lib/api/client';
+import { toast } from 'sonner';
+import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { HabitLogsDataTable } from '@/components/tables/habit-logs/data-table';
 import { LogDetailPanel } from '@/components/tables/habit-logs/log-detail-panel';
@@ -20,6 +22,7 @@ import {
   BUILT_IN_PRESETS,
   LOGS_PAGE_SIZE,
   buildDateTimeForUpdatedDate,
+  buildHabitLogEditIdempotencyKey,
   cloneFilters,
   defaultFilters,
   getFiltersForPreset,
@@ -273,35 +276,25 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     mutationFn: async ({
       log,
       updates,
+      idempotencyKey,
     }: {
       log: HabitLog;
       updates: Partial<Pick<HabitLog, 'status' | 'date' | 'completed_at' | 'integration_source'>>;
+      idempotencyKey: string;
     }) => {
-      const payload: Record<string, string> = {};
-      if (updates.status) payload.status = updates.status;
-      if (updates.date) payload.date = updates.date;
-      if (updates.completed_at) payload.completed_at = updates.completed_at;
-      if (updates.integration_source) payload.integration_source = updates.integration_source;
-
-      const response = await apiFetchWithAuth(
-        `/api/habits/${log.habit_id}/logs/${log.id}`,
+      return apiOperationWithAuth(
+        'update_habit_log_api_habits__habit_id__logs__log_id__patch',
         getToken,
         {
-          method: 'PUT',
-          body: JSON.stringify(payload),
+          pathParams: { habit_id: log.habit_id || '', log_id: log.id },
+          body: {
+            expected_revision: log.revision ?? 1,
+            idempotency_key: idempotencyKey,
+            ...updates,
+          },
         },
+        userId,
       );
-
-      if (!response.ok) {
-        const error = await response.text();
-        throw new Error(error || 'Failed to update log');
-      }
-
-      try {
-        return await response.json();
-      } catch {
-        return null;
-      }
     },
     onMutate: ({ log, updates }) => {
       setUpdatingLogIds((prev) => ({
@@ -317,15 +310,40 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
         },
       }));
     },
-    onError: (_error, variables) => {
+    onError: (mutationError, variables) => {
       setLocalEdits((prev) => {
         const next = { ...prev };
         delete next[variables.log.id];
         return next;
       });
+      const conflictMessage = mutationError instanceof BackendClientError && mutationError.status === 409
+        ? 'This log changed somewhere else. Your edit was rolled back; refresh and try again.'
+        : 'The edit could not be saved. Your edit was rolled back.';
+      toast.error(conflictMessage, {
+        description: mutationError instanceof BackendClientError
+          ? mutationError.responseBody.slice(0, 240)
+          : mutationError instanceof Error
+            ? mutationError.message
+            : undefined,
+      });
     },
-    onSuccess: () => {
-      refetch();
+    onSuccess: async (savedLog, variables) => {
+      setLocalEdits((prev) => ({
+        ...prev,
+        [variables.log.id]: {
+          ...(prev[variables.log.id] || {}),
+          ...variables.updates,
+          revision: savedLog.revision,
+        },
+      }));
+      if (detailLog?.id === variables.log.id) {
+        setDetailLog((current) => current ? {
+          ...current,
+          ...variables.updates,
+          revision: savedLog.revision,
+        } : current);
+      }
+      await refetch();
     },
     onSettled: (_data, _error, variables) => {
       setUpdatingLogIds((prev) => {
@@ -529,6 +547,7 @@ export function LogsClientInner({ userId, getToken }: LogsClientInnerProps) {
     quickEditMutation.mutate({
       log,
       updates: normalizedUpdates,
+      idempotencyKey: buildHabitLogEditIdempotencyKey(log, normalizedUpdates),
     });
   }, [quickEditMutation, updatingLogIds]);
 

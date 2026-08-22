@@ -14,7 +14,7 @@ from alembic.config import Config
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-HEAD_REVISION = "20260822_0001"
+HEAD_REVISION = "20260822_0002"
 
 
 LEGACY_SUBSET_SQL = """
@@ -115,7 +115,15 @@ class MigrationUpgradeTests(unittest.TestCase):
                 "Sleep",
             )
             self.assertTrue(
-                {"client_event_id", "source", "import_run_id", "source_id", "dedupe_key"}
+                {
+                    "client_event_id",
+                    "source",
+                    "import_run_id",
+                    "source_id",
+                    "dedupe_key",
+                    "revision",
+                    "last_update_idempotency_key",
+                }
                 <= self._columns(connection, "habit_logs")
             )
             self.assertTrue(

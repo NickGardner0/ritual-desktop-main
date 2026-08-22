@@ -1,7 +1,15 @@
 {
   "schemaVersion": 1,
   "sourceHead": "65ced577031db252495f505318229dc98b15090d",
-  "dashboardApi": { "routeCount": 16, "manifest": "tools/dashboard-api-routes.manifest.json" },
+  "dashboardApi": {
+    "routeCount": 19,
+    "manifest": "tools/dashboard-api-routes.manifest.json",
+    "fixedNonJsonAdapters": [
+      "apps/dashboard/app/api/import/preview/route.ts",
+      "apps/dashboard/app/api/screenshot/preview/route.ts",
+      "apps/dashboard/app/api/wearables/apple/export/route.ts"
+    ]
+  },
   "scheduler": {
     "owner": "apps/backend/background_tasks.py",
     "startupOwner": "apps/backend/lifespan.py",

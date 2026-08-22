@@ -2,7 +2,7 @@
 Pydantic models that mirror the TypeScript interfaces exactly
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Literal
 from datetime import datetime
 import uuid
@@ -72,6 +72,19 @@ class HabitLogCreate(HabitLogBase):
     actor_ref: Optional[str] = None
     conversation_id: Optional[str] = None
 
+
+class HabitLogUpdate(BaseModel):
+    """Revision-checked editable fields for an existing habit log."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=8, max_length=160)
+    status: Optional[Literal['completed', 'skipped', 'missed']] = None
+    date: Optional[str] = None
+    completed_at: Optional[str] = None
+    integration_source: Optional[str] = Field(default=None, max_length=120)
+
 class HabitLog(HabitLogBase):
     """Full habit log model"""
     id: str
@@ -81,6 +94,7 @@ class HabitLog(HabitLogBase):
     client_event_id: Optional[str] = None
     actor_type: Optional[str] = None
     actor_ref: Optional[str] = None
+    revision: int = 1
     was_inserted: Optional[bool] = True
     receipt_id: Optional[str] = None
     log_metadata: Optional[str] = None

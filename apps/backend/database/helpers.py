@@ -92,6 +92,7 @@ def habit_log_db_to_pydantic(
         client_event_id=getattr(log, "client_event_id", None),
         actor_type=getattr(log, "actor_type", None),
         actor_ref=getattr(log, "actor_ref", None),
+        revision=getattr(log, "revision", 1) or 1,
         was_inserted=was_inserted,
         receipt_id=receipt_id,
         log_metadata=log.log_metadata,

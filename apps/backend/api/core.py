@@ -22,7 +22,7 @@ from services.scheduled_block_tasks import (
     sync_task_from_block,
 )
 from database.helpers import user_db_to_profile
-from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitUpdate
+from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitLogUpdate, HabitUpdate
 from models.user_models import (
     BootstrapProfileUpdate,
     ChecklistUpdateRequest,
@@ -33,6 +33,11 @@ from models.user_models import (
 )
 from services.account_context import ensure_current_user_record
 from services.activation_service import activation_service
+from services.habits_service import (
+    HabitLogNotFoundError,
+    HabitLogRevisionConflictError,
+    HabitLogUpdateValidationError,
+)
 from services.privacy_policy import (
     can_send_to_cloud,
     request_cloud_consents,
@@ -734,6 +739,30 @@ def create_core_router(
             await habits_service.delete_habit_log(habit_id, log_id, current_user["id"])
             return {"message": "Habit log deleted successfully"}
         except Exception:
+            raise HTTPException(status_code=400, detail="Request could not be processed.")
+
+    @router.patch("/api/habits/{habit_id}/logs/{log_id}", response_model=HabitLog)
+    async def update_habit_log(
+        habit_id: str,
+        log_id: str,
+        update_data: HabitLogUpdate,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            return await habits_service.update_habit_log(
+                habit_id,
+                log_id,
+                update_data,
+                current_user["id"],
+            )
+        except HabitLogNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except HabitLogRevisionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except HabitLogUpdateValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception:
+            logger.exception("habit log update failed for user %s", current_user.get("id"))
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
     @router.get("/api/habits/{habit_id}/logs", response_model=List[HabitLog])

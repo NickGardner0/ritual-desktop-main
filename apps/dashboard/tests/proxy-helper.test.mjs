@@ -26,16 +26,21 @@ let realImport = false;
 
 // Import the real buildBackendAuthHeaders to verify header construction
 let buildBackendAuthHeaders;
+let evaluateBackendCatchallPolicy;
 let matchBackendOpenApiPath;
+let matchBackendOpenApiOperation;
 let resolveBackendProxyPath;
 let resolveProxyForwarding;
 try {
   // tsx can resolve TS files with relative paths
   const authMod = await import("../lib/server/backend-auth.ts");
   const generatedClientMod = await import("../lib/api/generated/backend-client.ts");
+  const catchallPolicyMod = await import("../lib/server/backend-catchall-policy.ts");
   const proxyRoutingMod = await import("../lib/server/backend-proxy-routing.ts");
   buildBackendAuthHeaders = authMod.buildBackendAuthHeaders;
+  evaluateBackendCatchallPolicy = catchallPolicyMod.evaluateBackendCatchallPolicy;
   matchBackendOpenApiPath = generatedClientMod.matchBackendOpenApiPath;
+  matchBackendOpenApiOperation = generatedClientMod.matchBackendOpenApiOperation;
   resolveBackendProxyPath = proxyRoutingMod.resolveBackendProxyPath;
   resolveProxyForwarding = authMod.resolveProxyForwarding;
   realImport = true;
@@ -57,6 +62,18 @@ try {
     if (path === "/api/watcher/stats/summary") return "/api/watcher/stats/summary";
     if (/^\/api\/artifacts\/[^/]+$/.test(path)) return "/api/artifacts/{artifact_id}";
     return null;
+  };
+  matchBackendOpenApiOperation = (method, path) => (
+    method.toUpperCase() === "GET" && path === "/api/artifacts" ? "list_artifacts" : null
+  );
+  evaluateBackendCatchallPolicy = (path, method, contentType) => {
+    if (["/api/import/preview", "/api/screenshot/preview", "/api/wearables/apple/export"].includes(path)) {
+      return { allowed: false, status: 404, error: "API route has an explicit adapter" };
+    }
+    if (!["GET", "HEAD"].includes(method.toUpperCase()) && contentType && !contentType.includes("json")) {
+      return { allowed: false, status: 415, error: "The generic backend route accepts JSON operations only" };
+    }
+    return { allowed: true };
   };
   resolveBackendProxyPath = (path) => {
     if (path === "/api/wearables/apple/metric-preferences") return "/api/wearables/apple/metric_preferences";
@@ -182,28 +199,45 @@ describe("Fast-path forwarded headers", () => {
   });
 });
 
-describe("Catch-all body forwarding", () => {
+describe("Catch-all JSON ownership", () => {
   test("keeps JSON content-type for ordinary mutating calls", () => {
     const forwarding = resolveProxyForwarding("application/json");
     assert.equal(forwarding.isMultipart, false);
     assert.equal(forwarding.contentType, "application/json");
   });
 
-  test("preserves multipart content-type and boundary for import uploads", () => {
+  test("fixed adapters preserve multipart content-type and boundary", () => {
     const header = "multipart/form-data; boundary=----RitualBoundary";
     const forwarding = resolveProxyForwarding(header);
     assert.equal(forwarding.isMultipart, true);
     assert.equal(forwarding.contentType, header);
   });
 
-  test("routes import preview through the OpenAPI catch-all", () => {
-    assert.equal(matchBackendOpenApiPath("/api/import/preview"), "/api/import/preview");
+  test("rejects multipart and explicitly owned operations from the catch-all", () => {
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/artifacts", "POST", "multipart/form-data; boundary=ritual").status,
+      415,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/import/preview", "POST", "multipart/form-data; boundary=ritual").status,
+      404,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/screenshot/preview", "POST", "multipart/form-data; boundary=ritual").status,
+      404,
+    );
+    assert.equal(
+      evaluateBackendCatchallPolicy("/api/wearables/apple/export", "GET", null).status,
+      404,
+    );
   });
 });
 
 describe("Generated backend route allowlist", () => {
   test("matches exact OpenAPI paths for the generic catch-all proxy", () => {
     assert.equal(matchBackendOpenApiPath("/api/artifacts"), "/api/artifacts");
+    assert.ok(matchBackendOpenApiOperation("GET", "/api/artifacts"));
+    assert.equal(matchBackendOpenApiOperation("TRACE", "/api/artifacts"), null);
   });
 
   test("matches templated OpenAPI paths for deleted dynamic proxy files", () => {

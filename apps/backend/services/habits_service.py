@@ -7,13 +7,13 @@ import uuid
 import logging
 import json
 import asyncio
-from datetime import datetime, timezone
+from datetime import date as calendar_date, datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import and_, case, or_, select, update, delete, func
 from sqlalchemy.exc import SQLAlchemyError
 
-from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate
+from models.habit_models import Habit, HabitCreate, HabitUpdate, HabitLog, HabitLogCreate, HabitLogUpdate
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB, UserDB, HabitAliasDB
 from database.helpers import habit_db_to_pydantic, habit_log_db_to_pydantic
@@ -24,6 +24,18 @@ from services.secondary_job_runner import secondary_job_runner
 from services.action_receipt_service import action_receipt_service
 
 logger = logging.getLogger(__name__)
+
+
+class HabitLogNotFoundError(Exception):
+    """The requested log does not exist or is not owned by the caller."""
+
+
+class HabitLogRevisionConflictError(Exception):
+    """The caller attempted to update a stale habit-log revision."""
+
+
+class HabitLogUpdateValidationError(Exception):
+    """The requested habit-log edit is invalid."""
 
 
 # Phase 5A: Built-in synonym map for common habit types
@@ -398,18 +410,25 @@ class HabitsService:
             logger.error("Background task '%s' failed: %s", task_name, e)
 
     def _fire_habit_log_side_effects(
-        self, habit_log: HabitLog, habit: Habit, user_id: str
+        self,
+        habit_log: HabitLog,
+        habit: Habit,
+        user_id: str,
+        *,
+        revision: Optional[int] = None,
     ):
         """Bounded secondary Tinybird/WebSocket fan-out for a habit log."""
         if getattr(habit_log, "was_inserted", True) is False:
             return
 
+        occurrence_suffix = f":revision:{revision}" if revision is not None else ""
+
         if self.tinybird_enabled:
             asyncio.create_task(
                 secondary_job_runner.enqueue(
                     job_class="analytics",
-                    name=f"tinybird_sync_log:{habit_log.id}",
-                    dedupe_key=f"tinybird_sync_log:{habit_log.id}",
+                    name=f"tinybird_sync_log:{habit_log.id}{occurrence_suffix}",
+                    dedupe_key=f"tinybird_sync_log:{habit_log.id}{occurrence_suffix}",
                     coro_factory=lambda hl=habit_log, h=habit, uid=user_id: self._sync_habit_log_to_tinybird(
                         hl, h, uid
                     ),
@@ -434,8 +453,8 @@ class HabitsService:
         asyncio.create_task(
             secondary_job_runner.enqueue(
                 job_class="notify",
-                name=f"websocket_notify_log:{habit_log.id}",
-                dedupe_key=f"websocket_notify_log:{habit_log.id}",
+                name=f"websocket_notify_log:{habit_log.id}{occurrence_suffix}",
+                dedupe_key=f"websocket_notify_log:{habit_log.id}{occurrence_suffix}",
                 coro_factory=_notify,
             )
         )
@@ -834,6 +853,123 @@ class HabitsService:
             except SQLAlchemyError as e:
                 await session.rollback()
                 raise Exception(f"Failed to log habit: {str(e)}")
+
+    async def update_habit_log(
+        self,
+        habit_id: str,
+        log_id: str,
+        update_data: HabitLogUpdate,
+        user_id: str,
+    ) -> HabitLog:
+        """Apply an idempotent, ownership-scoped optimistic update to a habit log."""
+        editable_fields = {"status", "date", "completed_at", "integration_source"}
+        requested_fields = update_data.model_fields_set & editable_fields
+        if not requested_fields:
+            raise HabitLogUpdateValidationError("At least one editable field is required")
+
+        values: Dict[str, Any] = {}
+        if "status" in requested_fields:
+            values["status"] = update_data.status
+        if "date" in requested_fields:
+            try:
+                if update_data.date is None:
+                    raise ValueError
+                calendar_date.fromisoformat(update_data.date)
+            except ValueError as exc:
+                raise HabitLogUpdateValidationError("date must be YYYY-MM-DD") from exc
+            values["date"] = update_data.date
+        if "completed_at" in requested_fields:
+            if update_data.completed_at:
+                try:
+                    datetime.fromisoformat(update_data.completed_at.replace("Z", "+00:00"))
+                except ValueError as exc:
+                    raise HabitLogUpdateValidationError(
+                        "completed_at must be an ISO-8601 datetime"
+                    ) from exc
+            values["completed_at"] = update_data.completed_at
+        if "integration_source" in requested_fields:
+            source = update_data.integration_source
+            if source is not None and not source.strip():
+                raise HabitLogUpdateValidationError("integration_source cannot be blank")
+            values["source"] = source.strip() if source is not None else None
+
+        habit = await self.get_habit_by_id(habit_id, user_id)
+        if not habit:
+            raise HabitLogNotFoundError("Habit log not found")
+
+        async with get_db_session() as session:
+            try:
+                owned_log_result = await session.execute(
+                    select(HabitLogDB)
+                    .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitDB.user_id == user_id,
+                    )
+                )
+                log_row = owned_log_result.scalar_one_or_none()
+                if not log_row:
+                    raise HabitLogNotFoundError("Habit log not found")
+
+                if log_row.last_update_idempotency_key == update_data.idempotency_key:
+                    return habit_log_db_to_pydantic(log_row)
+                if log_row.revision != update_data.expected_revision:
+                    raise HabitLogRevisionConflictError(
+                        f"Expected revision {update_data.expected_revision}, current revision is {log_row.revision}"
+                    )
+
+                next_revision = update_data.expected_revision + 1
+                claim = await session.execute(
+                    update(HabitLogDB)
+                    .where(
+                        HabitLogDB.id == log_id,
+                        HabitLogDB.habit_id == habit_id,
+                        HabitLogDB.revision == update_data.expected_revision,
+                    )
+                    .values(
+                        **values,
+                        revision=next_revision,
+                        last_update_idempotency_key=update_data.idempotency_key,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if int(claim.rowcount or 0) != 1:
+                    await session.rollback()
+                    session.expire_all()
+                    current_result = await session.execute(
+                        select(HabitLogDB)
+                        .join(HabitDB, HabitDB.id == HabitLogDB.habit_id)
+                        .where(
+                            HabitLogDB.id == log_id,
+                            HabitLogDB.habit_id == habit_id,
+                            HabitDB.user_id == user_id,
+                        )
+                    )
+                    current = current_result.scalar_one_or_none()
+                    if current and current.last_update_idempotency_key == update_data.idempotency_key:
+                        return habit_log_db_to_pydantic(current)
+                    current_revision = current.revision if current else "missing"
+                    raise HabitLogRevisionConflictError(
+                        f"Expected revision {update_data.expected_revision}, current revision is {current_revision}"
+                    )
+
+                await session.commit()
+                await session.refresh(log_row)
+                habit_log = habit_log_db_to_pydantic(log_row)
+                await self._refresh_metric_facts_for_logs(user_id=user_id, logs=[log_row])
+                self._fire_habit_log_side_effects(
+                    habit_log,
+                    habit,
+                    user_id,
+                    revision=next_revision,
+                )
+                return habit_log
+            except (HabitLogNotFoundError, HabitLogRevisionConflictError, HabitLogUpdateValidationError):
+                raise
+            except SQLAlchemyError as exc:
+                await session.rollback()
+                raise Exception(f"Failed to update habit log: {str(exc)}") from exc
 
     async def delete_habit_log(self, habit_id: str, log_id: str, user_id: str) -> None:
         """Delete a single habit log owned by the user."""
