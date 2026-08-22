@@ -469,6 +469,36 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
     }
 }
 
+#[cfg(all(debug_assertions, unix))]
+fn spawn_debug_webview_reload_on_sigusr1<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let mut signals = match tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::user_defined1(),
+        ) {
+            Ok(signals) => signals,
+            Err(error) => {
+                warn!(
+                    error = %error,
+                    "Failed to install debug SIGUSR1 webview reload listener"
+                );
+                return;
+            }
+        };
+
+        while signals.recv().await.is_some() {
+            if let Some(window) = app.get_webview_window("main") {
+                match window.eval("window.location.reload()") {
+                    Ok(()) => info!("Reloaded main webview after debug SIGUSR1"),
+                    Err(error) => warn!(
+                        error = %error,
+                        "Failed to reload main webview after debug SIGUSR1"
+                    ),
+                }
+            }
+        }
+    });
+}
+
 fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let startup_started_at = Instant::now();
@@ -2487,6 +2517,8 @@ fn main() {
 
             desktop_runtime::emit_runtime_state_changed(app.handle().clone());
             spawn_background_startup_tasks(app.handle().clone());
+            #[cfg(all(debug_assertions, unix))]
+            spawn_debug_webview_reload_on_sigusr1(app.handle().clone());
 
             desktop_runtime::register_startup_update_check(app.handle().clone());
             info!(
