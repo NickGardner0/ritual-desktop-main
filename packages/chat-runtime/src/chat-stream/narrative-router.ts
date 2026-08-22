@@ -25,7 +25,7 @@ import type {
 } from '../types.js';
 import { formatVoiceResponse, generateReplyChips } from '../voice.js';
 import type { ForcedOverviewTool } from './classifier-router.js';
-import { buildCanvasToolPayload, elapsed, persistAssistantMessage, safeJsonParse } from './shared.js';
+import { buildCanvasToolPayload, elapsed, safeJsonParse } from './shared.js';
 
 export async function executeGetActivitySummary(
   token: string,
@@ -252,7 +252,6 @@ export type FastPathParams = {
   immediateConversationId: string | null;
   deferredConversationIdPromise?: Promise<string | null>;
   conversationIdPromise: Promise<string | null>;
-  userPersistPromise: Promise<boolean>;
   commitTurn?: (fullText: string, canvasToolPayload: Record<string, unknown> | null) => Promise<void>;
 };
 
@@ -270,7 +269,6 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
     immediateConversationId,
     deferredConversationIdPromise,
     conversationIdPromise,
-    userPersistPromise,
     commitTurn,
   } = params;
 
@@ -327,10 +325,6 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
       prefaceLine: '__STREAM_OPEN__',
       onComplete: async (fullText, finalCanvasToolPayload) => {
         console.log(`⏱️ [${elapsed(t0)}] Deferred overview stream complete (${fullText.length} chars)`);
-        await Promise.all([
-          userPersistPromise,
-          persistAssistantMessage(conversationIdPromise, token, fullText, finalCanvasToolPayload),
-        ]);
         await commitTurn?.(fullText, finalCanvasToolPayload);
       },
     });
@@ -389,10 +383,7 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
   const streamSource = buildFastPathStreamSource(forcedToolName, toolResults, overviewPayload, title);
 
   if (streamSource.type === 'complete') {
-    await Promise.all([
-      userPersistPromise,
-      persistAssistantMessage(conversationIdPromise, token, streamSource.text, canvasToolPayload),
-    ]);
+    await commitTurn?.(streamSource.text, canvasToolPayload);
   }
 
   console.log(`⏱️ [${elapsed(t0)}] Fast-path streaming response created`);
@@ -405,15 +396,6 @@ export async function handleDeterministicFastPath(params: FastPathParams): Promi
     onComplete: streamSource.type === 'stream'
       ? async (fullText, finalCanvasToolPayload) => {
           console.log(`⏱️ [${elapsed(t0)}] Fast-path stream complete (${fullText.length} chars)`);
-          await Promise.all([
-            userPersistPromise,
-            persistAssistantMessage(
-              conversationIdPromise,
-              token,
-              fullText,
-              finalCanvasToolPayload ?? canvasToolPayload,
-            ),
-          ]);
           await commitTurn?.(fullText, finalCanvasToolPayload ?? canvasToolPayload);
         }
       : undefined,

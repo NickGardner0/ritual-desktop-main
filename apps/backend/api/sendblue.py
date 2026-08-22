@@ -447,6 +447,8 @@ async def sendblue_webhook(request: Request):
         result = await _call_orchestrator(
             user_id=user.id,
             conversation_id=conversation_id,
+            turn_id=f"sms:{inbound_message['id']}",
+            user_message_id=inbound_message["id"],
             user_message=message_text or "",
             recent_messages=recent_messages,
             media_urls=media_urls,
@@ -519,6 +521,8 @@ async def sendblue_webhook(request: Request):
 async def _call_orchestrator(
     user_id: str,
     conversation_id: str,
+    turn_id: str,
+    user_message_id: str,
     user_message: str,
     recent_messages: list,
     media_urls: list,
@@ -529,6 +533,8 @@ async def _call_orchestrator(
     started_at = monotonic()
 
     payload = {
+        "turn_id": turn_id,
+        "user_message_id": user_message_id,
         "user_id": user_id,
         "conversation_id": conversation_id,
         "user_message": user_message,

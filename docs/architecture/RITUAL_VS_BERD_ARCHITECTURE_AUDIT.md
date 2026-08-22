@@ -6,7 +6,7 @@
 **Berd upstream:** `https://github.com/block/berd.git`  
 **Scope:** investigation only. No Ritual application code was changed.
 
-> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 187,086 for `codex/release-0.1.1-prep` at `65ced577`. See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
+> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 187,601 after the additive durable-chat boundary (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 
 ## Executive assessment
 
@@ -554,12 +554,18 @@ Ritual models domain data in TypeScript, Pydantic, SQLAlchemy, Rust, Swift, and 
 
 ### Ritual's current failure semantics
 
-The existing chat runtime contains valuable domain executors, but it lacks one durable turn owner:
+The durable boundary identified by the original audit is now resolved without replacing Ritual's domain tools:
 
-- `packages/chat-runtime/src/chat-stream/shared.ts` starts user and assistant persistence promises without making them part of a durable turn transaction.
-- `packages/chat-runtime/src/stream-response.ts` calls `onComplete` without awaiting it.
-- `packages/chat-runtime/src/handle-chat-stream.ts` converts some runtime failures into an ordinary assistant apology, which can then be treated as a successful/persistable turn.
-- `packages/chat-runtime/src/chat-stream/tool-dispatch.ts` executes all tool calls with `Promise.all`, including mutations whose ordering can matter.
+- FastAPI atomically accepts a stable turn ID and persists its user message before `AssistantKernel` can enter `running` or call a provider/tool.
+- Terminal commit atomically stores assistant content, mutation receipt IDs, tool payload, and `completed`; a failed commit cannot appear in conversation history as completed.
+- `DurableAssistantTurnStore` reads and writes the remote owner first and propagates failures instead of substituting memory success.
+- Provider/stream failures reject the response and become `failed_retryable`; the dashboard labels partial output provisional and retries with the same turn ID.
+- Desktop offline mode only queues the stable turn. Its outbox consumes the full response before removing an item and never runs a local model or tool.
+- Mutating tools are serial; concurrency is reserved for registry-declared read-only tools.
+
+Remaining chat ownership work is narrower:
+
+- `chat-stream/*` still combines provider decoding with orchestration details and must become the pure model-engine adapter described by W5.
 - `packages/chat-runtime/src/executors/habits.ts::newClientEventId` falls back to time plus `Math.random()` for a client event/idempotency ID, weakening retry identity when `crypto.randomUUID` is unavailable.
 - `apps/backend/services/conversation_queue_service.py::claim_next_item` updates a claim without a compare-and-set lease/fencing token.
 - queue auto-drain lives in `apps/dashboard/app/(dashboard)/chat/chat-client.impl.tsx`; it is absent when that component is not mounted.

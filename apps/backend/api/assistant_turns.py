@@ -6,7 +6,13 @@ from typing import Any, Callable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from schemas.assistant_turns import AssistantTurnRead, AssistantTurnSequenceRead, AssistantTurnUpsert
+from schemas.assistant_turns import (
+    AssistantTurnAccept,
+    AssistantTurnCommit,
+    AssistantTurnRead,
+    AssistantTurnSequenceRead,
+    AssistantTurnUpsert,
+)
 from services.assistant_turn_service import assistant_turn_service
 
 
@@ -20,6 +26,29 @@ def create_assistant_turns_router(*, get_current_user: Callable[..., Any]) -> AP
     ):
         sequence = await assistant_turn_service.next_sequence(current_user["id"], conversation_id)
         return AssistantTurnSequenceRead(sequence=sequence)
+
+    @router.post("/accept", response_model=AssistantTurnRead)
+    async def accept_assistant_turn(
+        payload: AssistantTurnAccept,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            return await assistant_turn_service.accept_turn(current_user["id"], payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @router.post("/{turn_id}/commit", response_model=AssistantTurnRead)
+    async def commit_assistant_turn(
+        turn_id: str,
+        payload: AssistantTurnCommit,
+        current_user=Depends(get_current_user),
+    ):
+        try:
+            return await assistant_turn_service.commit_turn(current_user["id"], turn_id, payload)
+        except LookupError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @router.get("/{turn_id}", response_model=AssistantTurnRead)
     async def get_assistant_turn(turn_id: str, current_user=Depends(get_current_user)):

@@ -95,7 +95,7 @@ export function useChatSendMessage({
   voiceStyleEnabled: boolean;
   bumpChatEpoch?: () => { epoch: number; signal: AbortSignal };
 }) {
-  const sendMessage = useCallback(async (text: string, options?: { entityRefs?: Message['entityRefs']; turnId?: string }): Promise<boolean> => {
+  const sendMessage = useCallback(async (text: string, options?: { entityRefs?: Message['entityRefs']; turnId?: string; retryExisting?: boolean }): Promise<boolean> => {
     if (isLoading || !text.trim()) return false;
     
     setIsLoading(true);
@@ -121,7 +121,9 @@ export function useChatSendMessage({
       entityRefs: attachedRefs.length ? attachedRefs : undefined,
     };
     
-    const newMessages = [...messages, userMessage];
+    const newMessages = options?.retryExisting && options.turnId
+      ? messages.filter((message) => message.durability?.turnId !== options.turnId)
+      : [...messages, userMessage];
     setMessages(newMessages);
     
     const overviewRangeKeys = [...new Set(getOverviewActivityRangeKeysForText(text))];
@@ -155,12 +157,15 @@ export function useChatSendMessage({
     }
     
     let cancelStreamingFlushTimer: (() => void) | null = null;
+    let provisionalAssistantText = '';
     let queuedOutbox: {
       turnId: string;
       epoch: number;
       conversationId: string | null;
       body: Record<string, unknown>;
       queuedAt: string;
+      status: 'queued_local';
+      attempts: number;
     } | null = null;
 
     try {
@@ -196,6 +201,8 @@ export function useChatSendMessage({
         conversationId,
         body: requestBody,
         queuedAt: new Date().toISOString(),
+        status: 'queued_local',
+        attempts: 0,
       };
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
@@ -208,7 +215,12 @@ export function useChatSendMessage({
         body: JSON.stringify(requestBody),
       });
       
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
+      if (!response.ok) {
+        const failure = await response.json().catch(() => ({})) as { details?: string; state?: string };
+        const requestError = new Error(failure.details || `HTTP error: ${response.status}`) as Error & { turnState?: string };
+        requestError.turnState = failure.state;
+        throw requestError;
+      }
       if (!response.body) throw new Error('No response body');
 
       const durationFromClick = () => Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - clickAt).toFixed(2));
@@ -273,6 +285,7 @@ export function useChatSendMessage({
 
       const appendStreamingDelta = (delta: string) => {
         fullResponse += delta;
+        provisionalAssistantText = fullResponse;
         pendingStreamingContent = fullResponse;
         flushStreamingContent(false);
       };
@@ -462,22 +475,35 @@ export function useChatSendMessage({
       if ((error as { name?: string })?.name === 'AbortError') {
         return false;
       }
-      if (
+      const queuedLocally = Boolean(
         isDesktop
         && userId
         && queuedOutbox
         && typeof navigator !== 'undefined'
         && navigator.onLine === false
-      ) {
+      );
+      if (queuedLocally && userId && queuedOutbox) {
         enqueueAssistantTurnOutbox(userId, queuedOutbox);
       }
       console.error('Chat error:', error);
       cancelStreamingFlushTimer?.();
       setStreamingContent('');
+      const turnState = queuedLocally
+        ? 'queued_local'
+        : (error as { turnState?: string })?.turnState === 'unsent'
+          ? 'unsent'
+          : 'failed_retryable';
       setMessages([...newMessages, {
-        id: `error-${Date.now()}`,
+        id: `provisional-${Date.now()}`,
         role: 'assistant',
-        content: 'Sorry, there was an error processing your request. Please try again.',
+        content: provisionalAssistantText || (turnState === 'queued_local'
+          ? 'This message is queued on this device and will retry when Ritual is online.'
+          : 'Ritual could not durably finish this response.'),
+        durability: queuedOutbox ? {
+          state: turnState,
+          turnId: queuedOutbox.turnId,
+          userText: text,
+        } : undefined,
       }]);
       return false;
     } finally {

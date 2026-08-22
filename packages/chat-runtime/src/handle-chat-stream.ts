@@ -9,7 +9,6 @@ import {
   buildCanvasToolPayload,
   composeSystemPrompt,
   elapsed,
-  persistAssistantMessage,
   prepareChatTurnContext,
 } from './chat-stream/shared.js';
 import { persistConversationMentions } from './persistence.js';
@@ -138,12 +137,23 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       localOverviewActivity,
       entityRefs,
     } = body;
+    const latestUserContent = [...messages]
+      .reverse()
+      .find((message) => message.role === 'user')?.content?.trim() || '';
+    if (!latestUserContent) {
+      return new Response(JSON.stringify({ error: 'A non-empty user message is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
     store = getAssistantTurnStore(token);
     turn = await defaultAssistantKernel.begin({
       turnId: newTurnId(body.turnId),
       conversationId: providedConversationId || null,
       channel: 'dashboard',
       epoch,
+      userMessage: latestUserContent,
+      responseMode,
       store,
     });
     if (!turn || !store) {
@@ -186,21 +196,20 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       return conflictResponse('Turn canceled', { reason: 'client_disconnected' });
     }
 
-    const prepared = prepareChatTurnContext(token, messages, timezone, providedConversationId, responseMode);
+    const prepared = prepareChatTurnContext(token, messages, timezone, ownedTurn.conversationId, responseMode);
     const {
       conversationIdPromise,
       immediateConversationId,
       deferredConversationIdPromise,
       isVoiceMode,
-      latestUserContent,
+      latestUserContent: preparedUserContent,
       baseSystemPrompt,
       factsPromise,
-      userPersistPromise,
     } = prepared;
     const attachedRefs = Array.isArray(entityRefs)
       ? entityRefs.filter((ref) => ref && typeof ref.type === 'string' && typeof ref.id === 'string')
       : [];
-    const route = classifyChatRoute(latestUserContent, timezone, isVoiceMode);
+    const route = classifyChatRoute(preparedUserContent, timezone, isVoiceMode);
     console.log(`⏱️ [${elapsed(t0)}] route=${route.retrievalRoute} forced=${route.forcedToolName || 'none'} voice=${isVoiceMode} turn=${ownedTurn.id}`);
 
     const activeTurn = ownedTurn;
@@ -210,28 +219,34 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
         return;
       }
-      const latest = (await activeStore.get(activeTurn.id)) || activeTurn;
-      if (isTerminalTurnStatus(latest.status) || latest.status === 'failed') return;
+      const latest = await activeStore.get(activeTurn.id);
+      if (!latest) throw new Error('Accepted assistant turn disappeared before commit');
+      if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return;
       const conversationId = await conversationIdPromise;
       const receiptIds = Array.isArray((canvasToolPayload as { actionReceipts?: Array<{ receipt_id?: string }> } | null)?.actionReceipts)
         ? ((canvasToolPayload as { actionReceipts: Array<{ receipt_id?: string }> }).actionReceipts
           .map((receipt) => receipt.receipt_id)
           .filter((id): id is string => Boolean(id)))
         : [];
-      await commitOwnedTurn(latest, activeStore, epoch, fullText, canvasToolPayload, receiptIds, conversationId);
+      try {
+        await commitOwnedTurn(latest, activeStore, epoch, fullText, canvasToolPayload, receiptIds, conversationId);
+      } catch (error) {
+        await failOwnedTurn(latest, activeStore, error);
+        throw error;
+      }
     };
 
     if (route.deterministicFastPath && route.forcedToolName) {
       persistConversationMentions({
         token,
         conversationIdPromise,
-        userContent: latestUserContent,
+        userContent: preparedUserContent,
         attachedRefs,
       });
       return handleDeterministicFastPath({
         t0,
         token,
-        latestUserContent,
+        latestUserContent: preparedUserContent,
         timezone,
         localOverviewActivity,
         forcedToolName: route.forcedToolName,
@@ -241,7 +256,6 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         immediateConversationId,
         deferredConversationIdPromise,
         conversationIdPromise,
-        userPersistPromise,
         commitTurn,
       });
     }
@@ -287,7 +301,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
             token,
             timezone,
             localOverviewActivity,
-            latestUserContent,
+            latestUserContent: preparedUserContent,
             weeklyOverviewQueryParams: route.weeklyOverviewQueryParams,
             strictThisWeekForWeeklyOverview: route.strictThisWeekForWeeklyOverview,
             conversationId: immediateConversationId,
@@ -313,7 +327,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         persistConversationMentions({
           token,
           conversationIdPromise,
-          userContent: latestUserContent,
+          userContent: preparedUserContent,
           attachedRefs,
           assistantRefs: toolResults.entityRefs,
         });
@@ -325,7 +339,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         console.error('Chat API stream error:', error);
         resolveCanvas(null);
         await failOwnedTurn(activeTurn, activeStore, error);
-        yield { type: 'text', text: 'Sorry, there was an error processing your request. Please try again.' };
+        throw error;
       }
     }
 
@@ -345,12 +359,9 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
             await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
             return;
           }
-          const latest = (await activeStore.get(activeTurn.id)) || activeTurn;
-          if (isTerminalTurnStatus(latest.status) || latest.status === 'failed') return;
-          await Promise.all([
-            userPersistPromise,
-            persistAssistantMessage(conversationIdPromise, token, fullText, canvasToolPayload),
-          ]);
+          const latest = await activeStore.get(activeTurn.id);
+          if (!latest) throw new Error('Accepted assistant turn disappeared before completion');
+          if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return;
           await commitTurn(fullText, canvasToolPayload);
         } finally {
           unbindAbort();
@@ -370,6 +381,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     return new Response(JSON.stringify({
       error: 'Error processing request',
       details: error instanceof Error ? error.message : 'Unknown error',
+      state: turn ? 'failed_retryable' : 'unsent',
     }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

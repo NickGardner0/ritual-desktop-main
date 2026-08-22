@@ -223,6 +223,11 @@ export interface Message {
   replyChips?: string[];  // Phase 4A: Voice mode reply suggestions
   actionReceipts?: ChatActionReceiptData[];
   entityRefs?: ChatEntityRef[];
+  durability?: {
+    state: 'unsent' | 'queued_local' | 'failed_retryable';
+    turnId: string;
+    userText: string;
+  };
 }
 
 export type ConversationContextMenuState = {

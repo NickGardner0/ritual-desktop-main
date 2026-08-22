@@ -1,6 +1,6 @@
 import OpenAI from 'openai';
 import { buildSystemPrompt } from '../system-prompt.js';
-import { createConversation, createFactSuggestions, getPromptFacts, saveMessage } from '../persistence.js';
+import { createFactSuggestions, getPromptFacts } from '../persistence.js';
 import type { ChatToolResults } from '../types.js';
 
 let _openaiClient: OpenAI | null = null;
@@ -120,7 +120,6 @@ export type PreparedChatTurn = {
   latestUserContent: string;
   baseSystemPrompt: string;
   factsPromise: Promise<Array<Record<string, unknown>>>;
-  userPersistPromise: Promise<boolean>;
 };
 
 const FACTS_CACHE_TTL_MS = 60_000;
@@ -198,17 +197,11 @@ export function prepareChatTurnContext(
   providedConversationId: string | null | undefined,
   responseMode: 'text' | 'voice',
 ): PreparedChatTurn {
-  const conversationIdPromise: Promise<string | null> = providedConversationId
-    ? Promise.resolve(providedConversationId)
-    : createConversation(token);
+  const conversationIdPromise: Promise<string | null> = Promise.resolve(providedConversationId || null);
   const immediateConversationId = providedConversationId || null;
   const deferredConversationIdPromise = providedConversationId ? undefined : conversationIdPromise;
   const isVoiceMode = responseMode === 'voice';
-  const latestUserMessage = messages[messages.length - 1];
-  const userPersistPromise =
-    latestUserMessage?.role === 'user'
-      ? persistUserMessage(conversationIdPromise, token, latestUserMessage.content)
-      : Promise.resolve(true);
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === 'user');
 
   const now = new Date();
   const year = now.getFullYear();
@@ -234,37 +227,5 @@ export function prepareChatTurnContext(
     latestUserContent: latestUserMessage?.content || '',
     baseSystemPrompt,
     factsPromise,
-    userPersistPromise,
   };
-}
-
-export async function persistUserMessage(
-  conversationIdPromise: Promise<string | null>,
-  token: string,
-  text: string,
-): Promise<boolean> {
-  try {
-    const conversationId = await conversationIdPromise;
-    if (!conversationId || !text) return false;
-    return saveMessage(token, conversationId, 'user', text);
-  } catch (error) {
-    console.error('❌ Failed to save user message:', error);
-    return false;
-  }
-}
-
-export async function persistAssistantMessage(
-  conversationIdPromise: Promise<string | null>,
-  token: string,
-  text: string,
-  canvasToolPayload: Record<string, unknown> | null,
-): Promise<boolean> {
-  try {
-    const conversationId = await conversationIdPromise;
-    if (!conversationId) return false;
-    return saveMessage(token, conversationId, 'assistant', text, canvasToolPayload);
-  } catch (error) {
-    console.error('❌ Failed to save assistant message:', error);
-    return false;
-  }
 }

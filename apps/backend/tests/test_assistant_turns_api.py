@@ -27,6 +27,10 @@ def _turn(**overrides):
         "status": "running",
         "epoch": 1,
         "sequence": 1,
+        "user_message_id": "turn-1:user",
+        "user_message_text": "hello",
+        "accepted_at": None,
+        "commit_version": 0,
         "receipt_ids": [],
         "assistant_text": None,
         "tool_payload": None,
@@ -66,6 +70,52 @@ class AssistantTurnsApiTests(unittest.TestCase):
             response = self.client.get("/api/assistant-turns/next-sequence?conversation_id=conv-1")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["sequence"], 4)
+
+    def test_accept_turn(self):
+        with patch("api.assistant_turns.assistant_turn_service") as service:
+            service.accept_turn = AsyncMock(return_value=_turn(status="queued"))
+            response = self.client.post(
+                "/api/assistant-turns/accept",
+                json={
+                    "id": "turn-1",
+                    "conversation_id": "conv-1",
+                    "channel": "dashboard",
+                    "epoch": 1,
+                    "user_message": "hello",
+                },
+            )
+        self.assertEqual(response.status_code, 200)
+        service.accept_turn.assert_awaited_once()
+
+    def test_accept_conflict_is_409(self):
+        with patch("api.assistant_turns.assistant_turn_service") as service:
+            service.accept_turn = AsyncMock(side_effect=ValueError("Assistant turn epoch mismatch"))
+            response = self.client.post(
+                "/api/assistant-turns/accept",
+                json={"id": "turn-1", "epoch": 2, "user_message": "hello"},
+            )
+        self.assertEqual(response.status_code, 409)
+
+    def test_commit_turn(self):
+        with patch("api.assistant_turns.assistant_turn_service") as service:
+            service.commit_turn = AsyncMock(
+                return_value=_turn(status="completed", assistant_text="done", commit_version=1)
+            )
+            response = self.client.post(
+                "/api/assistant-turns/turn-1/commit",
+                json={"epoch": 1, "assistant_text": "done", "receipt_ids": ["receipt-1"]},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "completed")
+
+    def test_commit_conflict_is_409(self):
+        with patch("api.assistant_turns.assistant_turn_service") as service:
+            service.commit_turn = AsyncMock(side_effect=ValueError("Assistant turn was not durably accepted"))
+            response = self.client.post(
+                "/api/assistant-turns/turn-1/commit",
+                json={"epoch": 1, "assistant_text": "done"},
+            )
+        self.assertEqual(response.status_code, 409)
 
     def test_get_turn(self):
         with patch("api.assistant_turns.assistant_turn_service") as service:

@@ -1,6 +1,5 @@
 import {
   canTransitionAssistantTurn,
-  createQueuedTurn,
   isTerminalTurnStatus,
   nowIso,
   type AssistantChannel,
@@ -69,42 +68,37 @@ export class AssistantKernel {
     conversationId?: string | null;
     channel: AssistantChannel;
     epoch: number;
+    userMessage: string;
+    userMessageId?: string | null;
+    responseMode?: 'text' | 'voice';
+    recordUserMessageInConversation?: boolean;
     store: AssistantTurnStore;
   }): Promise<AssistantTurnRecord> {
-    const existing = await input.store.get(input.turnId);
-    if (existing) {
-      if (existing.status === 'completed' || existing.status === 'canceled') {
-        return existing;
-      }
-      if (existing.epoch !== input.epoch) {
-        if (canTransitionAssistantTurn(existing.status, 'canceled')) {
-          return this.transition(existing, 'canceled', input.store, {
-            error: 'stale_epoch',
-          });
-        }
-        return existing;
-      }
-      if (existing.status === 'failed') {
-        return this.transition(existing, 'queued', input.store, { error: null });
-      }
-      if (isStaleInFlightTurn(existing)) {
-        const failed = await this.fail(existing, input.store, 'stale_in_flight');
-        if (failed.status === 'failed') {
-          return this.transition(failed, 'queued', input.store, { error: null });
-        }
-        return failed;
-      }
-      return existing;
-    }
-
-    const record = createQueuedTurn({
-      id: input.turnId,
-      conversationId: input.conversationId,
+    const accepted = await input.store.accept({
+      turnId: input.turnId,
+      conversationId: input.conversationId ?? null,
       channel: input.channel,
       epoch: input.epoch,
-      sequence: await input.store.nextSequence(input.conversationId ?? null),
+      userMessage: input.userMessage,
+      userMessageId: input.userMessageId,
+      responseMode: input.responseMode ?? 'text',
+      recordUserMessageInConversation: input.recordUserMessageInConversation,
     });
-    return input.store.put(record);
+    if (!accepted.acceptedAt || !accepted.userMessageId) {
+      throw new AssistantTurnConflictError('assistant_turn_not_durably_accepted');
+    }
+    if (accepted.status === 'completed' || accepted.status === 'canceled') return accepted;
+    if (accepted.status === 'failed' || accepted.status === 'failed_retryable') {
+      return this.transition(accepted, 'queued', input.store, { error: null });
+    }
+    if (isStaleInFlightTurn(accepted)) {
+      const failed = await this.fail(accepted, input.store, 'stale_in_flight');
+      if (failed.status === 'failed_retryable') {
+        return this.transition(failed, 'queued', input.store, { error: null });
+      }
+      return failed;
+    }
+    return accepted;
   }
 
   async transition(
@@ -119,7 +113,7 @@ export class AssistantKernel {
       );
     }
     const timestamp = nowIso();
-    const ended = status === 'completed' || status === 'canceled' || status === 'failed';
+    const ended = status === 'completed' || status === 'canceled' || status === 'failed' || status === 'failed_retryable';
     const next: AssistantTurnRecord = {
       ...turn,
       ...patch,
@@ -153,10 +147,11 @@ export class AssistantKernel {
     store: AssistantTurnStore,
     error: unknown,
   ): Promise<AssistantTurnRecord> {
-    const latest = (await store.get(turn.id)) || turn;
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
     if (isTerminalTurnStatus(latest.status)) return latest;
-    if (!canTransitionAssistantTurn(latest.status, 'failed')) return latest;
-    return this.transition(latest, 'failed', store, {
+    if (!canTransitionAssistantTurn(latest.status, 'failed_retryable')) return latest;
+    return this.transition(latest, 'failed_retryable', store, {
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -166,8 +161,9 @@ export class AssistantKernel {
     store: AssistantTurnStore,
     reason: unknown = 'client_disconnected',
   ): Promise<AssistantTurnRecord> {
-    const latest = (await store.get(turn.id)) || turn;
-    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed') return latest;
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
+    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return latest;
     if (!canTransitionAssistantTurn(latest.status, 'canceled')) return latest;
     return this.transition(latest, 'canceled', store, {
       error: reason instanceof Error ? reason.message : String(reason),
@@ -180,13 +176,23 @@ export class AssistantKernel {
     epoch: number,
     patch: Partial<Pick<AssistantTurnRecord, 'assistantText' | 'toolPayload' | 'receiptIds' | 'conversationId'>>,
   ): Promise<AssistantTurnRecord> {
-    const latest = (await store.get(turn.id)) || turn;
-    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed') return latest;
+    const latest = await store.get(turn.id);
+    if (!latest) throw new AssistantTurnConflictError('assistant_turn_missing');
+    if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return latest;
     this.assertLiveEpoch(latest, epoch);
     const committing = latest.status === 'committing'
       ? latest
       : await this.transition(latest, 'committing', store, patch);
-    return this.transition(committing, 'completed', store);
+    const timestamp = nowIso();
+    return store.commit({
+      ...committing,
+      ...patch,
+      status: 'completed',
+      error: null,
+      commitVersion: committing.commitVersion + 1,
+      updatedAt: timestamp,
+      completedAt: timestamp,
+    });
   }
 }
 

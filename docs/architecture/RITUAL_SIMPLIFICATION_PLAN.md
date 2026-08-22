@@ -3,7 +3,7 @@
 **Source audit:** [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md)  
 **Scope:** proposed work only; this plan does not implement application changes.  
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
-**Canonical current baseline:** 187,086 on ship SHA `65ced577`, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md).
+**Canonical current baseline:** 187,601 after the additive durable-chat boundary, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
 
 ## Decision
 

@@ -24,6 +24,7 @@
     "api:generate-client": "node scripts/generate-backend-client.mjs --input apps/backend/openapi.json --output apps/dashboard/lib/api/generated/backend-client.ts",
     "backend:compile": "node scripts/backend-python.mjs -- -m compileall -q apps/backend",
     "backend:test": "RITUAL_DB_LOCAL_ONLY=1 DATABASE_URL='libsql://ci.turso.io?authToken=test' node scripts/backend-python.mjs -- -m pytest -q apps/backend/tests",
+    "test:chat-failure-injection": "npm run --workspace @ritual/chat-runtime build && NODE_ENV=test RITUAL_ASSISTANT_TURN_STORE=memory node --test packages/chat-runtime/tests/assistant-failure-injection.test.mjs",
     "backend:lock": "node scripts/lock-backend-python.mjs",
     "dev:webpack": "npm run build:chat-runtime && cd apps/dashboard && next dev -p 3000",
     "build": "npm run typecheck && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' next build --webpack && cd ../.. && node scripts/normalize-next-proxy-output.mjs",

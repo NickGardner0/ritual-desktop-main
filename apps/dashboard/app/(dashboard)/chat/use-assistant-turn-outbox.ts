@@ -23,7 +23,9 @@ export function useAssistantTurnOutboxDrain(
           },
           body: JSON.stringify(item.body),
         });
-        return response.ok;
+        if (!response.ok) return false;
+        await response.text();
+        return true;
       });
     };
 

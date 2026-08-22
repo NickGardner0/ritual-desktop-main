@@ -13,6 +13,9 @@ import { ChatActionReceiptList } from './chat-action-receipt';
 import { EntityCitationList } from '@/components/entities/entity-related-panel';
 import { EntityNoteText } from '@/components/entities/entity-note-text';
 import { canonicalEntityType } from '@ritual/shared-contracts';
+import { Button } from '@ritual/ui/button';
+
+type SendMessageOptions = { turnId?: string; retryExisting?: boolean };
 
 type ToolStatus = {
   label: string;
@@ -30,7 +33,7 @@ type ChatMessageListProps = {
   scrollRef: RefObject<HTMLDivElement | null>;
   latestUserMessageRef: RefObject<HTMLDivElement | null>;
   setInput: (value: string) => void;
-  sendMessage: (value: string) => void | Promise<boolean>;
+  sendMessage: (value: string, options?: SendMessageOptions) => void | Promise<boolean>;
   queuePrompt: (value: string, source: string) => void | Promise<unknown>;
 };
 
@@ -72,7 +75,7 @@ const ChatMessageRow = memo(function ChatMessageRow({
   messageIndex: number;
   messagesLength: number;
   queuePrompt: (value: string, source: string) => void | Promise<unknown>;
-  sendMessage: (value: string) => void | Promise<boolean>;
+  sendMessage: (value: string, options?: SendMessageOptions) => void | Promise<boolean>;
   setInput: (value: string) => void;
   voiceStyleEnabled: boolean;
 }) {
@@ -87,6 +90,31 @@ const ChatMessageRow = memo(function ChatMessageRow({
           <Response className="text-[14px] leading-[1.55] text-[#535353]">
             {message.content}
           </Response>
+          {message.durability ? (
+            <div
+              className="mt-3 flex items-center justify-between gap-3 rounded-lg border border-[var(--ritual-border-default)] bg-[var(--ritual-surface-recessed)] px-3 py-2 text-xs text-[var(--ritual-text-secondary)]"
+              role="status"
+            >
+              <span>
+                {message.durability.state === 'queued_local'
+                  ? 'Queued locally. No model or tool will run until the server accepts it.'
+                  : message.durability.state === 'unsent'
+                    ? 'Not accepted by the server.'
+                    : 'This provisional response was not committed to history.'}
+              </span>
+              <Button
+                variant="outline"
+                size="compact"
+                onClick={() => void sendMessage(message.durability!.userText, {
+                  turnId: message.durability!.turnId,
+                  retryExisting: true,
+                })}
+                disabled={isLoading || message.durability.state === 'queued_local'}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : null}
           {message.actionReceipts && message.actionReceipts.length > 0 ? (
             <ChatActionReceiptList receipts={message.actionReceipts} />
           ) : null}

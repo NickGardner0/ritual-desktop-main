@@ -21,7 +21,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
 | Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate `repo:check`, but the artifacts do not contain sufficient raw provenance to certify them as live captures. Watcher RSS is invalidly encoded as zero. |
 | Reproducible builds / immutable releases | **Mostly true.** Sidecars SHA-pinned for Apple Silicon; CI/release actions pinned to SHAs. Intel Macs are not a 0.1.1 target. |
-| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical release-branch command reports **187,086**. See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
+| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **187,601** after the additive durable-chat boundary (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
 
@@ -30,14 +30,14 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Production build green | **Yes on the starting ship SHA.** GitHub `quality` + `desktop-rust` succeeded for `65ced577`. Vercel Production deployed that SHA. Local `next build` still needs Clerk keys. |
 | Every Tauri command typed + capability | **Yes.** ACL 68/68. Generated name + capability + TS I/O. |
 | Persisted browser data cannot cross identity | **Yes.** React Query key `ritual:react-query-cache:v1:<userId>`. |
-| One durable assistant turn / receipt history | **Yes.** FastAPI `assistant_turns` + kernel commit. Chat still **fail-open** if FastAPI is down. |
+| One durable assistant turn / receipt history | **Yes.** FastAPI atomically accepts the stable turn and user message before provider/tool work, then atomically commits assistant content, receipts, and completion. Remote failures remain `unsent` or `failed_retryable`; they are never replaced with memory success. |
 | Only read-only tools concurrent | **Yes.** Mutating tools serial; unknown tools fail closed as mutating. |
 | One scheduler owner | **Declared in code, not yet effective in production.** Trigger.dev code is gone, but Railway currently sets `ENABLE_INTERNAL_SCHEDULER=1` while startup maintenance is off, and scheduler task creation is nested under that maintenance gate. The cloud project is also an unverified ops leftover. |
 | No chat-api / profiling callers | **Yes.** `apps/chat-api` and the profiling bridge are deleted. |
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
 | Launch / RSS budgets | **Stored webview fixtures exist; live provenance and watcher RSS do not.** |
-| Authored LOC in 180k–185k | **No.** Canonical ship-branch total is **187,086**. |
+| Authored LOC in 180k–185k | **No.** Canonical implementation total is **187,601**. |
 | Legacy orchestration deleted after parity | **Strangler complete for the kernel.** `chat-stream/*` remains the model-loop adapter behind the kernel. |
 
 Rough score: **the architecture goal is implemented; the “materially smaller” goal is not proven; a short list of product/ops bugs remains.**
@@ -85,13 +85,13 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
-1. **Canonical LOC is 187,086**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
+1. **Canonical LOC is 187,601**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
 2. **Trigger.dev cloud project** may still fire jobs until it is paused/deleted in the Trigger.dev UI. Railway FastAPI is already the in-repo scheduler.
 3. **Next catch-all leftovers:** multipart import/screenshot preview, plaintext/CSV Apple Health export, habit-log inline PUT (FastAPI has no update-log operation).
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
 5. **Watcher RSS unmeasured.** `native_ready` fires before the sidecar starts; the live capture session had no saved watcher config, so `watcher_rss_bytes` is 0 in `tools/performance/launch-budgets.json`.
 6. **`chat-stream/*` still exists** as the model-loop adapter. That is the strangler leftover, not a second chat host.
-7. **Chat / conversation persist fail-open** if FastAPI is down. Durable turns exist; the UI still continues rather than hard-failing.
+7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
 8. **Apple Silicon only.** No Intel `x86_64` sidecars.
 9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 466 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
 10. **Desktop social login still hops through the browser** (`/auth/desktop-oauth-bridge` → `com.ritual.desktop://`). One Clerk app; several UI doors. Chrome cannot hear Tauri deep links, so after ~5s it always shows “Open Ritual”.
@@ -171,7 +171,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 1. In Trigger.dev, pause/delete the cloud project after confirming Railway cron is running.
 2. Quit or replace the July `Ritual.app` so deep links hit the this-branch binary; confirm production FastAPI base (not `:8000`) after desktop sign-in.
 3. Recapture watcher RSS with tracking actually running, then replace the 0s in `launch-budgets.json`.
-4. Keep the 180k–185k band as a deletion/consolidation target only. If 187,086 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+4. Keep the 180k–185k band as a deletion/consolidation target only. If 187,601 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 5. Merge PR 9 to `main` only if you want `main` to match what Vercel/Railway already deploy.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

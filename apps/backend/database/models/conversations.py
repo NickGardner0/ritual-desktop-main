@@ -83,6 +83,10 @@ class AssistantTurnDB(Base):
     status = Column(String, nullable=False, default="queued")
     epoch = Column(Integer, nullable=False, default=0)
     sequence = Column(Integer, nullable=False, default=0)
+    user_message_id = Column(String, nullable=True)
+    user_message_text = Column(Text, nullable=True)
+    accepted_at = Column(DateTime, nullable=True)
+    commit_version = Column(Integer, nullable=False, default=0)
     receipt_ids_json = Column(Text, nullable=False, default="[]")
     assistant_text = Column(Text, nullable=True)
     tool_payload_json = Column(Text, nullable=True)
@@ -98,5 +102,4 @@ class AssistantTurnDB(Base):
         Index("idx_assistant_turns_user_created", "user_id", "created_at"),
         Index("idx_assistant_turns_conversation_sequence", "conversation_id", "sequence"),
     )
-
 

@@ -17,6 +17,8 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface SmsChatRequest {
+  turn_id?: string;
+  user_message_id?: string;
   user_id: string;
   conversation_id: string;
   user_message: string;
@@ -26,6 +28,8 @@ export interface SmsChatRequest {
 }
 
 export interface SmsProactiveRequest {
+  turn_id?: string;
+  conversation_id?: string;
   user_id: string;
   trigger_type: string;
   trigger_prompt: string;
@@ -428,14 +432,16 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     const toolCallsMade: string[] = [];
     const smsToolExecutions: SmsToolExecution[] = [];
     store = getAssistantTurnStore(token);
-    const turnId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    const turnId = body.turn_id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
-      : `sms_${Date.now()}`;
+      : `sms_${Date.now()}`);
     turn = await defaultAssistantKernel.begin({
       turnId,
       conversationId: body.conversation_id,
       channel: 'sms',
       epoch: 0,
+      userMessage: user_message || `[image: ${(media_urls || []).join(', ')}]`,
+      userMessageId: body.user_message_id,
       store,
     });
     if (!turn || !store) {
@@ -666,7 +672,7 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
     }
 
     const body: SmsProactiveRequest = await req.json();
-    const { user_id, trigger_type, trigger_prompt, timezone } = body;
+    const { user_id, trigger_type, trigger_prompt, timezone, conversation_id } = body;
 
     console.log(`📬 [${elapsed(t0)}] Proactive SMS: trigger="${trigger_type}" user=${user_id}`);
 
@@ -697,14 +703,16 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
 
     const toolCallsMade: string[] = [];
     store = getAssistantTurnStore(token);
-    const turnId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    const turnId = body.turn_id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
-      : `sms_proactive_${Date.now()}`;
+      : `sms_proactive_${Date.now()}`);
     turn = await defaultAssistantKernel.begin({
       turnId,
-      conversationId: null,
+      conversationId: conversation_id || null,
       channel: 'sms',
       epoch: 0,
+      userMessage: trigger_prompt,
+      recordUserMessageInConversation: false,
       store,
     });
     if (!turn || !store) {

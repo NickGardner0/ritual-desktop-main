@@ -16,12 +16,12 @@ test('turn states only allow the documented transitions', () => {
   assert.equal(canTransitionAssistantTurn('running', 'committing'), true);
   assert.equal(canTransitionAssistantTurn('committing', 'completed'), true);
   assert.equal(canTransitionAssistantTurn('queued', 'canceled'), true);
-  assert.equal(canTransitionAssistantTurn('running', 'failed'), true);
+  assert.equal(canTransitionAssistantTurn('running', 'failed_retryable'), true);
   assert.equal(canTransitionAssistantTurn('completed', 'running'), false);
   assert.equal(canTransitionAssistantTurn('canceled', 'queued'), false);
   assert.equal(isTerminalTurnStatus('completed'), true);
   assert.equal(isTerminalTurnStatus('canceled'), true);
-  assert.equal(isTerminalTurnStatus('failed'), false);
+  assert.equal(isTerminalTurnStatus('failed_retryable'), false);
 });
 
 test('retry of a completed turn replays instead of re-running', async () => {
@@ -53,7 +53,7 @@ test('retry of a completed turn replays instead of re-running', async () => {
   assert.deepEqual(replay.receiptIds, ['r1']);
 });
 
-test('stale epoch cancels an in-flight turn', async () => {
+test('stale epoch is rejected without changing an accepted turn', async () => {
   const store = new MemoryAssistantTurnStore();
   const kernel = new AssistantKernel();
   await kernel.begin({
@@ -63,15 +63,18 @@ test('stale epoch cancels an in-flight turn', async () => {
     epoch: 1,
     store,
   });
-  const canceled = await kernel.begin({
-    turnId: 'turn-2',
-    conversationId: 'conv-1',
-    channel: 'dashboard',
-    epoch: 2,
-    store,
-  });
-  assert.equal(canceled.status, 'canceled');
-  assert.equal(canceled.error, 'stale_epoch');
+  await assert.rejects(
+    () => kernel.begin({
+      turnId: 'turn-2',
+      conversationId: 'conv-1',
+      channel: 'dashboard',
+      epoch: 2,
+      userMessage: 'different epoch',
+      store,
+    }),
+    /epoch mismatch/,
+  );
+  assert.equal((await store.get('turn-2'))?.status, 'queued');
 });
 
 test('one conversation has at most one active mutation sequence', () => {

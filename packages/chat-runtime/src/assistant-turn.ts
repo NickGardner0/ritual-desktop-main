@@ -3,6 +3,7 @@ export const ASSISTANT_TURN_STATUSES = [
   'running',
   'committing',
   'completed',
+  'failed_retryable',
   'failed',
   'canceled',
 ] as const;
@@ -16,11 +17,12 @@ export const TOOL_SIDE_EFFECTS = ['read_only', 'mutating'] as const;
 export type ToolSideEffect = (typeof TOOL_SIDE_EFFECTS)[number];
 
 export const ASSISTANT_TURN_TRANSITIONS: Record<AssistantTurnStatus, readonly AssistantTurnStatus[]> = {
-  queued: ['running', 'canceled', 'failed'],
-  running: ['committing', 'canceled', 'failed'],
-  committing: ['completed', 'failed'],
+  queued: ['running', 'canceled', 'failed_retryable', 'failed'],
+  running: ['committing', 'canceled', 'failed_retryable', 'failed'],
+  committing: ['completed', 'failed_retryable', 'failed'],
   completed: [],
   failed: ['queued', 'running'],
+  failed_retryable: ['queued', 'running'],
   canceled: [],
 };
 
@@ -31,6 +33,10 @@ export type AssistantTurnRecord = {
   status: AssistantTurnStatus;
   epoch: number;
   sequence: number;
+  userMessageId: string | null;
+  userMessageText: string | null;
+  acceptedAt: string | null;
+  commitVersion: number;
   receiptIds: string[];
   assistantText: string | null;
   toolPayload: Record<string, unknown> | null;
@@ -70,6 +76,8 @@ export function createQueuedTurn(input: {
   channel: AssistantChannel;
   epoch: number;
   sequence: number;
+  userMessage: string;
+  userMessageId?: string | null;
   now?: string;
 }): AssistantTurnRecord {
   const timestamp = input.now ?? nowIso();
@@ -80,6 +88,10 @@ export function createQueuedTurn(input: {
     status: 'queued',
     epoch: input.epoch,
     sequence: input.sequence,
+    userMessageId: input.userMessageId || `${input.id}:user`,
+    userMessageText: input.userMessage,
+    acceptedAt: timestamp,
+    commitVersion: 0,
     receiptIds: [],
     assistantText: null,
     toolPayload: null,

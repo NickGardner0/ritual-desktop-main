@@ -2513,8 +2513,131 @@
         "title": "ArtifactUpdate",
         "type": "object"
       },
+      "AssistantTurnAccept": {
+        "properties": {
+          "channel": {
+            "default": "dashboard",
+            "enum": [
+              "dashboard",
+              "sms"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          },
+          "epoch": {
+            "default": 0,
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "record_user_message_in_conversation": {
+            "default": true,
+            "title": "Record User Message In Conversation",
+            "type": "boolean"
+          },
+          "response_mode": {
+            "default": "text",
+            "enum": [
+              "text",
+              "voice"
+            ],
+            "title": "Response Mode",
+            "type": "string"
+          },
+          "user_message": {
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "User Message",
+            "type": "string"
+          },
+          "user_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message Id"
+          }
+        },
+        "required": [
+          "id",
+          "user_message"
+        ],
+        "title": "AssistantTurnAccept",
+        "type": "object"
+      },
+      "AssistantTurnCommit": {
+        "properties": {
+          "assistant_text": {
+            "maxLength": 1000000,
+            "minLength": 1,
+            "title": "Assistant Text",
+            "type": "string"
+          },
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "receipt_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Receipt Ids",
+            "type": "array"
+          },
+          "tool_payload": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tool Payload"
+          }
+        },
+        "required": [
+          "epoch",
+          "assistant_text"
+        ],
+        "title": "AssistantTurnCommit",
+        "type": "object"
+      },
       "AssistantTurnRead": {
         "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
           "assistant_text": {
             "anyOf": [
               {
@@ -2529,6 +2652,11 @@
           "channel": {
             "title": "Channel",
             "type": "string"
+          },
+          "commit_version": {
+            "default": 0,
+            "title": "Commit Version",
+            "type": "integer"
           },
           "completed_at": {
             "anyOf": [
@@ -2626,6 +2754,28 @@
           "user_id": {
             "title": "User Id",
             "type": "string"
+          },
+          "user_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message Id"
+          },
+          "user_message_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Message Text"
           }
         },
         "required": [
@@ -2734,6 +2884,7 @@
               "running",
               "committing",
               "completed",
+              "failed_retryable",
               "failed",
               "canceled"
             ],
@@ -16976,6 +17127,52 @@
         ]
       }
     },
+    "/api/assistant-turns/accept": {
+      "post": {
+        "operationId": "accept_assistant_turn_api_assistant_turns_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantTurnAccept"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTurnRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Accept Assistant Turn",
+        "tags": [
+          "assistant-turns"
+        ]
+      }
+    },
     "/api/assistant-turns/next-sequence": {
       "get": {
         "operationId": "next_assistant_turn_sequence_api_assistant_turns_next_sequence_get",
@@ -17072,6 +17269,63 @@
           }
         ],
         "summary": "Get Assistant Turn",
+        "tags": [
+          "assistant-turns"
+        ]
+      }
+    },
+    "/api/assistant-turns/{turn_id}/commit": {
+      "post": {
+        "operationId": "commit_assistant_turn_api_assistant_turns__turn_id__commit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "turn_id",
+            "required": true,
+            "schema": {
+              "title": "Turn Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantTurnCommit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssistantTurnRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Commit Assistant Turn",
         "tags": [
           "assistant-turns"
         ]

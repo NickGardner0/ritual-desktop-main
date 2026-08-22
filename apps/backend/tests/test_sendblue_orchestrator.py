@@ -62,6 +62,8 @@ class SendblueOrchestratorTests(unittest.IsolatedAsyncioTestCase):
                 await sendblue._call_orchestrator(
                     user_id="user-1",
                     conversation_id="conv-1",
+                    turn_id="sms:message-1",
+                    user_message_id="message-1",
                     user_message="How was my sleep this week?",
                     recent_messages=[],
                     media_urls=[],
@@ -80,6 +82,8 @@ class SendblueOrchestratorTests(unittest.IsolatedAsyncioTestCase):
             result = await sendblue._call_orchestrator(
                 user_id="user-1",
                 conversation_id="conv-1",
+                turn_id="sms:message-1",
+                user_message_id="message-1",
                 user_message="How was my sleep this week?",
                 recent_messages=[],
                 media_urls=[],

@@ -191,6 +191,8 @@ async def _call_proactive_orchestrator(
     user_id: str,
     trigger_type: str,
     timezone: str,
+    conversation_id: str,
+    turn_id: str,
 ) -> Optional[str]:
     """
     Call the Vercel SMS proactive endpoint to generate a proactive message.
@@ -204,6 +206,8 @@ async def _call_proactive_orchestrator(
         return None
 
     payload = {
+        "turn_id": turn_id,
+        "conversation_id": conversation_id,
         "user_id": user_id,
         "trigger_type": trigger_type,
         "trigger_prompt": prompt,
@@ -260,20 +264,21 @@ async def send_proactive_message(
     Generate and send a proactive message to a single user.
     Returns True if the message was sent successfully.
     """
-    # Generate content
-    text = await _call_proactive_orchestrator(user_id, trigger_type, timezone)
+    conversation = await conversation_service.find_or_create_sms_conversation(user_id)
+    occurrence = datetime.now(tz.utc).date().isoformat()
+    turn_id = f"sms-proactive:{trigger_type}:{user_id}:{occurrence}"
+
+    # Generate and durably commit content through the shared assistant kernel.
+    text = await _call_proactive_orchestrator(
+        user_id,
+        trigger_type,
+        timezone,
+        conversation["id"],
+        turn_id,
+    )
     if not text:
         logger.warning("No proactive content generated for user %s", user_id)
         return False
-
-    # Persist to conversation thread
-    conversation = await conversation_service.find_or_create_sms_conversation(user_id)
-    await conversation_service.add_internal_message(
-        conversation_id=conversation["id"],
-        role="assistant",
-        content=text,
-        tool_payload={"proactive_trigger": trigger_type},
-    )
 
     # Send via SendBlue
     sent = await send_message(phone_number, text)
