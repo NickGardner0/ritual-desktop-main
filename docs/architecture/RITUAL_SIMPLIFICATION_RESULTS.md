@@ -129,17 +129,17 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 ## Aggregate (this pass)
 
 ```text
-Production LOC before: ~192.5k (audit)
-Remeasured 2026-08-21 after Next compatibility BFF collapse (tokei 14.0.0; generated backend client omitted from dashboard):
-  Dashboard TS/TSX/JS + CSS: 88,129 (TSX 49,160)
-  Shared packages TS/TSX + UI CSS: 9,641
-  FastAPI Python excluding tests/scripts/migrations: 56,589
-  Rust desktop/watcher/ritual-db: 34,886
-  Desktop JS/JSX shell: 233
+Historical production LOC: 192,474 in the original dirty-tree audit.
+Canonical release-branch measurement at 65ced577 (tokei 14.0.0; generated sources omitted):
+  Dashboard TS/TSX/JS + CSS: 82,917
+  Shared packages TS/TSX + UI CSS: 9,547
+  FastAPI Python excluding tests/scripts/migrations/devtools: 56,281
+  Rust desktop/watcher/ritual-db: 34,960
+  Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
-  Tinybird pipe/datasource authored: 2,085
-  chat-api: 0
-  Audit-comparable total: ~192.6k. Voice HUD, composer, and privacy restores added product code after the earlier ~184k snapshot. This slice reduces Next owners, not the restored product surface.
+  Tinybird pipe/datasource authored: 2,048
+  Audit-comparable total: 187,086.
+Command and machine data: npm run audit:loc / tools/architecture/loc-baseline.json.
 chat-api deployable: removed
 Schedulers before/after: 2 → 1 (FastAPI loops only; Trigger.dev deleted)
 Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted on the release tree.
@@ -159,7 +159,7 @@ Tests do not count against production reduction.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. Catch-all remains for markdown/CSV Apple export, multipart import/screenshot preview, and logs inline PUT (FastAPI has no update-log op). Sendblue webhook and the OpenAPI catch-all still forward raw bodies. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
-5. Authored production LOC remasured at ~192.6k with the same tokei buckets (generated client omitted). The earlier ~184k snapshot predates restored product (voice HUD, composer, privacy). Remaining fat is live product plus calendar/OpenAI streaming in Next, not unused deployables.
+5. Authored production LOC is 187,086 under the canonical checked-in bucket contract. The dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
 6. Five-trial CI budgets now gate live WKWebView medians plus production launch/RSS instrumentation. Watcher RSS was 0 in the capture session because the sidecar did not autostart.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.

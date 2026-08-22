@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "sourceHead": "65ced577031db252495f505318229dc98b15090d",
+  "dashboardApi": { "routeCount": 16, "manifest": "tools/dashboard-api-routes.manifest.json" },
+  "scheduler": {
+    "owner": "apps/backend/background_tasks.py",
+    "startupOwner": "apps/backend/lifespan.py",
+    "jobCount": 13,
+    "jobs": [
+      "proactive_sms", "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",
+      "financial_sync", "location_ping_retention", "habit_reports", "workflow_runs",
+      "ambient_signals", "sms_copilot", "wearable_ingest", "wearable_maintenance",
+      "wearable_event_outbox"
+    ]
+  },
+  "nativeGateway": {
+    "registered": 68,
+    "allowed": 68,
+    "frontendInvoked": 68,
+    "typedSignatures": 69,
+    "unregisteredTypedSignature": {
+      "name": "check_recording_source_readiness",
+      "path": "apps/desktop/src-tauri/src/system_audio.rs",
+      "classification": "Uncompiled and unreachable: the module is not declared by the Tauri binary and the command is absent from generate_handler, ACL, and frontend callers. Remove with evidence-backed dead-code work rather than treating it as a 69th gateway command."
+    }
+  },
+  "chatEntrypoints": [
+    "apps/dashboard/app/api/chat/stream/route.ts",
+    "apps/dashboard/app/api/chat/sms/route.ts",
+    "apps/dashboard/app/api/chat/sms/proactive/route.ts",
+    "apps/dashboard/app/api/internal/workflows/execute/route.ts",
+    "packages/chat-runtime/src/index.ts"
+  ],
+  "desktopProcesses": ["Ritual", "ritual-watcher", "ritual-vision-helper"],
+  "releaseTargets": {
+    "aarch64-apple-darwin": "implemented",
+    "x86_64-apple-darwin": "blocked_pending_real_intel_artifacts_and_runner"
+  },
+  "externalBlockers": [
+    "Trigger.dev project proj_hctghowrtnzbnyrgoecx disablement",
+    "Real Intel macOS runner and hardware smoke evidence",
+    "Apple signing/notarization and updater publication"
+  ]
+}

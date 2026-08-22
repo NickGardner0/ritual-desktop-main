@@ -40,6 +40,9 @@ jobs:
         with:
           toolchain: "1.92.0"
 
+      - name: Install pinned LOC audit tool
+        run: cargo install tokei --version 14.0.0 --locked
+
       # Using npm install (not npm ci) during migration while lockfile/workspaces
       # are being normalized in-repo.
       # --legacy-peer-deps: react-day-picker@8 expects React 18; project uses React 19
@@ -50,6 +53,9 @@ jobs:
         run: npm run repo:check
         env:
           RITUAL_DASHBOARD_FILE_LINE_BUDGET: "800"
+
+      - name: Verify canonical authored-production LOC
+        run: npm run audit:loc:check
 
       - name: Check API client boundary
         run: npm run repo:check:api-client-boundary

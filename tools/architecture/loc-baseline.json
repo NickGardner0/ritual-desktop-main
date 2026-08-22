@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 1,
+  "methodVersion": 1,
+  "tokeiVersion": "14.0.0",
+  "repository": {
+    "branchAtMeasurement": "codex/release-0.1.1-prep",
+    "headAtMeasurement": "65ced577031db252495f505318229dc98b15090d"
+  },
+  "sourceDigest": "b25e9ad709ff1186a377ce5454eed378b1c047f13a5ba005e8401d614959639c",
+  "buckets": [
+    {
+      "id": "dashboard",
+      "label": "Dashboard production",
+      "files": 509,
+      "code": 82917,
+      "languages": {
+        "CSS": {
+          "files": 3,
+          "code": 1862
+        },
+        "JavaScript": {
+          "files": 14,
+          "code": 954
+        },
+        "TSX": {
+          "files": 267,
+          "code": 46476
+        },
+        "TypeScript": {
+          "files": 225,
+          "code": 33625
+        }
+      }
+    },
+    {
+      "id": "shared_packages",
+      "label": "Shared packages",
+      "files": 60,
+      "code": 9547,
+      "languages": {
+        "CSS": {
+          "files": 1,
+          "code": 181
+        },
+        "TSX": {
+          "files": 13,
+          "code": 956
+        },
+        "TypeScript": {
+          "files": 46,
+          "code": 8410
+        }
+      }
+    },
+    {
+      "id": "fastapi",
+      "label": "FastAPI application",
+      "files": 231,
+      "code": 56281,
+      "languages": {
+        "Python": {
+          "files": 231,
+          "code": 56281
+        }
+      }
+    },
+    {
+      "id": "desktop_rust",
+      "label": "Rust desktop, watcher, and ritual-db",
+      "files": 84,
+      "code": 34960,
+      "languages": {
+        "Rust": {
+          "files": 84,
+          "code": 34960
+        }
+      }
+    },
+    {
+      "id": "desktop_shell",
+      "label": "Desktop hosted-shell bootstrap",
+      "files": 4,
+      "code": 331,
+      "languages": {
+        "CSS": {
+          "files": 1,
+          "code": 113
+        },
+        "JavaScript": {
+          "files": 1,
+          "code": 19
+        },
+        "JSX": {
+          "files": 2,
+          "code": 199
+        }
+      }
+    },
+    {
+      "id": "browser_extension",
+      "label": "Browser extension",
+      "files": 4,
+      "code": 1002,
+      "languages": {
+        "HTML": {
+          "files": 1,
+          "code": 55
+        },
+        "JavaScript": {
+          "files": 3,
+          "code": 947
+        }
+      }
+    },
+    {
+      "id": "tinybird",
+      "label": "Tinybird authored DSL",
+      "files": 24,
+      "code": 2048,
+      "languages": {
+        "Tinybird": {
+          "files": 24,
+          "code": 2048
+        }
+      }
+    }
+  ],
+  "total": 187086
+}
