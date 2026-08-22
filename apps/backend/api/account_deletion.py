@@ -28,9 +28,8 @@ def verify_clerk_webhook(payload: bytes, headers: Dict[str, str]) -> Dict[str, A
     except ImportError as error:
         raise RuntimeError("The svix package is required for Clerk webhooks") from error
 
-    event = Webhook(secret).verify(payload, headers)
-    if isinstance(event, (bytes, bytearray, str)):
-        event = json.loads(event)
+    Webhook(secret).verify(payload, headers)
+    event = json.loads(payload)
     if not isinstance(event, dict):
         raise ValueError("Clerk webhook payload was not an object")
     return event
