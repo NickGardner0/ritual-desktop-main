@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from api.scheduler import create_scheduler_router
@@ -66,15 +67,18 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
                     raise
 
         self._original_get_db_session = service_module.get_db_session
+        self._original_force_local_replica_sync = service_module.force_local_replica_sync
         self._original_ingest_session = ingest_module.get_db_session
         self._original_outbox_session = outbox_module.get_db_session
         service_module.get_db_session = test_session
+        service_module.force_local_replica_sync = AsyncMock(return_value=False)
         ingest_module.get_db_session = test_session
         outbox_module.get_db_session = test_session
         service_module.scheduler_runtime.reset()
 
     async def asyncTearDown(self):
         service_module.get_db_session = self._original_get_db_session
+        service_module.force_local_replica_sync = self._original_force_local_replica_sync
         ingest_module.get_db_session = self._original_ingest_session
         outbox_module.get_db_session = self._original_outbox_session
         service_module.scheduler_runtime.reset()
@@ -153,6 +157,67 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(count, 1)
         self.assertEqual(row.status, "succeeded")
         self.assertEqual(row.attempt_count, 1)
+
+    async def test_turso_value_error_duplicate_is_read_from_winning_claim(self):
+        occurrence = datetime(2026, 8, 22, 10, 5, tzinfo=timezone.utc)
+        first = await run_clock_job(
+            "proactive_sms",
+            lambda: asyncio.sleep(0, result={"effects": 1}),
+            now=occurrence,
+        )
+        self.assertEqual(first.status, "completed")
+
+        base_get_db_session = service_module.get_db_session
+
+        class TursoSessionProxy:
+            def __init__(self, session):
+                self._session = session
+
+            def __getattr__(self, name):
+                return getattr(self._session, name)
+
+            async def commit(self):
+                try:
+                    await self._session.commit()
+                except IntegrityError as error:
+                    raise ValueError(
+                        "Hrana: SQLite error: UNIQUE constraint failed: "
+                        "scheduler_occurrence_claims.job_key, "
+                        "scheduler_occurrence_claims.scope_key, "
+                        "scheduler_occurrence_claims.scheduled_for"
+                    ) from error
+
+        @asynccontextmanager
+        async def turso_session():
+            async with base_get_db_session() as session:
+                yield TursoSessionProxy(session)
+
+        work = AsyncMock(return_value={"effects": 2})
+        service_module.get_db_session = turso_session
+        duplicate = await run_clock_job("proactive_sms", work, now=occurrence)
+
+        self.assertEqual(duplicate.status, "duplicate")
+        work.assert_not_awaited()
+        service_module.force_local_replica_sync.assert_awaited()
+
+    async def test_occurrence_conflict_classifier_rejects_unrelated_errors(self):
+        self.assertTrue(
+            service_module._is_occurrence_unique_conflict(
+                ValueError(
+                    "UNIQUE constraint failed: scheduler_occurrence_claims.job_key, "
+                    "scheduler_occurrence_claims.scope_key, "
+                    "scheduler_occurrence_claims.scheduled_for"
+                )
+            )
+        )
+        self.assertFalse(
+            service_module._is_occurrence_unique_conflict(
+                ValueError("UNIQUE constraint failed: scheduler_occurrence_claims.id")
+            )
+        )
+        self.assertFalse(
+            service_module._is_occurrence_unique_conflict(ValueError("driver disconnected"))
+        )
 
     async def test_failed_occurrence_retries_same_identity(self):
         occurrence = datetime(2026, 8, 22, 12, 7, tzinfo=timezone.utc)

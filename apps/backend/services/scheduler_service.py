@@ -12,9 +12,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, Iterable, Literal, Optional
 
 from sqlalchemy import delete, or_, select, update
-from sqlalchemy.exc import IntegrityError
 
-from database.connection import get_db_session
+from database.connection import force_local_replica_sync, get_db_session
 from database.models import SchedulerOccurrenceClaimDB
 
 
@@ -276,6 +275,50 @@ class SchedulerRuntimeRegistry:
 scheduler_runtime = SchedulerRuntimeRegistry()
 
 
+_OCCURRENCE_UNIQUE_COLUMNS = (
+    "scheduler_occurrence_claims.job_key",
+    "scheduler_occurrence_claims.scope_key",
+    "scheduler_occurrence_claims.scheduled_for",
+)
+
+
+def _is_occurrence_unique_conflict(error: BaseException) -> bool:
+    """Recognize only the durable occurrence identity conflict across DB drivers."""
+    message = str(error).lower()
+    return "unique constraint failed" in message and all(
+        column in message for column in _OCCURRENCE_UNIQUE_COLUMNS
+    )
+
+
+async def _load_occurrence_after_conflict(
+    *,
+    definition: SchedulerJobDefinition,
+    scope_key: str,
+    scheduled_naive: datetime,
+    conflict: BaseException,
+) -> SchedulerOccurrenceClaimDB:
+    """Read the winning remote claim after a duplicate insert loses its race."""
+    for attempt in range(3):
+        await force_local_replica_sync(timeout_seconds=2.5)
+        async with get_db_session() as session:
+            result = await session.execute(
+                select(SchedulerOccurrenceClaimDB).where(
+                    SchedulerOccurrenceClaimDB.job_key == definition.job_key,
+                    SchedulerOccurrenceClaimDB.scope_key == scope_key,
+                    SchedulerOccurrenceClaimDB.scheduled_for == scheduled_naive,
+                )
+            )
+            existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing
+        if attempt < 2:
+            await asyncio.sleep(0.05 * (attempt + 1))
+    raise RuntimeError(
+        "scheduler occurrence conflict was accepted remotely but its winning claim "
+        "was not visible after replica sync"
+    ) from conflict
+
+
 def _lease_owner() -> str:
     return f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:12]}"
 
@@ -304,23 +347,28 @@ async def _claim_occurrence(
         created_at=now_naive,
         updated_at=now_naive,
     )
+    conflict: Optional[BaseException] = None
     async with get_db_session() as session:
         session.add(row)
         try:
             await session.commit()
             await session.refresh(row)
             return row, True
-        except IntegrityError:
+        except Exception as error:
             await session.rollback()
+            if not _is_occurrence_unique_conflict(error):
+                raise
+            conflict = error
 
-        existing_result = await session.execute(
-            select(SchedulerOccurrenceClaimDB).where(
-                SchedulerOccurrenceClaimDB.job_key == definition.job_key,
-                SchedulerOccurrenceClaimDB.scope_key == scope_key,
-                SchedulerOccurrenceClaimDB.scheduled_for == scheduled_naive,
-            )
-        )
-        existing = existing_result.scalar_one()
+    if conflict is None:
+        raise RuntimeError("scheduler occurrence insert exited without a result")
+    existing = await _load_occurrence_after_conflict(
+        definition=definition,
+        scope_key=scope_key,
+        scheduled_naive=scheduled_naive,
+        conflict=conflict,
+    )
+    async with get_db_session() as session:
         if existing.status == "succeeded":
             return existing, False
         if existing.lease_expires_at and existing.lease_expires_at > now_naive:
