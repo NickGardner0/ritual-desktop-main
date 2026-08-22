@@ -27,12 +27,12 @@ This is a status report of that goal against the live repo, not a new plan. The 
 
 | Criterion | Evidence now |
 |---|---|
-| Production build green | **Yes on implementation SHA `23308ee6`.** GitHub Actions run `32566968381` passed `quality` and `desktop-rust`; Vercel production and Railway production both deployed the reviewed release-branch implementation. |
+| Production build green | **Yes on implementation SHA `bdc34ecf`.** GitHub Actions run `32568940329` passed `quality` and `desktop-rust`; Vercel production and Railway production both deployed the reviewed release-branch implementation. |
 | Every Tauri command typed + capability | **Yes.** 71 registered, 71 ACL-allowed, and 71 frontend-invoked commands. There are 72 typed Rust signatures; the extra uncompiled `check_recording_source_readiness` signature is explicitly classified outside the gateway. |
 | Persisted browser data cannot cross identity | **Yes.** React Query key `ritual:react-query-cache:v1:<userId>`. |
 | One durable assistant turn / receipt history | **Yes.** FastAPI atomically accepts the stable turn and user message before provider/tool work, then atomically commits assistant content, receipts, and completion. Remote failures remain `unsent` or `failed_retryable`; they are never replaced with memory success. |
 | Only read-only tools concurrent | **Yes.** Mutating tools serial; unknown tools fail closed as mutating. |
-| One scheduler owner | **Complete in repository code and Railway.** Deployment `405e4218-a90e-4976-b025-d50f29689fc0` starts all 13 owners with maintenance disabled. Authenticated health was `healthy` after restart and across fresh 10:15 and 10:30 UTC 15-minute cadences, with no stale jobs, errors, active leases, or overlaps. Trigger cloud disablement is still unverified. |
+| One scheduler owner | **Complete in repository code and Railway.** Deployment `2043bae3-91b0-428b-8f47-151831e29b4f` starts all 13 owners with maintenance disabled. Schema-v2 authenticated health was `healthy` after restart and after distinct 10:00/11:00 UTC hourly occurrences, with no stale jobs, errors, active or overlapping leases, or duplicate occurrence identities. Trigger cloud disablement is still unverified. |
 | No chat-api / profiling callers | **Yes.** `apps/chat-api` and the profiling bridge are deleted. |
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
@@ -124,18 +124,18 @@ Not treated as bugs (intentionally not done): bundling the dashboard into Tauri,
 
 ## What was committed and pushed to production vs what was not
 
-### Production evidence cut (implementation SHA `23308ee6`)
+### Production evidence cut (implementation SHA `bdc34ecf`)
 
 Vercel (dashboard) and Railway (FastAPI) deploy from **`codex/release-0.1.1-prep`**, not from `main`, and not from `codex/tasks-routines-mvp`.
 
 - GitHub PR: [https://github.com/NickGardner0/ritual-desktop-main/pull/9](https://github.com/NickGardner0/ritual-desktop-main/pull/9) — **open, mergeable, and not merged to `main`.**
-- GitHub CI run `32566968381`: **`quality` success, `desktop-rust` success.**
-- Vercel production at the evidence cut: deployment `dpl_GMPbxfJJZzuKkYRQR7AdVRLqsXji`, Ready behind `desktop.ritualdb.com`, built from `23308ee6`.
-- Railway production: deployment `405e4218-a90e-4976-b025-d50f29689fc0`, image `sha256:ca0e4032a46584161666d440c2691102a9e2fa6b9627050435e553b7d0c9c0ad`, built from `23308ee6` with Python 3.12.12 and a successful migration predeploy.
-- Railway scheduler health: 13/13 registered and current; the post-deploy duplicate sweep preserved original completion timestamps, and fresh 10:15/10:30 UTC 15-minute occurrences completed without errors or overlapping leases.
+- GitHub CI run `32568940329`: **`quality` success, `desktop-rust` success.**
+- Vercel production at the evidence cut: deployment `dpl_5RPpF6ZcuFthBcnhxr7tmcNr4D24`, Ready behind `desktop.ritualdb.com`, built from `bdc34ecf`.
+- Railway production: deployment `2043bae3-91b0-428b-8f47-151831e29b4f`, image `sha256:3085f255cd64c97eb78649c7305b597e3773abd1b8c18bd8f1f4f3f5e4074b0d`, built from `bdc34ecf` with Python 3.12.12 and a successful migration predeploy.
+- Railway scheduler health: schema v2 reported 13/13 registered and current; the post-deploy duplicate sweep preserved the 10:00 UTC completion timestamps, all six hourly owners completed new 11:00 UTC occurrences, and duplicate-identity, error, stale, active-lease, and overlapping-lease lists were empty after completion.
 - Historical commit `2984b9f8` labeled launch samples as live. The current audit truthfully reclassifies those samples as fixtures because raw provenance and watcher RSS were absent.
 
-If “production” means “what users hit on desktop.ritualdb.com / Railway,” **the implementation is in production at `23308ee6`**. If it means “merged to `main`,” **nothing from this program is on `main` yet.** Report-only commits after this evidence cut do not change backend behavior.
+If “production” means “what users hit on desktop.ritualdb.com / Railway,” **the implementation is in production at `bdc34ecf`**. If it means “merged to `main`,” **nothing from this program is on `main` yet.** Report-only commits after this evidence cut do not change backend behavior.
 
 ### Pushed on `codex/release-0.1.1-prep` (in production deploys)
 

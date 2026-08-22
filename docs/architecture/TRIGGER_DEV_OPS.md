@@ -2,7 +2,7 @@
 
 Ritual no longer ships Trigger.dev code. FastAPI is the only repository scheduler. External project `proj_hctghowrtnzbnyrgoecx` remains an explicit release blocker until directly verified inactive.
 
-Current evidence state (2026-08-22): implementation SHA `23308ee6` is live in Railway deployment `405e4218-a90e-4976-b025-d50f29689fc0`. All 13 jobs are healthy; fresh 10:15 and 10:30 UTC 15-minute cadences completed with no stale jobs, errors, or overlapping leases. The hourly owner has one observed 10:00 UTC occurrence; the required second hourly cadence is still pending. Trigger inspection is blocked on an authenticated Trigger/GitHub browser session. No schedule has been paused or deleted and no credential has been revoked.
+Current evidence state (2026-08-22): implementation SHA `bdc34ecf` is live in Railway deployment `2043bae3-91b0-428b-8f47-151831e29b4f`. All 13 jobs are healthy; all six hourly owners completed distinct 10:00 and 11:00 UTC occurrences, and the schema-v2 integrity response has empty duplicate-identity and overlapping-lease lists. Trigger inspection is blocked on an authenticated Trigger/GitHub browser session. No schedule has been paused or deleted and no credential has been revoked.
 
 Closeout sequence:
 

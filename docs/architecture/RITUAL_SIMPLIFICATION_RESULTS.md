@@ -136,7 +136,7 @@ Historical production LOC: 192,474 in the original dirty-tree audit.
 Canonical release-branch implementation measurement (tokei 14.0.0; generated sources omitted):
   Dashboard TS/TSX/JS + CSS: 83,676
   Shared packages TS/TSX + UI CSS: 9,808
-  FastAPI Python excluding tests/scripts/migrations/devtools: 57,906
+  FastAPI Python excluding tests/scripts/migrations/devtools: 57,950
   Rust desktop/watcher/ritual-db: 36,137
   Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
@@ -167,5 +167,5 @@ Tests do not count against production reduction.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.
 9. Ops leftover after deploy: disable/delete the Trigger.dev cloud project so it cannot run in parallel with FastAPI. See `TRIGGER_DEV_OPS.md`.
-10. Production web/backend evidence is green on implementation SHA `23308ee6`: GitHub Actions run `32566968381`, Vercel deployment `dpl_GMPbxfJJZzuKkYRQR7AdVRLqsXji`, and Railway deployment `405e4218-a90e-4976-b025-d50f29689fc0` / image `sha256:ca0e4032a46584161666d440c2691102a9e2fa6b9627050435e553b7d0c9c0ad`.
+10. Production web/backend evidence is green on implementation SHA `bdc34ecf`: GitHub Actions run `32568940329`, Vercel deployment `dpl_5RPpF6ZcuFthBcnhxr7tmcNr4D24`, and Railway deployment `2043bae3-91b0-428b-8f47-151831e29b4f` / image `sha256:3085f255cd64c97eb78649c7305b597e3773abd1b8c18bd8f1f4f3f5e4074b0d`.
 11. Production report email remains fail-closed because the `ritual-desktop` Vercel project has no `RESEND_API_KEY`; a real delivery is still required.

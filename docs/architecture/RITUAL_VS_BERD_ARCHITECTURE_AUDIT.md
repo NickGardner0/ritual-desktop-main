@@ -8,7 +8,7 @@
 
 > **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 190,952 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 >
-> Production evidence cut: implementation SHA `23308ee6` passed GitHub Actions `quality` and `desktop-rust`, deployed to Vercel and Railway, and reported all 13 scheduler owners healthy without stale jobs, errors, or overlapping leases. Trigger cloud disablement, the production Resend secret, real Intel artifacts/hardware smoke, signed launch captures, and v0.1.99 publication/adoption remain explicitly open.
+> Production evidence cut: implementation SHA `bdc34ecf` passed GitHub Actions `quality` and `desktop-rust`, deployed to Vercel and Railway, and reported all 13 scheduler owners healthy across distinct 10:00/11:00 UTC hourly occurrences with empty duplicate-identity, stale-job, error, and overlapping-lease lists. Trigger cloud disablement, the production Resend secret, real Intel artifacts/hardware smoke, signed launch captures, and v0.1.99 publication/adoption remain explicitly open.
 
 ## Executive assessment
 
