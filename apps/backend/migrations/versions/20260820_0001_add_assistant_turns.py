@@ -1,7 +1,7 @@
 """Add durable assistant_turns table.
 
 Revision ID: 20260820_0001
-Revises: 20260818_0001
+Revises: 20260818_0002
 Create Date: 2026-08-20
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision = "20260820_0001"
-down_revision = "20260818_0001"
+down_revision = "20260818_0002"
 branch_labels = None
 depends_on = None
 

@@ -17,7 +17,7 @@ class MigrationLineageTests(unittest.TestCase):
         config = Config(str(BACKEND_ROOT / "alembic.ini"))
         scripts = ScriptDirectory.from_config(config)
 
-        self.assertEqual(scripts.get_heads(), ["20260817_0001"])
+        self.assertEqual(scripts.get_heads(), ["20260820_0001"])
 
         revisions = list(scripts.walk_revisions())
         revision_ids = [revision.revision for revision in revisions]

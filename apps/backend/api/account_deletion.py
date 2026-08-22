@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any, Callable, Dict
@@ -28,6 +29,8 @@ def verify_clerk_webhook(payload: bytes, headers: Dict[str, str]) -> Dict[str, A
         raise RuntimeError("The svix package is required for Clerk webhooks") from error
 
     event = Webhook(secret).verify(payload, headers)
+    if isinstance(event, (bytes, bytearray, str)):
+        event = json.loads(event)
     if not isinstance(event, dict):
         raise ValueError("Clerk webhook payload was not an object")
     return event

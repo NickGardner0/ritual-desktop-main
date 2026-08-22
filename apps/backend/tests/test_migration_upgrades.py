@@ -14,7 +14,7 @@ from alembic.config import Config
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-HEAD_REVISION = "20260817_0001"
+HEAD_REVISION = "20260820_0001"
 
 
 LEGACY_SUBSET_SQL = """
