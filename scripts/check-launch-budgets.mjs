@@ -79,5 +79,5 @@ if (errors.length) {
 }
 
 console.log(
-  `Launch/RSS budget check passed: 5 cold + 5 warm fixture medians, milestones ${config.requiredMilestones.join(", ")}.`,
+  `Launch/RSS budget check passed: 5 cold + 5 warm live WKWebView medians, milestones ${config.requiredMilestones.join(", ")}.`,
 );

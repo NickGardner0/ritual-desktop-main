@@ -88,7 +88,7 @@ Desktop
 | No chat-api / profiling callers | Deleted. Stale `package-lock.json` `apps/chat-api` workspace entry removed. |
 | Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
 | Remaining projections documented | Tinybird inventory. Typesense deleted. MiniSearch stays for the in-modal picker. Dashboard Tinybird reads go through FastAPI. Signed-in FastAPI JSON reads/writes use the generated client. Raw desktop activity events read `activity.db` only. Catch-all remains for markdown/CSV Apple export, multipart import/screenshot preview, logs inline PUT, and Next-owned chat/voice/calendar/OAuth/workflow/email routes. |
-| Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS fixture budgets in `repo:check`; production code records launch milestones and process RSS. Live WKWebView five-trial captures are still release QA. |
+| Launch/route/CPU/RSS budgets | Five-trial cold/warm + RSS live WKWebView captures in `repo:check`; production code records launch milestones and process RSS. Watcher RSS was 0 in the capture session because the sidecar did not autostart. |
 | LOC remeasured | Audit baseline 192,474. Next BFF is 16/39 after unused import parsers and duplicate OAuth store-code routes were deleted. |
 | Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. The `ChatTurnEngine` wrapper is deleted; BFF routes call `handleChatStreamRequest` / SMS handlers. `chat-stream/*` remains the model-loop adapter behind the kernel. |
 
