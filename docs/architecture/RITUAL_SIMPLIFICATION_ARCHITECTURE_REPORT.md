@@ -1,6 +1,6 @@
 # Ritual simplification — architecture before/after
 
-**Date:** 2026-08-21  
+**Date:** 2026-08-22
 **Worktree:** `/Users/nickgardner/Desktop/ritual-release-0.1.1-prep` on `codex/release-0.1.1-prep`.  
 **Sources:** [`RITUAL_SIMPLIFICATION_PLAN.md`](./RITUAL_SIMPLIFICATION_PLAN.md), [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md), [`RITUAL_SIMPLIFICATION_RESULTS.md`](./RITUAL_SIMPLIFICATION_RESULTS.md).
 
@@ -82,12 +82,12 @@ Desktop
 
 | Plan criterion | Evidence |
 |---|---|
-| Production build reproducible and green | `npm run typecheck` is green. `next build --webpack` compiles; local prerender still needs Clerk publishableKey. CI/Vercel supply that key. |
-| Every Tauri command typed + capability | ACL 70/70. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` from Rust signatures; one uncompiled signature remains classified outside the gateway. |
+| Production build reproducible and green | Implementation SHA `23308ee6` passed GitHub Actions run `32566968381` (`quality` and `desktop-rust`) and deployed successfully to Vercel and Railway. |
+| Every Tauri command typed + capability | 71 registered / 71 ACL-allowed / 71 frontend-invoked. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` cover the gateway; the 72nd typed, uncompiled `check_recording_source_readiness` signature remains classified outside it. |
 | Persisted browser data cannot cross identity | React Query persist key is `ritual:react-query-cache:v1:<userId>` and restore rejects identity mismatch. |
 | One durable turn/receipt history | FastAPI `assistant_turns` + kernel commit after persist. Receipts stored on the turn. |
 | Only read-only tools concurrent | `planToolBatch` / `executeDeclaredToolCalls`; unknown tools fail closed as mutating. |
-| One scheduler owner | FastAPI registry has 13 jobs; maintenance no longer gates startup. Eleven clock jobs use durable occurrence claims, two queue jobs use atomic domain row claims, and authenticated health exposes startup/attempt/success/duration/error/lease state. Trigger.dev **code** is deleted; cloud disable remains external. |
+| One scheduler owner | FastAPI registry has 13 jobs; maintenance no longer gates startup. Eleven clock jobs use durable occurrence claims, two queue jobs use atomic domain row claims, and authenticated health exposes startup/attempt/success/duration/error/lease state. Railway deployment `405e4218-a90e-4976-b025-d50f29689fc0` was healthy across restart and fresh cadences. Trigger.dev **code** is deleted; cloud disable remains external. |
 | No chat-api / profiling callers | Deleted. Stale `package-lock.json` `apps/chat-api` workspace entry removed. |
 | Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
 | Remaining projections documented | Tinybird inventory. Typesense deleted. MiniSearch stays for the in-modal picker. Dashboard Tinybird reads go through FastAPI. Signed-in FastAPI JSON reads/writes use the generated client. Raw desktop activity events read `activity.db` only. The catch-all is JSON-only and operation/method bounded; import preview, screenshot preview, and Apple export use fixed adapters; habit-log edit uses the generated revision-checked PATCH. Next-owned chat/voice/calendar/OAuth/workflow/email routes remain for their declared boundaries. |
@@ -107,5 +107,6 @@ These stay because they still have a unique job, or they are product/ops work ou
 - Bundling the hosted dashboard into Tauri
 - Moving habits/wearables/SMS local
 - Goose/ACP as Ritual's kernel
-- Intel Mac desktop builds (0.1.1 is Apple Silicon only)
+- Intel Mac desktop artifacts (v0.1.99 is configured but cannot publish until real x86_64 sidecars and hardware smoke evidence exist)
 - Disabling Nick's Trigger.dev cloud project from this repo
+- Production report email until the Vercel `RESEND_API_KEY` is configured and a delivery is proven

@@ -11,11 +11,11 @@ This is a status report of that goal against the live repo, not a new plan. The 
 
 ## How much of the goal landed
 
-**The earlier simplification removed real duplication, but final ownership and release gates remain incomplete. The numeric “smaller” target is also not met.**
+**Repository ownership is consolidated and production web/backend gates are green. External desktop, Trigger, mail-delivery, and live-capture gates remain incomplete. The numeric “smaller” target is also not met.**
 
 | Plan outcome | Status |
 |---|---|
-| One owner per turn, job, cache, projection, native command | **True in repository code.** `AssistantKernel.runTurn` + FastAPI `assistant_turns`; one provider adapter; one 13-job scheduler registry/occurrence fence; React Query per-user; Tinybird documented; NativeGateway generated triad. Railway deployment evidence and Trigger cloud disablement remain release gates. |
+| One owner per turn, job, cache, projection, native command | **True in repository code and verified for the production scheduler.** `AssistantKernel.runTurn` + FastAPI `assistant_turns`; one provider adapter; one 13-job scheduler registry/occurrence fence; React Query per-user; Tinybird documented; NativeGateway generated triad. Trigger cloud disablement remains an external release gate. |
 | One obvious path from each client to domain truth | **True at the dashboard/FastAPI route boundary.** Generated-client JSON uses the method-aware catch-all. Multipart import/screenshot and Apple export use three fixed adapters. Habit-log edits use a generated revision-checked PATCH. Chat kernel still uses its internal `fetchPythonApi` transport. |
 | Local desktop reads for local desktop data | **True for recent desktop activity.** `activity.db` with `local \| synced \| unavailable`. Web/iOS and long-range aggregates stay `synced` / Tinybird. |
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
@@ -27,12 +27,12 @@ This is a status report of that goal against the live repo, not a new plan. The 
 
 | Criterion | Evidence now |
 |---|---|
-| Production build green | **Yes on the starting ship SHA.** GitHub `quality` + `desktop-rust` succeeded for `65ced577`. Vercel Production deployed that SHA. Local `next build` still needs Clerk keys. |
-| Every Tauri command typed + capability | **Yes.** ACL 70/70. Generated name + capability + TS I/O; one uncompiled signature remains explicitly classified outside the gateway. |
+| Production build green | **Yes on implementation SHA `23308ee6`.** GitHub Actions run `32566968381` passed `quality` and `desktop-rust`; Vercel production and Railway production both deployed the reviewed release-branch implementation. |
+| Every Tauri command typed + capability | **Yes.** 71 registered, 71 ACL-allowed, and 71 frontend-invoked commands. There are 72 typed Rust signatures; the extra uncompiled `check_recording_source_readiness` signature is explicitly classified outside the gateway. |
 | Persisted browser data cannot cross identity | **Yes.** React Query key `ritual:react-query-cache:v1:<userId>`. |
 | One durable assistant turn / receipt history | **Yes.** FastAPI atomically accepts the stable turn and user message before provider/tool work, then atomically commits assistant content, receipts, and completion. Remote failures remain `unsent` or `failed_retryable`; they are never replaced with memory success. |
 | Only read-only tools concurrent | **Yes.** Mutating tools serial; unknown tools fail closed as mutating. |
-| One scheduler owner | **Complete in repository code; production/external evidence pending.** Scheduler startup is independent of maintenance, 11 clock jobs use unique durable occurrence claims, and two queue workers use atomic row claims. `/ready` degrades for absent enabled loops and authenticated scheduler health requires all 13 jobs to run recently. Trigger cloud disablement is still unverified. |
+| One scheduler owner | **Complete in repository code and Railway.** Deployment `405e4218-a90e-4976-b025-d50f29689fc0` starts all 13 owners with maintenance disabled. Authenticated health was `healthy` after restart and across fresh 10:15 and 10:30 UTC 15-minute cadences, with no stale jobs, errors, active leases, or overlaps. Trigger cloud disablement is still unverified. |
 | No chat-api / profiling callers | **Yes.** `apps/chat-api` and the profiling bridge are deleted. |
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
@@ -93,9 +93,10 @@ These are remaining dual paths, unpaid taxes, or incomplete gates. They are docu
 6. **Resolved: one chat lifecycle and provider boundary.** `AssistantKernel.runTurn` owns acceptance through terminal state. `model-engine/*` contains provider construction/decoding only and a static import contract prevents it from reaching persistence, queues, tools, or completion. `chat-stream/*` now contains only classification and pure response helpers.
 7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
 8. **Intel release remains externally blocked, not silently unsupported.** Build/pin, runtime verification, dual-package/updater, and real-runner workflow owners exist. `sidecar-lock.json` truthfully ships only arm64 until real `x86_64` watcher/vision binaries and hardware smoke evidence are committed.
-9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 494 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
+9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 505 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
 10. **Resolved in repository code: channel-bound desktop social login.** Production, QA, and development have distinct products, bundle IDs, schemes, data roots, and build-selected capability files. Native persists a short-lived verifier with mode `0600`; the browser carries only its SHA-256 challenge and native-generated handoff ID; the Clerk ticket is minted only after the initiating binary proves the verifier to FastAPI. The correct channel consumes once and the browser polls to durable acknowledgement. Protocol v1 remains temporarily readable only for the production native-first rollout and must be removed after v0.1.99 adoption.
 11. **Installed `/Applications/Ritual.app` was last seen as 2026-07-17.** v0.1.99 is configured but not published. Runtime diagnostics now exposes channel/version/SHA, executable path, bundle/scheme, backend, watcher/RSS, data root, scheme owner, and window hit-test state so a stale binary is distinguishable. Publication/adoption remains an external release gate.
+12. **Production report email is externally blocked.** The `ritual-desktop` Vercel project has `INTERNAL_BACKEND_TOKEN` but no `RESEND_API_KEY`. The authenticated route is reachable and correctly returns 503 instead of pretending delivery succeeded; the secret must be added before report delivery can close.
 
 ---
 
@@ -123,17 +124,18 @@ Not treated as bugs (intentionally not done): bundling the dashboard into Tauri,
 
 ## What was committed and pushed to production vs what was not
 
-### How production is wired
+### Production evidence cut (implementation SHA `23308ee6`)
 
 Vercel (dashboard) and Railway (FastAPI) deploy from **`codex/release-0.1.1-prep`**, not from `main`, and not from `codex/tasks-routines-mvp`.
 
-- Historical branch commit **`2984b9f8`** was titled *Replace launch-budget fixtures with live WKWebView five-trial captures*; the current audit reclassifies those samples as fixtures because raw provenance and watcher RSS were absent.
-- GitHub PR: [https://github.com/NickGardner0/ritual-desktop-main/pull/9](https://github.com/NickGardner0/ritual-desktop-main/pull/9) — **open, not merged to `main`.**
-- GitHub CI on `2984b9f8`: **`quality` success, `desktop-rust` success.**
-- Vercel Production: **deployed `2984b9f8`.**
-- Railway FastAPI: last backend deploy seen for this work was **`c9a3aa21`** (Clerk webhook JSON parse). Later SHAs did not touch `apps/backend/**`, so Railway correctly skipped.
+- GitHub PR: [https://github.com/NickGardner0/ritual-desktop-main/pull/9](https://github.com/NickGardner0/ritual-desktop-main/pull/9) — **open, mergeable, and not merged to `main`.**
+- GitHub CI run `32566968381`: **`quality` success, `desktop-rust` success.**
+- Vercel production at the evidence cut: deployment `dpl_GMPbxfJJZzuKkYRQR7AdVRLqsXji`, Ready behind `desktop.ritualdb.com`, built from `23308ee6`.
+- Railway production: deployment `405e4218-a90e-4976-b025-d50f29689fc0`, image `sha256:ca0e4032a46584161666d440c2691102a9e2fa6b9627050435e553b7d0c9c0ad`, built from `23308ee6` with Python 3.12.12 and a successful migration predeploy.
+- Railway scheduler health: 13/13 registered and current; the post-deploy duplicate sweep preserved original completion timestamps, and fresh 10:15/10:30 UTC 15-minute occurrences completed without errors or overlapping leases.
+- Historical commit `2984b9f8` labeled launch samples as live. The current audit truthfully reclassifies those samples as fixtures because raw provenance and watcher RSS were absent.
 
-If “production” means “what users hit on desktop.ritualdb.com / Railway,” **the pushed release-branch commits are in production** (dashboard at `2984b9f8`, backend at the last backend-touching SHA). If it means “merged to `main`,” **nothing from this program is on `main` yet.**
+If “production” means “what users hit on desktop.ritualdb.com / Railway,” **the implementation is in production at `23308ee6`**. If it means “merged to `main`,” **nothing from this program is on `main` yet.** Report-only commits after this evidence cut do not change backend behavior.
 
 ### Pushed on `codex/release-0.1.1-prep` (in production deploys)
 
@@ -153,7 +155,7 @@ Composer / Tasks icon polish that was merged from origin into this branch is als
 
 The **release worktree is clean** — there are **no leftover uncommitted simplification edits** on `codex/release-0.1.1-prep`.
 
-### Not pushed / not production
+### External or not yet published
 
 | What | Where | Notes |
 |---|---|---|
@@ -161,17 +163,18 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 | **Trigger.dev cloud project** | Trigger.dev UI | Ops only. No code left in the repo. |
 | **New desktop `.app` containing this native code** | Not yet published | v0.1.99 is configured; arm64/Intel signing, notarization, hardware smoke, updater merge, and publication remain release gates. |
 | **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
+| **Production report mail secret** | Vercel project configuration | `RESEND_API_KEY` is absent; authenticated report delivery fails closed with 503. |
 | **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 190,908 and no product deletion is authorized for the metric. |
-| **This overview file** | release worktree | Intentionally reconciled and tracked as the architecture status owner. |
 
 ---
 
 ## Suggested remaining work (priority)
 
-1. In Trigger.dev, pause/delete the cloud project after confirming Railway cron is running.
-2. Quit or replace the July `Ritual.app` so deep links hit the this-branch binary; confirm production FastAPI base (not `:8000`) after desktop sign-in.
-3. Run the checked-in signed-app capture command with tracking enabled and disabled on both architectures, then attach raw artifact hashes before marking release evidence complete.
-4. Keep the 180k–185k band as a deletion/consolidation target only. If 190,908 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
-5. Merge PR 9 to `main` only if you want `main` to match what Vercel/Railway already deploy.
+1. Add `RESEND_API_KEY` to the production `ritual-desktop` Vercel project and prove a real report delivery.
+2. In Trigger.dev, pause/delete the 121 schedules only after the two-cadence evidence is complete and the exact destructive targets are confirmed.
+3. Provision the labeled real Intel runner, build/pin both x86_64 sidecars, and run the two-architecture release matrix.
+4. Publish and install the next desktop patch, verify channel-bound auth and updater selection, then remove temporary auth protocol v1.
+5. Capture signed enabled/disabled launch trials on both architectures and attach raw artifact hashes.
+6. Keep the 180k–185k band as a deletion/consolidation target only. If 190,908 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

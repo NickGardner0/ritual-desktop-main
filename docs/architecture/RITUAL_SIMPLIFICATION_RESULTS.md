@@ -50,7 +50,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete `apps/chat-api` | 106 code | 0 | −106 | extra chat deployable | `@hono/node-server` workspace | Canonical host remains dashboard `/api/chat/stream` |
 | Delete profiling HTTP bridge + tests | 81 + 28 physical | 0 | −109 | fake `:3031` transport | none | Desktop commands now require native Tauri IPC |
 | Remove unused Tauri IPC wrappers | ~230 Rust physical | 0 | ~−230 | 10 unused command exposures | none | Internal watchdog/project-time functions kept |
-| Identity-safe query cache + ACL contract test | n/a | small add | small add | none | none | Restore is per-user after Clerk; registered==allowed==invoked (60) |
+| Identity-safe query cache + ACL contract test | n/a | small add | small add | none | none | Restore is per-user after Clerk; current contract is 71 registered = 71 allowed = 71 invoked, with one additional typed uncompiled signature classified outside the gateway. |
 | Hide nonfunctional AI retention / clear-history controls | small | 0 | small | deceptive UI | none | Hidden until a real persistence/erasure path exists |
 | Delete Typesense (completed on release tree) | `search_service.py` 1,703 Typesense client | SQL search 824 | −879 plus deleted index/erasure call sites | Typesense cluster | `typesense` PyPI | Command palette/habit search read Turso. Privacy destination/erasure target removed |
 | Delete Trigger.dev source | trigger jobs + client + config | 0 | ~−400 | Trigger SDK/deployable source | `@trigger.dev/sdk`, `@trigger.dev/build` | FastAPI owns all recurring jobs. The cloud project remains external-only and must not be reported disabled without direct evidence. |
@@ -134,10 +134,10 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 ```text
 Historical production LOC: 192,474 in the original dirty-tree audit.
 Canonical release-branch implementation measurement (tokei 14.0.0; generated sources omitted):
-  Dashboard TS/TSX/JS + CSS: 83,182
+  Dashboard TS/TSX/JS + CSS: 83,676
   Shared packages TS/TSX + UI CSS: 9,808
-  FastAPI Python excluding tests/scripts/migrations/devtools: 56,801
-  Rust desktop/watcher/ritual-db: 35,542
+  FastAPI Python excluding tests/scripts/migrations/devtools: 57,906
+  Rust desktop/watcher/ritual-db: 36,137
   Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
   Tinybird pipe/datasource authored: 2,048
@@ -150,8 +150,8 @@ Frontend↔desktop paths before: commands + tauri-utils + desktop-runtime + runt
 Frontend↔desktop paths after: NativeGateway barrel + generated command/capability/input/output triad; desktop-bridge is implementation; DesktopRuntimeBridge split into lifecycle owners; separate shell bootstrap
 Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS/workflow provider loops → AssistantKernel.runTurn + assistant_turns + local outbox; provider access → model-engine/openai-adapter.ts
 Computer activity recent-desktop source: hidden mix → observable local | synced | unavailable
-Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. Intel is not a 0.1.1 ship target.
-Dashboard production typecheck: green. `next build --webpack` compiles; local prerender needs Clerk keys.
+Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. v0.1.99 remains unpublished until real Intel binaries and hardware evidence complete the dual-target matrix.
+Dashboard production typecheck/build: green in GitHub `quality` and Vercel production at the evidence cut. Backend: 505 tests passed in the locked Python 3.12.12 environment.
 ```
 
 Tests do not count against production reduction.
@@ -161,9 +161,11 @@ Tests do not count against production reduction.
 1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. The OpenAPI catch-all forwards only listed JSON methods. Apple export and multipart import/screenshot preview use fixed named adapters, and habit-log update uses a generated FastAPI operation. Sendblue webhook still forwards its provider body. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
-4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
+4. The currently published v0.1.98 ships Apple Silicon only. v0.1.99 is configured, but `sidecar-lock.json` truthfully pins only `aarch64-apple-darwin` until a real Intel runner produces and smokes the x86_64 watcher and vision helper.
 5. Authored production LOC is 190,908 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
 6. Five-trial debug fixtures gate parser/budget behavior only. Production instrumentation now separates shell and watcher readiness, but signed enabled/disabled release captures remain an explicit open gate.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.
 9. Ops leftover after deploy: disable/delete the Trigger.dev cloud project so it cannot run in parallel with FastAPI. See `TRIGGER_DEV_OPS.md`.
+10. Production web/backend evidence is green on implementation SHA `23308ee6`: GitHub Actions run `32566968381`, Vercel deployment `dpl_GMPbxfJJZzuKkYRQR7AdVRLqsXji`, and Railway deployment `405e4218-a90e-4976-b025-d50f29689fc0` / image `sha256:ca0e4032a46584161666d440c2691102a9e2fa6b9627050435e553b7d0c9c0ad`.
+11. Production report email remains fail-closed because the `ritual-desktop` Vercel project has no `RESEND_API_KEY`; a real delivery is still required.
