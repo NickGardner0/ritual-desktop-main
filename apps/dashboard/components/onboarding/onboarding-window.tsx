@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
 import { cn } from "@/lib/utils"
 
 export const ONBOARDING_TEXTURE_BACKGROUND = `
-  linear-gradient(#fafaf9, #fafaf9)
+  linear-gradient(#fcfcfa, #fcfcfa)
 `
 
 type OnboardingWindowProps = {
@@ -39,7 +39,7 @@ export function OnboardingWindow({
     >
       <div
         className={cn(
-          "relative flex shrink-0 justify-center overflow-hidden",
+          "relative flex shrink-0 justify-center overflow-hidden bg-[#fcfcfa]",
           isWelcome ? "h-[360px]" : "h-[276px]",
         )}
         style={{ backgroundImage: ONBOARDING_TEXTURE_BACKGROUND }}

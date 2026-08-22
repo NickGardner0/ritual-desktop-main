@@ -6,7 +6,7 @@ const callbackSourceUrl = new URL('../app/auth/sso-callback/page.tsx', import.me
 const dashboardLayoutSourceUrl = new URL('../app/(dashboard)/layout.tsx', import.meta.url)
 const onboardingSourceUrl = new URL('../app/onboarding/page.tsx', import.meta.url)
 const proxySourceUrl = new URL('../lib/server/proxy-helper.ts', import.meta.url)
-const proxyResponseSourceUrl = new URL('../lib/server/proxy-response.mjs', import.meta.url)
+const proxyResponseSourceUrl = new URL('../lib/server/proxy-response-init.mjs', import.meta.url)
 const railwayConfigUrl = new URL('../../backend/railway.json', import.meta.url)
 
 test('account callback performs one bootstrap request without automatic retries', async () => {
@@ -44,9 +44,12 @@ test('dashboard activation failures fail closed through bootstrap recovery', asy
     source,
     /DASHBOARD_BOOTSTRAP_RECOVERY_ROUTE = '\/auth\/sso-callback\?reason=dashboard-bootstrap'/,
   )
-  assert.match(source, /recoverFromBootstrapFailure\('fetch_failed'/)
-  assert.match(source, /recoverFromBootstrapFailure\('bad_status'/)
-  assert.match(source, /recoverFromBootstrapFailure\('invalid_json'/)
+  assert.match(source, /createServerBackendClient/)
+  assert.match(source, /get_user_bootstrap_api_user_bootstrap_get/)
+  assert.match(source, /recoverFromBootstrapFailure\(/)
+  assert.match(source, /'fetch_failed'/)
+  assert.match(source, /'bad_status'/)
+  assert.match(source, /'invalid_json'/)
   assert.doesNotMatch(source, /recordBootstrapFailure\('(?:fetch_failed|bad_status|invalid_json)'[\s\S]*?\n\s*return;/)
 })
 

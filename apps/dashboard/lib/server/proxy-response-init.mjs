@@ -5,6 +5,16 @@ export function createProxiedSuccessInit(upstream) {
   if (contentType) {
     headers.set("Content-Type", contentType);
   }
+  for (const headerName of [
+    "server-timing",
+    "x-ritual-bootstrap-duration-ms",
+    "x-ritual-bootstrap-mode",
+  ]) {
+    const headerValue = upstream.headers.get(headerName);
+    if (headerValue) {
+      headers.set(headerName, headerValue);
+    }
+  }
   return {
     body: upstream.body,
     status: upstream.status,

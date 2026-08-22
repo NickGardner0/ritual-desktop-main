@@ -8,15 +8,16 @@ async function read(relativePath) {
   return readFile(new URL(relativePath, repositoryRoot), 'utf8');
 }
 
-test('floating UI primitives are package-owned and dashboard paths are compatibility shims', async () => {
+test('floating UI primitives are package-owned and dashboard shims are gone', async () => {
   const primitiveNames = ['dialog', 'alert-dialog', 'dropdown-menu', 'popover', 'select'];
 
   for (const name of primitiveNames) {
     const shared = await read(`packages/ui/src/components/${name}.tsx`);
-    const shim = await read(`apps/dashboard/components/ui/${name}.tsx`);
-
     assert.match(shared, /@radix-ui\/react-/);
-    assert.equal(shim.includes(`export * from "@ritual/ui/${name}"`), true);
+    await assert.rejects(
+      () => read(`apps/dashboard/components/ui/${name}.tsx`),
+      (error) => error && error.code === 'ENOENT',
+    );
   }
 
   const dropdown = await read('packages/ui/src/components/dropdown-menu.tsx');
