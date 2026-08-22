@@ -8,8 +8,8 @@ use serde_json::{json, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-mod types;
 mod record_concurrency;
+mod types;
 
 pub use types::*;
 
@@ -29,11 +29,7 @@ fn ritual_vault_dir() -> PathBuf {
             return PathBuf::from(trimmed);
         }
     }
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".ritual")
-    } else {
-        PathBuf::from("./.ritual")
-    }
+    crate::app_paths::data_dir()
 }
 
 fn storage_id(user_id: &str, collection: &str, record_id: &str) -> String {

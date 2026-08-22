@@ -97,10 +97,7 @@ struct JsonlRead {
 impl BiomeOutbox {
     pub fn load() -> io::Result<Self> {
         let path = outbox_path();
-        let database_path =
-            PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
-                .join(".ritual")
-                .join("activity.db");
+        let database_path = crate::paths::data_dir().join("activity.db");
         let database = BlockingDatabase::open_activity_db_with_env(database_path)
             .map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
         if path.exists() {
@@ -199,12 +196,7 @@ impl BiomeOutbox {
 }
 
 pub fn outbox_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home)
-        .join("Library")
-        .join("Application Support")
-        .join("Ritual")
-        .join("biome_iphone_events.jsonl")
+    crate::paths::auxiliary_data_dir().join("biome_iphone_events.jsonl")
 }
 
 fn read_jsonl(path: &PathBuf) -> io::Result<JsonlRead> {

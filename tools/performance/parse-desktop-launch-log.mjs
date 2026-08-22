@@ -32,6 +32,12 @@ export function trialsFromLaunchEvents(events) {
       (item) => item.event === "launch:native_ready" && item.ts === event.ts,
     ) || events.filter((item) => item.event === "launch:native_ready" && item.ts <= event.ts).at(-1);
     const extra = nativeReady?.data || {};
+    const watcherReady = events
+      .filter((item) => item.event === "launch:watcher_ready" && item.ts >= (nativeReady?.ts || ""))
+      .at(0);
+    const watcherRss = events
+      .filter((item) => item.event === "launch:watcher_rss_sampled" && item.ts >= (nativeReady?.ts || ""))
+      .at(0);
     trials.push({
       ts: event.ts,
       kind: event.data?.kind === "warm" ? "warm" : "cold",
@@ -39,7 +45,12 @@ export function trialsFromLaunchEvents(events) {
       native_ready: milestones.native_ready?.last_ms ?? extra.elapsed_ms ?? null,
       shell_bootstrap: milestones.shell_bootstrap?.last_ms ?? null,
       webview_rss_bytes: extra.webview_rss_bytes ?? null,
-      watcher_rss_bytes: extra.watcher_rss_bytes ?? null,
+      watcher_readiness_time_ms: watcherReady?.data?.readinessTimeMs ?? null,
+      watcher_pid: watcherRss?.data?.pid ?? watcherReady?.data?.pid ?? extra.watcher_pid ?? null,
+      watcher_rss_bytes: watcherRss?.data?.watcherRssBytes ?? extra.watcher_rss_bytes ?? null,
+      watcher_rss_sample_state:
+        watcherRss?.data?.state ?? extra.watcher_rss_sample_state ?? "unavailable",
+      watcher_rss_reason: watcherRss?.data?.reason ?? extra.watcher_rss_reason ?? null,
     });
   }
   return trials;

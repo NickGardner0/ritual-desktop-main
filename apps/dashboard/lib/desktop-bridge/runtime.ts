@@ -42,11 +42,12 @@ export type DesktopDatabaseRuntimeState = {
 };
 
 export type DesktopWatcherLifecycleState =
+  | 'never_enabled'
   | 'disabled_by_user'
   | 'disabled_no_permission'
   | 'starting'
-  | 'running'
-  | 'unhealthy'
+  | 'ready'
+  | 'failed'
   | 'backoff';
 
 export type DesktopWatcherRuntimeState = {
@@ -56,6 +57,8 @@ export type DesktopWatcherRuntimeState = {
   deviceId?: string | null;
   accessibilityGranted: boolean;
   secondsSinceHeartbeat?: number | null;
+  readinessTimeMs?: number | null;
+  failureReason?: string | null;
   restartCount: number;
   lastRestartReason?: string | null;
 };
@@ -75,6 +78,8 @@ export type DesktopProcessMetrics = {
   webviewRssBytes?: number | null;
   watcherPid?: number | null;
   watcherRssBytes?: number | null;
+  watcherRssSampleState: 'sampled' | 'not_applicable' | 'pending' | 'unavailable';
+  watcherRssReason?: string | null;
 };
 
 export type DesktopRuntimeState = {

@@ -1,8 +1,10 @@
 {
-  "version": 1,
-  "description": "Five-trial cold/warm launch, RSS, and background-wakeup budgets. CI compares live WKWebView medians captured 2026-08-21 from the this-branch debug binary (RITUAL_ENV=production, hosted desktop.ritualdb.com /dashboard). Watcher RSS is 0 because the sidecar did not autostart in that session (no saved watcher config); webview RSS is from native_ready.",
+  "version": 2,
+  "description": "Fixture trials exercise launch-budget parsing only. They are legacy debug captures without raw artifacts and cannot satisfy release evidence. Release evidence remains incomplete until signed production-shaped enabled and disabled trials carry full provenance, watcher readiness, PID, and honest RSS.",
   "trials": 5,
   "requiredMilestones": ["providers_mounted", "native_ready", "shell_bootstrap"],
+  "requiredArchitectures": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+  "requiredChannels": ["production"],
   "budgets": {
     "cold": {
       "providers_mounted_ms": 4000,
@@ -24,20 +26,25 @@
       "nativeVoicePollOnlyWhileListening": true
     }
   },
+  "releaseEvidence": {
+    "status": "incomplete",
+    "reason": "No raw ready-watcher trial artifacts exist yet; the legacy captures had no watcher process and no raw artifact hashes.",
+    "trials": []
+  },
   "fixtureTrials": {
     "cold": [
-      { "providers_mounted": 2987, "native_ready": 3050, "shell_bootstrap": 2987, "webview_rss_bytes": 165036032, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 1398, "native_ready": 1464, "shell_bootstrap": 1399, "webview_rss_bytes": 195969024, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 1307, "native_ready": 1379, "shell_bootstrap": 1308, "webview_rss_bytes": 176259072, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 839, "native_ready": 915, "shell_bootstrap": 839, "webview_rss_bytes": 186335232, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 984, "native_ready": 1050, "shell_bootstrap": 984, "webview_rss_bytes": 178307072, "watcher_rss_bytes": 0 }
+      { "trial_id": "legacy-debug-cold-1", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "cold", "providers_mounted": 2987, "native_ready": 3050, "shell_bootstrap": 2987, "webview_rss_bytes": 165036032, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-cold-2", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "cold", "providers_mounted": 1398, "native_ready": 1464, "shell_bootstrap": 1399, "webview_rss_bytes": 195969024, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-cold-3", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "cold", "providers_mounted": 1307, "native_ready": 1379, "shell_bootstrap": 1308, "webview_rss_bytes": 176259072, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-cold-4", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "cold", "providers_mounted": 839, "native_ready": 915, "shell_bootstrap": 839, "webview_rss_bytes": 186335232, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-cold-5", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "cold", "providers_mounted": 984, "native_ready": 1050, "shell_bootstrap": 984, "webview_rss_bytes": 178307072, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" }
     ],
     "warm": [
-      { "providers_mounted": 230, "native_ready": 271, "shell_bootstrap": 230, "webview_rss_bytes": 198967296, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 347, "native_ready": 389, "shell_bootstrap": 347, "webview_rss_bytes": 161906688, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 871, "native_ready": 916, "shell_bootstrap": 871, "webview_rss_bytes": 161939456, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 226, "native_ready": 268, "shell_bootstrap": 227, "webview_rss_bytes": 166871040, "watcher_rss_bytes": 0 },
-      { "providers_mounted": 252, "native_ready": 290, "shell_bootstrap": 252, "webview_rss_bytes": 167837696, "watcher_rss_bytes": 0 }
+      { "trial_id": "legacy-debug-warm-1", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "warm", "providers_mounted": 230, "native_ready": 271, "shell_bootstrap": 230, "webview_rss_bytes": 198967296, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-warm-2", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "warm", "providers_mounted": 347, "native_ready": 389, "shell_bootstrap": 347, "webview_rss_bytes": 161906688, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-warm-3", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "warm", "providers_mounted": 871, "native_ready": 916, "shell_bootstrap": 871, "webview_rss_bytes": 161939456, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-warm-4", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "warm", "providers_mounted": 226, "native_ready": 268, "shell_bootstrap": 227, "webview_rss_bytes": 166871040, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" },
+      { "trial_id": "legacy-debug-warm-5", "provenance": "fixture", "raw_artifact_id": null, "raw_artifact_sha256": null, "source_sha": "2984b9f8", "app_version": null, "architecture": null, "channel": "production", "tracking_state": "never_enabled", "kind": "warm", "providers_mounted": 252, "native_ready": 290, "shell_bootstrap": 252, "webview_rss_bytes": 167837696, "watcher_readiness_time_ms": null, "watcher_pid": null, "watcher_rss_bytes": null, "watcher_rss_sample_state": "not_applicable", "watcher_rss_reason": "watcher_never_enabled" }
     ]
   }
 }

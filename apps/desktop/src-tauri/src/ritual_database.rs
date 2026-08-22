@@ -102,11 +102,7 @@ fn resolve_active_identity() -> Option<ActiveIdentity> {
 }
 /// Get the ritual database directory
 fn get_ritual_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        PathBuf::from(home).join(".ritual")
-    } else {
-        PathBuf::from("./.ritual")
-    }
+    crate::app_paths::data_dir()
 }
 
 fn get_memory_db_path() -> PathBuf {

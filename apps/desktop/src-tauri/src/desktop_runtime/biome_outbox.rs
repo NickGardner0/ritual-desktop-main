@@ -6,12 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn biome_outbox_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| {
-        home.join("Library")
-            .join("Application Support")
-            .join("Ritual")
-            .join("biome_iphone_events.jsonl")
-    })
+    Some(crate::app_paths::auxiliary_data_dir().join("biome_iphone_events.jsonl"))
 }
 
 fn biome_sync_db_path() -> Option<PathBuf> {
@@ -35,12 +30,7 @@ fn biome_app_in_focus_remote_path() -> Option<PathBuf> {
 }
 
 fn biome_committed_cursors_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| {
-        home.join("Library")
-            .join("Application Support")
-            .join("Ritual")
-            .join("biome_committed_cursors.json")
-    })
+    Some(crate::app_paths::auxiliary_data_dir().join("biome_committed_cursors.json"))
 }
 
 fn path_string(path: &Path) -> String {

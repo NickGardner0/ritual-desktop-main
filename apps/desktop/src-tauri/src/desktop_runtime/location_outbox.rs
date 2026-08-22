@@ -1,12 +1,7 @@
 use super::*;
 
 fn location_outbox_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| {
-        home.join("Library")
-            .join("Application Support")
-            .join("Ritual")
-            .join("location_outbox.json")
-    })
+    Some(crate::app_paths::auxiliary_data_dir().join("location_outbox.json"))
 }
 
 fn write_location_outbox(path: &PathBuf, pings: &[DesktopLocationPing]) -> Result<(), String> {

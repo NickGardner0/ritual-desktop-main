@@ -12,8 +12,7 @@ fn get_app_icon_impl(bundle_id: String) -> Result<AppIconResponse, String> {
     let started_at = Instant::now();
     #[cfg(target_os = "macos")]
     {
-        let home = dirs::home_dir().ok_or("Could not find home directory")?;
-        let cache_dir = home.join(".ritual").join("icons");
+        let cache_dir = crate::app_paths::data_dir().join("icons");
 
         // Ensure cache directory exists
         std::fs::create_dir_all(&cache_dir)

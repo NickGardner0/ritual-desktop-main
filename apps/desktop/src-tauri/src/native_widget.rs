@@ -89,9 +89,7 @@ fn ensure_bundled_voice_runtime() -> Result<(), String> {
 }
 
 fn turso_sync_config_path() -> Result<std::path::PathBuf, String> {
-    dirs::home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())
-        .map(|home| home.join(".ritual").join("turso_sync.json"))
+    Ok(crate::app_paths::data_dir().join("turso_sync.json"))
 }
 
 pub fn load_turso_sync_config() -> Result<Option<TursoSyncConfig>, String> {
@@ -294,13 +292,10 @@ pub(crate) async fn apply_turso_sync_config_internal(
 }
 
 pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf, String> {
-    use dirs::home_dir;
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
-    let token_dir = home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())?
-        .join(".ritual");
+    let token_dir = crate::app_paths::data_dir();
     fs::create_dir_all(&token_dir).map_err(|e| format!("Failed to create token directory: {e}"))?;
     let token_file = token_dir.join("auth_token.txt");
 
@@ -316,13 +311,9 @@ pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf
 }
 
 pub(crate) fn clear_auth_token_on_disk() -> Result<(), String> {
-    use dirs::home_dir;
     use std::fs;
 
-    let token_file = home_dir()
-        .ok_or_else(|| "Failed to resolve home directory".to_string())?
-        .join(".ritual")
-        .join("auth_token.txt");
+    let token_file = crate::app_paths::data_dir().join("auth_token.txt");
 
     if token_file.exists() {
         fs::remove_file(&token_file).map_err(|e| format!("Failed to remove token file: {e}"))?;

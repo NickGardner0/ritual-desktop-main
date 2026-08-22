@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
+mod app_paths;
 mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
@@ -141,9 +142,7 @@ fn read_nonempty_env(name: &str) -> Option<String> {
 }
 
 fn apply_one_time_main_window_default_size(window: &tauri::WebviewWindow) {
-    let Some(ritual_dir) = dirs::home_dir().map(|home| home.join(".ritual")) else {
-        return;
-    };
+    let ritual_dir = app_paths::data_dir();
     let marker_path = ritual_dir.join(MAIN_WINDOW_DEFAULT_SIZE_MARKER);
     if marker_path.exists() {
         return;
@@ -427,8 +426,12 @@ fn spawn_watcher_watchdog() {
 
 const WATCHER_AUTOSTART_SUCCESS_LOG: &str = "Watcher auto-started successfully";
 
-async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
+async fn auto_start_watcher_from_config<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    config: watcher::WatcherConfig,
+) {
     let watcher_start_started_at = Instant::now();
+    watcher::lifecycle::emit_watcher_start_requested(&app, &config.device_id);
     info!(
         device_id = %config.device_id,
         user_id = %config.user_id,
@@ -448,12 +451,18 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
                     "{}",
                     WATCHER_AUTOSTART_SUCCESS_LOG
                 );
+                watcher::lifecycle::spawn_watcher_readiness_monitor(app.clone());
             }
             Ok(Err(error)) => {
                 warn!(
                     error = %error,
                     duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
                     "Failed to auto-start watcher"
+                );
+                watcher::lifecycle::emit_watcher_failed(
+                    &app,
+                    None,
+                    format!("watcher_autostart_failed: {error}"),
                 );
             }
             Err(error) => {
@@ -462,10 +471,20 @@ async fn auto_start_watcher_from_config(config: watcher::WatcherConfig) {
                     duration_ms = watcher_start_started_at.elapsed().as_millis() as u64,
                     "Watcher auto-start task failed"
                 );
+                watcher::lifecycle::emit_watcher_failed(
+                    &app,
+                    None,
+                    format!("watcher_autostart_task_failed: {error}"),
+                );
             }
         }
     } else {
         warn!("Watcher auto-start skipped: accessibility permission not granted");
+        watcher::lifecycle::emit_watcher_failed(
+            &app,
+            Some(config.device_id),
+            "accessibility_permission_not_granted".to_string(),
+        );
     }
 }
 
@@ -586,7 +605,7 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHa
         }
 
         if let Some(config) = read_watcher_config() {
-            auto_start_watcher_from_config(config).await;
+            auto_start_watcher_from_config(app.clone(), config).await;
         }
 
         spawn_watcher_watchdog();
@@ -1259,9 +1278,7 @@ const SETTINGS_WINDOW_MIN_WIDTH: f64 = 720.0;
 const SETTINGS_WINDOW_MIN_HEIGHT: f64 = 500.0;
 
 fn ritual_config_dir() -> Result<std::path::PathBuf, String> {
-    let dir = dirs::home_dir()
-        .ok_or_else(|| "Home directory is unavailable".to_string())?
-        .join(".ritual");
+    let dir = app_paths::data_dir();
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("Failed to create Ritual config directory: {error}"))?;
     Ok(dir)

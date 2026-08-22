@@ -7,7 +7,7 @@
       "targets": {
         "aarch64-apple-darwin": {
           "file": "ritual-watcher-aarch64-apple-darwin",
-          "sha256": "8d077e844a3b9c0d10df74c40bbd338219b7eb05913cd8651faa3a0e2f2f6d4f"
+          "sha256": "f1fa5928c143d6ca8dc61c99b70d4a457211dd0d9c53af2adc3a916f6e938da3"
         }
       }
     },

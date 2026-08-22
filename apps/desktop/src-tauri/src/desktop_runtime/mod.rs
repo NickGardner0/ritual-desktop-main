@@ -74,13 +74,24 @@ pub struct DesktopAuthRuntimeState {
     pub last_turso_error: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Default)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WatcherRssSampleState {
+    Sampled,
+    NotApplicable,
+    Pending,
+    Unavailable,
+}
+
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopProcessMetrics {
     pub webview_pid: Option<u32>,
     pub webview_rss_bytes: Option<u64>,
     pub watcher_pid: Option<u32>,
     pub watcher_rss_bytes: Option<u64>,
+    pub watcher_rss_sample_state: WatcherRssSampleState,
+    pub watcher_rss_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -386,7 +397,7 @@ pub(crate) fn parse_ps_rss_bytes(stdout: &str) -> Option<u64> {
         .map(|kilobytes| kilobytes.saturating_mul(1024))
 }
 
-fn process_rss_bytes(pid: u32) -> Option<u64> {
+pub(crate) fn process_rss_bytes(pid: u32) -> Option<u64> {
     let output = std::process::Command::new("ps")
         .args(["-o", "rss=", "-p", &pid.to_string()])
         .output()
@@ -397,13 +408,70 @@ fn process_rss_bytes(pid: u32) -> Option<u64> {
     parse_ps_rss_bytes(&String::from_utf8_lossy(&output.stdout))
 }
 
-fn collect_process_metrics(watcher_pid: Option<u32>) -> DesktopProcessMetrics {
+fn collect_process_metrics(
+    watcher: &crate::watcher::WatcherLifecycleSnapshot,
+) -> DesktopProcessMetrics {
     let webview_pid = std::process::id();
+    let (watcher_pid, watcher_rss_bytes, watcher_rss_sample_state, watcher_rss_reason) =
+        match watcher.state {
+            crate::watcher::lifecycle::WatcherLifecycleState::Ready => {
+                let rss = watcher
+                    .pid
+                    .and_then(process_rss_bytes)
+                    .filter(|bytes| *bytes > 0);
+                if rss.is_some() {
+                    (watcher.pid, rss, WatcherRssSampleState::Sampled, None)
+                } else {
+                    (
+                        watcher.pid,
+                        None,
+                        WatcherRssSampleState::Unavailable,
+                        Some("watcher_rss_unavailable_after_readiness".to_string()),
+                    )
+                }
+            }
+            crate::watcher::lifecycle::WatcherLifecycleState::NeverEnabled => (
+                None,
+                None,
+                WatcherRssSampleState::NotApplicable,
+                Some("watcher_never_enabled".to_string()),
+            ),
+            crate::watcher::lifecycle::WatcherLifecycleState::DisabledByUser => (
+                None,
+                None,
+                WatcherRssSampleState::NotApplicable,
+                Some("watcher_disabled_by_user".to_string()),
+            ),
+            crate::watcher::lifecycle::WatcherLifecycleState::DisabledNoPermission => (
+                None,
+                None,
+                WatcherRssSampleState::NotApplicable,
+                Some("accessibility_permission_not_granted".to_string()),
+            ),
+            crate::watcher::lifecycle::WatcherLifecycleState::Starting => (
+                None,
+                None,
+                WatcherRssSampleState::Pending,
+                Some("watcher_readiness_pending".to_string()),
+            ),
+            crate::watcher::lifecycle::WatcherLifecycleState::Failed
+            | crate::watcher::lifecycle::WatcherLifecycleState::Backoff => (
+                None,
+                None,
+                WatcherRssSampleState::Unavailable,
+                watcher
+                    .failure_reason
+                    .clone()
+                    .or_else(|| Some("watcher_not_ready".to_string())),
+            ),
+        };
     DesktopProcessMetrics {
         webview_pid: Some(webview_pid),
         webview_rss_bytes: process_rss_bytes(webview_pid),
         watcher_pid,
-        watcher_rss_bytes: watcher_pid.and_then(process_rss_bytes),
+        watcher_rss_bytes,
+        watcher_rss_sample_state,
+        watcher_rss_reason,
     }
 }
 
@@ -413,7 +481,7 @@ async fn build_runtime_state<R: Runtime>(
     let auth = build_auth_runtime_state(app);
     let database = crate::ritual_database::database_runtime_state_snapshot();
     let watcher = crate::watcher::get_watcher_lifecycle_snapshot().await;
-    let process = collect_process_metrics(watcher.pid);
+    let process = collect_process_metrics(&watcher);
 
     Ok(DesktopRuntimeState {
         auth,

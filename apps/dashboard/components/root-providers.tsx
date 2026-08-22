@@ -128,6 +128,9 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
         webview_rss_bytes: runtimeState?.process?.webviewRssBytes ?? null,
         watcher_rss_bytes: runtimeState?.process?.watcherRssBytes ?? null,
         watcher_pid: runtimeState?.process?.watcherPid ?? null,
+        watcher_rss_sample_state: runtimeState?.process?.watcherRssSampleState ?? 'unavailable',
+        watcher_rss_reason: runtimeState?.process?.watcherRssReason ?? 'runtime_state_unavailable',
+        watcher_state: runtimeState?.watcher.state ?? 'failed',
       });
       const summary = summarizeLaunchMilestones();
       if (summary) {
@@ -138,6 +141,45 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
         });
       }
     });
+  }, [isDesktopBootstrap, isDesktopShell]);
+
+  useEffect(() => {
+    if (!isDesktopShell || isDesktopBootstrap || isAuxiliaryDesktopWindow()) {
+      return;
+    }
+
+    let disposed = false;
+    const unlistenCallbacks: Array<() => void> = [];
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      const registrations = await Promise.all([
+        listen<Record<string, unknown>>('desktop://watcher-start-requested', ({ payload }) => {
+          recordLaunchMilestone('watcher_start_requested', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-ready', ({ payload }) => {
+          recordLaunchMilestone('watcher_ready', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-failed', ({ payload }) => {
+          recordLaunchMilestone('watcher_failed', payload);
+        }),
+        listen<Record<string, unknown>>('desktop://watcher-rss-sampled', ({ payload }) => {
+          recordLaunchMilestone('watcher_rss_sampled', payload);
+        }),
+      ]);
+      if (disposed) {
+        registrations.forEach((unlisten) => unlisten());
+      } else {
+        unlistenCallbacks.push(...registrations);
+      }
+    }).catch((error) => {
+      void recordDesktopShellEvent('watcher:event-listener-failed', 'warn', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+
+    return () => {
+      disposed = true;
+      unlistenCallbacks.forEach((unlisten) => unlisten());
+    };
   }, [isDesktopBootstrap, isDesktopShell]);
 
   useEffect(() => {

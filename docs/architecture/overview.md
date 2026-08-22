@@ -19,9 +19,9 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | One obvious path from each client to domain truth | **Mostly true for signed-in FastAPI JSON.** Dashboard/Next use the generated client. Multipart, plaintext Apple export, and logs inline PUT still go through the catch-all. Chat kernel still uses `fetchPythonApi`. |
 | Local desktop reads for local desktop data | **True for recent desktop activity.** `activity.db` with `local \| synced \| unavailable`. Web/iOS and long-range aggregates stay `synced` / Tinybird. |
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
-| Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate `repo:check`, but the artifacts do not contain sufficient raw provenance to certify them as live captures. Watcher RSS is invalidly encoded as zero. |
+| Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate parser budgets, but cannot certify a live release. Schema v2 now records missing watcher RSS honestly as null/not-applicable and marks release evidence incomplete. |
 | Reproducible builds / immutable releases | **Mostly true.** Sidecars SHA-pinned for Apple Silicon; CI/release actions pinned to SHAs. Intel Macs are not a 0.1.1 target. |
-| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **187,601** after the additive durable-chat boundary (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
+| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **188,227** after the additive durable-chat and watcher-lifecycle boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
 
@@ -37,7 +37,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
 | Launch / RSS budgets | **Stored webview fixtures exist; live provenance and watcher RSS do not.** |
-| Authored LOC in 180k–185k | **No.** Canonical implementation total is **187,601**. |
+| Authored LOC in 180k–185k | **No.** Canonical implementation total is **188,227**. |
 | Legacy orchestration deleted after parity | **Strangler complete for the kernel.** `chat-stream/*` remains the model-loop adapter behind the kernel. |
 
 Rough score: **the architecture goal is implemented; the “materially smaller” goal is not proven; a short list of product/ops bugs remains.**
@@ -85,11 +85,11 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
-1. **Canonical LOC is 187,601**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
+1. **Canonical LOC is 188,227**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
 2. **Trigger.dev cloud project** may still fire jobs until it is paused/deleted in the Trigger.dev UI. Railway FastAPI is already the in-repo scheduler.
 3. **Next catch-all leftovers:** multipart import/screenshot preview, plaintext/CSV Apple Health export, habit-log inline PUT (FastAPI has no update-log operation).
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
-5. **Watcher RSS unmeasured.** `native_ready` fires before the sidecar starts; the live capture session had no saved watcher config, so `watcher_rss_bytes` is 0 in `tools/performance/launch-budgets.json`.
+5. **Watcher live RSS evidence pending.** Native code now separates watcher readiness from `native_ready`, waits for reachability/heartbeat, and rejects enabled zero RSS. The legacy samples are fixtures with null/not-applicable RSS; signed enabled/disabled captures still have to be produced.
 6. **`chat-stream/*` still exists** as the model-loop adapter. That is the strangler leftover, not a second chat host.
 7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
 8. **Apple Silicon only.** No Intel `x86_64` sidecars.
@@ -106,8 +106,8 @@ These bit us during the live desktop captures or CI, or are still wrong in produ
 | Issue | What happens | Fix / next |
 |---|---|---|
 | **Wrong backend base in debug “production” desktop** | After sign-in, Turso refresh hits `http://127.0.0.1:8000` and connection-refuses. Location/biome outbox logs “Auth token is unavailable” until handoff, then the local URL. | **Fixed and pushed** (`65ced577`). Hosted `desktop.ritualdb.com` now hands native the Railway FastAPI URL; production Rust also rewrites leftover loopback bases. |
-| **Watcher does not autostart without a saved config** | Launch RSS for the sidecar is 0; computer-activity tracking may stay off until the user enables it in this binary. | Expected if tracking was never enabled in that app data dir; not expected if the July app already had a config the debug binary cannot see. |
-| **`native_ready` races the watcher** | Even when the sidecar starts, the first telemetry sample often has `watcher_pid: null`. | Sample RSS after watcher start, or delay that field, before treating watcher RSS as a live budget. |
+| **Watcher preference/lifecycle ambiguity** | Missing config and explicit disablement previously collapsed to one state. | Fixed in repository code with preference v2, channel-isolated roots, and distinct never-enabled/user-disabled states; installed-release migration evidence remains pending. |
+| **`native_ready` races the watcher** | The shell milestone previously sampled the sidecar before readiness. | Fixed in repository code with a separate bounded readiness event and post-heartbeat RSS sample. No live budget is claimed until raw signed trials pass. |
 | **Cmd+R does not reload the WKWebView** | Keystrokes go to Chrome if it is focused; Tauri has no Reload handler. Debug builds can `SIGUSR1` to `location.reload()`. | Product builds still have no in-app reload. Fine for users; painful for QA. |
 | **OAuth leftover page in Chrome** | “Still returning to Ritual?” / “Open Ritual” is `/auth/desktop-oauth-bridge`, not a second onboarding/Clerk. | Click Open Ritual and look at the **native** window. Uninstall or quit the July `Ritual.app` if the deep link opens the wrong binary. |
 | **Transparent / liquid-glass window** | Screenshots and clicks can look like they hit the desktop underneath. | Known desktop chrome issue; not a second app. |
@@ -127,7 +127,7 @@ Not treated as bugs (intentionally not done): bundling the dashboard into Tauri,
 
 Vercel (dashboard) and Railway (FastAPI) deploy from **`codex/release-0.1.1-prep`**, not from `main`, and not from `codex/tasks-routines-mvp`.
 
-- Branch HEAD (pushed): **`2984b9f8`** — *Replace launch-budget fixtures with live WKWebView five-trial captures.*
+- Historical branch commit **`2984b9f8`** was titled *Replace launch-budget fixtures with live WKWebView five-trial captures*; the current audit reclassifies those samples as fixtures because raw provenance and watcher RSS were absent.
 - GitHub PR: [https://github.com/NickGardner0/ritual-desktop-main/pull/9](https://github.com/NickGardner0/ritual-desktop-main/pull/9) — **open, not merged to `main`.**
 - GitHub CI on `2984b9f8`: **`quality` success, `desktop-rust` success.**
 - Vercel Production: **deployed `2984b9f8`.**
@@ -147,7 +147,7 @@ All simplification commits on that branch, including:
 - CI unblockers: OpenAPI 0.119 regen, Alembic head linearization, Clerk webhook parse, Rust test filter, bootstrap timing headers, contract tests
 - Tauri 2 IPC detection
 - Debug-only SIGUSR1 WKWebView reload
-- Live launch/RSS numbers in `tools/performance/launch-budgets.json`
+- Legacy debug launch fixtures in `tools/performance/launch-budgets.json`; release evidence is explicitly incomplete
 
 Composer / Tasks icon polish that was merged from origin into this branch is also on that SHA (product, not simplification).
 
@@ -160,7 +160,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 | **Dirty `codex/tasks-routines-mvp` worktree** | `/Users/nickgardner/Desktop/ritual-desktop-main` | ~438 dirty files. Entities/experiments/account-deletion and other product WIP. **Do not treat this tree as ship.** Some of those features already exist on the release branch; the dirty copies are not what deployed. |
 | **Trigger.dev cloud project** | Trigger.dev UI | Ops only. No code left in the repo. |
 | **New desktop `.app` containing this native code** | Not shipped as a DMG/app replacement in this pass | Users still run hosted JS in WKWebView. The July `/Applications/Ritual.app` native shell is old. Debug `target/debug/app` is local-only. |
-| **Watcher live RSS samples** | launch budgets | Recorded as 0. |
+| **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
 | **LOC reduction into 180k–185k** | measurement | Not achieved; no extra deletion pass queued. |
 | **This overview file** | local | Created on request; **not committed** unless you ask. |
 
@@ -170,8 +170,8 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 
 1. In Trigger.dev, pause/delete the cloud project after confirming Railway cron is running.
 2. Quit or replace the July `Ritual.app` so deep links hit the this-branch binary; confirm production FastAPI base (not `:8000`) after desktop sign-in.
-3. Recapture watcher RSS with tracking actually running, then replace the 0s in `launch-budgets.json`.
-4. Keep the 180k–185k band as a deletion/consolidation target only. If 187,601 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+3. Run the checked-in signed-app capture command with tracking enabled and disabled on both architectures, then attach raw artifact hashes before marking release evidence complete.
+4. Keep the 180k–185k band as a deletion/consolidation target only. If 188,227 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 5. Merge PR 9 to `main` only if you want `main` to match what Vercel/Railway already deploy.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

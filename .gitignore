@@ -132,3 +132,5 @@ backups/
 
 # Local historical data exports
 tmp/historical-*/
+# Local launch-performance evidence can contain machine paths and runtime logs.
+artifacts/launch-evidence/

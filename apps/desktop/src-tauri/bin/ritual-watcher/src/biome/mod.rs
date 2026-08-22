@@ -586,7 +586,7 @@ struct BiomeBookmarks {
 
 impl BiomeBookmarks {
     fn load() -> Result<Self, String> {
-        let database_path = home_dir().join(".ritual").join("activity.db");
+        let database_path = crate::paths::data_dir().join("activity.db");
         let database =
             ritual_db::blocking::BlockingDatabase::open_activity_db_with_env(database_path)
                 .map_err(|error| error.to_string())?;
@@ -649,11 +649,7 @@ fn app_in_focus_remote_dir() -> PathBuf {
 }
 
 fn bookmarks_path() -> PathBuf {
-    home_dir()
-        .join("Library")
-        .join("Application Support")
-        .join("Ritual")
-        .join("biome_committed_cursors.json")
+    crate::paths::auxiliary_data_dir().join("biome_committed_cursors.json")
 }
 
 fn home_dir() -> PathBuf {

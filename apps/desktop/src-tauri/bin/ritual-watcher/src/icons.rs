@@ -12,8 +12,7 @@ use tracing::{debug, info, warn};
 
 /// Cache directory for app icons
 fn get_icon_cache_dir() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    PathBuf::from(home).join(".ritual").join("icons")
+    crate::paths::data_dir().join("icons")
 }
 
 /// Ensure icon cache directory exists

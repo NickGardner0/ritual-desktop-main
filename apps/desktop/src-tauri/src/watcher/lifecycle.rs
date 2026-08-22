@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use super::config::default_browser_heartbeat_port;
 use super::diagnostics::{get_browser_extension_diagnostics, watcher_server_statuses};
@@ -32,11 +33,12 @@ pub struct WatcherStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WatcherLifecycleState {
+    NeverEnabled,
     DisabledByUser,
     DisabledNoPermission,
     Starting,
-    Running,
-    Unhealthy,
+    Ready,
+    Failed,
     Backoff,
 }
 
@@ -49,9 +51,36 @@ pub struct WatcherLifecycleSnapshot {
     pub device_id: Option<String>,
     pub accessibility_granted: bool,
     pub seconds_since_heartbeat: Option<i64>,
+    pub readiness_time_ms: Option<u64>,
+    pub failure_reason: Option<String>,
     pub restart_count: u64,
     pub last_restart_reason: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WatcherLifecycleEvent {
+    state: WatcherLifecycleState,
+    pid: Option<u32>,
+    device_id: Option<String>,
+    readiness_time_ms: Option<u64>,
+    failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WatcherRssSampleEvent {
+    state: &'static str,
+    pid: Option<u32>,
+    watcher_rss_bytes: Option<u64>,
+    reason: Option<String>,
+}
+
+pub const WATCHER_START_REQUESTED_EVENT: &str = "desktop://watcher-start-requested";
+pub const WATCHER_READY_EVENT: &str = "desktop://watcher-ready";
+pub const WATCHER_FAILED_EVENT: &str = "desktop://watcher-failed";
+pub const WATCHER_RSS_SAMPLED_EVENT: &str = "desktop://watcher-rss-sampled";
+const WATCHER_READINESS_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Clone)]
 struct ResolvedWatcherBinary {
@@ -107,18 +136,16 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
     ]);
 
     // Add absolute fallback paths.
+    #[cfg(debug_assertions)]
     if let Ok(home) = std::env::var("HOME") {
         let home = PathBuf::from(home);
         // Development-only paths — these are developer-specific and won't exist on user machines.
-        #[cfg(debug_assertions)]
-        {
-            candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
-            candidates.push(home.join(
-                "Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher",
-            ));
-            candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
-            candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
-        }
+        candidates.push(home.join("Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
+        candidates.push(home.join(
+            "Desktop/ritual-desktop-main/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher",
+        ));
+        candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/release/ritual-watcher"));
+        candidates.push(home.join("Desktop/ritual-desktop-main/apps/desktop/src-tauri/bin/ritual-watcher/target/debug/ritual-watcher"));
     }
 
     // External installs are kept as the last-resort fallback everywhere else.
@@ -132,15 +159,19 @@ fn watcher_candidate_paths() -> Vec<PathBuf> {
 }
 
 fn external_watcher_install_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".ritual").join("bin").join("ritual-watcher"))
+    Some(
+        crate::app_paths::data_dir()
+            .join("bin")
+            .join("ritual-watcher"),
+    )
 }
 
 fn external_vision_helper_install_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| {
-        home.join(".ritual")
+    Some(
+        crate::app_paths::data_dir()
             .join("bin")
-            .join("ritual-vision-helper")
-    })
+            .join("ritual-vision-helper"),
+    )
 }
 
 fn bundled_watcher_binary_path() -> Option<PathBuf> {
@@ -370,16 +401,11 @@ fn find_watcher_executable() -> Result<ResolvedWatcherBinary, String> {
 }
 
 fn get_activity_database_path() -> PathBuf {
-    if let Some(home) = dirs::home_dir() {
-        home.join(".ritual").join("activity.db")
-    } else {
-        PathBuf::from("./activity.db")
-    }
+    crate::app_paths::data_dir().join("activity.db")
 }
 
 fn configure_watcher_stdio(command: &mut Command) -> Result<(), String> {
-    let home = dirs::home_dir().ok_or_else(|| "Could not resolve home directory".to_string())?;
-    let log_dir = home.join(".ritual").join("logs");
+    let log_dir = crate::app_paths::data_dir().join("logs");
     std::fs::create_dir_all(&log_dir)
         .map_err(|e| format!("Failed to create watcher log dir: {}", e))?;
     let log_path = log_dir.join("ritual-watcher.log");
@@ -592,9 +618,24 @@ fn cleanup_existing_watcher_processes(device_id: &str, context: &str) {
 
 /// Start the ritual-watcher sidecar
 #[tauri::command]
-#[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
-pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<WatcherStatus, String> {
+#[instrument(skip(app, config), fields(device_id = %config.device_id, user_id = %config.user_id))]
+pub async fn start_watcher<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    config: super::config::WatcherConfig,
+) -> Result<WatcherStatus, String> {
     let started_at = Instant::now();
+    // Persist the enablement intent before spawning so lifecycle/readiness can
+    // never observe a start request as "never enabled".
+    super::config::save_watcher_config(&config).map_err(|error| {
+        emit_watcher_failed(&app, Some(config.device_id.clone()), error.clone());
+        error
+    })?;
+    emit_watcher_start_requested(&app, &config.device_id);
+    if !super::permissions::check_accessibility_permission() {
+        let error = "accessibility_permission_not_granted".to_string();
+        emit_watcher_failed(&app, Some(config.device_id.clone()), error.clone());
+        return Err(error);
+    }
     watcher_info!("🚀 Starting Ritual Watcher...");
     watcher_info!("   Device ID: {}", config.device_id);
     watcher_info!("   Title Mode: {}", config.title_mode);
@@ -627,7 +668,10 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
     cleanup_existing_watcher_processes(&config.device_id, "pre-start");
 
     // Find executable
-    let resolved_binary = find_watcher_executable()?;
+    let resolved_binary = find_watcher_executable().map_err(|error| {
+        emit_watcher_failed(&app, Some(config.device_id.clone()), error.clone());
+        error
+    })?;
     let executable = resolved_binary.path;
     watcher_info!(
         "📍 Using executable: {:?}{}",
@@ -639,7 +683,7 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
             .unwrap_or_default()
     );
 
-    // Watcher writes activity/sync data to ~/.ritual/activity.db.
+    // Watcher writes activity/sync data to its channel-specific data root.
     let args = build_watcher_args(&config);
 
     watcher_info!("📋 Arguments: {:?}", args);
@@ -647,11 +691,19 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
     // Spawn the watcher process
     let mut command = Command::new(&executable);
     command.args(&args);
+    command.env("RITUAL_DATA_DIR", crate::app_paths::data_dir());
     super::config::apply_turso_sync_env(&mut command);
-    configure_watcher_stdio(&mut command)?;
+    configure_watcher_stdio(&mut command).map_err(|error| {
+        emit_watcher_failed(&app, Some(config.device_id.clone()), error.clone());
+        error
+    })?;
     let child = command
         .spawn()
-        .map_err(|e| format!("Failed to start watcher: {}", e))?;
+        .map_err(|e| format!("Failed to start watcher: {}", e))
+        .map_err(|error| {
+            emit_watcher_failed(&app, Some(config.device_id.clone()), error.clone());
+            error
+        })?;
 
     let pid = child.id();
     watcher_info!("✅ Watcher started with PID: {}", pid);
@@ -669,11 +721,13 @@ pub async fn start_watcher(config: super::config::WatcherConfig) -> Result<Watch
         started_at.elapsed().as_millis()
     );
 
-    Ok(WatcherStatus {
+    let status = WatcherStatus {
         is_running: true,
         pid: Some(pid),
         device_id: Some(config.device_id),
-    })
+    };
+    spawn_watcher_readiness_monitor(app);
+    Ok(status)
 }
 
 /// Start the ritual-watcher sidecar (synchronous version for auto-start)
@@ -731,6 +785,7 @@ pub fn start_watcher_sync(config: super::config::WatcherConfig) -> Result<Watche
     // Spawn the watcher process
     let mut command = Command::new(&executable);
     command.args(&args);
+    command.env("RITUAL_DATA_DIR", crate::app_paths::data_dir());
     super::config::apply_turso_sync_env(&mut command);
     configure_watcher_stdio(&mut command)?;
     let child = command
@@ -833,7 +888,7 @@ pub async fn get_watcher_status() -> WatcherStatus {
 }
 
 pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
-    let saved_config = super::config::load_saved_watcher_config();
+    let preference = super::config::load_watcher_preference();
     let accessibility_granted = super::permissions::check_accessibility_permission();
     let basic_status = get_watcher_status().await;
     let extended_status = super::queries::get_watcher_extended_status().await.ok();
@@ -844,7 +899,7 @@ pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
     let watcher_reachable = diagnostics
         .as_ref()
         .map(|diag| diag.watcher_reachable)
-        .unwrap_or(basic_status.is_running);
+        .unwrap_or(false);
     let heartbeat_stale = seconds_since_heartbeat
         .map(|seconds| seconds > 60)
         .unwrap_or(false);
@@ -857,20 +912,34 @@ pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
-
-    let state = if saved_config.is_none() {
-        WatcherLifecycleState::DisabledByUser
-    } else if !accessibility_granted {
-        WatcherLifecycleState::DisabledNoPermission
-    } else if basic_status.is_running && recently_started && !heartbeat_stale {
-        WatcherLifecycleState::Starting
-    } else if basic_status.is_running && watcher_reachable && !heartbeat_stale {
-        WatcherLifecycleState::Running
-    } else if basic_status.is_running {
-        WatcherLifecycleState::Unhealthy
-    } else {
-        WatcherLifecycleState::Backoff
-    };
+    let preference_state = preference
+        .as_ref()
+        .map(|preference| preference.state)
+        .unwrap_or(super::config::WatcherPreferenceState::Enabled);
+    let state = resolve_watcher_lifecycle_state(
+        preference_state,
+        accessibility_granted,
+        basic_status.is_running,
+        recently_started,
+        watcher_reachable,
+        heartbeat_stale,
+    );
+    let readiness_time_ms = (state == WatcherLifecycleState::Ready)
+        .then(|| {
+            WATCHER_LAST_STARTED_AT
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .map(|started_at| started_at.elapsed().as_millis() as u64)
+        })
+        .flatten();
+    let failure_reason = preference.err().or_else(|| match state {
+        WatcherLifecycleState::DisabledNoPermission => {
+            Some("accessibility_permission_not_granted".to_string())
+        }
+        WatcherLifecycleState::Failed => Some("watcher_unreachable_or_heartbeat_stale".to_string()),
+        WatcherLifecycleState::Backoff => Some("watcher_not_running".to_string()),
+        _ => None,
+    });
 
     WatcherLifecycleSnapshot {
         state,
@@ -879,14 +948,140 @@ pub async fn get_watcher_lifecycle_snapshot() -> WatcherLifecycleSnapshot {
         device_id: basic_status.device_id,
         accessibility_granted,
         seconds_since_heartbeat,
+        readiness_time_ms,
+        failure_reason,
         restart_count: WATCHER_RESTART_COUNT.load(Ordering::Relaxed),
         last_restart_reason,
     }
 }
 
+fn resolve_watcher_lifecycle_state(
+    preference_state: super::config::WatcherPreferenceState,
+    accessibility_granted: bool,
+    is_running: bool,
+    recently_started: bool,
+    watcher_reachable: bool,
+    heartbeat_stale: bool,
+) -> WatcherLifecycleState {
+    use super::config::WatcherPreferenceState;
+    match preference_state {
+        WatcherPreferenceState::NeverEnabled => WatcherLifecycleState::NeverEnabled,
+        WatcherPreferenceState::DisabledByUser => WatcherLifecycleState::DisabledByUser,
+        WatcherPreferenceState::Enabled if !accessibility_granted => {
+            WatcherLifecycleState::DisabledNoPermission
+        }
+        WatcherPreferenceState::Enabled if is_running && watcher_reachable && !heartbeat_stale => {
+            WatcherLifecycleState::Ready
+        }
+        WatcherPreferenceState::Enabled if is_running && recently_started => {
+            WatcherLifecycleState::Starting
+        }
+        WatcherPreferenceState::Enabled if is_running => WatcherLifecycleState::Failed,
+        WatcherPreferenceState::Enabled => WatcherLifecycleState::Backoff,
+    }
+}
+
+pub fn emit_watcher_start_requested<R: Runtime>(app: &AppHandle<R>, device_id: &str) {
+    let _ = app.emit(
+        WATCHER_START_REQUESTED_EVENT,
+        WatcherLifecycleEvent {
+            state: WatcherLifecycleState::Starting,
+            pid: None,
+            device_id: Some(device_id.to_string()),
+            readiness_time_ms: None,
+            failure_reason: None,
+        },
+    );
+}
+
+pub fn emit_watcher_failed<R: Runtime>(
+    app: &AppHandle<R>,
+    device_id: Option<String>,
+    reason: String,
+) {
+    let _ = app.emit(
+        WATCHER_FAILED_EVENT,
+        WatcherLifecycleEvent {
+            state: WatcherLifecycleState::Failed,
+            pid: None,
+            device_id,
+            readiness_time_ms: None,
+            failure_reason: Some(reason),
+        },
+    );
+}
+
+pub fn spawn_watcher_readiness_monitor<R: Runtime + 'static>(app: AppHandle<R>) {
+    tauri::async_runtime::spawn(async move {
+        let started_at = Instant::now();
+        loop {
+            let snapshot = get_watcher_lifecycle_snapshot().await;
+            if snapshot.state == WatcherLifecycleState::Ready {
+                let _ = app.emit(
+                    WATCHER_READY_EVENT,
+                    WatcherLifecycleEvent {
+                        state: snapshot.state,
+                        pid: snapshot.pid,
+                        device_id: snapshot.device_id,
+                        readiness_time_ms: Some(started_at.elapsed().as_millis() as u64),
+                        failure_reason: None,
+                    },
+                );
+                let rss = snapshot
+                    .pid
+                    .and_then(crate::desktop_runtime::process_rss_bytes)
+                    .filter(|bytes| *bytes > 0);
+                let _ = app.emit(
+                    WATCHER_RSS_SAMPLED_EVENT,
+                    WatcherRssSampleEvent {
+                        state: if rss.is_some() {
+                            "sampled"
+                        } else {
+                            "unavailable"
+                        },
+                        pid: snapshot.pid,
+                        watcher_rss_bytes: rss,
+                        reason: rss
+                            .is_none()
+                            .then(|| "watcher_rss_unavailable_after_readiness".to_string()),
+                    },
+                );
+                return;
+            }
+            if matches!(
+                snapshot.state,
+                WatcherLifecycleState::NeverEnabled
+                    | WatcherLifecycleState::DisabledByUser
+                    | WatcherLifecycleState::DisabledNoPermission
+            ) {
+                emit_watcher_failed(
+                    &app,
+                    snapshot.device_id,
+                    snapshot
+                        .failure_reason
+                        .unwrap_or_else(|| "watcher_disabled_during_start".to_string()),
+                );
+                return;
+            }
+            if started_at.elapsed() >= WATCHER_READINESS_TIMEOUT {
+                emit_watcher_failed(
+                    &app,
+                    snapshot.device_id,
+                    "watcher_readiness_timeout_after_20_seconds".to_string(),
+                );
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
-    use super::parse_watcher_pids_from_ps;
+    use super::{
+        parse_watcher_pids_from_ps, resolve_watcher_lifecycle_state, WatcherLifecycleState,
+    };
+    use crate::watcher::config::WatcherPreferenceState;
 
     #[test]
     fn orphan_sidecar_parser_matches_only_the_requested_device() {
@@ -900,5 +1095,86 @@ mod tests {
         assert_eq!(parse_watcher_pids_from_ps(stdout, "device-b"), vec![222]);
         assert!(parse_watcher_pids_from_ps(stdout, "missing").is_empty());
         assert!(parse_watcher_pids_from_ps(stdout, "").is_empty());
+    }
+
+    #[test]
+    fn lifecycle_states_preserve_preference_and_readiness_boundaries() {
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::NeverEnabled,
+                true,
+                false,
+                false,
+                false,
+                false
+            ),
+            WatcherLifecycleState::NeverEnabled
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::DisabledByUser,
+                true,
+                false,
+                false,
+                false,
+                false
+            ),
+            WatcherLifecycleState::DisabledByUser
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::Enabled,
+                false,
+                false,
+                false,
+                false,
+                false
+            ),
+            WatcherLifecycleState::DisabledNoPermission
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::Enabled,
+                true,
+                true,
+                true,
+                false,
+                false
+            ),
+            WatcherLifecycleState::Starting
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::Enabled,
+                true,
+                true,
+                true,
+                true,
+                false
+            ),
+            WatcherLifecycleState::Ready
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::Enabled,
+                true,
+                true,
+                false,
+                false,
+                true
+            ),
+            WatcherLifecycleState::Failed
+        );
+        assert_eq!(
+            resolve_watcher_lifecycle_state(
+                WatcherPreferenceState::Enabled,
+                true,
+                false,
+                false,
+                false,
+                false
+            ),
+            WatcherLifecycleState::Backoff
+        );
     }
 }

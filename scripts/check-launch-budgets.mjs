@@ -2,7 +2,12 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compareToBudgets, summarizeTrials } from "../tools/performance/launch-budget-core.mjs";
+import {
+  compareToBudgets,
+  summarizeTrials,
+  validateReleaseEvidence,
+  validateTrackingTrial,
+} from "../tools/performance/launch-budget-core.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const config = JSON.parse(readFileSync(join(root, "tools/performance/launch-budgets.json"), "utf8"));
@@ -22,6 +27,9 @@ for (const kind of ["cold", "warm"]) {
     errors.push(`${kind} launch budget requires exactly 5 trials, found ${trials.length}`);
     continue;
   }
+  for (const trial of trials) {
+    errors.push(...validateTrackingTrial(trial).map((item) => `${kind} ${item}`));
+  }
   const timingKeys = Object.keys(config.budgets[kind] || {}).map((key) => key.replace(/_ms$/, "").replace(/_bytes$/, ""));
   const milestoneKeys = config.requiredMilestones;
   const timingSummary = summarizeTrials(trials, milestoneKeys);
@@ -31,14 +39,20 @@ for (const kind of ["cold", "warm"]) {
   }
   errors.push(...compareToBudgets(renamed, config.budgets[kind]).map((item) => `${kind} ${item}`));
 
-  const rssSummary = summarizeTrials(trials, ["webview_rss_bytes", "watcher_rss_bytes"]);
+  const rssSummary = summarizeTrials(trials, ["webview_rss_bytes"]);
   errors.push(
     ...compareToBudgets(
-      { webview_bytes: rssSummary.webview_rss_bytes, watcher_bytes: rssSummary.watcher_rss_bytes },
-      config.budgets.rss,
+      { webview_bytes: rssSummary.webview_rss_bytes },
+      { webview_bytes: config.budgets.rss.webview_bytes },
     ).map((item) => `${kind} rss ${item}`),
   );
   void timingKeys;
+}
+
+const releaseEvidence = validateReleaseEvidence(config);
+errors.push(...releaseEvidence.failures.map((item) => `release evidence ${item}`));
+if (process.env.RITUAL_REQUIRE_LIVE_LAUNCH_EVIDENCE === "1" && !releaseEvidence.complete) {
+  errors.push("release evidence is incomplete (RITUAL_REQUIRE_LIVE_LAUNCH_EVIDENCE=1)");
 }
 
 const observability = read("apps/dashboard/lib/desktop-bridge/observability.ts");
@@ -56,6 +70,9 @@ if (!providers.includes("shell_bootstrap")) {
 if (!providers.includes("webview_rss_bytes") || !providers.includes("watcher_rss_bytes")) {
   errors.push("native_ready telemetry is missing RSS fields");
 }
+for (const event of ["watcher-start-requested", "watcher-ready", "watcher-failed", "watcher-rss-sampled"]) {
+  if (!providers.includes(event)) errors.push(`root-providers.tsx is missing watcher event ${event}`);
+}
 
 const runtime = read("apps/dashboard/lib/desktop-bridge/runtime.ts");
 if (!runtime.includes("webviewRssBytes") || !runtime.includes("watcherRssBytes")) {
@@ -65,6 +82,11 @@ if (!runtime.includes("webviewRssBytes") || !runtime.includes("watcherRssBytes")
 const rustRuntime = read("apps/desktop/src-tauri/src/desktop_runtime/mod.rs");
 if (!rustRuntime.includes("webview_rss_bytes") || !rustRuntime.includes("watcher_rss_bytes")) {
   errors.push("DesktopProcessMetrics is missing RSS fields");
+}
+
+const captureScript = read("scripts/capture-desktop-launch-evidence.mjs");
+for (const field of ["raw_artifact_sha256", "app_artifact_sha256", "watcher_readiness_time_ms", "watcher_pid", "watcher_rss_bytes"]) {
+  if (!captureScript.includes(field)) errors.push(`Launch capture script is missing ${field}`);
 }
 
 const oauthStore = read("apps/dashboard/lib/server/oauth-code-store.ts");
@@ -79,5 +101,5 @@ if (errors.length) {
 }
 
 console.log(
-  `Launch/RSS budget check passed: 5 cold + 5 warm live WKWebView medians, milestones ${config.requiredMilestones.join(", ")}.`,
+  `Launch fixture budget check passed: 5 cold + 5 warm parser trials, milestones ${config.requiredMilestones.join(", ")}; release evidence ${releaseEvidence.complete ? "complete" : "incomplete"}.`,
 );

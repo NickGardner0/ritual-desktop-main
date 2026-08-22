@@ -71,14 +71,14 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete leftover Typesense write stubs | two no-op POST routes + unused methods | 0 | small | `/api/search/index-phrase`, `/api/search/reindex`, `index_log_phrase`, `ensure_collections` | none | No frontend callers. `/api/search/status` remains as the SQL-search health check |
 | AssistantKernel + durable turn store | stream/SMS/dashboard race | kernel + FastAPI atomic accept/commit + desktop outbox | small add | memory-success fallback and split message/turn commit | none | No provider/tool call precedes acceptance. Terminal completion includes assistant content and receipts. Mutating tools remain serial. |
 | NativeGateway generated command/capability/I-O triad | stringly IPC | `NATIVE_COMMANDS` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` generated from Rust | small add | extra caller import paths | none | `invokeDesktopCommand` is typed from the triad. Implementation modules stay in `desktop-bridge/*` |
-| Five-trial launch/RSS CI budgets | local medians only | `tools/performance/launch-budgets.json` + `scripts/check-launch-budgets.mjs` + desktop-rust RSS tests | small add | none | none | Five cold and five warm live WKWebView trials from the this-branch debug binary (2026-08-21, `/dashboard`) now gate `repo:check`. Watcher RSS is 0 in that session because the sidecar did not autostart |
+| Five-trial launch/RSS CI budgets | local medians only | `tools/performance/launch-budgets.json` schema v2 + strict evidence validator + desktop-rust readiness/RSS tests | small add | none | none | The 2026-08-21 debug samples are fixtures only: raw provenance is missing and watcher RSS is null/not-applicable. Signed live release evidence remains incomplete |
 | Delete unused production surfaces | TimeTrackerWidget, overlay chart, insight cards, computer-time detail, mock reports, unused onboarding/biometrics/task recurrence | 0 | ~−2.2k | dead UI/data | none | Confirmed zero production importers |
 | Pin CI/release toolchains | `actions/*@v4`, `dtolnay/rust-toolchain@stable` | Node/Python/Rust 1.92.0 + commit SHAs | ~0 | mutable `@stable` and version tags | none | Actions pinned to immutable SHAs with version comments |
 | Launch milestones + median log | none | `recordLaunchMilestone` + local median samples + process RSS | small add | none | none | Cold/warm classified via sessionStorage. native_ready logs webview/watcher RSS. No five-trial CI budget yet |
 | Activity cloud sync opt-in | always-on desktop backfill | `plaintext_sync` consent gate | ~0 | unconsented habit backfill | none | Local `activity.db` reads unchanged. Rust plaintext sync already required the same consent |
 | AssistantKernel abort/in-flight fence | disconnect could complete; duplicate delivery could double-run | abort -> canceled; running/committing -> 409; stale running reclaims | small add | second in-flight model loop | none | Failure-injection tests cover disconnect, duplicate delivery, epoch switch, timeout retry |
 | Split DesktopRuntimeBridge | one 532-line owner | auth / native events / legacy signals / backfill / realtime owners | ~0 | native 45s poll already gone; local_only skips websocket; OAuth store-code `setInterval` removed | none | Legacy builds still poll. Settings page hourly habit sync removed |
-| Orphan sidecar + RSS helpers | prefix-matching `ps` parse; no RSS on runtime state | exact `--device-id` match + `process` RSS on runtime state | small add | none | none | Unit tests for parse; live RSS sampled at native_ready |
+| Orphan sidecar + RSS helpers | prefix-matching `ps` parse; no RSS on runtime state | exact `--device-id` match + lifecycle-gated process RSS | small add | none | none | Enabled RSS is sampled only after heartbeat readiness; disabled RSS is null/not-applicable with a reason |
 | Delete unused dashboard duplicates | leftover onboarding/setup, unused shadcn, unused live-HR widgets, unused server actions, unused React email | 0 | ~−3.5k physical | unused UI/data paths | none | Live onboarding permissions + vault folder remain. Calendar still reads HR range. iOS live biometrics API unchanged |
 | Collapse colliding BFF proxy helper | `@/lib/server/proxy-response` resolved to `.mjs` missing `createProxiedSuccessResponse` | `.ts` NextResponse wrapper + `proxy-response-init.mjs` | ~0 | webpack missing-export path | none | Production webpack build compiles without that warning |
 | Delete Next Tinybird client + unused trends BFF | `lib/tinybird-service.ts` + dedicated trends route | 0 | ~−400 | second Tinybird owner in Next | none | Habit trends go through FastAPI + catch-all. Remaining Next analytics routes still compose pipes FastAPI does not own |
@@ -131,14 +131,14 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 ```text
 Historical production LOC: 192,474 in the original dirty-tree audit.
 Canonical release-branch measurement at 65ced577 (tokei 14.0.0; generated sources omitted):
-  Dashboard TS/TSX/JS + CSS: 82,917
-  Shared packages TS/TSX + UI CSS: 9,547
-  FastAPI Python excluding tests/scripts/migrations/devtools: 56,281
-  Rust desktop/watcher/ritual-db: 34,960
+  Dashboard TS/TSX/JS + CSS: 83,048
+  Shared packages TS/TSX + UI CSS: 9,618
+  FastAPI Python excluding tests/scripts/migrations/devtools: 56,638
+  Rust desktop/watcher/ritual-db: 35,542
   Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
   Tinybird pipe/datasource authored: 2,048
-  Audit-comparable total: 187,601 after the additive durable-chat boundary (starting ship baseline: 187,086).
+  Audit-comparable total: 188,227 after the additive durable-chat and watcher-lifecycle boundaries (starting ship baseline: 187,086).
 Command and machine data: npm run audit:loc / tools/architecture/loc-baseline.json.
 chat-api deployable: removed
 Schedulers before/after: 2 → 1 (FastAPI loops only; Trigger.dev deleted)
@@ -159,8 +159,8 @@ Tests do not count against production reduction.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. Catch-all remains for markdown/CSV Apple export, multipart import/screenshot preview, and logs inline PUT (FastAPI has no update-log op). Sendblue webhook and the OpenAPI catch-all still forward raw bodies. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
-5. Authored production LOC is 187,601 under the canonical checked-in bucket contract after the additive durable-chat boundary. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
-6. Five-trial CI budgets now gate live WKWebView medians plus production launch/RSS instrumentation. Watcher RSS was 0 in the capture session because the sidecar did not autostart.
+5. Authored production LOC is 188,227 under the canonical checked-in bucket contract after the additive durable-chat and watcher-lifecycle boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
+6. Five-trial debug fixtures gate parser/budget behavior only. Production instrumentation now separates shell and watcher readiness, but signed enabled/disabled release captures remain an explicit open gate.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.
 9. Ops leftover after deploy: disable/delete the Trigger.dev cloud project so it cannot run in parallel with FastAPI. See `TRIGGER_DEV_OPS.md`.
