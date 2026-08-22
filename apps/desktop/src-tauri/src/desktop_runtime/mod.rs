@@ -26,6 +26,8 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "native-startup-update-fallback-v1",
     "desktop-runtime-state-v1",
     "desktop-auth-handoff-v1",
+    "desktop-auth-handoff-v2",
+    "desktop-channel-identity-v1",
     "desktop-runtime-events-v1",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
@@ -55,6 +57,12 @@ pub struct PendingUpdateManifest {
 pub struct DesktopRuntimeInfo {
     pub version: String,
     pub environment: String,
+    pub channel: String,
+    pub product_name: String,
+    pub bundle_id: String,
+    pub callback_scheme: String,
+    pub build_sha: String,
+    pub handoff_protocol: String,
     pub capabilities: Vec<String>,
     pub updater_active: bool,
     pub frontend_ready: bool,
@@ -101,6 +109,41 @@ pub struct DesktopRuntimeState {
     pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
     pub watcher: crate::watcher::WatcherLifecycleSnapshot,
     pub process: DesktopProcessMetrics,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopProcessIdentity {
+    pub pid: u32,
+    pub process_name: String,
+    pub executable_path: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopWindowDiagnostics {
+    pub exists: bool,
+    pub visible: bool,
+    pub focused: bool,
+    pub ignores_mouse_events: Option<bool>,
+    pub window_level: Option<i64>,
+    pub hit_testable: bool,
+    pub main_content_opaque: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopDiagnostics {
+    pub schema_version: u32,
+    pub runtime: DesktopRuntimeInfo,
+    pub process: DesktopProcessIdentity,
+    pub backend_base: Option<String>,
+    pub native_gateway_status: String,
+    pub ipc_status: String,
+    pub app_data_directory: String,
+    pub callback_scheme_owner: Option<String>,
+    pub window: DesktopWindowDiagnostics,
+    pub state: DesktopRuntimeState,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -180,9 +223,18 @@ pub(crate) fn build_runtime_info<R: Runtime>(app: &AppHandle<R>) -> DesktopRunti
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone();
 
+    let channel = crate::app_paths::configured_channel();
     DesktopRuntimeInfo {
         version: app.package_info().version.to_string(),
         environment: configured_ritual_env(),
+        channel: channel.as_str().to_string(),
+        product_name: channel.product_name().to_string(),
+        bundle_id: channel.bundle_id().to_string(),
+        callback_scheme: channel.callback_scheme().to_string(),
+        build_sha: read_nonempty_env("RITUAL_BUILD_SHA")
+            .or_else(|| option_env!("RITUAL_BUILD_SHA").map(str::to_string))
+            .unwrap_or_else(|| "unknown".to_string()),
+        handoff_protocol: "2".to_string(),
         capabilities: DESKTOP_RUNTIME_CAPABILITIES
             .iter()
             .map(|capability| (*capability).to_string())
@@ -293,14 +345,15 @@ pub fn flush_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
 const PRODUCTION_BACKEND_URL: &str = "https://backend-api-production-a37e.up.railway.app";
 
 fn is_production_ritual_env(ritual_env: &str) -> bool {
-    matches!(ritual_env.trim().to_ascii_lowercase().as_str(), "production" | "prod")
+    matches!(
+        ritual_env.trim().to_ascii_lowercase().as_str(),
+        "production" | "prod"
+    )
 }
 
 fn is_loopback_http_url(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    lower.contains("://127.0.0.1")
-        || lower.contains("://localhost")
-        || lower.contains("://[::1]")
+    lower.contains("://127.0.0.1") || lower.contains("://localhost") || lower.contains("://[::1]")
 }
 
 pub(crate) fn normalize_backend_base(value: Option<String>) -> Option<String> {
@@ -315,9 +368,10 @@ pub(crate) fn normalize_backend_base_for_env(
         .map(|item| item.trim().trim_end_matches('/').to_string())
         .filter(|item| !item.is_empty())?;
     if is_production_ritual_env(ritual_env) && is_loopback_http_url(&url) {
-        return Some(read_nonempty_env("RITUAL_BACKEND_URL").unwrap_or_else(|| {
-            PRODUCTION_BACKEND_URL.to_string()
-        }));
+        return Some(
+            read_nonempty_env("RITUAL_BACKEND_URL")
+                .unwrap_or_else(|| PRODUCTION_BACKEND_URL.to_string()),
+        );
     }
     Some(url)
 }
@@ -491,6 +545,120 @@ async fn build_runtime_state<R: Runtime>(
     })
 }
 
+fn callback_scheme_owner(scheme: &str) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("/usr/bin/defaults")
+            .args([
+                "read",
+                "com.apple.LaunchServices/com.apple.launchservices.secure",
+                "LSHandlers",
+            ])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let marker = format!("LSHandlerURLScheme = \"{scheme}\"");
+        let block = stdout
+            .split("},")
+            .find(|candidate| candidate.contains(&marker))?;
+        for line in block.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("LSHandlerRoleAll =") {
+                return trimmed
+                    .split_once('=')
+                    .map(|(_, value)| value.trim().trim_matches(['\"', ';']).to_string());
+            }
+        }
+        None
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = scheme;
+        None
+    }
+}
+
+fn window_diagnostics<R: Runtime>(app: &AppHandle<R>) -> DesktopWindowDiagnostics {
+    let Some(window) = app.get_webview_window("main") else {
+        return DesktopWindowDiagnostics {
+            exists: false,
+            visible: false,
+            focused: false,
+            ignores_mouse_events: None,
+            window_level: None,
+            hit_testable: false,
+            main_content_opaque: true,
+        };
+    };
+    let mut ignores_mouse_events = None;
+    let mut window_level = None;
+    #[cfg(target_os = "macos")]
+    if let Ok(raw_window) = window.ns_window() {
+        use cocoa::base::id;
+        use objc::{msg_send, sel, sel_impl};
+        unsafe {
+            let ns_window: id = raw_window as id;
+            let ignores: cocoa::base::BOOL = msg_send![ns_window, ignoresMouseEvents];
+            let level: i64 = msg_send![ns_window, level];
+            ignores_mouse_events = Some(ignores != cocoa::base::NO);
+            window_level = Some(level);
+        }
+    }
+    let hit_testable = ignores_mouse_events != Some(true) && window_level.unwrap_or(0) == 0;
+    DesktopWindowDiagnostics {
+        exists: true,
+        visible: window.is_visible().unwrap_or(false),
+        focused: window.is_focused().unwrap_or(false),
+        ignores_mouse_events,
+        window_level,
+        hit_testable,
+        main_content_opaque: std::env::var("RITUAL_ENABLE_MAIN_GLASS")
+            .map(|value| {
+                !matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(true),
+    }
+}
+
+pub async fn build_desktop_diagnostics<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<DesktopDiagnostics, String> {
+    let runtime = build_runtime_info(app);
+    let executable_path = std::env::current_exe()
+        .map_err(|error| format!("Failed resolving desktop executable: {error}"))?;
+    let state = build_runtime_state(app).await?;
+    let backend_base = state.auth.backend_base.clone().or_else(|| {
+        read_nonempty_env("RITUAL_BACKEND_URL").or_else(|| {
+            Some(PRODUCTION_BACKEND_URL.to_string()).filter(|_| runtime.channel == "production")
+        })
+    });
+    Ok(DesktopDiagnostics {
+        schema_version: 1,
+        process: DesktopProcessIdentity {
+            pid: std::process::id(),
+            process_name: executable_path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .unwrap_or_else(|| runtime.product_name.clone()),
+            executable_path: executable_path.to_string_lossy().to_string(),
+        },
+        backend_base,
+        native_gateway_status: "ready".to_string(),
+        ipc_status: "tauri-v2".to_string(),
+        app_data_directory: crate::app_paths::data_dir().to_string_lossy().to_string(),
+        callback_scheme_owner: callback_scheme_owner(&runtime.callback_scheme),
+        window: window_diagnostics(app),
+        runtime,
+        state,
+    })
+}
+
 pub fn emit_runtime_state_changed<R: Runtime + 'static>(app: AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         match build_runtime_state(&app).await {
@@ -556,6 +724,14 @@ pub async fn get_desktop_runtime_state<R: Runtime>(
     app: AppHandle<R>,
 ) -> Result<DesktopRuntimeState, String> {
     build_runtime_state(&app).await
+}
+
+#[tauri::command]
+#[instrument(skip(app))]
+pub async fn get_desktop_diagnostics<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<DesktopDiagnostics, String> {
+    build_desktop_diagnostics(&app).await
 }
 
 #[tauri::command]

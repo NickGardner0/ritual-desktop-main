@@ -5,12 +5,17 @@ Run this after building a signed desktop artifact and before sharing it with bet
 ## Packaged App
 
 - Launch the packaged app from the DMG-installed location, not from a dev build.
+- Run this checklist independently on an Apple Silicon Mac and a real Intel Mac.
+- Confirm `file` and `shasum -a 256` match the target entries in `binaries/sidecar-lock.json`.
+- Confirm diagnostics report the expected product name, bundle ID, callback scheme, target, executable path, backend base, and channel-specific app-data root.
 - Confirm the app opens the hosted production UI instead of a localhost URL.
 - Confirm the normal browser is blocked from the hosted app and redirected to `/desktop-only`.
 
 ## Auth
 
-- Sign in from the packaged app.
+- Sign in from the packaged app with the app initially closed, then again with it already open.
+- Confirm the browser progresses from pending to consumed to acknowledged.
+- Confirm the custom-scheme callback contains no verifier or Clerk ticket, then prove replay, wrong-channel, wrong-binary, expired, and wrong-protocol callbacks fail without consuming another handoff.
 - Quit and reopen the app.
 - Confirm the session is restored without a sign-in loop.
 
@@ -32,6 +37,16 @@ node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGard
 
 - From the packaged desktop app, trigger an update check.
 - Confirm the updater does not show a feed/signature error.
+- Repeat manifest validation with `--platform darwin-aarch64` and `--platform darwin-x86_64`.
+
+## Watcher and Window QA
+
+- With tracking enabled, confirm watcher readiness precedes PID/RSS and RSS is nonzero.
+- With tracking never enabled or disabled, confirm PID/RSS are null with a reason—not zero.
+- In QA, confirm Cmd+R and View → Reload Ritual reload only the focused main WKWebView.
+- Run `npm run desktop:diagnostics -- --json`; require `ignoresMouseEvents=false`, `windowLevel=0`, and `hitTestable=true`.
+- Capture the declared opaque/glass/hit-test points with `npm run desktop:qa:capture -- --channel qa`; require fully opaque main/hit samples and a window-title acknowledgement from the real WKWebView click target.
+- Confirm the production build has no Reload Ritual menu item or handler.
 
 ## Core Product
 

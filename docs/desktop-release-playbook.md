@@ -15,6 +15,16 @@ Ritual desktop ships as two layers:
 - Hosted app: the desktop shell loads the production web UI from `https://desktop.ritualdb.com`
 - Native shell: the Tauri/Rust app is updated through GitHub Releases and Tauri updater artifacts
 
+The native shell has three isolated identities:
+
+| Channel | Product | Bundle ID / callback scheme | Data root |
+|---|---|---|---|
+| Production | Ritual | `com.ritual.desktop` | `~/.ritual` |
+| QA | Ritual QA | `com.ritual.desktop.qa` | `~/.ritual-qa` |
+| Development | Ritual Dev | `com.ritual.desktop.dev` | `~/.ritual-dev` |
+
+Production releases contain separate arm64 and Intel packages. Intel artifacts must be built and smoked on the real `[self-hosted, macOS, X64, ritual-intel]` runner; cross-compilation is not release evidence.
+
 That means:
 
 - web-only changes can ship without a new desktop binary
@@ -65,8 +75,8 @@ Steps:
 
 1. Bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json).
 2. Keep [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml) in sync.
-3. Push a tag such as `v0.1.1`.
-4. Let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml) build and publish the release.
+3. Push a tag such as `v0.1.99`.
+4. Let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-release-0.1.1-prep/.github/workflows/desktop-release.yml) build both architectures, merge one updater manifest, and publish only after both jobs pass.
 5. Validate the updater feed and run the packaged smoke checklist.
 
 ### 3. Mixed web + native release
@@ -98,21 +108,22 @@ Safe order:
 5. Push a matching tag and let CI build and publish the release:
 
 ```bash
-git tag -a v0.1.53 -m "Ritual desktop v0.1.53"
-git push origin v0.1.53
+git tag -a v0.1.99 -m "Ritual desktop v0.1.99"
+git push origin v0.1.99
 ```
 
 6. Validate the updater artifacts:
 
 ```bash
-node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --check-urls
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --platform darwin-aarch64 --check-urls
+node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --platform darwin-x86_64 --check-urls
 ```
 
 7. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
 
 ## Local Fallback Desktop Release Flow
 
-Use this only when GitHub Actions is unavailable or you intentionally need a manual workstation build.
+Use this only when GitHub Actions is unavailable or you intentionally need a manual workstation build. A single machine cannot produce a releasable dual-architecture update: build each target on matching real hardware, merge both manifests with `scripts/merge-desktop-updater-manifests.mjs`, then use `publish-dual-desktop-release-assets.sh`.
 
 1. Export local notarization and updater signing variables:
 
@@ -129,8 +140,7 @@ export APPLE_TEAM_ID="D657T2LVR2"
 
 ```bash
 npm run desktop:release:preflight
-npm run desktop:release:mac
-bash scripts/publish-desktop-release-assets.sh v0.1.53
+RITUAL_RELEASE_TARGET="$(rustc -vV | awk '/host:/ {print $2; exit}')" npm run desktop:release:mac
 ```
 
 3. Validate the updater artifacts:
@@ -203,8 +213,10 @@ Only do this if the capability names are already exposed by the shipped desktop 
 ## Required Smoke Tests Before Broad Rollout
 
 - packaged app launches from installed location
+- arm64 and Intel packages contain the correct Mach-O/hash-pinned watcher and vision helper
 - production URL loads, not localhost
 - sign-in and session restore work
+- browser sign-in reaches durable `acknowledged`, and replay/wrong-channel callbacks fail
 - tray `Check for Updates` works
 - startup update check works
 - one real installed-app update works from an older build to the new build

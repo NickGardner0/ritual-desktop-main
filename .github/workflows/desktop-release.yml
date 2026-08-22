@@ -12,16 +12,34 @@ concurrency:
 
 jobs:
   macos:
-    name: Build macOS desktop release
-    runs-on: macos-15
+    name: Build macOS desktop release (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: [self-hosted, macOS, X64, ritual-intel]
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
     env:
       RITUAL_UPDATER_REPOSITORY: NickGardner0/ritual-desktop-releases
+      RITUAL_RELEASE_TARGET: ${{ matrix.target }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Require canonical release-branch head
+        run: |
+          git fetch --no-tags origin codex/release-0.1.1-prep
+          RELEASE_SHA="$(git rev-parse origin/codex/release-0.1.1-prep)"
+          if [[ "$(git rev-parse HEAD)" != "${RELEASE_SHA}" ]]; then
+            echo "Desktop tags must point at the exact codex/release-0.1.1-prep head (${RELEASE_SHA})." >&2
+            exit 1
+          fi
 
       - name: Setup Node
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -33,6 +51,7 @@ jobs:
         uses: dtolnay/rust-toolchain@87eb139fed4b08a67bd1fa429a21d1f5d523e03e # 1.92.0
         with:
           toolchain: "1.92.0"
+          targets: ${{ matrix.target }}
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
@@ -145,19 +164,14 @@ jobs:
       - name: Upload local release artifacts to workflow run
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: desktop-release-${{ github.ref_name }}
+          name: desktop-release-${{ github.ref_name }}-${{ matrix.target }}
           if-no-files-found: error
           path: |
-            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
-            apps/desktop/src-tauri/target/release/bundle/macos/*.app.zip
-            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz
-            apps/desktop/src-tauri/target/release/bundle/macos/*.app.tar.gz.sig
-            apps/desktop/src-tauri/target/release/bundle/macos/latest.json
-
-      - name: Publish assets to public desktop releases repo
-        env:
-          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
-        run: bash scripts/publish-desktop-release-assets.sh "${GITHUB_REF_NAME}"
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.zip
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz.sig
+            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/latest-*.json
 
       - name: Cleanup temporary signing keychain
         if: always()
@@ -165,3 +179,40 @@ jobs:
           if [[ -n "${APPLE_SIGNING_KEYCHAIN_PATH:-}" && -f "${APPLE_SIGNING_KEYCHAIN_PATH}" ]]; then
             security delete-keychain "${APPLE_SIGNING_KEYCHAIN_PATH}" || true
           fi
+
+  publish:
+    name: Validate and publish dual-architecture updater
+    needs: macos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Download architecture artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: desktop-release-${{ github.ref_name }}-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Merge and validate updater manifest
+        run: |
+          node scripts/merge-desktop-updater-manifests.mjs \
+            release-assets/latest-darwin-aarch64.json \
+            release-assets/latest-darwin-x86_64.json \
+            --output release-assets/latest.json
+          node scripts/validate-updater-artifacts.mjs --latest release-assets/latest.json --platform darwin-aarch64
+          node scripts/validate-updater-artifacts.mjs --latest release-assets/latest.json --platform darwin-x86_64
+
+      - name: Publish assets to public desktop releases repo
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
+          RITUAL_RELEASE_ARTIFACT_ROOT: release-assets
+        run: bash scripts/publish-dual-desktop-release-assets.sh "${GITHUB_REF_NAME}"

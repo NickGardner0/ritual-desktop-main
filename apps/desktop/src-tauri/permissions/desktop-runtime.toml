@@ -4,6 +4,9 @@ description = "Allows the hosted dashboard to read desktop runtime state, comple
 commands.allow = [
   "get_desktop_runtime_info",
   "get_desktop_runtime_state",
+  "get_desktop_diagnostics",
+  "desktop_begin_auth_handoff",
+  "desktop_complete_auth_handoff",
   "desktop_set_auth_token",
   "desktop_clear_auth_state",
   "desktop_frontend_ready",

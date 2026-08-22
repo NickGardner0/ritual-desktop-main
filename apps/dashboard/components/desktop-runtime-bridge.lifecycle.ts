@@ -3,7 +3,13 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
 import { invokeDesktopCommand } from '@/lib/native-gateway';
-import { buildDesktopCommandOrigin, desktopHasCapability, desktopSetAuthToken } from '@/lib/native-gateway';
+import {
+  buildDesktopCommandOrigin,
+  desktopHasCapability,
+  desktopSetAuthToken,
+  getDesktopRuntimeInfo,
+} from '@/lib/native-gateway';
+import { acknowledgeDesktopAuthHandoff } from '@/lib/desktop-auth-handoff';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { apiOperationWithAuth } from '@/lib/api/client';
@@ -130,6 +136,10 @@ export function useDesktopAuthBridge(input: {
           backendBase: resolveDesktopBackendBase(),
         });
         if (nativeResult) {
+          const runtimeInfo = await getDesktopRuntimeInfo();
+          if (runtimeInfo?.handoffProtocol === '2') {
+            await acknowledgeDesktopAuthHandoff(runtimeInfo).catch(() => false);
+          }
           if (bridgeMode !== 'native' && !cancelled) {
             setBridgeMode('native');
           }

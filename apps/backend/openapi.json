@@ -3922,6 +3922,409 @@
         "title": "DeletionPlanRequest",
         "type": "object"
       },
+      "DesktopAuthHandoffAcknowledge": {
+        "additionalProperties": false,
+        "properties": {
+          "failure_code": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "native_metadata": {
+            "$ref": "#/components/schemas/DesktopAuthNativeMetadata"
+          },
+          "outcome": {
+            "enum": [
+              "acknowledged",
+              "failed"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "title": "DesktopAuthHandoffAcknowledge",
+        "type": "object"
+      },
+      "DesktopAuthHandoffClaimFailure": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "production",
+              "qa",
+              "development"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "failure_code": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Failure Code",
+            "type": "string"
+          },
+          "native_metadata": {
+            "$ref": "#/components/schemas/DesktopAuthNativeMetadata"
+          },
+          "nonce": {
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "2",
+            "title": "Protocol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce",
+          "channel",
+          "protocol",
+          "failure_code"
+        ],
+        "title": "DesktopAuthHandoffClaimFailure",
+        "type": "object"
+      },
+      "DesktopAuthHandoffConsume": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "production",
+              "qa",
+              "development"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "native_metadata": {
+            "$ref": "#/components/schemas/DesktopAuthNativeMetadata"
+          },
+          "nonce": {
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Nonce",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "2",
+            "title": "Protocol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "nonce",
+          "channel",
+          "protocol"
+        ],
+        "title": "DesktopAuthHandoffConsume",
+        "type": "object"
+      },
+      "DesktopAuthHandoffConsumeRead": {
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "channel": {
+            "enum": [
+              "production",
+              "qa",
+              "development"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "consumed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "protocol": {
+            "title": "Protocol",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "consumed",
+              "acknowledged",
+              "failed",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "protocol",
+          "status",
+          "expires_at",
+          "created_at",
+          "updated_at",
+          "user_id"
+        ],
+        "title": "DesktopAuthHandoffConsumeRead",
+        "type": "object"
+      },
+      "DesktopAuthHandoffCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "channel": {
+            "enum": [
+              "production",
+              "qa",
+              "development"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "expires_in_seconds": {
+            "default": 300,
+            "maximum": 300.0,
+            "minimum": 30.0,
+            "title": "Expires In Seconds",
+            "type": "integer"
+          },
+          "id": {
+            "pattern": "^dah_[A-Za-z0-9_-]{22}$",
+            "title": "Id",
+            "type": "string"
+          },
+          "native_metadata": {
+            "$ref": "#/components/schemas/DesktopAuthNativeMetadata"
+          },
+          "nonce_challenge": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Nonce Challenge",
+            "type": "string"
+          },
+          "protocol": {
+            "const": "2",
+            "title": "Protocol",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "nonce_challenge",
+          "channel",
+          "protocol"
+        ],
+        "title": "DesktopAuthHandoffCreate",
+        "type": "object"
+      },
+      "DesktopAuthHandoffRead": {
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "channel": {
+            "enum": [
+              "production",
+              "qa",
+              "development"
+            ],
+            "title": "Channel",
+            "type": "string"
+          },
+          "consumed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Consumed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "failure_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "protocol": {
+            "title": "Protocol",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "consumed",
+              "acknowledged",
+              "failed",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "protocol",
+          "status",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DesktopAuthHandoffRead",
+        "type": "object"
+      },
+      "DesktopAuthNativeMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "app_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Version"
+          },
+          "build_sha": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Sha"
+          },
+          "bundle_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bundle Id"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "title": "DesktopAuthNativeMetadata",
+        "type": "object"
+      },
       "DeviceRegisterResponse": {
         "description": "Response from device registration",
         "properties": {
@@ -18708,6 +19111,260 @@
         "summary": "Get Dashboard Overview Snapshot",
         "tags": [
           "core"
+        ]
+      }
+    },
+    "/api/desktop-auth/handoffs": {
+      "post": {
+        "operationId": "create_desktop_auth_handoff_api_desktop_auth_handoffs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopAuthHandoffCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopAuthHandoffRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Desktop Auth Handoff",
+        "tags": [
+          "desktop-auth"
+        ]
+      }
+    },
+    "/api/desktop-auth/handoffs/{handoff_id}": {
+      "get": {
+        "operationId": "get_desktop_auth_handoff_api_desktop_auth_handoffs__handoff_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handoff_id",
+            "required": true,
+            "schema": {
+              "title": "Handoff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopAuthHandoffRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Desktop Auth Handoff",
+        "tags": [
+          "desktop-auth"
+        ]
+      }
+    },
+    "/api/desktop-auth/handoffs/{handoff_id}/acknowledge": {
+      "post": {
+        "operationId": "acknowledge_desktop_auth_handoff_api_desktop_auth_handoffs__handoff_id__acknowledge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handoff_id",
+            "required": true,
+            "schema": {
+              "title": "Handoff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopAuthHandoffAcknowledge"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopAuthHandoffRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Acknowledge Desktop Auth Handoff",
+        "tags": [
+          "desktop-auth"
+        ]
+      }
+    },
+    "/api/desktop-auth/handoffs/{handoff_id}/claim-failed": {
+      "post": {
+        "operationId": "fail_desktop_auth_handoff_claim_api_desktop_auth_handoffs__handoff_id__claim_failed_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handoff_id",
+            "required": true,
+            "schema": {
+              "title": "Handoff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopAuthHandoffClaimFailure"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopAuthHandoffRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Fail Desktop Auth Handoff Claim",
+        "tags": [
+          "desktop-auth"
+        ]
+      }
+    },
+    "/api/desktop-auth/handoffs/{handoff_id}/consume": {
+      "post": {
+        "operationId": "consume_desktop_auth_handoff_api_desktop_auth_handoffs__handoff_id__consume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handoff_id",
+            "required": true,
+            "schema": {
+              "title": "Handoff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopAuthHandoffConsume"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopAuthHandoffConsumeRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Consume Desktop Auth Handoff",
+        "tags": [
+          "desktop-auth"
         ]
       }
     },

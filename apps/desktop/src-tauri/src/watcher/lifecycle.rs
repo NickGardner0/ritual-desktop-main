@@ -276,6 +276,11 @@ fn ensure_external_watcher_binary() {
             return;
         }
 
+        if let Err(error) = crate::sidecar_integrity::verify_sidecar("ritual-watcher", &source) {
+            watcher_info!("❌ Refusing bundled watcher installation: {error}");
+            return;
+        }
+
         copy_external_support_binary(&source, &target, "watcher");
 
         if let (Some(helper_source), Some(helper_target)) = (
@@ -283,6 +288,12 @@ fn ensure_external_watcher_binary() {
             external_vision_helper_install_path(),
         ) {
             if helper_source != helper_target {
+                if let Err(error) =
+                    crate::sidecar_integrity::verify_sidecar("ritual-vision-helper", &helper_source)
+                {
+                    watcher_info!("❌ Refusing bundled vision helper installation: {error}");
+                    return;
+                }
                 copy_external_support_binary(&helper_source, &helper_target, "vision helper");
             }
         }
@@ -300,6 +311,8 @@ fn validate_watcher_binary(path: &Path) -> Result<Option<String>, String> {
     if !metadata.is_file() {
         return Err("not a regular file".to_string());
     }
+
+    crate::sidecar_integrity::verify_sidecar("ritual-watcher", path)?;
 
     #[cfg(unix)]
     {

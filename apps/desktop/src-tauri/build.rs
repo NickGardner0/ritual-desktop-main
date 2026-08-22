@@ -81,6 +81,23 @@ fn ensure_watcher_sidecar_for_tauri() {
     let watcher_target_dir = manifest_dir.join("target/watcher-sidecar-build");
     let cargo_bin = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
 
+    let rebuild_requested = std::env::var("RITUAL_REBUILD_SIDECARS")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if sidecar_path.exists() && !rebuild_requested {
+        set_executable_permissions(&sidecar_path);
+        println!(
+            "cargo:warning=ℹ️ using pinned watcher sidecar without rebuilding: {}",
+            sidecar_path.display()
+        );
+        return;
+    }
+
     if let Err(err) = fs::create_dir_all(&sidecar_dir) {
         panic!(
             "Failed to create watcher sidecar directory {}: {}",
@@ -180,6 +197,23 @@ fn ensure_vision_helper_for_tauri() {
 
     let target = std::env::var("TARGET").unwrap_or_default();
     let binaries_dir = manifest_dir.join("binaries");
+    let helper_path = binaries_dir.join(format!("ritual-vision-helper-{target}"));
+    let rebuild_requested = std::env::var("RITUAL_REBUILD_SIDECARS")
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
+    if helper_path.exists() && !rebuild_requested {
+        set_executable_permissions(&helper_path);
+        println!(
+            "cargo:warning=ℹ️ using pinned vision helper without rebuilding: {}",
+            helper_path.display()
+        );
+        return;
+    }
     let staging_dir = manifest_dir.join("target/vision-helper-build");
     let output = Command::new("bash")
         .arg(&script_path)
@@ -212,7 +246,6 @@ fn ensure_vision_helper_for_tauri() {
         );
     }
 
-    let helper_path = binaries_dir.join(format!("ritual-vision-helper-{target}"));
     let copied = copy_if_different(&staged_helper_path, &helper_path).unwrap_or_else(|err| {
         panic!(
             "Failed to copy vision helper {} -> {}: {}",
@@ -664,12 +697,34 @@ fn main() {
     println!("cargo:rerun-if-changed=native-vision/VisionOcr.swift");
     println!("cargo:rerun-if-changed=native-vision/main.swift");
     println!("cargo:rerun-if-env-changed=TARGET");
+    println!("cargo:rerun-if-env-changed=RITUAL_RUNTIME_SIDECAR_LOCK_JSON");
 
     ensure_watcher_sidecar_for_tauri();
     ensure_vision_helper_for_tauri();
     ensure_system_audio_helper_for_tauri();
     ensure_voice_hud_helper_for_tauri();
-    tauri_build::build();
+    println!("cargo:rerun-if-env-changed=RITUAL_CHANNEL");
+    println!("cargo:rerun-if-changed=capabilities");
+    let capability_pattern = match std::env::var("RITUAL_CHANNEL")
+        .unwrap_or_else(|_| {
+            if cfg!(debug_assertions) {
+                "development".to_string()
+            } else {
+                "production".to_string()
+            }
+        })
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "qa" | "staging" => "capabilities/qa/*.json",
+        "development" | "dev" => "capabilities/development/*.json",
+        _ => "capabilities/*.json",
+    };
+    tauri_build::try_build(
+        tauri_build::Attributes::new().capabilities_path_pattern(capability_pattern),
+    )
+    .expect("Tauri build configuration should be valid");
 
     if !running_on_macos_target() {
         println!("cargo:warning=ℹ️ Skipping Swift native voice build for non-macOS target");

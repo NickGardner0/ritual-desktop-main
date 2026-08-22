@@ -8,11 +8,39 @@ pub(crate) enum DesktopChannel {
 }
 
 impl DesktopChannel {
-    fn directory_name(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::Qa => "qa",
+            Self::Development => "development",
+        }
+    }
+
+    pub(crate) fn directory_name(self) -> &'static str {
         match self {
             Self::Production => ".ritual",
             Self::Qa => ".ritual-qa",
             Self::Development => ".ritual-dev",
+        }
+    }
+
+    pub(crate) fn bundle_id(self) -> &'static str {
+        match self {
+            Self::Production => "com.ritual.desktop",
+            Self::Qa => "com.ritual.desktop.qa",
+            Self::Development => "com.ritual.desktop.dev",
+        }
+    }
+
+    pub(crate) fn callback_scheme(self) -> &'static str {
+        self.bundle_id()
+    }
+
+    pub(crate) fn product_name(self) -> &'static str {
+        match self {
+            Self::Production => "Ritual",
+            Self::Qa => "Ritual QA",
+            Self::Development => "Ritual Dev",
         }
     }
 }
@@ -38,7 +66,10 @@ pub(crate) fn channel_from_values(
 
 pub(crate) fn configured_channel() -> DesktopChannel {
     channel_from_values(
-        std::env::var("RITUAL_CHANNEL").ok().as_deref(),
+        std::env::var("RITUAL_CHANNEL")
+            .ok()
+            .as_deref()
+            .or(option_env!("RITUAL_CHANNEL")),
         std::env::var("RITUAL_ENV")
             .ok()
             .as_deref()

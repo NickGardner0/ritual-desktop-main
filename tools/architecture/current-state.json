@@ -33,14 +33,14 @@
     ]
   },
   "nativeGateway": {
-    "registered": 68,
-    "allowed": 68,
-    "frontendInvoked": 68,
-    "typedSignatures": 69,
+    "registered": 71,
+    "allowed": 71,
+    "frontendInvoked": 71,
+    "typedSignatures": 72,
     "unregisteredTypedSignature": {
       "name": "check_recording_source_readiness",
       "path": "apps/desktop/src-tauri/src/system_audio.rs",
-      "classification": "Uncompiled and unreachable: the module is not declared by the Tauri binary and the command is absent from generate_handler, ACL, and frontend callers. Remove with evidence-backed dead-code work rather than treating it as a 69th gateway command."
+      "classification": "Uncompiled and unreachable: the module is not declared by the Tauri binary and the command is absent from generate_handler, ACL, and frontend callers. Remove with evidence-backed dead-code work rather than treating it as a gateway command."
     }
   },
   "chatEntrypoints": [
@@ -55,7 +55,7 @@
     "turnLifecycleOwner": "packages/chat-runtime/src/assistant-kernel.ts#AssistantKernel.runTurn",
     "providerOwner": "packages/chat-runtime/src/model-engine/openai-adapter.ts#OpenAIModelEngineAdapter.stream"
   },
-  "desktopProcesses": ["Ritual", "ritual-watcher", "ritual-vision-helper"],
+  "desktopProcesses": ["Ritual", "Ritual QA", "Ritual Dev", "ritual-watcher", "ritual-vision-helper"],
   "releaseTargets": {
     "aarch64-apple-darwin": "implemented",
     "x86_64-apple-darwin": "blocked_pending_real_intel_artifacts_and_runner"

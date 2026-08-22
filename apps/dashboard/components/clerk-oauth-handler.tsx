@@ -2,7 +2,12 @@
 
 import { useEffect } from 'react';
 
-import { recordDesktopShellEvent, openInBrowserFromDesktopAuth } from '@/lib/native-gateway';
+import {
+  desktopBeginAuthHandoff,
+  recordDesktopShellEvent,
+  openInBrowserFromDesktopAuth,
+  type DesktopAuthHandoffStart,
+} from '@/lib/native-gateway';
 
 type DesktopOAuthMode = 'sign_in' | 'sign_up';
 type DesktopOAuthStrategy = 'oauth_google' | 'oauth_apple';
@@ -33,10 +38,24 @@ function getOAuthStrategyFromElement(element: HTMLElement | null): DesktopOAuthS
   return null;
 }
 
-function buildDesktopOAuthStartUrl(mode: DesktopOAuthMode, strategy: DesktopOAuthStrategy): string {
+function buildDesktopOAuthStartUrl(
+  mode: DesktopOAuthMode,
+  strategy: DesktopOAuthStrategy,
+  handoff: DesktopAuthHandoffStart,
+): string {
   const url = new URL('/auth/desktop-start-oauth', window.location.origin);
   url.searchParams.set('mode', mode);
   url.searchParams.set('strategy', strategy);
+  url.searchParams.set('handoff_id', handoff.handoffId);
+  url.searchParams.set('nonce_challenge', handoff.nonceChallenge);
+  url.searchParams.set('channel', handoff.channel);
+  url.searchParams.set('protocol', handoff.protocol);
+  url.searchParams.set('expires_at_ms', String(handoff.expiresAtMs));
+  url.searchParams.set('app_version', handoff.appVersion);
+  url.searchParams.set('build_sha', handoff.buildSha);
+  url.searchParams.set('bundle_id', handoff.bundleId);
+  url.searchParams.set('callback_scheme', handoff.callbackScheme);
+  if (handoff.target) url.searchParams.set('target', handoff.target);
   return url.toString();
 }
 
@@ -63,13 +82,29 @@ export function ClerkOAuthHandler({
         (event as MouseEvent & { stopImmediatePropagation: () => void }).stopImmediatePropagation();
       }
 
-      const oauthStartUrl = buildDesktopOAuthStartUrl(mode, strategy);
-      void recordDesktopShellEvent('desktop.auth_oauth.launch_requested', 'info', {
-        mode,
-        strategy,
-        oauthStartUrl,
-      });
-      void openInBrowserFromDesktopAuth(oauthStartUrl);
+      void (async () => {
+        try {
+          const handoff = await desktopBeginAuthHandoff();
+          if (!handoff) {
+            throw new Error('The installed Ritual app does not support secure browser handoff.');
+          }
+          const oauthStartUrl = buildDesktopOAuthStartUrl(mode, strategy, handoff);
+          void recordDesktopShellEvent('desktop.auth_oauth.launch_requested', 'info', {
+            mode,
+            strategy,
+            channel: handoff.channel,
+            protocol: handoff.protocol,
+          });
+          await openInBrowserFromDesktopAuth(oauthStartUrl);
+        } catch (error) {
+          void recordDesktopShellEvent('desktop.auth_oauth.launch_failed', 'error', {
+            mode,
+            strategy,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          console.error('Failed to prepare secure desktop authentication:', error);
+        }
+      })();
     };
 
     document.addEventListener('click', handleClickCapture, true);

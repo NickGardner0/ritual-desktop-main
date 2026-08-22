@@ -23,7 +23,7 @@
     {
       "identifier": "fs:scope",
       "allow": [
-        { "path": "$HOME/.ritual/**" },
+        { "path": "$HOME/.ritual-dev/**" },
         { "path": "$DOWNLOAD/*" },
         { "path": "$DOCUMENT/*" },
         { "path": "$DESKTOP/*" }

@@ -11,11 +11,31 @@ export type UpdateManifest = {
 export type DesktopRuntimeInfo = {
   version: string;
   environment: string;
+  channel: 'production' | 'qa' | 'development';
+  productName: string;
+  bundleId: string;
+  callbackScheme: string;
+  buildSha: string;
+  handoffProtocol: string;
   capabilities: string[];
   updaterActive: boolean;
   frontendReady: boolean;
   target?: string | null;
   pendingUpdate?: UpdateManifest | null;
+};
+
+export type DesktopAuthHandoffStart = {
+  handoffId: string;
+  nonceChallenge: string;
+  channel: 'production' | 'qa' | 'development';
+  protocol: '2';
+  expiresAtMs: number;
+  appVersion: string;
+  buildSha: string;
+  productName: string;
+  bundleId: string;
+  callbackScheme: string;
+  target?: string | null;
 };
 
 export type DesktopDatabaseStateKind =
@@ -87,6 +107,31 @@ export type DesktopRuntimeState = {
   database: DesktopDatabaseRuntimeState;
   watcher: DesktopWatcherRuntimeState;
   process?: DesktopProcessMetrics;
+};
+
+export type DesktopDiagnostics = {
+  schemaVersion: 1;
+  runtime: DesktopRuntimeInfo;
+  process: {
+    pid: number;
+    processName: string;
+    executablePath: string;
+  };
+  backendBase?: string | null;
+  nativeGatewayStatus: string;
+  ipcStatus: string;
+  appDataDirectory: string;
+  callbackSchemeOwner?: string | null;
+  window: {
+    exists: boolean;
+    visible: boolean;
+    focused: boolean;
+    ignoresMouseEvents?: boolean | null;
+    windowLevel?: number | null;
+    hitTestable: boolean;
+    mainContentOpaque: boolean;
+  };
+  state: DesktopRuntimeState;
 };
 
 export type DesktopCompatibilityIssue =
@@ -239,6 +284,15 @@ export async function desktopHasCapability(capability: string): Promise<boolean>
   return Boolean(runtimeInfo?.capabilities.includes(capability));
 }
 
+export async function desktopBeginAuthHandoff(): Promise<DesktopAuthHandoffStart | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopAuthHandoffStart>('desktop_begin_auth_handoff');
+}
+
+export async function desktopCompleteAuthHandoff(handoffId: string): Promise<void> {
+  await invokeDesktopCommand('desktop_complete_auth_handoff', { handoffId });
+}
+
 export async function getDesktopRuntimeState(): Promise<DesktopRuntimeState | null> {
   if (!isDesktopTauriRuntime()) return null;
 
@@ -246,6 +300,16 @@ export async function getDesktopRuntimeState(): Promise<DesktopRuntimeState | nu
     return await invokeDesktopCommand<DesktopRuntimeState>('get_desktop_runtime_state');
   } catch (error) {
     console.warn('Desktop runtime state unavailable:', error);
+    return null;
+  }
+}
+
+export async function getDesktopDiagnostics(): Promise<DesktopDiagnostics | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  try {
+    return await invokeDesktopCommand<DesktopDiagnostics>('get_desktop_diagnostics');
+  } catch (error) {
+    console.warn('Desktop diagnostics unavailable:', error);
     return null;
   }
 }

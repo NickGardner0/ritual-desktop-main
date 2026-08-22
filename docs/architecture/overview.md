@@ -20,15 +20,15 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Local desktop reads for local desktop data | **True for recent desktop activity.** `activity.db` with `local \| synced \| unavailable`. Web/iOS and long-range aggregates stay `synced` / Tinybird. |
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
 | Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate parser budgets, but cannot certify a live release. Schema v2 now records missing watcher RSS honestly as null/not-applicable and marks release evidence incomplete. |
-| Reproducible builds / immutable releases | **Mostly true.** Sidecars SHA-pinned for Apple Silicon; CI/release actions pinned to SHAs. Intel Macs are not a 0.1.1 target. |
-| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **189,404** after the additive durable-chat, watcher-lifecycle, explicit-route, pure model-engine, and scheduler-fencing boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
+| Reproducible builds / immutable releases | **Repository gates complete; external Intel evidence pending.** Runtime verifies target, Mach-O architecture, and SHA. The dual-architecture workflow publishes one updater manifest only after both real-hardware jobs pass. Only arm64 sidecars are currently pinned, so Intel fails closed. |
+| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **190,851** after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
 
 | Criterion | Evidence now |
 |---|---|
 | Production build green | **Yes on the starting ship SHA.** GitHub `quality` + `desktop-rust` succeeded for `65ced577`. Vercel Production deployed that SHA. Local `next build` still needs Clerk keys. |
-| Every Tauri command typed + capability | **Yes.** ACL 68/68. Generated name + capability + TS I/O. |
+| Every Tauri command typed + capability | **Yes.** ACL 70/70. Generated name + capability + TS I/O; one uncompiled signature remains explicitly classified outside the gateway. |
 | Persisted browser data cannot cross identity | **Yes.** React Query key `ritual:react-query-cache:v1:<userId>`. |
 | One durable assistant turn / receipt history | **Yes.** FastAPI atomically accepts the stable turn and user message before provider/tool work, then atomically commits assistant content, receipts, and completion. Remote failures remain `unsent` or `failed_retryable`; they are never replaced with memory success. |
 | Only read-only tools concurrent | **Yes.** Mutating tools serial; unknown tools fail closed as mutating. |
@@ -37,7 +37,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
 | Launch / RSS budgets | **Stored webview fixtures exist; live provenance and watcher RSS do not.** |
-| Authored LOC in 180k–185k | **No.** Canonical implementation total is **189,404**. |
+| Authored LOC in 180k–185k | **No.** Canonical implementation total is **190,851**. |
 | Legacy orchestration deleted after parity | **Yes.** `AssistantKernel.runTurn` owns durable lifecycle for web, SMS, proactive SMS, scheduled workflow synthesis, and desktop-outbox replay. `model-engine/*` is provider-only; `chat-stream/*` is routing/pure helpers. |
 
 Rough score: **the architecture goal is implemented; the “materially smaller” goal is not proven; a short list of product/ops bugs remains.**
@@ -85,17 +85,17 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
-1. **Canonical LOC is 189,404**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
+1. **Canonical LOC is 190,851**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
 2. **Repository scheduler ownership is resolved; Trigger.dev external closure is not.** FastAPI registers all 13 jobs, fences normalized occurrences in `scheduler_occurrence_claims`, and reports health. Project `proj_hctghowrtnzbnyrgoecx` may still fire 121 schedules until directly paused/deleted and evidenced.
 3. **Resolved: explicit BFF ownership.** The generic proxy rejects unknown methods, unknown paths, non-JSON content, and the three explicitly owned paths. Import preview, screenshot preview, and Apple export use fixed adapters. Habit-log inline edit uses an idempotent FastAPI PATCH with optimistic revision conflict handling.
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
 5. **Watcher live RSS evidence pending.** Native code now separates watcher readiness from `native_ready`, waits for reachability/heartbeat, and rejects enabled zero RSS. The legacy samples are fixtures with null/not-applicable RSS; signed enabled/disabled captures still have to be produced.
 6. **Resolved: one chat lifecycle and provider boundary.** `AssistantKernel.runTurn` owns acceptance through terminal state. `model-engine/*` contains provider construction/decoding only and a static import contract prevents it from reaching persistence, queues, tools, or completion. `chat-stream/*` now contains only classification and pure response helpers.
 7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
-8. **Apple Silicon only.** No Intel `x86_64` sidecars.
+8. **Intel release remains externally blocked, not silently unsupported.** Build/pin, runtime verification, dual-package/updater, and real-runner workflow owners exist. `sidecar-lock.json` truthfully ships only arm64 until real `x86_64` watcher/vision binaries and hardware smoke evidence are committed.
 9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 494 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
-10. **Desktop social login still hops through the browser** (`/auth/desktop-oauth-bridge` → `com.ritual.desktop://`). One Clerk app; several UI doors. Chrome cannot hear Tauri deep links, so after ~5s it always shows “Open Ritual”.
-11. **Installed `/Applications/Ritual.app` was last seen as 2026-07-17.** Hosted JS comes from `desktop.ritualdb.com`; native IPC/RSS/watcher behavior comes from whichever binary is running. A July app plus a debug `app` binary can steal `com.ritual.desktop://` from each other.
+10. **Resolved in repository code: channel-bound desktop social login.** Production, QA, and development have distinct products, bundle IDs, schemes, data roots, and build-selected capability files. Native persists a short-lived verifier with mode `0600`; the browser carries only its SHA-256 challenge and native-generated handoff ID; the Clerk ticket is minted only after the initiating binary proves the verifier to FastAPI. The correct channel consumes once and the browser polls to durable acknowledgement. Protocol v1 remains temporarily readable only for the production native-first rollout and must be removed after v0.1.99 adoption.
+11. **Installed `/Applications/Ritual.app` was last seen as 2026-07-17.** v0.1.99 is configured but not published. Runtime diagnostics now exposes channel/version/SHA, executable path, bundle/scheme, backend, watcher/RSS, data root, scheme owner, and window hit-test state so a stale binary is distinguishable. Publication/adoption remains an external release gate.
 
 ---
 
@@ -108,10 +108,10 @@ These bit us during the live desktop captures or CI, or are still wrong in produ
 | **Wrong backend base in debug “production” desktop** | After sign-in, Turso refresh hits `http://127.0.0.1:8000` and connection-refuses. Location/biome outbox logs “Auth token is unavailable” until handoff, then the local URL. | **Fixed and pushed** (`65ced577`). Hosted `desktop.ritualdb.com` now hands native the Railway FastAPI URL; production Rust also rewrites leftover loopback bases. |
 | **Watcher preference/lifecycle ambiguity** | Missing config and explicit disablement previously collapsed to one state. | Fixed in repository code with preference v2, channel-isolated roots, and distinct never-enabled/user-disabled states; installed-release migration evidence remains pending. |
 | **`native_ready` races the watcher** | The shell milestone previously sampled the sidecar before readiness. | Fixed in repository code with a separate bounded readiness event and post-heartbeat RSS sample. No live budget is claimed until raw signed trials pass. |
-| **Cmd+R does not reload the WKWebView** | Keystrokes go to Chrome if it is focused; Tauri has no Reload handler. Debug builds can `SIGUSR1` to `location.reload()`. | Product builds still have no in-app reload. Fine for users; painful for QA. |
-| **OAuth leftover page in Chrome** | “Still returning to Ritual?” / “Open Ritual” is `/auth/desktop-oauth-bridge`, not a second onboarding/Clerk. | Click Open Ritual and look at the **native** window. Uninstall or quit the July `Ritual.app` if the deep link opens the wrong binary. |
-| **Transparent / liquid-glass window** | Screenshots and clicks can look like they hit the desktop underneath. | Known desktop chrome issue; not a second app. |
-| **Debug process name is `app`** | Activity Monitor / `pgrep` will not show `Ritual`. | Expected for `target/debug/app`. |
+| **QA reload ownership** | QA/dev lacked a focused WKWebView reload. | Fixed in repository code: debug/`qa-tools` builds expose Cmd+R and View → Reload Ritual only for the focused main window; production compiles neither menu nor handler. |
+| **OAuth browser terminal state** | The browser previously inferred success after attempting a scheme open. | Fixed in repository code with pending/consumed/acknowledged/expired/failed states and a no-app presentation while durable state remains pending. Live installed-app evidence is pending. |
+| **Transparent / liquid-glass window** | Main-window transparency could make screenshots and clicks look like they hit the desktop underneath. | Fixed in repository defaults: main content is opaque, translucency is opt-in/decorative, AppKit explicitly disables ignored mouse events and uses normal level, and QA diagnostics/probes capture the result. |
+| **Ambiguous shell identity** | Production, QA, development, watcher, and helper processes were not described by one contract. | Fixed for packaged builds and diagnostics with a channel product/bundle/scheme/data-root/capability matrix. `npm run desktop:diagnostics` builds and executes the channel-named binary (`Ritual Dev` by default); a direct raw Cargo invocation remains truthfully identifiable as `app`. |
 | **Alembic two heads / OpenAPI 0.128 drift / Svix `verify()` returning `None` / Rust test filter** | These broke GitHub `quality` or `desktop-rust`. | **Fixed and pushed** (`bcbfb88a`, `0d7d365f`, `c9a3aa21`, `5cb82a5a`). |
 | **Tauri 2 IPC not detected** | Hosted dashboard after `location.replace` saw desktop UA but `invoke` threw, so launch events never logged. | **Fixed and pushed** (`cd7976c9`). Vercel is serving that JS. |
 | **Bootstrap timing headers dropped** | Catch-all stopped forwarding `server-timing` / `x-ritual-bootstrap-*`. | **Fixed and pushed** (`5cb82a5a`). |
@@ -159,10 +159,10 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 |---|---|---|
 | **Dirty `codex/tasks-routines-mvp` worktree** | `/Users/nickgardner/Desktop/ritual-desktop-main` | ~438 dirty files. Entities/experiments/account-deletion and other product WIP. **Do not treat this tree as ship.** Some of those features already exist on the release branch; the dirty copies are not what deployed. |
 | **Trigger.dev cloud project** | Trigger.dev UI | Ops only. No code left in the repo. |
-| **New desktop `.app` containing this native code** | Not shipped as a DMG/app replacement in this pass | Users still run hosted JS in WKWebView. The July `/Applications/Ritual.app` native shell is old. Debug `target/debug/app` is local-only. |
+| **New desktop `.app` containing this native code** | Not yet published | v0.1.99 is configured; arm64/Intel signing, notarization, hardware smoke, updater merge, and publication remain release gates. |
 | **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
-| **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 189,404 and no product deletion is authorized for the metric. |
-| **This overview file** | local | Created on request; **not committed** unless you ask. |
+| **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 190,851 and no product deletion is authorized for the metric. |
+| **This overview file** | release worktree | Intentionally reconciled and tracked as the architecture status owner. |
 
 ---
 
@@ -171,7 +171,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 1. In Trigger.dev, pause/delete the cloud project after confirming Railway cron is running.
 2. Quit or replace the July `Ritual.app` so deep links hit the this-branch binary; confirm production FastAPI base (not `:8000`) after desktop sign-in.
 3. Run the checked-in signed-app capture command with tracking enabled and disabled on both architectures, then attach raw artifact hashes before marking release evidence complete.
-4. Keep the 180k–185k band as a deletion/consolidation target only. If 189,404 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+4. Keep the 180k–185k band as a deletion/consolidation target only. If 190,851 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 5. Merge PR 9 to `main` only if you want `main` to match what Vercel/Railway already deploy.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

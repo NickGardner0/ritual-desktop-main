@@ -6,7 +6,7 @@
 **Berd upstream:** `https://github.com/block/berd.git`  
 **Scope:** investigation only. No Ritual application code was changed.
 
-> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 189,404 after the additive durable-chat, watcher-lifecycle, explicit-route, pure model-engine, and scheduler-fencing boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
+> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 190,851 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 
 ## Executive assessment
 
@@ -79,7 +79,7 @@ The Ritual worktree was already dirty. Counts and conclusions therefore describe
 ```text
 macOS launch
   -> Tauri 2 host (`apps/desktop/src-tauri/src/main.rs`)
-     -> tray, updater, deep links, 70 registered commands
+     -> tray, updater, deep links, 71 registered commands
      -> bundled redirect/failure shell
      -> watcher sidecar -> optional vision helper
      -> activity.db / memory.db / vault.db / file outboxes
@@ -379,7 +379,7 @@ As a coarse comparable—not a component count—the mean production TSX file is
 ### Ritual Tauri
 
 - Tauri 2 application in `apps/desktop/src-tauri`.
-- 70 registered commands plus dialog, filesystem, shell, updater and deep-link plugins.
+- 71 registered commands plus dialog, filesystem, shell, updater and deep-link plugins.
 - Native responsibilities include window/tray lifecycle, auth/config file handoff, watcher and vision-helper lifecycle, TCC permissions, activity/memory/vault databases, cloud sync, project-time attribution, speech recognition, updater, and deep links.
 - `spawn_background_startup_tasks` waits 250ms and then sequentially loads sync config, initializes activity storage, imports history, starts sync/watchdog, initializes memory storage, and starts project-time work. Deferring is good; serializing unrelated work in one task is not.
 - Location and Biome drains are registered during setup and begin after their own delays; updater starts after five seconds and then checks periodically.

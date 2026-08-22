@@ -8,8 +8,10 @@ export const NATIVE_COMMANDS = [
   "check_token_refresh_request",
   "clear_native_speech_state",
   "clear_watcher_config_cmd",
+  "desktop_begin_auth_handoff",
   "desktop_capture_sentry_smoke",
   "desktop_clear_auth_state",
+  "desktop_complete_auth_handoff",
   "desktop_frontend_ready",
   "desktop_install_update",
   "desktop_manual_update_check",
@@ -21,6 +23,7 @@ export const NATIVE_COMMANDS = [
   "get_biome_iphone_diagnostics",
   "get_browser_extension_diagnostics",
   "get_daily_summaries",
+  "get_desktop_diagnostics",
   "get_desktop_runtime_info",
   "get_desktop_runtime_state",
   "get_desktop_shell_bootstrap_config",
@@ -81,8 +84,10 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "check_token_refresh_request": "desktop-runtime",
   "clear_native_speech_state": "desktop-runtime",
   "clear_watcher_config_cmd": "desktop-activity",
+  "desktop_begin_auth_handoff": "desktop-runtime",
   "desktop_capture_sentry_smoke": "desktop-observability",
   "desktop_clear_auth_state": "desktop-runtime",
+  "desktop_complete_auth_handoff": "desktop-runtime",
   "desktop_frontend_ready": "desktop-runtime",
   "desktop_install_update": "desktop-runtime",
   "desktop_manual_update_check": "desktop-runtime",
@@ -94,6 +99,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "get_biome_iphone_diagnostics": "desktop-runtime",
   "get_browser_extension_diagnostics": "desktop-activity",
   "get_daily_summaries": "desktop-activity",
+  "get_desktop_diagnostics": "desktop-runtime",
   "get_desktop_runtime_info": "desktop-runtime",
   "get_desktop_runtime_state": "desktop-runtime",
   "get_desktop_shell_bootstrap_config": "desktop-shell-bootstrap",
@@ -154,8 +160,10 @@ export type NativeCommandInputs = {
   check_token_refresh_request: Record<string, never>;
   clear_native_speech_state: Record<string, never>;
   clear_watcher_config_cmd: Record<string, never>;
+  desktop_begin_auth_handoff: Record<string, never>;
   desktop_capture_sentry_smoke: Record<string, never>;
   desktop_clear_auth_state: Record<string, never>;
+  desktop_complete_auth_handoff: { handoffId: string };
   desktop_frontend_ready: Record<string, never>;
   desktop_install_update: Record<string, never>;
   desktop_manual_update_check: Record<string, never>;
@@ -167,6 +175,7 @@ export type NativeCommandInputs = {
   get_biome_iphone_diagnostics: Record<string, never>;
   get_browser_extension_diagnostics: Record<string, never>;
   get_daily_summaries: { startDate: string; endDate: string; origin?: string | null };
+  get_desktop_diagnostics: Record<string, never>;
   get_desktop_runtime_info: Record<string, never>;
   get_desktop_runtime_state: Record<string, never>;
   get_desktop_shell_bootstrap_config: Record<string, never>;
@@ -225,8 +234,10 @@ export type NativeCommandOutputs = {
   check_token_refresh_request: number;
   clear_native_speech_state: void;
   clear_watcher_config_cmd: void;
+  desktop_begin_auth_handoff: unknown;
   desktop_capture_sentry_smoke: void;
   desktop_clear_auth_state: unknown;
+  desktop_complete_auth_handoff: void;
   desktop_frontend_ready: unknown;
   desktop_install_update: void;
   desktop_manual_update_check: unknown;
@@ -238,6 +249,7 @@ export type NativeCommandOutputs = {
   get_biome_iphone_diagnostics: unknown;
   get_browser_extension_diagnostics: unknown;
   get_daily_summaries: Array<unknown>;
+  get_desktop_diagnostics: unknown;
   get_desktop_runtime_info: unknown;
   get_desktop_runtime_state: unknown;
   get_desktop_shell_bootstrap_config: unknown;

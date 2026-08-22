@@ -83,7 +83,7 @@ Desktop
 | Plan criterion | Evidence |
 |---|---|
 | Production build reproducible and green | `npm run typecheck` is green. `next build --webpack` compiles; local prerender still needs Clerk publishableKey. CI/Vercel supply that key. |
-| Every Tauri command typed + capability | ACL 68/68. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` from Rust signatures. |
+| Every Tauri command typed + capability | ACL 70/70. Generated `NativeCommandName` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` from Rust signatures; one uncompiled signature remains classified outside the gateway. |
 | Persisted browser data cannot cross identity | React Query persist key is `ritual:react-query-cache:v1:<userId>` and restore rejects identity mismatch. |
 | One durable turn/receipt history | FastAPI `assistant_turns` + kernel commit after persist. Receipts stored on the turn. |
 | Only read-only tools concurrent | `planToolBatch` / `executeDeclaredToolCalls`; unknown tools fail closed as mutating. |
@@ -92,7 +92,7 @@ Desktop
 | Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
 | Remaining projections documented | Tinybird inventory. Typesense deleted. MiniSearch stays for the in-modal picker. Dashboard Tinybird reads go through FastAPI. Signed-in FastAPI JSON reads/writes use the generated client. Raw desktop activity events read `activity.db` only. The catch-all is JSON-only and operation/method bounded; import preview, screenshot preview, and Apple export use fixed adapters; habit-log edit uses the generated revision-checked PATCH. Next-owned chat/voice/calendar/OAuth/workflow/email routes remain for their declared boundaries. |
 | Launch/route/CPU/RSS budgets | Legacy five-trial cold/warm debug fixtures exercise parser budgets in `repo:check`. Watcher lifecycle code now samples only after heartbeat readiness and encodes disabled RSS as null/not-applicable. Signed live release evidence is explicitly incomplete. |
-| LOC remeasured | Canonical implementation total 189,404 via `npm run audit:loc` after the additive durable-chat, watcher-lifecycle, explicit-route, pure model-engine, and scheduler-fencing boundaries (starting ship baseline 187,086); historical 192,474, ~192.6k, and dirty-tree 183.97k claims are reconciled in `LOC_BASELINE.md`. Next BFF is 19/39 because three named non-JSON adapters replaced generic ownership. |
+| LOC remeasured | Canonical implementation total 190,851 via `npm run audit:loc` after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline 187,086); historical 192,474, ~192.6k, and dirty-tree 183.97k claims are reconciled in `LOC_BASELINE.md`. Next BFF is 19/39 because three named non-JSON adapters replaced generic ownership. |
 | Legacy orchestration deleted after parity | Web, SMS, proactive SMS, scheduled workflow synthesis, and desktop replay delegate lifecycle to `AssistantKernel.runTurn`. Provider request/decoding exists only in `model-engine/openai-adapter.ts`; `chat-stream/*` is classification and pure helpers. `check-chat-runtime-boundaries.mjs` enforces dependency direction. |
 
 ## Intentionally not done

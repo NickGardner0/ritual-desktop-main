@@ -1,0 +1,28 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Ritual Dev",
+  "identifier": "com.ritual.desktop.dev",
+  "mainBinaryName": "Ritual Dev",
+  "app": {
+    "security": {
+      "assetProtocol": {
+        "enable": true,
+        "scope": [
+          "$HOME/.ritual-dev/**",
+          "$HOME/.ritual-dev/thumbnails/**",
+          "$HOME/.ritual-dev/video/**"
+        ]
+      }
+    }
+  },
+  "bundle": {
+    "active": false
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["com.ritual.desktop.dev"]
+      }
+    }
+  }
+}

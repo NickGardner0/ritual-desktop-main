@@ -54,6 +54,7 @@ from database.models.reports import (
     ReportNotificationDB,
 )
 from database.models.scheduler import SchedulerOccurrenceClaimDB
+from database.models.desktop_auth import DesktopAuthHandoffDB
 from database.models.sms import (
     SmsPreferencesDB,
     SmsCopilotEventDB,
@@ -138,6 +139,7 @@ __all__ = [
     "ExperimentDB",
     "ExperimentEntryDB",
     "DailyActivityRollupDB",
+    "DesktopAuthHandoffDB",
     "DomainDailyRollupDB",
     "FinancialAccountDB",
     "FinancialConnectionDB",

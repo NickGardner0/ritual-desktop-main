@@ -70,19 +70,15 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') return false;
     if (isAuxiliaryDesktopWindow()) return false;
     const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
-    const storageValue = window.sessionStorage.getItem('ritual_main_glass');
-    return getDesktopCapabilities().isDesktop || queryValue === '1' || storageValue === '1';
+    return queryValue === '1';
   });
   const [isGlassChromeEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
     if (isAuxiliaryDesktopWindow()) return false;
     const params = new URLSearchParams(window.location.search);
     const queryValue = params.get('ritual_glass_chrome');
-    const storageValue = window.sessionStorage.getItem('ritual_glass_chrome');
     if (queryValue === '0') return false;
-    if (getDesktopCapabilities().isDesktop) return true;
-    if (queryValue === '1' || storageValue === '1') return true;
-    return params.get('ritual_main_glass') === '1' || window.sessionStorage.getItem('ritual_main_glass') === '1';
+    return queryValue === '1' || params.get('ritual_main_glass') === '1';
   });
   const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
     if (typeof window === 'undefined') return false;

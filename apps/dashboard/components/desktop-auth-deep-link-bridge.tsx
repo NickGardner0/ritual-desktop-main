@@ -3,16 +3,33 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { recordDesktopShellEvent } from '@/lib/native-gateway';
+import {
+  desktopCompleteAuthHandoff,
+  getDesktopRuntimeInfo,
+  recordDesktopShellEvent,
+} from '@/lib/native-gateway';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
+import {
+  consumeDesktopAuthHandoff,
+  storePendingDesktopAuthAcknowledgement,
+} from '@/lib/desktop-auth-handoff';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
 
-function normalizeDesktopDeepLinkToAppPath(rawUrl: string): string {
+async function normalizeDesktopDeepLinkToAppPath(rawUrl: string): Promise<string> {
   const parsed = new URL(rawUrl);
-  const protocol = parsed.protocol.toLowerCase();
+  const runtimeInfo = await getDesktopRuntimeInfo();
+  if (!runtimeInfo) throw new Error('Desktop runtime identity is unavailable.');
+  const scheme = parsed.protocol.replace(/:$/, '').toLowerCase();
+  const handoffProtocol = parsed.searchParams.get('protocol');
+  const legacyV1 = !handoffProtocol
+    && runtimeInfo.channel === 'production'
+    && runtimeInfo.capabilities.includes('desktop-auth-handoff-v1');
 
-  if (protocol !== 'ritual:' && protocol !== 'com.ritual.desktop:') {
+  if (
+    scheme !== runtimeInfo.callbackScheme.toLowerCase()
+    && !(legacyV1 && scheme === 'ritual')
+  ) {
     throw new Error(`Unsupported desktop auth protocol: ${parsed.protocol}`);
   }
 
@@ -24,7 +41,32 @@ function normalizeDesktopDeepLinkToAppPath(rawUrl: string): string {
     throw new Error('Desktop auth deep link did not include a target route.');
   }
 
-  return `${route}${parsed.search}`;
+  const handoffId = parsed.searchParams.get('handoff_id')?.trim() || '';
+  const nonce = parsed.searchParams.get('nonce')?.trim() || '';
+  const channel = parsed.searchParams.get('channel');
+  const ticket = parsed.searchParams.get('ticket')?.trim() || '';
+  if (legacyV1) {
+    if (!ticket) throw new Error('Legacy desktop authentication callback is missing its ticket.');
+    return `${route}?${new URLSearchParams({ ticket }).toString()}`;
+  }
+  if (
+    !handoffId || !nonce || ticket || handoffProtocol !== '2'
+    || channel !== runtimeInfo.channel
+    || runtimeInfo.handoffProtocol !== '2'
+  ) {
+    throw new Error('Desktop authentication handoff identity does not match this app.');
+  }
+  const claimedTicket = await consumeDesktopAuthHandoff({
+    handoffId,
+    nonce,
+    channel: runtimeInfo.channel,
+    protocol: '2',
+    runtimeInfo,
+  });
+  await desktopCompleteAuthHandoff(handoffId);
+  storePendingDesktopAuthAcknowledgement(handoffId);
+  const safeParams = new URLSearchParams({ ticket: claimedTicket, handoff_id: handoffId });
+  return `${route}?${safeParams.toString()}`;
 }
 
 export function DesktopAuthDeepLinkBridge() {
@@ -48,7 +90,7 @@ export function DesktopAuthDeepLinkBridge() {
 
     const handleDesktopDeepLink = async (rawUrl: string) => {
       try {
-        const nextPath = normalizeDesktopDeepLinkToAppPath(rawUrl);
+        const nextPath = await normalizeDesktopDeepLinkToAppPath(rawUrl);
         void recordDesktopShellEvent('desktop.auth_deep_link.received', 'info', {
           nextPath,
         });
@@ -89,7 +131,7 @@ export function DesktopAuthDeepLinkBridge() {
         unlisten();
       }
     };
-  }, [router]);
+  }, [isDesktop, router]);
 
   return null;
 }

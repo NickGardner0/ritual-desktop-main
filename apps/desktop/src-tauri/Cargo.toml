@@ -7,7 +7,7 @@ members = [
 
 [package]
 name = "app"
-version = "0.1.98"
+version = "0.1.99"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -32,6 +32,7 @@ base64 = "0.21"
 aes-gcm = "0.10"
 tiny_http = "0.12"
 rand = "0.8"
+sha2 = "0.10"
 log = "0.4"
 sentry = "0.36"
 tracing = "0.1"
@@ -85,6 +86,7 @@ tauri-plugin-deep-link = "2.4.7"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
+qa-tools = []
 
 [dev-dependencies]
 tempfile = "3.10"

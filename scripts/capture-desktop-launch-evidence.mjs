@@ -161,6 +161,20 @@ async function main() {
     );
   }
   if (!/^[a-f0-9]{40}$/i.test(sourceSha)) throw new Error(`Invalid RitualSourceSHA in app: ${sourceSha}`);
+  const expectedSourceSha = option('--source-sha', run('git', ['rev-parse', 'HEAD']));
+  if (sourceSha !== expectedSourceSha) {
+    throw new Error(`Installed app source SHA ${sourceSha} does not match requested evidence SHA ${expectedSourceSha}`);
+  }
+  const appChannel = run('plutil', ['-extract', 'RitualChannel', 'raw', path.join(appPath, 'Contents', 'Info.plist')]);
+  const appTarget = run('plutil', ['-extract', 'RitualTargetTriple', 'raw', path.join(appPath, 'Contents', 'Info.plist')]);
+  if (appChannel !== channel || appTarget !== architecture) {
+    throw new Error(`Installed app identity is ${appChannel}/${appTarget}; requested ${channel}/${architecture}`);
+  }
+  const executableInspection = run('/usr/bin/file', [path.join(appPath, 'Contents', 'MacOS', executableName)]);
+  const expectedMachOArch = architecture === 'aarch64-apple-darwin' ? 'arm64' : 'x86_64';
+  if (!executableInspection.includes('Mach-O') || !executableInspection.includes(expectedMachOArch)) {
+    throw new Error(`Installed app executable architecture is invalid: ${executableInspection}`);
+  }
   const context = {
     appPath,
     appArtifactSha256,

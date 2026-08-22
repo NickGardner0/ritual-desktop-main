@@ -11,6 +11,7 @@ mod local_vault;
 mod native_widget;
 mod privacy_policy;
 mod ritual_database;
+mod sidecar_integrity;
 mod watcher;
 mod watcher_activity;
 
@@ -65,7 +66,6 @@ const VOICE_HOTKEY_SETTINGS_FILE: &str = "voice-hotkey-settings.json";
 const VOICE_HUD_HELPER_APP_NAME: &str = "RitualVoiceHud.app";
 #[cfg(target_os = "macos")]
 const VOICE_HUD_HELPER_EXECUTABLE: &str = "ritual-voice-hud";
-
 
 #[derive(Clone, Copy, Debug)]
 enum DesktopShellNavGateMode {
@@ -296,8 +296,7 @@ fn build_desktop_shell_bootstrap_config() -> DesktopShellBootstrapConfig {
 }
 
 fn is_supported_desktop_deep_link(raw: &str) -> bool {
-    let trimmed = raw.trim();
-    trimmed.starts_with("ritual://") || trimmed.starts_with("com.ritual.desktop://")
+    desktop_runtime::auth_handoff::is_supported_scheme(raw)
 }
 
 fn focus_main_window<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
@@ -320,9 +319,17 @@ fn handle_desktop_auth_deep_link<R: tauri::Runtime>(app: &tauri::AppHandle<R>, r
         return;
     }
 
+    let prepared = match desktop_runtime::auth_handoff::prepare_deep_link_for_webview(&trimmed) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            warn!(payload = %redacted_payload, error = %error, "Rejecting invalid desktop auth handoff");
+            return;
+        }
+    };
+
     info!(payload = %redacted_payload, "Desktop deep link received");
     focus_main_window(app);
-    desktop_runtime::emit_auth_deep_link(app, trimmed);
+    desktop_runtime::emit_auth_deep_link(app, prepared);
 }
 
 #[tauri::command]
@@ -491,18 +498,17 @@ async fn auto_start_watcher_from_config<R: tauri::Runtime + 'static>(
 #[cfg(all(debug_assertions, unix))]
 fn spawn_debug_webview_reload_on_sigusr1<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
-        let mut signals = match tokio::signal::unix::signal(
-            tokio::signal::unix::SignalKind::user_defined1(),
-        ) {
-            Ok(signals) => signals,
-            Err(error) => {
-                warn!(
-                    error = %error,
-                    "Failed to install debug SIGUSR1 webview reload listener"
-                );
-                return;
-            }
-        };
+        let mut signals =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::user_defined1()) {
+                Ok(signals) => signals,
+                Err(error) => {
+                    warn!(
+                        error = %error,
+                        "Failed to install debug SIGUSR1 webview reload listener"
+                    );
+                    return;
+                }
+            };
 
         while signals.recv().await.is_some() {
             if let Some(window) = app.get_webview_window("main") {
@@ -516,6 +522,35 @@ fn spawn_debug_webview_reload_on_sigusr1<R: tauri::Runtime + 'static>(app: tauri
             }
         }
     });
+}
+
+#[cfg(any(debug_assertions, feature = "qa-tools"))]
+fn reload_focused_main_webview<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    let Some(window) = app.get_webview_window("main") else {
+        warn!("Reload requested without a main Ritual webview");
+        return;
+    };
+    if !window.is_focused().unwrap_or(false) {
+        warn!("Ignoring reload because the main Ritual webview is not focused");
+        return;
+    }
+    match window.eval("window.location.reload()") {
+        Ok(()) => info!("Reloaded focused main Ritual webview"),
+        Err(error) => warn!(error = %error, "Failed reloading focused main Ritual webview"),
+    }
+}
+
+#[cfg(any(debug_assertions, feature = "qa-tools"))]
+fn install_qa_reload_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    use tauri::menu::SubmenuBuilder;
+
+    let reload = MenuItemBuilder::with_id("reload_main_webview", "Reload Ritual")
+        .accelerator("CmdOrCtrl+R")
+        .build(app)?;
+    let view = SubmenuBuilder::new(app, "View").item(&reload).build()?;
+    let menu = MenuBuilder::new(app).item(&view).build()?;
+    app.set_menu(menu)?;
+    Ok(())
 }
 
 fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
@@ -665,7 +700,7 @@ mod startup_tests {
 #[cfg(target_os = "macos")]
 #[allow(unexpected_cfgs)]
 fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
-    use cocoa::base::{id, YES};
+    use cocoa::base::{id, NO, YES};
     use objc::runtime::BOOL;
     use objc::{msg_send, sel, sel_impl};
 
@@ -696,6 +731,10 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
                 setStyleMask: desired_style_mask
             ];
             let _: () = msg_send![ns_win, setHasShadow: YES];
+            let _: () = msg_send![ns_win, setIgnoresMouseEvents: NO];
+            // NSNormalWindowLevel = 0. Keep the main shell interactive and out
+            // of desktop-overlay/click-through levels.
+            let _: () = msg_send![ns_win, setLevel: 0_isize];
             let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
@@ -2011,9 +2050,7 @@ fn set_voice_hotkey_settings(
 fn normalize_settings_view(view: Option<String>) -> String {
     match view.as_deref().unwrap_or("account") {
         "account" | "sounds" | "privacy" | "voice" | "computer-tracking" | "place-tagging"
-        | "apple-health" => {
-            view.unwrap_or_else(|| "account".to_string())
-        }
+        | "apple-health" => view.unwrap_or_else(|| "account".to_string()),
         _ => "account".to_string(),
     }
 }
@@ -2232,7 +2269,14 @@ fn main() {
     let shell_feature_flags = DesktopShellFeatureFlags::from_env();
     shell_feature_flags.log_effective_values();
 
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(any(debug_assertions, feature = "qa-tools"))]
+    let builder = builder.on_menu_event(|app, event| {
+        if event.id().as_ref() == "reload_main_webview" {
+            reload_focused_main_webview(app);
+        }
+    });
+    let builder = builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -2313,7 +2357,10 @@ fn main() {
             // Desktop runtime / updater commands
             desktop_runtime::updater::get_desktop_runtime_info,
             desktop_runtime::get_desktop_runtime_state,
+            desktop_runtime::get_desktop_diagnostics,
             desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
+            desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
             desktop_runtime::auth_handoff::desktop_clear_auth_state,
             desktop_runtime::updater::desktop_frontend_ready,
             desktop_runtime::updater::desktop_manual_update_check,
@@ -2344,6 +2391,9 @@ fn main() {
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
             initialize_voice_hotkey(app.handle());
+
+            #[cfg(any(debug_assertions, feature = "qa-tools"))]
+            install_qa_reload_menu(app)?;
 
             let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
             let check_updates =
@@ -2410,7 +2460,7 @@ fn main() {
             let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
             let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
             let main_glass_enabled =
-                transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+                transparency_probe || env_flag_enabled("RITUAL_ENABLE_MAIN_GLASS");
             if main_glass_enabled {
                 app_url = with_query_param(&app_url, "ritual_main_glass=1");
                 app_url = with_query_param(&app_url, "ritual_glass_chrome=1");
@@ -2527,6 +2577,18 @@ fn main() {
                     ));
                 }
                 apply_one_time_main_window_default_size(&window);
+                if env::args().any(|argument| argument == "--diagnostics") {
+                    let diagnostics = tauri::async_runtime::block_on(
+                        desktop_runtime::build_desktop_diagnostics(app.handle()),
+                    )?;
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&diagnostics).map_err(|error| {
+                            std::io::Error::other(format!("Failed encoding diagnostics: {error}"))
+                        })?
+                    );
+                    std::process::exit(0);
+                }
                 let _ = window.show();
                 let _ = window.set_focus();
             }

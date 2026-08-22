@@ -119,29 +119,44 @@ if [[ -z "${SIGNING_IDENTITY}" ]]; then
 fi
 
 ARCH="$(uname -m)"
-case "${ARCH}" in
-  arm64) UPDATER_PLATFORM="darwin-aarch64"; TAURI_TARGET_TRIPLE="aarch64-apple-darwin"; DMG_ARCH_SUFFIX="aarch64" ;;
-  x86_64)
-    echo "Ritual 0.1.1 ships Apple Silicon only. Refusing Intel (x86_64) desktop release." >&2
-    exit 1
+REQUESTED_TARGET="${RITUAL_RELEASE_TARGET:-}"
+case "${REQUESTED_TARGET}" in
+  "" )
+    if [[ "${ARCH}" == "arm64" ]]; then
+      REQUESTED_TARGET="aarch64-apple-darwin"
+    elif [[ "${ARCH}" == "x86_64" ]]; then
+      REQUESTED_TARGET="x86_64-apple-darwin"
+    fi
     ;;
+  darwin-aarch64) REQUESTED_TARGET="aarch64-apple-darwin" ;;
+  darwin-x86_64|darwin-x64) REQUESTED_TARGET="x86_64-apple-darwin" ;;
+esac
+case "${REQUESTED_TARGET}" in
+  aarch64-apple-darwin) UPDATER_PLATFORM="darwin-aarch64"; TAURI_TARGET_TRIPLE="aarch64-apple-darwin"; DMG_ARCH_SUFFIX="aarch64"; EXPECTED_HOST_ARCH="arm64" ;;
+  x86_64-apple-darwin) UPDATER_PLATFORM="darwin-x86_64"; TAURI_TARGET_TRIPLE="x86_64-apple-darwin"; DMG_ARCH_SUFFIX="x64"; EXPECTED_HOST_ARCH="x86_64" ;;
   *)
-    echo "Unsupported macOS architecture: ${ARCH}"
+    echo "Unsupported macOS release target: ${REQUESTED_TARGET:-unset}" >&2
     exit 1
     ;;
 esac
+if [[ "${ARCH}" != "${EXPECTED_HOST_ARCH}" ]]; then
+  echo "Release target ${TAURI_TARGET_TRIPLE} requires a real ${EXPECTED_HOST_ARCH} macOS host; current host is ${ARCH}." >&2
+  exit 1
+fi
 
-MACOS_BUNDLE_DIR="apps/desktop/src-tauri/target/release/bundle/macos"
-DMG_DIR="apps/desktop/src-tauri/target/release/bundle/dmg"
+TARGET_BUNDLE_ROOT="apps/desktop/src-tauri/target/${TAURI_TARGET_TRIPLE}/release/bundle"
+MACOS_BUNDLE_DIR="${TARGET_BUNDLE_ROOT}/macos"
+DMG_DIR="${TARGET_BUNDLE_ROOT}/dmg"
 APP_PATH="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app"
-APP_NOTARY_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.notary.zip"
-APP_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app.zip"
-UPDATER_TAR="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}.app.tar.gz"
+APP_NOTARY_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.notary.zip"
+APP_ZIP="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.app.zip"
+UPDATER_TAR="${MACOS_BUNDLE_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.app.tar.gz"
 UPDATER_SIG="${UPDATER_TAR}.sig"
-LATEST_JSON="${MACOS_BUNDLE_DIR}/latest.json"
+LATEST_JSON="${MACOS_BUNDLE_DIR}/latest-${UPDATER_PLATFORM}.json"
 DMG_PATH="${DMG_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.dmg"
 HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-watcher"
 VISION_HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-vision-helper"
+APP_INFO_PLIST="${APP_PATH}/Contents/Info.plist"
 ENTITLEMENTS_PATH="apps/desktop/src-tauri/entitlements.plist"
 KEYCHAIN_PATH="${APPLE_SIGNING_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}"
 UPDATER_ASSET_NAME="$(basename "${UPDATER_TAR}")"
@@ -208,6 +223,32 @@ RITUAL_REQUIRE_SIDECAR_TRIPLE="${TAURI_TARGET_TRIPLE}" node scripts/verify-deskt
 
 echo "Pre-signing sidecar binaries..."
 
+SIDECAR_BACKUP_DIR="$(mktemp -d)"
+DMG_STAGING_DIR=""
+SIDECARS_RESTORED=false
+
+restore_release_sidecars() {
+  if [[ "${SIDECARS_RESTORED}" == "false" && -d "${SIDECAR_BACKUP_DIR}" ]]; then
+    cp -p "${SIDECAR_BACKUP_DIR}/$(basename "${WATCHER_SIDECAR_PATH}")" "${WATCHER_SIDECAR_PATH}"
+    cp -p "${SIDECAR_BACKUP_DIR}/$(basename "${VISION_SIDECAR_PATH}")" "${VISION_SIDECAR_PATH}"
+    SIDECARS_RESTORED=true
+  fi
+}
+
+cleanup_release_staging() {
+  restore_release_sidecars
+  if [[ -n "${DMG_STAGING_DIR}" && -d "${DMG_STAGING_DIR}" ]]; then
+    rm -rf "${DMG_STAGING_DIR}"
+  fi
+  if [[ -d "${SIDECAR_BACKUP_DIR}" ]]; then
+    rm -rf "${SIDECAR_BACKUP_DIR}"
+  fi
+}
+
+trap cleanup_release_staging EXIT
+cp -p "${WATCHER_SIDECAR_PATH}" "${SIDECAR_BACKUP_DIR}/"
+cp -p "${VISION_SIDECAR_PATH}" "${SIDECAR_BACKUP_DIR}/"
+
 for bin in "${WATCHER_SIDECAR_PATH}" "${VISION_SIDECAR_PATH}"; do
   if [[ ! -f "${bin}" ]]; then
     echo "Expected sidecar missing before bundle build: ${bin}" >&2
@@ -221,9 +262,25 @@ for bin in "${WATCHER_SIDECAR_PATH}" "${VISION_SIDECAR_PATH}"; do
   sign_macos_path "${bin}"
 done
 echo "Sidecar signing complete."
+SIGNED_WATCHER_SHA="$(shasum -a 256 "${WATCHER_SIDECAR_PATH}" | awk '{print $1}')"
+SIGNED_VISION_SHA="$(shasum -a 256 "${VISION_SIDECAR_PATH}" | awk '{print $1}')"
+
+export RITUAL_RUNTIME_SIDECAR_LOCK_JSON
+RITUAL_RUNTIME_SIDECAR_LOCK_JSON="$(
+  node scripts/render-runtime-sidecar-lock.mjs --target "${TAURI_TARGET_TRIPLE}"
+)"
 
 cd apps/desktop
-../../node_modules/.bin/tauri build --config src-tauri/tauri.generated.production.conf.json --bundles app
+SOURCE_SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+  echo "Release source SHA is invalid: ${SOURCE_SHA}" >&2
+  exit 1
+fi
+RITUAL_CHANNEL=production RITUAL_BUILD_SHA="${SOURCE_SHA}" \
+  ../../node_modules/.bin/tauri build \
+    --target "${TAURI_TARGET_TRIPLE}" \
+    --config src-tauri/tauri.generated.production.conf.json \
+    --bundles app
 cd ../..
 
 if [[ ! -f "${HELPER_PATH}" ]]; then
@@ -236,13 +293,37 @@ if [[ ! -f "${VISION_HELPER_PATH}" ]]; then
   exit 1
 fi
 
-echo "Manually signing bundled helpers and outer app..."
-sign_macos_path "${HELPER_PATH}"
-sign_macos_path "${VISION_HELPER_PATH}"
+echo "Verifying bundled sidecars are the exact signed, hash-pinned inputs..."
+cmp -s "${WATCHER_SIDECAR_PATH}" "${HELPER_PATH}" || {
+  echo "Bundled watcher bytes differ from the signed runtime hash input." >&2
+  exit 1
+}
+cmp -s "${VISION_SIDECAR_PATH}" "${VISION_HELPER_PATH}" || {
+  echo "Bundled vision-helper bytes differ from the signed runtime hash input." >&2
+  exit 1
+}
+codesign --verify --strict --verbose=2 "${HELPER_PATH}"
+codesign --verify --strict --verbose=2 "${VISION_HELPER_PATH}"
+
+restore_release_sidecars
+unset RITUAL_RUNTIME_SIDECAR_LOCK_JSON
+
+echo "Embedding release identity in Info.plist..."
+for key in RitualSourceSHA RitualChannel RitualTargetTriple; do
+  /usr/libexec/PlistBuddy -c "Delete :${key}" "${APP_INFO_PLIST}" >/dev/null 2>&1 || true
+done
+/usr/libexec/PlistBuddy -c "Add :RitualSourceSHA string ${SOURCE_SHA}" "${APP_INFO_PLIST}"
+/usr/libexec/PlistBuddy -c "Add :RitualChannel string production" "${APP_INFO_PLIST}"
+/usr/libexec/PlistBuddy -c "Add :RitualTargetTriple string ${TAURI_TARGET_TRIPLE}" "${APP_INFO_PLIST}"
+
+echo "Signing outer app..."
 sign_macos_path "${APP_PATH}"
 
 echo "Verifying signed app bundle..."
 codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+cmp -s "${SIDECAR_BACKUP_DIR}/$(basename "${WATCHER_SIDECAR_PATH}")" "${WATCHER_SIDECAR_PATH}"
+test "$(shasum -a 256 "${HELPER_PATH}" | awk '{print $1}')" = "${SIGNED_WATCHER_SHA}"
+test "$(shasum -a 256 "${VISION_HELPER_PATH}" | awk '{print $1}')" = "${SIGNED_VISION_SHA}"
 
 echo "Packaging app zip for notarization..."
 ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${APP_NOTARY_ZIP}"
@@ -309,10 +390,6 @@ PY
 
 echo "Creating DMG..."
 DMG_STAGING_DIR="$(mktemp -d)"
-cleanup_dmg_staging() {
-  rm -rf "${DMG_STAGING_DIR}"
-}
-trap cleanup_dmg_staging EXIT
 
 cp -R "${APP_PATH}" "${DMG_STAGING_DIR}/"
 
@@ -332,8 +409,8 @@ CREATE_DMG_ARGS=(
 )
 
 create-dmg "${CREATE_DMG_ARGS[@]}"
-trap - EXIT
-cleanup_dmg_staging
+rm -rf "${DMG_STAGING_DIR}"
+DMG_STAGING_DIR=""
 
 echo "Submitting DMG for notarization..."
 xcrun notarytool submit "${DMG_PATH}" "${NOTARY_AUTH_ARGS[@]}" --wait
@@ -342,7 +419,7 @@ echo "Stapling DMG..."
 xcrun stapler staple "${DMG_PATH}"
 
 echo "Validating updater artifacts..."
-node scripts/validate-updater-artifacts.mjs --latest "${LATEST_JSON}"
+node scripts/validate-updater-artifacts.mjs --latest "${LATEST_JSON}" --platform "${UPDATER_PLATFORM}"
 
 echo "Checking packaged app for accidental dashboard build artifacts..."
 ARTIFACT_CHECK_OUTPUT="$(mktemp)"

@@ -1100,8 +1100,8 @@ table tbody tr,
   html.desktop[data-transparency-probe="1"] body,
   html.desktop[data-transparency-probe="1"] #__next,
   html.desktop[data-transparency-probe="1"] #root {
-    background: transparent !important;
-    background-color: transparent !important;
+    background: hsl(var(--background)) !important;
+    background-color: hsl(var(--background)) !important;
   }
 
   html.desktop[data-transparency-probe="1"] .tauri-drag-region {
@@ -1114,18 +1114,18 @@ table tbody tr,
     display: flex;
     align-items: stretch;
     justify-content: flex-start;
-    background: transparent;
+    background: hsl(var(--background));
     padding: 24px;
   }
 
   .transparency-probe-panel {
     width: min(360px, 42vw);
     min-width: 280px;
-    border: 1px solid rgba(255, 255, 255, 0.35);
-    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid hsl(var(--border) / 0.55);
+    background: hsl(var(--card) / 0.72);
     backdrop-filter: saturate(145%) blur(18px);
     -webkit-backdrop-filter: saturate(145%) blur(18px);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 14px 32px rgba(0, 0, 0, 0.18);
+    box-shadow: inset 0 1px 0 hsl(var(--background) / 0.7), 0 14px 32px hsl(var(--foreground) / 0.18);
     padding: 20px;
   }
 
@@ -1133,14 +1133,14 @@ table tbody tr,
     margin: 0 0 10px 0;
     font-size: 20px;
     line-height: 1.2;
-    color: #111111;
+    color: hsl(var(--foreground));
   }
 
   .transparency-probe-body {
     margin: 0 0 12px 0;
     font-size: 13px;
     line-height: 1.45;
-    color: #222222;
+    color: hsl(var(--foreground));
   }
 
   .transparency-probe-list {
@@ -1148,7 +1148,14 @@ table tbody tr,
     padding-left: 18px;
     font-size: 12px;
     line-height: 1.45;
-    color: #202020;
+    color: hsl(var(--muted-foreground));
+  }
+
+  .transparency-probe-panel [data-qa-probe="hit-test-target"] {
+    position: fixed;
+    left: 20vw;
+    top: 72vh;
+    transform: translate(-50%, -50%);
   }
   /* ===== End Transparency Probe Mode ===== */
 
