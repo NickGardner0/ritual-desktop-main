@@ -276,6 +276,7 @@ RITUAL_CHANNEL=production RITUAL_BUILD_SHA="${SOURCE_SHA}" \
   ../../node_modules/.bin/tauri build \
     --target "${TAURI_TARGET_TRIPLE}" \
     --config src-tauri/tauri.generated.production.conf.json \
+    --no-sign \
     --bundles app
 cd ../..
 

@@ -75,6 +75,7 @@ test('runtime sidecar hashes are derived from the signed bytes actually bundled'
   const release = await readFile('scripts/build-macos-desktop-release.sh', 'utf8');
   const integrity = await readFile('apps/desktop/src-tauri/src/sidecar_integrity.rs', 'utf8');
   assert.match(release, /render-runtime-sidecar-lock\.mjs --target/);
+  assert.match(release, /tauri build[\s\S]*--no-sign[\s\S]*--bundles app/);
   assert.match(release, /cmp -s "\$\{WATCHER_SIDECAR_PATH\}" "\$\{HELPER_PATH\}"/);
   assert.match(release, /cmp -s "\$\{VISION_SIDECAR_PATH\}" "\$\{VISION_HELPER_PATH\}"/);
   assert.doesNotMatch(release, /sign_macos_path "\$\{HELPER_PATH\}"/);
