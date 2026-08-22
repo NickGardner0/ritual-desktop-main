@@ -23,6 +23,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/sendblue/webhook(.*)',
   '/api/chat/sms(.*)',
   '/api/internal/workflows/execute(.*)',
+  '/api/reports/send(.*)',
   '/integrations/success(.*)',
   '/integrations(.*)',
 ]);

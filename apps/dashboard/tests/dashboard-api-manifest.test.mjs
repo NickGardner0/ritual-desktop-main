@@ -75,4 +75,15 @@ describe("dashboard API route manifest", () => {
     assert.equal(manifest.routes["apps/dashboard/app/api/screenshot/preview/route.ts"].contentClass, "multipart-json");
     assert.equal(manifest.routes["apps/dashboard/app/api/wearables/apple/export/route.ts"].contentClass, "mixed-export");
   });
+
+  test("allows the token-authenticated backend to reach the report email adapter", () => {
+    const proxySource = readFileSync(join(root, "apps/dashboard/proxy.ts"), "utf8");
+    const reportRouteSource = readFileSync(
+      join(root, "apps/dashboard/app/api/reports/send/route.ts"),
+      "utf8",
+    );
+    assert.match(proxySource, /['"]\/api\/reports\/send\(\.\*\)['"]/);
+    assert.match(reportRouteSource, /x-backend-token/);
+    assert.match(reportRouteSource, /INTERNAL_BACKEND_TOKEN/);
+  });
 });
