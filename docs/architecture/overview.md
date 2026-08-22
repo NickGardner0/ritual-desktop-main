@@ -93,7 +93,7 @@ These are remaining dual paths, unpaid taxes, or incomplete gates. They are docu
 6. **`chat-stream/*` still exists** as the model-loop adapter. That is the strangler leftover, not a second chat host.
 7. **Chat / conversation persist fail-open** if FastAPI is down. Durable turns exist; the UI still continues rather than hard-failing.
 8. **Apple Silicon only.** No Intel `x86_64` sidecars.
-9. **FastAPI 0.119.0 in CI vs a local 0.128 venv.** OpenAPI/client must be generated against the CI pin or `check-generated-backend-client` fails.
+9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 466 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
 10. **Desktop social login still hops through the browser** (`/auth/desktop-oauth-bridge` → `com.ritual.desktop://`). One Clerk app; several UI doors. Chrome cannot hear Tauri deep links, so after ~5s it always shows “Open Ritual”.
 11. **Installed `/Applications/Ritual.app` was last seen as 2026-07-17.** Hosted JS comes from `desktop.ritualdb.com`; native IPC/RSS/watcher behavior comes from whichever binary is running. A July app plus a debug `app` binary can steal `com.ritual.desktop://` from each other.
 

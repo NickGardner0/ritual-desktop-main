@@ -2,6 +2,18 @@
 
 FastAPI backend for Ritual.
 
+## Locked Python environment
+
+Backend generation, tests, CI, and Railway use Python 3.12.12 and the hash-pinned `requirements.lock.txt`. Do not invoke OpenAPI generation or pytest through an ambient virtualenv.
+
+- `npm run api:openapi`
+- `npm run api:generate-client`
+- `npm run backend:test`
+
+The first backend command provisions an ignored `.venv/backend-*` environment keyed by the lock hash. `BACKEND_PYTHON` may select the source interpreter, but it must be exactly Python 3.12.12; installed ambient packages are never reused.
+
+To change a dependency, edit `requirements.in` or `requirements-dev.in`, install uv 0.9.2, and run `npm run backend:lock`. Generation fails before importing FastAPI if the inputs, Python version, FastAPI 0.119.0, or Pydantic 2.12.2 drift.
+
 ## Key Paths
 
 - `apps/backend/main.py`: API entrypoint
@@ -22,13 +34,9 @@ Or directly:
 
 ## Test
 
-From repo root, install the backend test dependencies into your backend environment:
+From the repo root run `npm run backend:test`. For a focused test, use the locked wrapper directly:
 
-- `cd apps/backend && python -m pip install -r requirements-dev.txt`
-
-Then run focused tests from the repo root, for example:
-
-- `cd apps/backend && python -m pytest tests/test_unified_wearables.py tests/test_wearables_query_service.py`
+- `node scripts/backend-python.mjs -- -m pytest -q apps/backend/tests/test_unified_wearables.py`
 
 ## Clerk account-deletion webhook
 

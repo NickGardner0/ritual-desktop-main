@@ -1,0 +1,38 @@
+# Core FastAPI and server
+fastapi==0.119.0
+uvicorn[standard]>=0.24.0
+
+# Rate limiting
+slowapi>=0.1.9
+
+# Database - Turso Cloud only
+# Pinned to a known-good combo. SQLAlchemy 2.0.48 breaks the libsql async
+# cursor path with "'builtins.Cursor' object has no attribute '_async_soft_close'".
+sqlalchemy[asyncio]==2.0.39
+aiosqlite>=0.19.0
+alembic>=1.13.0
+libsql-client==0.3.1
+libsql-experimental==0.0.55
+sqlalchemy-libsql==0.2.0
+
+# Data validation
+pydantic==2.12.2
+
+# Authentication
+PyJWT[crypto]>=2.8.0
+cryptography>=41.0.0
+
+# HTTP and form handling
+python-multipart>=0.0.6
+httpx>=0.25.0
+sentry-sdk[fastapi]>=2.35.0
+svix>=1.64.0
+
+# Configuration and WebSockets
+python-dotenv>=1.0.0
+websockets>=12.0
+
+# Model providers and image processing
+openai>=1.0.0
+google-generativeai>=0.8.0
+Pillow>=10.0.0

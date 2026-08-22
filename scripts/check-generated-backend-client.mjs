@@ -10,12 +10,10 @@ const committedClient = join(root, "apps/dashboard/lib/api/generated/backend-cli
 const temporaryDirectory = mkdtempSync(join(tmpdir(), "ritual-backend-contracts-"));
 const generatedOpenApi = join(temporaryDirectory, "openapi.json");
 const generatedClient = join(temporaryDirectory, "backend-client.ts");
-const backendPython = process.env.BACKEND_PYTHON || "python3";
-
 function generate() {
   execFileSync(
-    backendPython,
-    ["scripts/export-backend-openapi.py", "--output", generatedOpenApi],
+    "node",
+    ["scripts/backend-python.mjs", "--", "scripts/export-backend-openapi.py", "--output", generatedOpenApi],
     { cwd: root, stdio: "pipe" },
   );
   execFileSync(
@@ -43,7 +41,7 @@ try {
   if (errors.length) {
     console.error("Generated backend client check failed:");
     for (const error of errors) console.error(`- ${error}`);
-    console.error("Run npm run api:openapi && npm run api:generate-client.");
+    console.error("Run npm run api:openapi && npm run api:generate-client. The OpenAPI command provisions the canonical locked Python environment.");
     process.exitCode = 1;
   } else {
     console.log("Generated backend client check passed against live FastAPI OpenAPI.");
