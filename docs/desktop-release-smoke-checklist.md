@@ -5,7 +5,7 @@ Run this after building a signed desktop artifact and before sharing it with bet
 ## Packaged App
 
 - Launch the packaged app from the DMG-installed location, not from a dev build.
-- Run this checklist independently on an Apple Silicon Mac and a real Intel Mac.
+- Run this checklist on an Apple Silicon Mac; Intel is outside the current supported release scope.
 - Confirm `file` and `shasum -a 256` match the target entries in `binaries/sidecar-lock.json`.
 - Confirm diagnostics report the expected product name, bundle ID, callback scheme, target, executable path, backend base, and channel-specific app-data root.
 - Confirm the app opens the hosted production UI instead of a localhost URL.
@@ -37,7 +37,7 @@ node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGard
 
 - From the packaged desktop app, trigger an update check.
 - Confirm the updater does not show a feed/signature error.
-- Repeat manifest validation with `--platform darwin-aarch64` and `--platform darwin-x86_64`.
+- Repeat manifest validation explicitly with `--platform darwin-aarch64`.
 
 ## Watcher and Window QA
 

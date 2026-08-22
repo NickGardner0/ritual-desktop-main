@@ -107,6 +107,6 @@ These stay because they still have a unique job, or they are product/ops work ou
 - Bundling the hosted dashboard into Tauri
 - Moving habits/wearables/SMS local
 - Goose/ACP as Ritual's kernel
-- Intel Mac desktop artifacts (v0.1.99 is configured but cannot publish until real x86_64 sidecars and hardware smoke evidence exist)
+- Intel Mac desktop artifacts (Apple Silicon-only support is the current product policy)
 - Disabling Nick's Trigger.dev cloud project from this repo
-- Production report email until the Vercel `RESEND_API_KEY` is configured and a delivery is proven
+- Production report email remains fail-closed while the owner intentionally defers Vercel `RESEND_API_KEY` configuration

@@ -202,7 +202,7 @@ There is no free instant preview environment for Railway by default in this repo
 Today, the standard desktop release path is:
 
 1. bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json) and [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml)
-2. push a matching desktop tag such as `v0.1.53`
+2. push a matching desktop tag such as `v0.1.99`
 3. let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-desktop-main/.github/workflows/desktop-release.yml) build, notarize, sign updater artifacts, and publish the artifacts to `NickGardner0/ritual-desktop-releases`
 4. validate the published updater feed and run the packaged smoke checklist
 
@@ -214,7 +214,7 @@ export TAURI_SIGNING_PRIVATE_KEY_PATH="$HOME/.ritual-secrets/ritual-updater.key"
 export TAURI_SIGNING_PRIVATE_KEY_PASSWORD=""
 npm run desktop:release:preflight
 npm run desktop:release:mac
-bash scripts/publish-desktop-release-assets.sh v0.1.53
+bash scripts/publish-apple-silicon-desktop-release-assets.sh v0.1.99
 ```
 
 Do not treat the local fallback as the default release path now that the GitHub Actions workflow is healthy again.

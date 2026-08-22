@@ -8,7 +8,7 @@
 
 > **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 190,952 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 >
-> Production evidence cut: implementation SHA `bdc34ecf` passed GitHub Actions `quality` and `desktop-rust`, deployed to Vercel and Railway, and reported all 13 scheduler owners healthy across distinct 10:00/11:00 UTC hourly occurrences with empty duplicate-identity, stale-job, error, and overlapping-lease lists. Trigger cloud disablement, the production Resend secret, real Intel artifacts/hardware smoke, signed launch captures, and v0.1.99 publication/adoption remain explicitly open.
+> Production evidence cut: implementation SHA `bdc34ecf` passed GitHub Actions `quality` and `desktop-rust`, deployed to Vercel and Railway, and reported all 13 scheduler owners healthy across distinct 10:00/11:00 UTC hourly occurrences with empty duplicate-identity, stale-job, error, and overlapping-lease lists. The owner confirmed the Trigger workspace/project was deleted, intentionally deferred production Resend credentials, and selected Apple Silicon-only desktop support. Signed launch captures and v0.1.99 publication/adoption remain open.
 
 ## Executive assessment
 
@@ -507,7 +507,7 @@ Queues/background work include conversation follow-ups, wearable ingest/event ou
 - The Next catch-all BFF uses `lib/api/generated/backend-client.ts` as a route matcher. That generated file is reachable and should not be labeled dead.
 - `database/connection.py` uses a Turso/libSQL embedded replica in the server and contains a SQLAlchemy/libSQL cursor compatibility monkeypatch. That is a maintenance smell and should become an upstream/versioned adapter or disappear with a driver upgrade.
 - The current release code preserves fast database startup but starts all eight scheduler loops independently of deferred maintenance whenever `ENABLE_INTERNAL_SCHEDULER=1`.
-- FastAPI now owns a static 13-job registry. Eleven clock jobs use unique durable occurrence claims; wearable ingest/outbox keep atomic durable row claims. Authenticated health exposes registration, last attempt/success, duration, error, and lease state. Trigger.dev remains only an unverified external cloud blocker.
+- FastAPI now owns a static 13-job registry. Eleven clock jobs use unique durable occurrence claims; wearable ingest/outbox keep atomic durable row claims. Authenticated health exposes registration, last attempt/success, duration, error, and lease state. The owner confirmed the former Trigger.dev workspace/project was deleted.
 - WebSocket auth accepts a JWT in a query parameter. Authentication failures and health responses can include underlying exception text. Both increase secret/logging and information-disclosure risk.
 
 ---

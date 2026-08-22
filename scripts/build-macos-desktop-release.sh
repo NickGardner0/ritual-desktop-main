@@ -124,18 +124,14 @@ case "${REQUESTED_TARGET}" in
   "" )
     if [[ "${ARCH}" == "arm64" ]]; then
       REQUESTED_TARGET="aarch64-apple-darwin"
-    elif [[ "${ARCH}" == "x86_64" ]]; then
-      REQUESTED_TARGET="x86_64-apple-darwin"
     fi
     ;;
   darwin-aarch64) REQUESTED_TARGET="aarch64-apple-darwin" ;;
-  darwin-x86_64|darwin-x64) REQUESTED_TARGET="x86_64-apple-darwin" ;;
 esac
 case "${REQUESTED_TARGET}" in
   aarch64-apple-darwin) UPDATER_PLATFORM="darwin-aarch64"; TAURI_TARGET_TRIPLE="aarch64-apple-darwin"; DMG_ARCH_SUFFIX="aarch64"; EXPECTED_HOST_ARCH="arm64" ;;
-  x86_64-apple-darwin) UPDATER_PLATFORM="darwin-x86_64"; TAURI_TARGET_TRIPLE="x86_64-apple-darwin"; DMG_ARCH_SUFFIX="x64"; EXPECTED_HOST_ARCH="x86_64" ;;
   *)
-    echo "Unsupported macOS release target: ${REQUESTED_TARGET:-unset}" >&2
+    echo "Unsupported macOS release target: ${REQUESTED_TARGET:-unset}. Ritual currently ships Apple Silicon only." >&2
     exit 1
     ;;
 esac

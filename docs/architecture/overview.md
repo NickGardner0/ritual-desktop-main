@@ -15,12 +15,12 @@ This is a status report of that goal against the live repo, not a new plan. The 
 
 | Plan outcome | Status |
 |---|---|
-| One owner per turn, job, cache, projection, native command | **True in repository code and verified for the production scheduler.** `AssistantKernel.runTurn` + FastAPI `assistant_turns`; one provider adapter; one 13-job scheduler registry/occurrence fence; React Query per-user; Tinybird documented; NativeGateway generated triad. Trigger cloud disablement remains an external release gate. |
+| One owner per turn, job, cache, projection, native command | **True in repository code and verified for the production scheduler.** `AssistantKernel.runTurn` + FastAPI `assistant_turns`; one provider adapter; one 13-job scheduler registry/occurrence fence; React Query per-user; Tinybird documented; NativeGateway generated triad. The owner confirmed the former Trigger workspace/project was deleted. |
 | One obvious path from each client to domain truth | **True at the dashboard/FastAPI route boundary.** Generated-client JSON uses the method-aware catch-all. Multipart import/screenshot and Apple export use three fixed adapters. Habit-log edits use a generated revision-checked PATCH. Chat kernel still uses its internal `fetchPythonApi` transport. |
 | Local desktop reads for local desktop data | **True for recent desktop activity.** `activity.db` with `local \| synced \| unavailable`. Web/iOS and long-range aggregates stay `synced` / Tinybird. |
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
 | Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate parser budgets, but cannot certify a live release. Schema v2 now records missing watcher RSS honestly as null/not-applicable and marks release evidence incomplete. |
-| Reproducible builds / immutable releases | **Repository gates complete; external Intel evidence pending.** Runtime verifies target, Mach-O architecture, and SHA. The dual-architecture workflow publishes one updater manifest only after both real-hardware jobs pass. Only arm64 sidecars are currently pinned, so Intel fails closed. |
+| Reproducible builds / immutable releases | **Repository gates complete for the supported Apple Silicon target.** Runtime verifies target, Mach-O architecture, and SHA. The release workflow publishes one signed/notarized arm64 package and updater entry. Intel is explicitly unsupported by current product policy. |
 | ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **190,952** after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
@@ -32,7 +32,7 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Persisted browser data cannot cross identity | **Yes.** React Query key `ritual:react-query-cache:v1:<userId>`. |
 | One durable assistant turn / receipt history | **Yes.** FastAPI atomically accepts the stable turn and user message before provider/tool work, then atomically commits assistant content, receipts, and completion. Remote failures remain `unsent` or `failed_retryable`; they are never replaced with memory success. |
 | Only read-only tools concurrent | **Yes.** Mutating tools serial; unknown tools fail closed as mutating. |
-| One scheduler owner | **Complete in repository code and Railway.** Deployment `2043bae3-91b0-428b-8f47-151831e29b4f` starts all 13 owners with maintenance disabled. Schema-v2 authenticated health was `healthy` after restart and after distinct 10:00/11:00 UTC hourly occurrences, with no stale jobs, errors, active or overlapping leases, or duplicate occurrence identities. Trigger cloud disablement is still unverified. |
+| One scheduler owner | **Complete in repository code and Railway.** Deployment `2043bae3-91b0-428b-8f47-151831e29b4f` starts all 13 owners with maintenance disabled. Schema-v2 authenticated health was `healthy` after restart and after distinct 10:00/11:00 UTC hourly occurrences, with no stale jobs, errors, active or overlapping leases, or duplicate occurrence identities. The owner confirmed the former Trigger workspace/project was deleted. |
 | No chat-api / profiling callers | **Yes.** `apps/chat-api` and the profiling bridge are deleted. |
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
@@ -86,17 +86,17 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
 1. **Canonical LOC is 190,952**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
-2. **Repository scheduler ownership is resolved; Trigger.dev external closure is not.** FastAPI registers all 13 jobs, fences normalized occurrences in `scheduler_occurrence_claims`, and reports health. Project `proj_hctghowrtnzbnyrgoecx` may still fire 121 schedules until directly paused/deleted and evidenced.
+2. **Scheduler ownership is resolved.** FastAPI registers all 13 jobs, fences normalized occurrences in `scheduler_occurrence_claims`, and reports health. The owner confirmed the former Trigger workspace/project `proj_hctghowrtnzbnyrgoecx` was deleted.
 3. **Resolved: explicit BFF ownership.** The generic proxy rejects unknown methods, unknown paths, non-JSON content, and the three explicitly owned paths. Import preview, screenshot preview, and Apple export use fixed adapters. Habit-log inline edit uses an idempotent FastAPI PATCH with optimistic revision conflict handling.
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
 5. **Watcher live RSS evidence pending.** Native code now separates watcher readiness from `native_ready`, waits for reachability/heartbeat, and rejects enabled zero RSS. The legacy samples are fixtures with null/not-applicable RSS; signed enabled/disabled captures still have to be produced.
 6. **Resolved: one chat lifecycle and provider boundary.** `AssistantKernel.runTurn` owns acceptance through terminal state. `model-engine/*` contains provider construction/decoding only and a static import contract prevents it from reaching persistence, queues, tools, or completion. `chat-stream/*` now contains only classification and pure response helpers.
 7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
-8. **Intel release remains externally blocked, not silently unsupported.** Build/pin, runtime verification, dual-package/updater, and real-runner workflow owners exist. `sidecar-lock.json` truthfully ships only arm64 until real `x86_64` watcher/vision binaries and hardware smoke evidence are committed.
+8. **Apple Silicon is the explicit supported desktop architecture.** The workflow, sidecar lock, updater manifest, and publisher all fail closed to `aarch64-apple-darwin`; Intel receives no package or updater entry.
 9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 505 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
 10. **Resolved in repository code: channel-bound desktop social login.** Production, QA, and development have distinct products, bundle IDs, schemes, data roots, and build-selected capability files. Native persists a short-lived verifier with mode `0600`; the browser carries only its SHA-256 challenge and native-generated handoff ID; the Clerk ticket is minted only after the initiating binary proves the verifier to FastAPI. The correct channel consumes once and the browser polls to durable acknowledgement. Protocol v1 remains temporarily readable only for the production native-first rollout and must be removed after v0.1.99 adoption.
 11. **Installed `/Applications/Ritual.app` was last seen as 2026-07-17.** v0.1.99 is configured but not published. Runtime diagnostics now exposes channel/version/SHA, executable path, bundle/scheme, backend, watcher/RSS, data root, scheme owner, and window hit-test state so a stale binary is distinguishable. Publication/adoption remains an external release gate.
-12. **Production report email is externally blocked.** The `ritual-desktop` Vercel project has `INTERNAL_BACKEND_TOKEN` but no `RESEND_API_KEY`. The authenticated route is reachable and correctly returns 503 instead of pretending delivery succeeded; the secret must be added before report delivery can close.
+12. **Production report email is intentionally deferred.** The `ritual-desktop` Vercel project has `INTERNAL_BACKEND_TOKEN` but no `RESEND_API_KEY`. The authenticated route correctly returns 503 instead of pretending delivery succeeded; the owner chose not to configure mail credentials yet.
 
 ---
 
@@ -160,21 +160,19 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 | What | Where | Notes |
 |---|---|---|
 | **Dirty `codex/tasks-routines-mvp` worktree** | `/Users/nickgardner/Desktop/ritual-desktop-main` | ~438 dirty files. Entities/experiments/account-deletion and other product WIP. **Do not treat this tree as ship.** Some of those features already exist on the release branch; the dirty copies are not what deployed. |
-| **Trigger.dev cloud project** | Trigger.dev UI | Ops only. No code left in the repo. |
-| **New desktop `.app` containing this native code** | Not yet published | v0.1.99 is configured; arm64/Intel signing, notarization, hardware smoke, updater merge, and publication remain release gates. |
+| **Trigger.dev cloud project** | Trigger.dev UI | Owner-confirmed deleted. No code or Railway credentials remain. |
+| **New desktop `.app` containing this native code** | Not yet published | v0.1.99 is configured for Apple Silicon; signing, notarization, packaged smoke, updater validation, and publication remain release gates. |
 | **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
-| **Production report mail secret** | Vercel project configuration | `RESEND_API_KEY` is absent; authenticated report delivery fails closed with 503. |
+| **Production report mail secret** | Vercel project configuration | Intentionally deferred by the owner; authenticated report delivery fails closed with 503. |
 | **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 190,952 and no product deletion is authorized for the metric. |
 
 ---
 
 ## Suggested remaining work (priority)
 
-1. Add `RESEND_API_KEY` to the production `ritual-desktop` Vercel project and prove a real report delivery.
-2. In Trigger.dev, pause/delete the 121 schedules only after the two-cadence evidence is complete and the exact destructive targets are confirmed.
-3. Provision the labeled real Intel runner, build/pin both x86_64 sidecars, and run the two-architecture release matrix.
-4. Publish and install the next desktop patch, verify channel-bound auth and updater selection, then remove temporary auth protocol v1.
-5. Capture signed enabled/disabled launch trials on both architectures and attach raw artifact hashes.
-6. Keep the 180k–185k band as a deletion/consolidation target only. If 190,952 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+1. Publish and install the Apple Silicon v0.1.99 desktop patch, verify channel-bound auth and updater selection, then remove temporary auth protocol v1.
+2. Capture signed enabled/disabled Apple Silicon launch trials and attach raw artifact hashes.
+3. Keep report email fail-closed until the owner chooses to configure `RESEND_API_KEY`.
+4. Keep the 180k–185k band as a deletion/consolidation target only. If 190,952 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

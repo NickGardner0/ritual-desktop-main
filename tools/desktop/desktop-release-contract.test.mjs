@@ -53,13 +53,21 @@ test('reload tools compile only in debug or the explicit QA feature', async () =
   assert.doesNotMatch(release, /--features[= ]+qa-tools/);
 });
 
-test('release matrix requires real Intel hardware and keeps unpinned Intel explicit', async () => {
+test('release matrix and sidecar contract ship Apple Silicon only', async () => {
   const workflow = await readFile('.github/workflows/desktop-release.yml', 'utf8');
+  const publisher = await readFile('scripts/publish-apple-silicon-desktop-release-assets.sh', 'utf8');
   const lock = await readJson('apps/desktop/src-tauri/binaries/sidecar-lock.json');
-  assert.match(workflow, /self-hosted, macOS, X64, ritual-intel/);
-  assert.deepEqual(lock.releaseTargets, ['aarch64-apple-darwin', 'x86_64-apple-darwin']);
+  assert.match(workflow, /target: aarch64-apple-darwin/);
+  assert.doesNotMatch(workflow, /x86_64-apple-darwin|ritual-intel|darwin-x86_64/);
+  assert.match(workflow, /publish-apple-silicon-desktop-release-assets\.sh/);
+  assert.match(publisher, /_aarch64\.dmg/);
+  assert.match(publisher, /_aarch64\.app\.tar\.gz/);
+  assert.match(publisher, /--platform darwin-aarch64 --check-urls/);
+  assert.doesNotMatch(publisher, /x64|x86_64|darwin-x86_64/);
+  assert.deepEqual(lock.releaseTargets, ['aarch64-apple-darwin']);
   assert.deepEqual(lock.shippedTargets, ['aarch64-apple-darwin']);
-  assert.match(lock.externalPendingTargets['x86_64-apple-darwin'], /real|runner/i);
+  assert.deepEqual(lock.externalPendingTargets, {});
+  assert.match(lock.unsupportedTargets['x86_64-apple-darwin'], /Apple Silicon only/i);
 });
 
 test('runtime sidecar hashes are derived from the signed bytes actually bundled', async () => {

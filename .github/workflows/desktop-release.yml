@@ -19,8 +19,6 @@ jobs:
         include:
           - target: aarch64-apple-darwin
             runner: macos-15
-          - target: x86_64-apple-darwin
-            runner: [self-hosted, macOS, X64, ritual-intel]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -180,7 +178,7 @@ jobs:
           fi
 
   publish:
-    name: Validate and publish dual-architecture updater
+    name: Validate and publish Apple Silicon updater
     needs: macos
     runs-on: ubuntu-latest
     permissions:
@@ -194,24 +192,20 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Download architecture artifacts
+      - name: Download Apple Silicon artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: desktop-release-${{ github.ref_name }}-*
           path: release-assets
           merge-multiple: true
 
-      - name: Merge and validate updater manifest
+      - name: Prepare and validate updater manifest
         run: |
-          node scripts/merge-desktop-updater-manifests.mjs \
-            release-assets/latest-darwin-aarch64.json \
-            release-assets/latest-darwin-x86_64.json \
-            --output release-assets/latest.json
+          cp release-assets/latest-darwin-aarch64.json release-assets/latest.json
           node scripts/validate-updater-artifacts.mjs --latest release-assets/latest.json --platform darwin-aarch64
-          node scripts/validate-updater-artifacts.mjs --latest release-assets/latest.json --platform darwin-x86_64
 
       - name: Publish assets to public desktop releases repo
         env:
           GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_REPO_TOKEN }}
           RITUAL_RELEASE_ARTIFACT_ROOT: release-assets
-        run: bash scripts/publish-dual-desktop-release-assets.sh "${GITHUB_REF_NAME}"
+        run: bash scripts/publish-apple-silicon-desktop-release-assets.sh "${GITHUB_REF_NAME}"

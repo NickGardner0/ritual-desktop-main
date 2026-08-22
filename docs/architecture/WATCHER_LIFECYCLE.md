@@ -34,7 +34,7 @@ npm run perf:launch:capture -- --channel production --tracking enabled --cold 5 
 npm run perf:launch:capture -- --channel production --tracking disabled --cold 5 --warm 5
 ```
 
-Closing evidence requires five cold and five warm enabled trials and five cold and five warm disabled trials for every required architecture. Enabled trials require a ready PID and nonzero RSS; disabled trials require null/not-applicable RSS. Intel and signed release captures remain Phase 3/4 external gates.
+Closing evidence requires five cold and five warm enabled trials and five cold and five warm disabled trials on the supported Apple Silicon release. Enabled trials require a ready PID and nonzero RSS; disabled trials require null/not-applicable RSS. Signed release captures remain a Phase 4 gate.
 
 `npm run perf:launch:release-check` is the strict release gate and fails while that evidence is incomplete. The ordinary repository check continues to validate fixture parsing while reporting the incomplete release status explicitly.
 

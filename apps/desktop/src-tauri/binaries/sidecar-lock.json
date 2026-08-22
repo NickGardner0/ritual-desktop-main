@@ -1,10 +1,11 @@
 {
   "version": 2,
   "minimumMacOSVersion": "14.0",
-  "releaseTargets": ["aarch64-apple-darwin", "x86_64-apple-darwin"],
+  "releaseTargets": ["aarch64-apple-darwin"],
   "shippedTargets": ["aarch64-apple-darwin"],
-  "externalPendingTargets": {
-    "x86_64-apple-darwin": "Requires hash-pinned binaries and smoke evidence from the self-hosted ritual-intel runner before publication."
+  "externalPendingTargets": {},
+  "unsupportedTargets": {
+    "x86_64-apple-darwin": "Intel Macs are outside the current desktop release scope; Ritual supports Apple Silicon only."
   },
   "sidecars": {
     "ritual-watcher": {

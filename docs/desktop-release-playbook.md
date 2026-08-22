@@ -23,7 +23,7 @@ The native shell has three isolated identities:
 | QA | Ritual QA | `com.ritual.desktop.qa` | `~/.ritual-qa` |
 | Development | Ritual Dev | `com.ritual.desktop.dev` | `~/.ritual-dev` |
 
-Production releases contain separate arm64 and Intel packages. Intel artifacts must be built and smoked on the real `[self-hosted, macOS, X64, ritual-intel]` runner; cross-compilation is not release evidence.
+Production desktop releases currently support Apple Silicon (`arm64`) only. Intel Macs are outside the supported release scope and receive no updater entry or package.
 
 That means:
 
@@ -76,7 +76,7 @@ Steps:
 1. Bump the desktop version in [apps/desktop/src-tauri/tauri.conf.json](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/tauri.conf.json).
 2. Keep [apps/desktop/src-tauri/Cargo.toml](/Users/nickgardner/Desktop/ritual-desktop-main/apps/desktop/src-tauri/Cargo.toml) in sync.
 3. Push a tag such as `v0.1.99`.
-4. Let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-release-0.1.1-prep/.github/workflows/desktop-release.yml) build both architectures, merge one updater manifest, and publish only after both jobs pass.
+4. Let [desktop-release.yml](/Users/nickgardner/Desktop/ritual-release-0.1.1-prep/.github/workflows/desktop-release.yml) build, sign, notarize, validate, and publish the Apple Silicon package and updater manifest.
 5. Validate the updater feed and run the packaged smoke checklist.
 
 ### 3. Mixed web + native release
@@ -116,14 +116,13 @@ git push origin v0.1.99
 
 ```bash
 node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --platform darwin-aarch64 --check-urls
-node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGardner0/ritual-desktop-releases/releases/latest/download/latest.json --platform darwin-x86_64 --check-urls
 ```
 
 7. Run [docs/desktop-release-smoke-checklist.md](/Users/nickgardner/Desktop/ritual-desktop-main/docs/desktop-release-smoke-checklist.md).
 
 ## Local Fallback Desktop Release Flow
 
-Use this only when GitHub Actions is unavailable or you intentionally need a manual workstation build. A single machine cannot produce a releasable dual-architecture update: build each target on matching real hardware, merge both manifests with `scripts/merge-desktop-updater-manifests.mjs`, then use `publish-dual-desktop-release-assets.sh`.
+Use this only when GitHub Actions is unavailable or you intentionally need a manual workstation build. Run it on an Apple Silicon Mac and publish with the same Apple Silicon-only artifact contract as CI.
 
 1. Export local notarization and updater signing variables:
 
@@ -141,6 +140,7 @@ export APPLE_TEAM_ID="D657T2LVR2"
 ```bash
 npm run desktop:release:preflight
 RITUAL_RELEASE_TARGET="$(rustc -vV | awk '/host:/ {print $2; exit}')" npm run desktop:release:mac
+bash scripts/publish-apple-silicon-desktop-release-assets.sh v0.1.99
 ```
 
 3. Validate the updater artifacts:
@@ -213,7 +213,7 @@ Only do this if the capability names are already exposed by the shipped desktop 
 ## Required Smoke Tests Before Broad Rollout
 
 - packaged app launches from installed location
-- arm64 and Intel packages contain the correct Mach-O/hash-pinned watcher and vision helper
+- the arm64 package contains the correct Mach-O/hash-pinned watcher and vision helper
 - production URL loads, not localhost
 - sign-in and session restore work
 - browser sign-in reaches durable `acknowledged`, and replay/wrong-channel callbacks fail

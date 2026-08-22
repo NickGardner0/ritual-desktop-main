@@ -5,7 +5,7 @@
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
 **Canonical current baseline:** 190,952 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
 
-**Implementation status:** All ten workstreams have repository implementations. `AssistantKernel.runTurn` owns the durable lifecycle; `model-engine/*` owns provider translation only. FastAPI owns a 13-job registry with durable occurrence fencing and schema-v2 authenticated integrity health, verified healthy across two hourly occurrences on Railway implementation SHA `bdc34ecf`. External closeout remains for Trigger cloud disablement, the production Resend secret, real Intel artifacts/hardware, signed launch captures, v0.1.99 publication/adoption, and protocol-v1 removal.
+**Implementation status:** All ten workstreams have repository implementations. `AssistantKernel.runTurn` owns the durable lifecycle; `model-engine/*` owns provider translation only. FastAPI owns a 13-job registry with durable occurrence fencing and schema-v2 authenticated integrity health, verified healthy across two hourly occurrences on Railway implementation SHA `bdc34ecf`. The owner confirmed the Trigger workspace/project was deleted and intentionally deferred production Resend configuration. The supported desktop scope is Apple Silicon only; external closeout remains for signed launch captures, v0.1.99 publication/adoption, and protocol-v1 removal.
 
 ## Decision
 

@@ -38,7 +38,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | 10. Activity ownership | Done for raw/recent desktop | Desktop raw and ≤7-day reads use `activity.db` with observable `local \| synced \| unavailable`. No hidden HTTP/backend mix. Web/iOS and long-range desktop aggregates remain explicit `synced` |
 | 11. Provider soup | Inventoried | `@mui/icons-material` (Toc + habit icons), Lucide, and Paper shaders are still referenced. Deleted unused `use-stick-to-bottom`, `cmdk`, `usehooks-ts`, and `@shadcn/ui` |
 | 12. Config/env | Done for dead cloud-memory | Removed Turbopuffer / `RITUAL_MEMORY_CLOUD*` / Cohere embed-rerank env after confirming no TS/Python consumer |
-| 13. Native helper pinning | Done for shipped arm64 | `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. `x86_64-apple-darwin` is an explicit unsupported target until those binaries are committed. Release verifies hashes and no longer rebuilds vision helper unless `RITUAL_REBUILD_SIDECARS=1` |
+| 13. Native helper pinning | Done for supported arm64 | `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel is explicitly outside the current supported release scope. Release verifies hashes and no longer rebuilds vision helper unless `RITUAL_REBUILD_SIDECARS=1` |
 
 ## Ledger
 
@@ -68,7 +68,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete leftover Typesense phrase indexer caller | ~30 | 0 | −30 | no-op `/api/search/index-phrase` fan-out from chat habits | none | Caller deleted earlier; stub endpoints also removed |
 | Remove dead Turbopuffer/memory-cloud env | config only | 0 | 0 | unused env surface | none | Confirmed no Python/TS consumer. `ENABLE_INTERNAL_SCHEDULER` documented |
 | Delete unused `use-stick-to-bottom` | n/a | 0 | 0 | unused npm dep | `use-stick-to-bottom` | Zero imports. MUI, Lucide, shaders still have call sites |
-| Pin desktop sidecars | mutable rebuild on release | SHA-256 lock + verify | small add | unpinned vision rebuild | none | arm64 binaries hashed in `sidecar-lock.json`. x86_64 not present in this tree |
+| Pin desktop sidecars | mutable rebuild on release | SHA-256 lock + verify | small add | unpinned vision rebuild | none | Supported arm64 binaries are hashed in `sidecar-lock.json`; Intel is unsupported by current product policy |
 | Delete leftover Typesense write stubs | two no-op POST routes + unused methods | 0 | small | `/api/search/index-phrase`, `/api/search/reindex`, `index_log_phrase`, `ensure_collections` | none | No frontend callers. `/api/search/status` remains as the SQL-search health check |
 | AssistantKernel + durable turn store | stream/SMS/dashboard race | kernel + FastAPI atomic accept/commit + desktop outbox | small add | memory-success fallback and split message/turn commit | none | No provider/tool call precedes acceptance. Terminal completion includes assistant content and receipts. Mutating tools remain serial. |
 | NativeGateway generated command/capability/I-O triad | stringly IPC | `NATIVE_COMMANDS` + `NATIVE_COMMAND_CAPABILITIES` + `NativeCommandInputs`/`Outputs` generated from Rust | small add | extra caller import paths | none | `invokeDesktopCommand` is typed from the triad. Implementation modules stay in `desktop-bridge/*` |
@@ -144,13 +144,13 @@ Canonical release-branch implementation measurement (tokei 14.0.0; generated sou
   Audit-comparable total: 190,952 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries (starting ship baseline: 187,086).
 Command and machine data: npm run audit:loc / tools/architecture/loc-baseline.json.
 chat-api deployable: removed
-Schedulers before/after: 2 source implementations → 1 repository owner (FastAPI); Trigger.dev cloud project remains an external closeout blocker
+Schedulers before/after: 2 source implementations → 1 repository owner (FastAPI); the owner confirmed the former Trigger.dev workspace/project was deleted
 Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted on the release tree.
 Frontend↔desktop paths before: commands + tauri-utils + desktop-runtime + runtime bridge + shell bridge + profiling
 Frontend↔desktop paths after: NativeGateway barrel + generated command/capability/input/output triad; desktop-bridge is implementation; DesktopRuntimeBridge split into lifecycle owners; separate shell bootstrap
 Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS/workflow provider loops → AssistantKernel.runTurn + assistant_turns + local outbox; provider access → model-engine/openai-adapter.ts
 Computer activity recent-desktop source: hidden mix → observable local | synced | unavailable
-Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. v0.1.99 remains unpublished until real Intel binaries and hardware evidence complete the dual-target matrix.
+Native sidecars: rebuilt each macOS release → SHA-256 pinned for the supported Apple Silicon (`aarch64-apple-darwin`) target. v0.1.99 uses one signed/notarized arm64 package and updater entry.
 Dashboard production typecheck/build: green in GitHub `quality` and Vercel production at the evidence cut. Backend: 505 tests passed in the locked Python 3.12.12 environment.
 ```
 
@@ -161,11 +161,11 @@ Tests do not count against production reduction.
 1. FastAPI `ui_preferences` remains because overview view mode and habit text color sync across devices.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. The OpenAPI catch-all forwards only listed JSON methods. Apple export and multipart import/screenshot preview use fixed named adapters, and habit-log update uses a generated FastAPI operation. Sendblue webhook still forwards its provider body. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
-4. The currently published v0.1.98 ships Apple Silicon only. v0.1.99 is configured, but `sidecar-lock.json` truthfully pins only `aarch64-apple-darwin` until a real Intel runner produces and smokes the x86_64 watcher and vision helper.
+4. The currently published v0.1.98 ships Apple Silicon only. v0.1.99 keeps that supported architecture scope and truthfully publishes only the hash-pinned `aarch64-apple-darwin` watcher and vision helper.
 5. Authored production LOC is 190,952 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, desktop release-correctness, and scheduler-integrity boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
 6. Five-trial debug fixtures gate parser/budget behavior only. Production instrumentation now separates shell and watcher readiness, but signed enabled/disabled release captures remain an explicit open gate.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.
 9. Ops leftover after deploy: disable/delete the Trigger.dev cloud project so it cannot run in parallel with FastAPI. See `TRIGGER_DEV_OPS.md`.
 10. Production web/backend evidence is green on implementation SHA `bdc34ecf`: GitHub Actions run `32568940329`, Vercel deployment `dpl_5RPpF6ZcuFthBcnhxr7tmcNr4D24`, and Railway deployment `2043bae3-91b0-428b-8f47-151831e29b4f` / image `sha256:3085f255cd64c97eb78649c7305b597e3773abd1b8c18bd8f1f4f3f5e4074b0d`.
-11. Production report email remains fail-closed because the `ritual-desktop` Vercel project has no `RESEND_API_KEY`; a real delivery is still required.
+11. Production report email remains fail-closed because the `ritual-desktop` Vercel project has no `RESEND_API_KEY`; the owner intentionally deferred credential configuration.
