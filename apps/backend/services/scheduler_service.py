@@ -161,9 +161,16 @@ class SchedulerRuntimeRegistry:
         state.last_occurrence = _utc_iso(occurrence) if occurrence else None
         return time.perf_counter()
 
-    def record_success(self, job_key: str, started: float, *, lease_state: str = "completed") -> None:
+    def record_success(
+        self,
+        job_key: str,
+        started: float,
+        *,
+        lease_state: str = "completed",
+        successful_at: Optional[datetime] = None,
+    ) -> None:
         state = self.states[job_key]
-        state.last_successful_at = _utc_iso(utc_now())
+        state.last_successful_at = _utc_iso(successful_at or utc_now())
         state.last_duration_ms = max(0, round((time.perf_counter() - started) * 1000))
         state.last_error = None
         state.lease_state = lease_state
@@ -457,6 +464,13 @@ async def run_clock_job(
         occurrence=occurrence,
     )
     if not acquired:
+        if claim.status == "succeeded":
+            scheduler_runtime.record_success(
+                job_key,
+                started,
+                lease_state="duplicate_completed",
+                successful_at=claim.completed_at,
+            )
         return SchedulerExecutionResult(
             job_key=job_key,
             scope_key=scope_key,

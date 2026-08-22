@@ -141,7 +141,7 @@ Canonical release-branch implementation measurement (tokei 14.0.0; generated sou
   Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
   Tinybird pipe/datasource authored: 2,048
-  Audit-comparable total: 190,894 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline: 187,086).
+  Audit-comparable total: 190,908 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries (starting ship baseline: 187,086).
 Command and machine data: npm run audit:loc / tools/architecture/loc-baseline.json.
 chat-api deployable: removed
 Schedulers before/after: 2 source implementations → 1 repository owner (FastAPI); Trigger.dev cloud project remains an external closeout blocker
@@ -162,7 +162,7 @@ Tests do not count against production reduction.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. The OpenAPI catch-all forwards only listed JSON methods. Apple export and multipart import/screenshot preview use fixed named adapters, and habit-log update uses a generated FastAPI operation. Sendblue webhook still forwards its provider body. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
-5. Authored production LOC is 190,894 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
+5. Authored production LOC is 190,908 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
 6. Five-trial debug fixtures gate parser/budget behavior only. Production instrumentation now separates shell and watcher readiness, but signed enabled/disabled release captures remain an explicit open gate.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.

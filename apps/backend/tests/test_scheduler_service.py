@@ -145,6 +145,9 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         first_task = asyncio.create_task(run_clock_job("proactive_sms", work, now=occurrence))
         await started.wait()
         duplicate = await run_clock_job("proactive_sms", work, now=occurrence)
+        active_duplicate_state = service_module.scheduler_runtime.states["proactive_sms"]
+        self.assertIsNone(active_duplicate_state.last_successful_at)
+        self.assertEqual(active_duplicate_state.lease_state, "duplicate")
         release.set()
         first = await first_task
 
@@ -193,12 +196,16 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
                 yield TursoSessionProxy(session)
 
         work = AsyncMock(return_value={"effects": 2})
+        service_module.scheduler_runtime.reset()
         service_module.get_db_session = turso_session
         duplicate = await run_clock_job("proactive_sms", work, now=occurrence)
 
         self.assertEqual(duplicate.status, "duplicate")
         work.assert_not_awaited()
         service_module.force_local_replica_sync.assert_awaited()
+        runtime = service_module.scheduler_runtime.states["proactive_sms"]
+        self.assertIsNotNone(runtime.last_successful_at)
+        self.assertEqual(runtime.lease_state, "duplicate_completed")
 
     async def test_occurrence_conflict_classifier_rejects_unrelated_errors(self):
         self.assertTrue(

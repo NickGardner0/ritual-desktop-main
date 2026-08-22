@@ -3,7 +3,7 @@
 **Source audit:** [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md)  
 **Scope:** proposed work only; this plan does not implement application changes.  
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
-**Canonical current baseline:** 190,894 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
+**Canonical current baseline:** 190,908 after the additive durable-chat, watcher-lifecycle, explicit-route, model-engine, scheduler, channel-auth, and desktop release-correctness boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
 
 **Implementation status:** The assistant strangler and scheduler consolidation described below are complete in repository code. `AssistantKernel.runTurn` owns the durable lifecycle; `model-engine/*` owns provider translation only. FastAPI owns a 13-job registry with durable occurrence fencing and authenticated health. Trigger cloud disablement and desktop release work remain release gates.
 
