@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleChatStreamRequest } from '../dist/index.js';
-import { setOpenAIClientForTests } from '../dist/chat-stream/shared.js';
+import { setOpenAIClientForTests } from '../dist/model-engine/index.js';
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));

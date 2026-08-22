@@ -1,5 +1,3 @@
-import OpenAI from 'openai';
-
 import {
   executeGetHabitStats,
   executeGetDailyBreakdown,
@@ -53,20 +51,6 @@ async function executeGetActivitySummary(
     inferRecapAnchorDate,
     buildCalendarStyleActivitySummary,
   );
-}
-
-// Singleton OpenAI client — reuses TCP/TLS connections across requests
-// instead of paying ~1-2s cold handshake per request.
-let _openaiClient: OpenAI | null = null;
-
-export function getOpenAIClient(): OpenAI {
-  if (_openaiClient) return _openaiClient;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  _openaiClient = new OpenAI({ apiKey });
-  return _openaiClient;
 }
 
 export function safeJsonParse<T>(raw: string): T | null {

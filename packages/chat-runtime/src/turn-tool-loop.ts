@@ -1,13 +1,20 @@
-import type OpenAI from 'openai';
-import { executeDeclaredToolCalls } from '../tool-batch.js';
-import type { AssistantTurnRecord } from '../assistant-turn.js';
-import { defaultAssistantKernel, type AssistantKernel } from '../assistant-kernel.js';
-import { toolSchemas } from '../tool-registry.js';
-import type { ActionReceiptSummary, ChatEntityRef, ChatToolResults } from '../types.js';
-import { streamWeeklyOverviewNarrative, type WeeklyOverviewPayload } from '../narrative/index.js';
-import type { ChatStreamEvent } from '../stream-response.js';
-import { applyVoiceMode } from './narrative-router.js';
-import { elapsed, getOpenAIClient } from './shared.js';
+import { executeDeclaredToolCalls } from './tool-batch.js';
+import type { AssistantTurnRecord } from './assistant-turn.js';
+import { defaultAssistantKernel, type AssistantKernel } from './assistant-kernel.js';
+import { toolSchemas } from './tool-registry.js';
+import type { ActionReceiptSummary, ChatEntityRef, ChatToolResults } from './types.js';
+import { streamWeeklyOverviewNarrative, type WeeklyOverviewPayload } from './narrative/index.js';
+import type { ChatStreamEvent } from './stream-response.js';
+import {
+  defaultModelEngine,
+  type ModelEngineAdapter,
+  type ModelEngineMessage,
+  type ModelEngineTool,
+  type ModelEngineToolCall,
+  type ModelEngineToolChoice,
+} from './model-engine/index.js';
+import { applyVoiceMode } from './turn-narrative.js';
+import { elapsed } from './chat-stream/shared.js';
 
 export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef): void {
   if (!ref.id || !ref.type) return;
@@ -208,116 +215,45 @@ export function mergeDailyBreakdowns(toolResults: ChatToolResults): void {
 
 export type StreamingToolLoopOptions = {
   t0: number;
-  apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[];
+  apiMessages: ModelEngineMessage[];
   toolResults: ChatToolResults;
   dispatchContext: ToolDispatchContext;
   isVoiceMode: boolean;
-  initialToolChoice: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming['tool_choice'];
+  initialToolChoice: ModelEngineToolChoice;
+  modelEngine?: ModelEngineAdapter;
   signal?: AbortSignal;
 };
 
 type ToolCallAccumulator = Map<number, { id: string; name: string; arguments: string }>;
 
-function applyToolCallDeltas(
+function applyToolCallDelta(
   toolCallsMap: ToolCallAccumulator,
-  deltas: OpenAI.Chat.Completions.ChatCompletionChunk.Choice.Delta['tool_calls'],
+  delta: { index: number; id?: string; name?: string; arguments?: string },
 ): void {
-  for (const tc of deltas || []) {
-    const existing = toolCallsMap.get(tc.index);
-    if (existing) {
-      if (tc.id) existing.id = tc.id;
-      if (tc.function?.name) existing.name += tc.function.name;
-      if (tc.function?.arguments) existing.arguments += tc.function.arguments;
-    } else {
-      toolCallsMap.set(tc.index, {
-        id: tc.id || '',
-        name: tc.function?.name || '',
-        arguments: tc.function?.arguments || '',
-      });
-    }
+  const existing = toolCallsMap.get(delta.index);
+  if (existing) {
+    if (delta.id) existing.id = delta.id;
+    if (delta.name) existing.name += delta.name;
+    if (delta.arguments) existing.arguments += delta.arguments;
+  } else {
+    toolCallsMap.set(delta.index, {
+      id: delta.id || '',
+      name: delta.name || '',
+      arguments: delta.arguments || '',
+    });
   }
 }
 
 function assistantMessageFromToolCalls(
   toolCallsMap: ToolCallAccumulator,
-): OpenAI.Chat.Completions.ChatCompletionMessage {
+): ModelEngineMessage {
   return {
     role: 'assistant',
     content: null,
-    refusal: null,
-    tool_calls: Array.from(toolCallsMap.entries())
+    toolCalls: Array.from(toolCallsMap.entries())
       .sort(([a], [b]) => a - b)
-      .map(([, tc]) => ({
-        id: tc.id,
-        type: 'function' as const,
-        function: { name: tc.name, arguments: tc.arguments },
-      })),
+      .map(([, toolCall]) => toolCall),
   };
-}
-
-type ConsumedAssistantStream =
-  | { kind: 'empty' }
-  | { kind: 'tool_calls'; message: OpenAI.Chat.Completions.ChatCompletionMessage }
-  | { kind: 'text'; firstText: string; rest: AsyncGenerator<string> };
-
-async function consumeStreamedAssistant(
-  stream: AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>,
-  t0: number,
-): Promise<ConsumedAssistantStream> {
-  const iterator = stream[Symbol.asyncIterator]();
-  const firstResult = await iterator.next();
-
-  if (firstResult.done) {
-    return { kind: 'empty' };
-  }
-
-  console.log(`⏱️ [${elapsed(t0)}] first_provider_token`);
-  const firstChunk = firstResult.value;
-  const isToolCallResponse = !!(firstChunk.choices[0]?.delta?.tool_calls);
-
-  if (isToolCallResponse) {
-    const toolCallsMap: ToolCallAccumulator = new Map();
-    applyToolCallDeltas(toolCallsMap, firstChunk.choices[0]?.delta?.tool_calls);
-
-    let done = false;
-    while (!done) {
-      const next = await iterator.next();
-      done = next.done || false;
-      if (!done) {
-        applyToolCallDeltas(toolCallsMap, next.value.choices[0]?.delta?.tool_calls);
-      }
-    }
-
-    return {
-      kind: 'tool_calls',
-      message: assistantMessageFromToolCalls(toolCallsMap),
-    };
-  }
-
-  async function* restOfText(): AsyncGenerator<string> {
-    let chunkDone = false;
-    while (!chunkDone) {
-      const next = await iterator.next();
-      chunkDone = next.done || false;
-      if (!chunkDone) {
-        const content = next.value.choices[0]?.delta?.content;
-        if (content) yield content;
-      }
-    }
-  }
-
-  return {
-    kind: 'text',
-    firstText: firstChunk.choices[0]?.delta?.content || '',
-    rest: restOfText(),
-  };
-}
-
-async function* yieldTextTokens(firstText: string, rest: AsyncGenerator<string>): AsyncGenerator<ChatStreamEvent> {
-  if (firstText) yield { type: 'text', text: firstText };
-  for await (const token of rest) {
-    if (token) yield { type: 'text', text: token };
-  }
 }
 
 function overviewNarrativeSource(toolResults: ChatToolResults): { payload: WeeklyOverviewPayload; title: string } | null {
@@ -335,12 +271,12 @@ function overviewNarrativeSource(toolResults: ChatToolResults): { payload: Weekl
 
 async function executeAssistantToolCalls(
   t0: number,
-  apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
-  assistantMessage: OpenAI.Chat.Completions.ChatCompletionMessage,
+  apiMessages: ModelEngineMessage[],
+  assistantMessage: ModelEngineMessage,
   toolResults: ChatToolResults,
   dispatchContext: ToolDispatchContext,
 ): Promise<void> {
-  const toolCalls = assistantMessage.tool_calls;
+  const toolCalls = assistantMessage.toolCalls;
   if (!toolCalls?.length) return;
 
   apiMessages.push(assistantMessage);
@@ -348,8 +284,8 @@ async function executeAssistantToolCalls(
   const toolCallResults = await executeDeclaredToolCalls({
     toolCalls: toolCalls.map((toolCall) => ({
       id: toolCall.id,
-      name: toolCall.function.name,
-      arguments: toolCall.function.arguments || '{}',
+      name: toolCall.name,
+      arguments: toolCall.arguments || '{}',
     })),
     token: dispatchContext.token,
     ctx: {
@@ -371,7 +307,7 @@ async function executeAssistantToolCalls(
     collectToolResult(toolResults, toolCall.name, result);
     apiMessages.push({
       role: 'tool',
-      tool_call_id: toolCall.id,
+      toolCallId: toolCall.id,
       content: result,
     });
   }
@@ -387,6 +323,7 @@ export async function* runStreamingToolLoop(
     dispatchContext,
     isVoiceMode,
     initialToolChoice,
+    modelEngine = defaultModelEngine,
     signal,
   } = options;
 
@@ -404,29 +341,46 @@ export async function* runStreamingToolLoop(
     yield { type: 'phase', phase: iterations === 1 ? 'searching' : 'answering' };
     console.log(`⏱️ [${elapsed(t0)}] model_start iteration=${iterations} stream=true`);
 
-    const streamingResponse = await getOpenAIClient().chat.completions.create({
+    const toolCallsMap: ToolCallAccumulator = new Map();
+    let emittedText = false;
+    let firstProviderEvent = false;
+    let answeringPhaseEmitted = false;
+    let voiceText = '';
+    for await (const event of modelEngine.stream({
       model: 'gpt-4o-mini',
       messages: apiMessages,
-      tools: toolSchemas,
-      tool_choice: toolChoice,
+      tools: toolSchemas as unknown as ModelEngineTool[],
+      toolChoice,
       temperature: iterations < 5 ? 0.3 : 0.7,
-      stream: true,
-    });
-
-    const consumed = await consumeStreamedAssistant(streamingResponse, t0);
-
-    if (consumed.kind === 'empty') {
-      console.log(`⏱️ [${elapsed(t0)}] OpenAI stream empty`);
-      yield { type: 'text', text: 'I was unable to process your request.' };
-      return;
+      signal,
+    })) {
+      if (!firstProviderEvent && event.type !== 'done') {
+        firstProviderEvent = true;
+        console.log(`⏱️ [${elapsed(t0)}] first_provider_token`);
+      }
+      if (event.type === 'text_delta' && event.text) {
+        emittedText = true;
+        if (isVoiceMode) {
+          voiceText += event.text;
+        } else {
+          if (!answeringPhaseEmitted) {
+            answeringPhaseEmitted = true;
+            yield { type: 'phase', phase: 'answering' };
+          }
+          yield { type: 'text', text: event.text };
+        }
+      } else if (event.type === 'tool_call_delta') {
+        applyToolCallDelta(toolCallsMap, event);
+      }
     }
 
-    if (consumed.kind === 'tool_calls') {
+    if (toolCallsMap.size > 0) {
       assertNotAborted();
-      const toolNames = consumed.message.tool_calls?.map((toolCall) => toolCall.function.name).join(', ') || 'tool';
+      const assistantMessage = assistantMessageFromToolCalls(toolCallsMap);
+      const toolNames = assistantMessage.toolCalls?.map((toolCall: ModelEngineToolCall) => toolCall.name).join(', ') || 'tool';
       yield { type: 'phase', phase: 'tool', label: `Using ${toolNames}...` };
       console.log(`⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`, toolNames);
-      await executeAssistantToolCalls(t0, apiMessages, consumed.message, toolResults, dispatchContext);
+      await executeAssistantToolCalls(t0, apiMessages, assistantMessage, toolResults, dispatchContext);
 
       const narrative = !isVoiceMode ? overviewNarrativeSource(toolResults) : null;
       if (narrative) {
@@ -439,18 +393,18 @@ export async function* runStreamingToolLoop(
       continue;
     }
 
-    yield { type: 'phase', phase: 'answering' };
-    if (isVoiceMode) {
-      let fullText = consumed.firstText;
-      for await (const token of consumed.rest) fullText += token;
-      yield {
-        type: 'text',
-        text: applyVoiceMode(fullText || 'I was unable to process your request.', toolResults, true),
-      };
+    if (!emittedText) {
+      console.log(`⏱️ [${elapsed(t0)}] model stream empty`);
+      yield { type: 'text', text: 'I was unable to process your request.' };
       return;
     }
-
-    yield* yieldTextTokens(consumed.firstText, consumed.rest);
+    if (isVoiceMode) {
+      yield { type: 'phase', phase: 'answering' };
+      yield {
+        type: 'text',
+        text: applyVoiceMode(voiceText || 'I was unable to process your request.', toolResults, true),
+      };
+    }
     return;
   }
 

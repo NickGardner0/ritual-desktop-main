@@ -60,8 +60,106 @@ export class MutationSessionGate {
   }
 }
 
+export type AssistantTurnRunOutcome = 'running' | 'replay' | 'in_flight' | 'canceled';
+
+export class AssistantTurnRun {
+  private currentTurn: AssistantTurnRecord;
+  private readonly onAbort?: () => void;
+
+  constructor(
+    private readonly kernel: AssistantKernel,
+    private readonly store: AssistantTurnStore,
+    turn: AssistantTurnRecord,
+    readonly outcome: AssistantTurnRunOutcome,
+    private readonly epoch: number,
+    private readonly signal?: AbortSignal,
+  ) {
+    this.currentTurn = turn;
+    if (signal && outcome === 'running') {
+      this.onAbort = () => {
+        void this.cancel('client_disconnected');
+      };
+      signal.addEventListener('abort', this.onAbort, { once: true });
+    }
+  }
+
+  get turn(): AssistantTurnRecord {
+    return this.currentTurn;
+  }
+
+  async complete(
+    patch: Partial<Pick<AssistantTurnRecord, 'assistantText' | 'toolPayload' | 'receiptIds' | 'conversationId'>>,
+  ): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.commit(
+      this.currentTurn,
+      this.store,
+      this.epoch,
+      patch,
+    );
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  async fail(error: unknown): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.fail(this.currentTurn, this.store, error);
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  async cancel(reason: unknown = 'client_disconnected'): Promise<AssistantTurnRecord> {
+    this.currentTurn = await this.kernel.cancel(this.currentTurn, this.store, reason);
+    this.dispose();
+    return this.currentTurn;
+  }
+
+  dispose(): void {
+    if (this.signal && this.onAbort) {
+      this.signal.removeEventListener('abort', this.onAbort);
+    }
+  }
+}
+
 export class AssistantKernel {
   constructor(private readonly sessions = new MutationSessionGate()) {}
+
+  async runTurn(input: {
+    turnId: string;
+    conversationId?: string | null;
+    channel: AssistantChannel;
+    epoch: number;
+    userMessage: string;
+    userMessageId?: string | null;
+    responseMode?: 'text' | 'voice';
+    recordUserMessageInConversation?: boolean;
+    store: AssistantTurnStore;
+    signal?: AbortSignal;
+  }): Promise<AssistantTurnRun> {
+    let turn = await this.begin(input);
+    if (turn.status === 'completed') {
+      return new AssistantTurnRun(this, input.store, turn, 'replay', input.epoch);
+    }
+    if (turn.status === 'canceled') {
+      return new AssistantTurnRun(this, input.store, turn, 'canceled', input.epoch);
+    }
+    if (isInFlightTurnStatus(turn.status)) {
+      return new AssistantTurnRun(this, input.store, turn, 'in_flight', input.epoch);
+    }
+    if (turn.status === 'queued') {
+      turn = await this.transition(turn, 'running', input.store);
+    }
+    const run = new AssistantTurnRun(
+      this,
+      input.store,
+      turn,
+      'running',
+      input.epoch,
+      input.signal,
+    );
+    if (input.signal?.aborted) {
+      await run.cancel('client_disconnected');
+    }
+    return run;
+  }
 
   async begin(input: {
     turnId: string;

@@ -7,9 +7,9 @@
 // instructions. The deterministic branch doubles as the offline/mock executor:
 // it renders a real-aggregate report without any model call.
 
-import OpenAI from 'openai';
-
 import {
+  collectModelEngineResponse,
+  defaultModelEngine,
   executeGetCalendarEvents,
   executeGetComputerTimeSpentBreakdown,
   executeGetDailyBiometrics,
@@ -37,18 +37,6 @@ export interface CustomArtifactResult {
   summary: string;
   body: Record<string, unknown>;
   metadata: Record<string, unknown>;
-}
-
-let _openaiClient: OpenAI | null = null;
-
-function getOpenAIClient(): OpenAI {
-  if (_openaiClient) return _openaiClient;
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  _openaiClient = new OpenAI({ apiKey });
-  return _openaiClient;
 }
 
 function parseJsonPayload(raw: string): any {
@@ -218,18 +206,17 @@ export function buildCustomDeterministicArtifact(
   };
 }
 
-export async function synthesizeCustomArtifactWithOpenAI(
+export async function synthesizeCustomArtifactWithModelEngine(
   config: Record<string, unknown>,
   dataset: any,
   toolCalls: string[],
   timezone: string,
 ): Promise<CustomArtifactResult> {
-  const openai = getOpenAIClient();
   const title = customTitle(config);
-  const response = await openai.chat.completions.create({
+  const response = await collectModelEngineResponse(defaultModelEngine, {
     model: 'gpt-4o-mini',
     temperature: 0.25,
-    response_format: { type: 'json_object' },
+    responseFormat: 'json_object',
     messages: [
       {
         role: 'system',
@@ -256,7 +243,7 @@ export async function synthesizeCustomArtifactWithOpenAI(
     ],
   });
 
-  const content = response.choices[0]?.message?.content || '{}';
+  const content = response.content || '{}';
   const parsed = JSON.parse(content) as { title?: string; summary?: string; blocks?: unknown[] };
   return {
     kind: 'report',

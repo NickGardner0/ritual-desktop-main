@@ -30,7 +30,7 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | 2. Collapse desktop IPC | Done | Feature code imports `@/lib/native-gateway`. Generated triad: command name + ACL capability + TS input/output from Rust signatures. `tauri-utils` is a compatibility re-export. `DesktopRuntimeBridge` still owns auth/events/sync lifecycle; shell bootstrap stays a separate early path |
 | 3. Tauri ACL contract | Done | Frontend-needed commands allowed; unused IPC attributes removed from internal-only Rust fns; `scripts/check-tauri-command-acl.mjs` generates/verifies the NativeGateway command/capability/input/output triad |
 | 4. Identity-safe React Query cache | Done | Restore waits for Clerk user id and uses `ritual:react-query-cache:v1:<userId>`. Habit snapshots were folded into this persist path |
-| 5. Chat persistence / AssistantKernel | Durable boundary done; model adapter remains | `AssistantKernel` owns `queued → running → committing → completed\|failed_retryable\|canceled`. FastAPI acceptance persists a stable turn and user message before execution; atomic commit owns assistant content and receipts. Remote errors do not fall back to memory success. |
+| 5. Chat persistence / AssistantKernel | Done | `AssistantKernel.runTurn` owns `queued → running → committing → completed\|failed_retryable\|canceled` for web, SMS, proactive SMS, scheduled workflows, and desktop replay. FastAPI acceptance precedes execution; atomic commit owns content and receipts. `model-engine/*` is stateless regarding persistence, queues, tools, and completion. |
 | 6. One scheduler | Done | Trigger.dev deleted. FastAPI loops are the only scheduler; job table in `docs/architecture/SCHEDULER_JOBS.md`. Default on when `RAILWAY_ENVIRONMENT` is set. `ENABLE_INTERNAL_SCHEDULER` documented in backend README and `.env.example` |
 | 7. Search/index | Done for Typesense | Typesense client, PyPI dep, indexing fan-out, `/api/search/index-phrase`, `/api/search/reindex`, and erasure target removed on the release tree. Command palette / habit search read Turso SQL. MiniSearch remains for the in-modal habit picker. Tinybird remains analytics via FastAPI. `/api/search/status` is a SQL-search health check |
 | 8. Telemetry overlap | Done for Speed Insights | Removed Vercel Speed Insights from the root layout and dashboard dependency. OpenPanel (product) and Sentry (errors) kept |
@@ -126,27 +126,28 @@ Pre-existing failures from the audit still apply to this dirty tree: dashboard p
 | Delete unused wearable pipeline, unused in-memory job registry, and leftover dashboard fetch helpers | unused `wearable_provider_pipeline` + `sync_job_registry` + duplicate prefetch wrappers + unused `apiJson`/`apiFetch`/`entityLookupPath` | live `wearable_provider_sync_registry` + FastAPI scheduler + one hover prefetch hook + generated client | ~−330 production | unused ingest-pipeline abstraction and a second unused scheduler | none | Whoop/Oura/Garmin sync still goes through the live registry. Index/Metrics hover still prefetches habits. Logs inline PUT still uses `apiFetchWithAuth`. |
 | Put reports FastAPI JSON on the generated client and delete the unused habit-selector shim | reports `fetchJson` catch-all + iPhone Screen Time timeout fetch + habit-selector re-export | `apiOperation` / `apiOperationWithAuth` + command-palette default import | ~−80 | second untyped FastAPI client on Reports and iPhone Time status | unused `habit-selector` compatibility file | Next `/api/reports/send` stays. Logs inline PUT, multipart preview, and plaintext Apple export stay on catch-all. |
 | Make non-JSON ownership explicit and add optimistic habit-log updates | generic multipart/export forwarding + unimplemented inline PUT | three fixed Next adapters + generated FastAPI PATCH with revision and stable idempotency | +283 canonical authored lines including tests-excluded production contracts | generic non-JSON/update owner | none | Catch-all now accepts only method/path-listed JSON. Route manifest records method, owner, content, callers, and reason for all 19 routes. |
+| Consolidate chat lifecycle and provider access | provider calls in stream/SMS/narrative/workflow paths; lifecycle transitions repeated by entrypoints | `AssistantKernel.runTurn` + provider-neutral `model-engine/*` + one OpenAI adapter | +204 canonical authored lines after moving/deleting duplicate orchestration | duplicate provider clients and entrypoint lifecycle transitions | none | Boundary checker forbids model-engine access to persistence, queues, tools, and completion. All five entrypoint classes are recorded in `chat-runtime-owners.json`. |
 
 ## Aggregate (this pass)
 
 ```text
 Historical production LOC: 192,474 in the original dirty-tree audit.
-Canonical release-branch measurement at 65ced577 (tokei 14.0.0; generated sources omitted):
-  Dashboard TS/TSX/JS + CSS: 83,048
-  Shared packages TS/TSX + UI CSS: 9,618
-  FastAPI Python excluding tests/scripts/migrations/devtools: 56,638
+Canonical release-branch implementation measurement (tokei 14.0.0; generated sources omitted):
+  Dashboard TS/TSX/JS + CSS: 83,182
+  Shared packages TS/TSX + UI CSS: 9,808
+  FastAPI Python excluding tests/scripts/migrations/devtools: 56,801
   Rust desktop/watcher/ritual-db: 35,542
   Desktop hosted-shell bootstrap: 331
   Browser extension JS+HTML: 1,002
   Tinybird pipe/datasource authored: 2,048
-  Audit-comparable total: 188,510 after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries (starting ship baseline: 187,086).
+  Audit-comparable total: 188,714 after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries (starting ship baseline: 187,086).
 Command and machine data: npm run audit:loc / tools/architecture/loc-baseline.json.
 chat-api deployable: removed
 Schedulers before/after: 2 → 1 (FastAPI loops only; Trigger.dev deleted)
 Search/index systems before/after: 4 → 3 (SQL, Tinybird, MiniSearch). Typesense deleted on the release tree.
 Frontend↔desktop paths before: commands + tauri-utils + desktop-runtime + runtime bridge + shell bridge + profiling
 Frontend↔desktop paths after: NativeGateway barrel + generated command/capability/input/output triad; desktop-bridge is implementation; DesktopRuntimeBridge split into lifecycle owners; separate shell bootstrap
-Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS loop → AssistantKernel + assistant_turns + local outbox
+Assistant turn owner before/after: stream callbacks + dashboard drain + conversation_queue + SMS/workflow provider loops → AssistantKernel.runTurn + assistant_turns + local outbox; provider access → model-engine/openai-adapter.ts
 Computer activity recent-desktop source: hidden mix → observable local | synced | unavailable
 Native sidecars: rebuilt each macOS release → SHA-256 pinned for Apple Silicon (`aarch64-apple-darwin`) only. Intel is not a 0.1.1 ship target.
 Dashboard production typecheck: green. `next build --webpack` compiles; local prerender needs Clerk keys.
@@ -160,7 +161,7 @@ Tests do not count against production reduction.
 2. Web/iOS and long-range desktop aggregates still read backend/Tinybird as explicit `synced`. Tinybird stays the analytics projection. FastAPI owns ingest and dashboard analytics reads. Signed-in FastAPI JSON reads/writes use the generated client, including Reports. Next server FastAPI JSON (dashboard bootstrap, calendar summary context, AI habit batch log) uses the same generated client via `createServerBackendClient`. Raw desktop activity events read `activity.db` only. The OpenAPI catch-all forwards only listed JSON methods. Apple export and multipart import/screenshot preview use fixed named adapters, and habit-log update uses a generated FastAPI operation. Sendblue webhook still forwards its provider body. Chat-runtime `fetchPythonApi` remains the kernel's FastAPI helper, not a dashboard BFF.
 3. `@mui/icons-material` and Lucide both remain (real call sites). Onboarding uses `eclipse.svg`, not a Paper shader logo. No giant icon rewrite.
 4. 0.1.1 ships Apple Silicon only. `sidecar-lock.json` SHA-256 pins `ritual-watcher` and `ritual-vision-helper` for `aarch64-apple-darwin`. Intel Macs are not a release target.
-5. Authored production LOC is 188,510 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
+5. Authored production LOC is 188,714 under the canonical checked-in bucket contract after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries. The starting ship baseline was 187,086; the dirty-tree 183.97k and manual ~192.6k claims are not ship-branch measurements. The 180k–185k band remains unmet and does not authorize deleting live product.
 6. Five-trial debug fixtures gate parser/budget behavior only. Production instrumentation now separates shell and watcher readiness, but signed enabled/disabled release captures remain an explicit open gate.
 7. GitHub Actions in `ci.yml` and `desktop-release.yml` are pinned to commit SHAs (version tags remain in comments).
 8. `DesktopRuntimeBridge` is split into lifecycle owners; native 45s poll is gone; `local_only` skips the habit websocket; legacy builds still poll.

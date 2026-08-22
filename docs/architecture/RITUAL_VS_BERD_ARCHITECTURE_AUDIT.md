@@ -6,7 +6,7 @@
 **Berd upstream:** `https://github.com/block/berd.git`  
 **Scope:** investigation only. No Ritual application code was changed.
 
-> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 188,510 after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
+> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 188,714 after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 
 ## Executive assessment
 
@@ -563,9 +563,13 @@ The durable boundary identified by the original audit is now resolved without re
 - Desktop offline mode only queues the stable turn. Its outbox consumes the full response before removing an item and never runs a local model or tool.
 - Mutating tools are serial; concurrency is reserved for registry-declared read-only tools.
 
-Remaining chat ownership work is narrower:
+The W5 lifecycle/provider boundary is now resolved:
 
-- `chat-stream/*` still combines provider decoding with orchestration details and must become the pure model-engine adapter described by W5.
+- Web, SMS, proactive SMS, scheduled workflow synthesis, and desktop-outbox replay delegate durable lifecycle to `AssistantKernel.runTurn`.
+- `packages/chat-runtime/src/model-engine/*` owns provider request construction, event decoding, retry classification, and cancellation propagation only.
+- `scripts/check-chat-runtime-boundaries.mjs` forbids model-engine imports from persistence, queues, tools, and kernel lifecycle modules and rejects direct provider access in chat/workflow owners.
+
+Remaining adjacent chat risks are narrower:
 - `packages/chat-runtime/src/executors/habits.ts::newClientEventId` falls back to time plus `Math.random()` for a client event/idempotency ID, weakening retry identity when `crypto.randomUUID` is unavailable.
 - `apps/backend/services/conversation_queue_service.py::claim_next_item` updates a claim without a compare-and-set lease/fencing token.
 - queue auto-drain lives in `apps/dashboard/app/(dashboard)/chat/chat-client.impl.tsx`; it is absent when that component is not mounted.
@@ -707,7 +711,7 @@ Ritual's dashboard build errors were in current uncommitted source (`use-chat-se
 - Berd's 112-file initial closure and multi-megabyte queue/shell chunks are substantial parse/evaluation and memory risks.
 - Ritual virtualizes chat and large habit-log surfaces; Berd also has deliberate timeline virtualization. Neither should be assumed globally jank-free.
 - `DesktopRuntimeBridge`'s WebSocket uses reconnect, 25-second heartbeat, auth-token query parameters, and polling fallbacks. It needs one lifecycle owner and telemetry for bytes/wakeups.
-- `packages/chat-runtime/src/chat-stream/shared.ts` keeps `promptFactsCache` in an unbounded module-level `Map` keyed by raw token. Entries expire logically but are not proactively removed, so a long-lived server can retain keys/tokens; use a bounded identity-safe cache and never use bearer tokens as raw cache keys.
+- `packages/chat-runtime/src/turn-context.ts` keeps `promptFactsCache` in an unbounded module-level `Map` keyed by raw token. Entries expire logically but are not proactively removed, so a long-lived server can retain keys/tokens; use a bounded identity-safe cache and never use bearer tokens as raw cache keys.
 - The native 250ms startup task defers work but then sequences several unrelated initializations in one future; tracing should establish which can be isolated/parallelized safely.
 
 ### Not measured

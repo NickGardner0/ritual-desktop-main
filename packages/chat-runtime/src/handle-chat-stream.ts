@@ -1,22 +1,18 @@
-import type OpenAI from 'openai';
 import { createChatStreamResponse } from './stream-response.js';
 import type { ChatStreamEvent } from './stream-response.js';
 import type { ChatToolResults } from './types.js';
 import { classifyChatRoute } from './chat-stream/classifier-router.js';
-import { handleDeterministicFastPath } from './chat-stream/narrative-router.js';
+import { handleDeterministicFastPath } from './turn-narrative.js';
 import {
-  awaitPromptFacts,
   buildCanvasToolPayload,
-  composeSystemPrompt,
   elapsed,
-  prepareChatTurnContext,
 } from './chat-stream/shared.js';
+import { awaitPromptFacts, composeSystemPrompt, prepareChatTurnContext } from './turn-context.js';
 import { persistConversationMentions } from './persistence.js';
-import { mergeDailyBreakdowns, runStreamingToolLoop } from './chat-stream/tool-dispatch.js';
-import { defaultAssistantKernel, isInFlightTurnStatus } from './assistant-kernel.js';
+import { mergeDailyBreakdowns, runStreamingToolLoop } from './turn-tool-loop.js';
+import { defaultAssistantKernel, type AssistantTurnRun } from './assistant-kernel.js';
 import { getAssistantTurnStore } from './assistant-turn-store.js';
-import { isTerminalTurnStatus, type AssistantTurnRecord } from './assistant-turn.js';
-import type { AssistantTurnStore } from './assistant-turn-store.js';
+import type { ModelEngineMessage } from './model-engine/index.js';
 
 export type ChatStreamRequestBody = {
   messages: Array<{ role: string; content: string }>;
@@ -43,49 +39,6 @@ function newTurnId(provided?: string | null): string {
   return `turn_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-async function commitOwnedTurn(
-  turn: AssistantTurnRecord,
-  store: AssistantTurnStore,
-  epoch: number,
-  fullText: string,
-  canvasToolPayload: Record<string, unknown> | null,
-  receiptIds: string[],
-  conversationId: string | null,
-): Promise<void> {
-  await defaultAssistantKernel.commit(turn, store, epoch, {
-    conversationId,
-    assistantText: fullText,
-    toolPayload: canvasToolPayload,
-    receiptIds,
-  });
-}
-
-async function failOwnedTurn(
-  turn: AssistantTurnRecord | null,
-  store: AssistantTurnStore | null,
-  error: unknown,
-): Promise<void> {
-  if (!turn || !store) return;
-  try {
-    await defaultAssistantKernel.fail(turn, store, error);
-  } catch (transitionError) {
-    console.warn('Assistant turn fail transition skipped:', transitionError);
-  }
-}
-
-async function cancelOwnedTurn(
-  turn: AssistantTurnRecord,
-  store: AssistantTurnStore,
-  reason: unknown,
-): Promise<AssistantTurnRecord> {
-  try {
-    return await defaultAssistantKernel.cancel(turn, store, reason);
-  } catch (transitionError) {
-    console.warn('Assistant turn cancel transition skipped:', transitionError);
-    return turn;
-  }
-}
-
 function isAbortError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'name' in error && (error as { name?: string }).name === 'AbortError');
 }
@@ -97,28 +50,9 @@ function conflictResponse(error: string, extra: Record<string, unknown> = {}): R
   });
 }
 
-function bindAbortToTurn(
-  signal: AbortSignal | undefined,
-  turn: AssistantTurnRecord,
-  store: AssistantTurnStore,
-): () => void {
-  if (!signal) return () => {};
-  const onAbort = () => {
-    void cancelOwnedTurn(turn, store, 'client_disconnected');
-  };
-  if (signal.aborted) {
-    onAbort();
-    return () => {};
-  }
-  signal.addEventListener('abort', onAbort, { once: true });
-  return () => signal.removeEventListener('abort', onAbort);
-}
-
 export async function handleChatStreamRequest(context: ChatStreamRequestContext) {
   const t0 = performance.now();
-  let turn: AssistantTurnRecord | null = null;
-  let store: AssistantTurnStore | null = null;
-  let unbindAbort = () => {};
+  let turnRun: AssistantTurnRun | null = null;
   const epoch = Number.isFinite(context.body.epoch) ? Number(context.body.epoch) : 0;
   try {
     const { token, body } = context;
@@ -146,32 +80,28 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         headers: { 'Content-Type': 'application/json' },
       });
     }
-    store = getAssistantTurnStore(token);
-    turn = await defaultAssistantKernel.begin({
+    turnRun = await defaultAssistantKernel.runTurn({
       turnId: newTurnId(body.turnId),
       conversationId: providedConversationId || null,
       channel: 'dashboard',
       epoch,
       userMessage: latestUserContent,
       responseMode,
-      store,
+      store: getAssistantTurnStore(token),
+      signal: context.signal,
     });
-    if (!turn || !store) {
-      throw new Error('assistant turn store missing');
-    }
-    let ownedTurn = turn;
-    const ownedStore = store;
+    let ownedTurn = turnRun.turn;
 
-    if (context.signal?.aborted) {
-      ownedTurn = await cancelOwnedTurn(ownedTurn, ownedStore, 'client_disconnected');
-      turn = ownedTurn;
-    }
-
-    if (ownedTurn.status === 'canceled') {
+    if (turnRun.outcome === 'canceled' || ownedTurn.status === 'canceled') {
       return conflictResponse('Turn canceled', { reason: ownedTurn.error || 'stale_epoch' });
     }
 
-    if (ownedTurn.status === 'completed' && ownedTurn.assistantText) {
+    if (turnRun.outcome === 'replay') {
+      if (!ownedTurn.assistantText) {
+        return conflictResponse('Completed turn is missing durable assistant content', {
+          turnId: ownedTurn.id,
+        });
+      }
       return createChatStreamResponse({
         conversationId: ownedTurn.conversationId,
         source: { type: 'complete', text: ownedTurn.assistantText },
@@ -180,19 +110,11 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       });
     }
 
-    if (isInFlightTurnStatus(ownedTurn.status)) {
+    if (turnRun.outcome === 'in_flight') {
       return conflictResponse('Turn in flight', { status: ownedTurn.status, turnId: ownedTurn.id });
     }
-
-    if (ownedTurn.status === 'queued') {
-      ownedTurn = await defaultAssistantKernel.transition(ownedTurn, 'running', ownedStore);
-      turn = ownedTurn;
-    }
-
-    unbindAbort = bindAbortToTurn(context.signal, ownedTurn, ownedStore);
     if (context.signal?.aborted) {
-      ownedTurn = await cancelOwnedTurn(ownedTurn, ownedStore, 'client_disconnected');
-      turn = ownedTurn;
+      ownedTurn = await turnRun.cancel('client_disconnected');
       return conflictResponse('Turn canceled', { reason: 'client_disconnected' });
     }
 
@@ -212,16 +134,13 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     const route = classifyChatRoute(preparedUserContent, timezone, isVoiceMode);
     console.log(`⏱️ [${elapsed(t0)}] route=${route.retrievalRoute} forced=${route.forcedToolName || 'none'} voice=${isVoiceMode} turn=${ownedTurn.id}`);
 
-    const activeTurn = ownedTurn;
-    const activeStore = ownedStore;
+    const activeRun = turnRun;
+    const activeTurn = activeRun.turn;
     const commitTurn = async (fullText: string, canvasToolPayload: Record<string, unknown> | null) => {
       if (context.signal?.aborted) {
-        await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+        await activeRun.cancel('client_disconnected');
         return;
       }
-      const latest = await activeStore.get(activeTurn.id);
-      if (!latest) throw new Error('Accepted assistant turn disappeared before commit');
-      if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return;
       const conversationId = await conversationIdPromise;
       const receiptIds = Array.isArray((canvasToolPayload as { actionReceipts?: Array<{ receipt_id?: string }> } | null)?.actionReceipts)
         ? ((canvasToolPayload as { actionReceipts: Array<{ receipt_id?: string }> }).actionReceipts
@@ -229,9 +148,14 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
           .filter((id): id is string => Boolean(id)))
         : [];
       try {
-        await commitOwnedTurn(latest, activeStore, epoch, fullText, canvasToolPayload, receiptIds, conversationId);
+        await activeRun.complete({
+          conversationId,
+          assistantText: fullText,
+          toolPayload: canvasToolPayload,
+          receiptIds,
+        });
       } catch (error) {
-        await failOwnedTurn(latest, activeStore, error);
+        await activeRun.fail(error);
         throw error;
       }
     };
@@ -271,18 +195,18 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     async function* streamTurnEvents(): AsyncGenerator<ChatStreamEvent> {
       try {
         if (context.signal?.aborted) {
-          await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+          await activeRun.cancel('client_disconnected');
           return;
         }
         yield { type: 'phase', phase: 'context' };
         const facts = await awaitPromptFacts(factsPromise);
         if (context.signal?.aborted) {
-          await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+          await activeRun.cancel('client_disconnected');
           return;
         }
         console.log(`⏱️ [${elapsed(t0)}] facts_ready count=${facts.length}`);
         const fullSystemPrompt = composeSystemPrompt(baseSystemPrompt, facts);
-        const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        const apiMessages: ModelEngineMessage[] = [
           { role: 'system', content: fullSystemPrompt },
           ...(attachedRefs.length
             ? [{
@@ -318,7 +242,7 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         });
 
         if (context.signal?.aborted) {
-          await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+          await activeRun.cancel('client_disconnected');
           return;
         }
 
@@ -333,12 +257,12 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
         });
       } catch (error) {
         if (isAbortError(error) || context.signal?.aborted) {
-          await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+          await activeRun.cancel('client_disconnected');
           return;
         }
         console.error('Chat API stream error:', error);
         resolveCanvas(null);
-        await failOwnedTurn(activeTurn, activeStore, error);
+        await activeRun.fail(error);
         throw error;
       }
     }
@@ -356,32 +280,33 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
       onComplete: async (fullText, canvasToolPayload) => {
         try {
           if (context.signal?.aborted) {
-            await cancelOwnedTurn(activeTurn, activeStore, 'client_disconnected');
+            await activeRun.cancel('client_disconnected');
             return;
           }
-          const latest = await activeStore.get(activeTurn.id);
-          if (!latest) throw new Error('Accepted assistant turn disappeared before completion');
-          if (isTerminalTurnStatus(latest.status) || latest.status === 'failed' || latest.status === 'failed_retryable') return;
           await commitTurn(fullText, canvasToolPayload);
         } finally {
-          unbindAbort();
+          activeRun.dispose();
         }
       },
     });
   } catch (error) {
-    unbindAbort();
+    turnRun?.dispose();
     if (isAbortError(error) || context.signal?.aborted) {
-      if (turn && store) {
-        await cancelOwnedTurn(turn, store, 'client_disconnected');
-      }
+      if (turnRun) await turnRun.cancel('client_disconnected');
       return conflictResponse('Turn canceled', { reason: 'client_disconnected' });
     }
     console.error('Chat API error:', error);
-    await failOwnedTurn(turn, store, error);
+    if (turnRun) {
+      try {
+        await turnRun.fail(error);
+      } catch (transitionError) {
+        console.warn('Assistant turn fail transition skipped:', transitionError);
+      }
+    }
     return new Response(JSON.stringify({
       error: 'Error processing request',
       details: error instanceof Error ? error.message : 'Unknown error',
-      state: turn ? 'failed_retryable' : 'unsent',
+      state: turnRun ? 'failed_retryable' : 'unsent',
     }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

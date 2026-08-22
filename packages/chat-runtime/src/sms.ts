@@ -1,16 +1,22 @@
-import OpenAI from 'openai';
-
 import { getToolsForChannel } from './tool-registry.js';
 import { buildSystemPrompt, isSmsV2PromptActive } from './system-prompt.js';
 import { executeDeclaredToolCalls } from './tool-batch.js';
-import { defaultAssistantKernel, isInFlightTurnStatus } from './assistant-kernel.js';
+import { defaultAssistantKernel, type AssistantTurnRun } from './assistant-kernel.js';
 import { getAssistantTurnStore } from './assistant-turn-store.js';
 import {
   elapsed,
-  getOpenAIClient,
   safeJsonParse,
   type ToolExecutionContext,
 } from './runtime-tools.js';
+import {
+  collectModelEngineResponse,
+  defaultModelEngine,
+  type ModelEngineMessage,
+  type ModelEngineResponse,
+  type ModelEngineImagePart,
+  type ModelEngineTextPart,
+  type ModelEngineTool,
+} from './model-engine/index.js';
 
 // ---------------------------------------------------------------------------
 // SMS chat handler — non-streaming, pre-authed, returns plain JSON
@@ -47,6 +53,31 @@ type SmsToolExecution = {
 };
 
 const smsToolSchemas = getToolsForChannel('sms');
+
+async function runSmsModel(
+  messages: ModelEngineMessage[],
+  temperature: number,
+): Promise<ModelEngineResponse> {
+  return collectModelEngineResponse(defaultModelEngine, {
+    model: 'gpt-4o',
+    messages,
+    tools: smsToolSchemas as unknown as ModelEngineTool[],
+    toolChoice: 'auto',
+    temperature,
+  });
+}
+
+function assistantModelMessage(response: ModelEngineResponse): ModelEngineMessage {
+  return {
+    role: 'assistant',
+    content: response.content,
+    toolCalls: response.toolCalls,
+  };
+}
+
+function assistantModelText(message: ModelEngineMessage): string {
+  return typeof message.content === 'string' ? message.content : '';
+}
 
 function formatSmsShortDate(value: string): string | null {
   if (!value || typeof value !== 'string') return null;
@@ -349,8 +380,7 @@ function maybeBuildDeterministicSmsLogReply(toolExecutions: SmsToolExecution[]):
  */
 export async function handleSmsChatPost(req: Request): Promise<Response> {
   const t0 = performance.now();
-  let turn: Awaited<ReturnType<typeof defaultAssistantKernel.begin>> | null = null;
-  let store: ReturnType<typeof getAssistantTurnStore> | null = null;
+  let turnRun: AssistantTurnRun | null = null;
 
   try {
     // Verify internal secret
@@ -390,7 +420,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
       channel: 'sms',
     });
 
-    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const apiMessages: ModelEngineMessage[] = [
       { role: 'system', content: fullSystemPrompt },
       // Include recent conversation history for multi-turn context
       ...recent_messages.map((m) => ({
@@ -408,7 +438,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     const lastMsg = recent_messages[recent_messages.length - 1];
     if (!lastMsg || lastMsg.content !== user_message || lastMsg.role !== 'user') {
       if (media_urls && media_urls.length > 0) {
-        const contentParts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+        const contentParts: Array<ModelEngineTextPart | ModelEngineImagePart> = [];
         if (user_message) {
           contentParts.push({ type: 'text', text: user_message });
         } else {
@@ -420,7 +450,8 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
         for (const url of media_urls) {
           contentParts.push({
             type: 'image_url',
-            image_url: { url, detail: 'low' },
+            imageUrl: url,
+            detail: 'low',
           });
         }
         apiMessages.push({ role: 'user', content: contentParts });
@@ -431,36 +462,34 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
 
     const toolCallsMade: string[] = [];
     const smsToolExecutions: SmsToolExecution[] = [];
-    store = getAssistantTurnStore(token);
     const turnId = body.turn_id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `sms_${Date.now()}`);
-    turn = await defaultAssistantKernel.begin({
+    turnRun = await defaultAssistantKernel.runTurn({
       turnId,
       conversationId: body.conversation_id,
       channel: 'sms',
       epoch: 0,
       userMessage: user_message || `[image: ${(media_urls || []).join(', ')}]`,
       userMessageId: body.user_message_id,
-      store,
+      store: getAssistantTurnStore(token),
     });
-    if (!turn || !store) {
-      throw new Error('assistant turn store missing');
-    }
-    if (turn.status === 'completed' && turn.assistantText) {
+    if (turnRun.outcome === 'replay') {
       return new Response(
-        JSON.stringify({ text: turn.assistantText, tool_calls_made: [] }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
+        turnRun.turn.assistantText
+          ? JSON.stringify({ text: turnRun.turn.assistantText, tool_calls_made: [] })
+          : JSON.stringify({ error: 'Completed turn is missing durable assistant content' }),
+        {
+          status: turnRun.turn.assistantText ? 200 : 409,
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
     }
-    if (turn.status === 'canceled' || isInFlightTurnStatus(turn.status)) {
+    if (turnRun.outcome === 'canceled' || turnRun.outcome === 'in_flight') {
       return new Response(
-        JSON.stringify({ error: turn.status === 'canceled' ? 'Turn canceled' : 'Turn in flight' }),
+        JSON.stringify({ error: turnRun.outcome === 'canceled' ? 'Turn canceled' : 'Turn in flight' }),
         { status: 409, headers: { 'Content-Type': 'application/json' } },
       );
-    }
-    if (turn.status === 'queued') {
-      turn = await defaultAssistantKernel.transition(turn, 'running', store);
     }
 
     const toolCtx: ToolExecutionContext = {
@@ -474,36 +503,30 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     // Use gpt-4o (not mini) for better tool discrimination — misrouted
     // writes corrupt habit data, so accuracy matters more than cost here.
     console.log(`📱 [${elapsed(t0)}] OpenAI call #1 start`);
-    let response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o',
-      messages: apiMessages,
-      tools: smsToolSchemas,
-      tool_choice: 'auto',
-      temperature: 0.3,
-    });
+    let response = await runSmsModel(apiMessages, 0.3);
     console.log(`📱 [${elapsed(t0)}] OpenAI call #1 done`);
 
-    let assistantMessage = response.choices[0].message;
+    let assistantMessage = assistantModelMessage(response);
     let iterations = 0;
 
-    while (assistantMessage.tool_calls && iterations < 4) {
+    while (assistantMessage.toolCalls?.length && iterations < 4) {
       iterations++;
       console.log(
         `📱 [${elapsed(t0)}] Tool loop #${iterations}:`,
-        assistantMessage.tool_calls.map((t) => t.function.name),
+        assistantMessage.toolCalls.map((toolCall) => toolCall.name),
       );
 
       apiMessages.push(assistantMessage);
 
       const toolCallResults = await executeDeclaredToolCalls({
-        toolCalls: assistantMessage.tool_calls.map((toolCall) => ({
+        toolCalls: assistantMessage.toolCalls.map((toolCall) => ({
           id: toolCall.id,
-          name: toolCall.function.name,
-          arguments: toolCall.function.arguments || '{}',
+          name: toolCall.name,
+          arguments: toolCall.arguments || '{}',
         })),
         token,
         ctx: toolCtx,
-        turn,
+        turn: turnRun.turn,
         kernel: defaultAssistantKernel,
       });
 
@@ -515,21 +538,15 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
         });
         apiMessages.push({
           role: 'tool',
-          tool_call_id: toolCall.id,
+          toolCallId: toolCall.id,
           content: result,
         });
       }
 
       // Follow-up call (always non-streaming for SMS)
       console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
-      response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o',
-        messages: apiMessages,
-        tools: smsToolSchemas,
-        tool_choice: 'auto',
-        temperature: iterations < 3 ? 0.3 : 0.7,
-      });
-      assistantMessage = response.choices[0].message;
+      response = await runSmsModel(apiMessages, iterations < 3 ? 0.3 : 0.7);
+      assistantMessage = assistantModelMessage(response);
       console.log(`📱 [${elapsed(t0)}] OpenAI follow-up #${iterations} done`);
     }
 
@@ -537,7 +554,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     const deterministicSmsReadReply = maybeBuildDeterministicSmsReadReply(smsToolExecutions);
     const finalText = deterministicSmsReply
       || deterministicSmsReadReply
-      || assistantMessage.content
+      || assistantModelText(assistantMessage)
       || 'Sorry, I couldn\'t process that. Try again?';
     const abArm = isSmsV2PromptActive() ? 'v2' : 'v1';
     const sanitizedMessages = splitSmsSegments(finalText)
@@ -552,7 +569,7 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
       `📱 [${elapsed(t0)}] SMS response ready (${normalizedText.length} chars, ${messages.length} segment${messages.length === 1 ? '' : 's'}, ${toolCallsMade.length} tools, arm=${abArm})`,
     );
 
-    await defaultAssistantKernel.commit(turn, store, 0, {
+    await turnRun.complete({
       conversationId: conversation_id,
       assistantText: normalizedText,
     });
@@ -575,9 +592,9 @@ export async function handleSmsChatPost(req: Request): Promise<Response> {
     );
   } catch (error) {
     console.error('📱 SMS chat error:', error);
-    if (turn && store) {
+    if (turnRun) {
       try {
-        await defaultAssistantKernel.fail(turn, store, error);
+        await turnRun.fail(error);
       } catch (transitionError) {
         console.warn('SMS assistant turn fail skipped:', transitionError);
       }
@@ -657,8 +674,7 @@ export function splitSmsSegments(raw: string): string[] {
  */
 export async function handleSmsProactivePost(req: Request): Promise<Response> {
   const t0 = performance.now();
-  let turn: Awaited<ReturnType<typeof defaultAssistantKernel.begin>> | null = null;
-  let store: ReturnType<typeof getAssistantTurnStore> | null = null;
+  let turnRun: AssistantTurnRun | null = null;
 
   try {
     // Verify internal secret
@@ -695,43 +711,41 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
       channel: 'sms',
     });
 
-    const apiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+    const apiMessages: ModelEngineMessage[] = [
       { role: 'system', content: fullSystemPrompt },
       // The trigger prompt acts as the "user" message that drives generation
       { role: 'user', content: trigger_prompt },
     ];
 
     const toolCallsMade: string[] = [];
-    store = getAssistantTurnStore(token);
     const turnId = body.turn_id || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID()
       : `sms_proactive_${Date.now()}`);
-    turn = await defaultAssistantKernel.begin({
+    turnRun = await defaultAssistantKernel.runTurn({
       turnId,
       conversationId: conversation_id || null,
       channel: 'sms',
       epoch: 0,
       userMessage: trigger_prompt,
       recordUserMessageInConversation: false,
-      store,
+      store: getAssistantTurnStore(token),
     });
-    if (!turn || !store) {
-      throw new Error('assistant turn store missing');
-    }
-    if (turn.status === 'completed' && turn.assistantText) {
+    if (turnRun.outcome === 'replay') {
       return new Response(
-        JSON.stringify({ text: turn.assistantText, trigger_type, tool_calls_made: [] }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } },
+        turnRun.turn.assistantText
+          ? JSON.stringify({ text: turnRun.turn.assistantText, trigger_type, tool_calls_made: [] })
+          : JSON.stringify({ error: 'Completed turn is missing durable assistant content' }),
+        {
+          status: turnRun.turn.assistantText ? 200 : 409,
+          headers: { 'Content-Type': 'application/json' },
+        },
       );
     }
-    if (turn.status === 'canceled' || isInFlightTurnStatus(turn.status)) {
+    if (turnRun.outcome === 'canceled' || turnRun.outcome === 'in_flight') {
       return new Response(
-        JSON.stringify({ error: turn.status === 'canceled' ? 'Turn canceled' : 'Turn in flight' }),
+        JSON.stringify({ error: turnRun.outcome === 'canceled' ? 'Turn canceled' : 'Turn in flight' }),
         { status: 409, headers: { 'Content-Type': 'application/json' } },
       );
-    }
-    if (turn.status === 'queued') {
-      turn = await defaultAssistantKernel.transition(turn, 'running', store);
     }
 
     const toolCtx: ToolExecutionContext = {
@@ -742,36 +756,30 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
 
     // Non-streaming OpenAI call with tool loop (max 3 iterations for proactive)
     console.log(`📬 [${elapsed(t0)}] OpenAI call #1 start`);
-    let response = await getOpenAIClient().chat.completions.create({
-      model: 'gpt-4o',
-      messages: apiMessages,
-      tools: smsToolSchemas,
-      tool_choice: 'auto',
-      temperature: 0.5,
-    });
+    let response = await runSmsModel(apiMessages, 0.5);
     console.log(`📬 [${elapsed(t0)}] OpenAI call #1 done`);
 
-    let assistantMessage = response.choices[0].message;
+    let assistantMessage = assistantModelMessage(response);
     let iterations = 0;
 
-    while (assistantMessage.tool_calls && iterations < 3) {
+    while (assistantMessage.toolCalls?.length && iterations < 3) {
       iterations++;
       console.log(
         `📬 [${elapsed(t0)}] Tool loop #${iterations}:`,
-        assistantMessage.tool_calls.map((t) => t.function.name),
+        assistantMessage.toolCalls.map((toolCall) => toolCall.name),
       );
 
       apiMessages.push(assistantMessage);
 
       const toolCallResults = await executeDeclaredToolCalls({
-        toolCalls: assistantMessage.tool_calls.map((toolCall) => ({
+        toolCalls: assistantMessage.toolCalls.map((toolCall) => ({
           id: toolCall.id,
-          name: toolCall.function.name,
-          arguments: toolCall.function.arguments || '{}',
+          name: toolCall.name,
+          arguments: toolCall.arguments || '{}',
         })),
         token,
         ctx: toolCtx,
-        turn,
+        turn: turnRun.turn,
         kernel: defaultAssistantKernel,
       });
 
@@ -779,29 +787,21 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
         toolCallsMade.push(toolCall.name);
         apiMessages.push({
           role: 'tool',
-          tool_call_id: toolCall.id,
+          toolCallId: toolCall.id,
           content: result,
         });
       }
 
       console.log(`📬 [${elapsed(t0)}] OpenAI follow-up #${iterations} start`);
-      response = await getOpenAIClient().chat.completions.create({
-        model: 'gpt-4o',
-        messages: apiMessages,
-        tools: smsToolSchemas,
-        tool_choice: 'auto',
-        temperature: 0.5,
-      });
-      assistantMessage = response.choices[0].message;
+      response = await runSmsModel(apiMessages, 0.5);
+      assistantMessage = assistantModelMessage(response);
       console.log(`📬 [${elapsed(t0)}] OpenAI follow-up #${iterations} done`);
     }
 
-    const finalText = assistantMessage.content || '';
+    const finalText = assistantModelText(assistantMessage);
 
     if (!finalText) {
-      if (turn && store) {
-        await defaultAssistantKernel.fail(turn, store, new Error('No proactive content generated'));
-      }
+      await turnRun.fail(new Error('No proactive content generated'));
       return new Response(
         JSON.stringify({ error: 'No proactive content generated' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } },
@@ -812,11 +812,7 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
       `📬 [${elapsed(t0)}] Proactive response ready (${finalText.length} chars, ${toolCallsMade.length} tools)`,
     );
 
-    if (turn && store) {
-      await defaultAssistantKernel.commit(turn, store, 0, {
-        assistantText: finalText,
-      });
-    }
+    await turnRun.complete({ assistantText: finalText });
 
     return new Response(
       JSON.stringify({ text: finalText, trigger_type, tool_calls_made: toolCallsMade }),
@@ -824,9 +820,9 @@ export async function handleSmsProactivePost(req: Request): Promise<Response> {
     );
   } catch (error) {
     console.error('📬 Proactive SMS error:', error);
-    if (turn && store) {
+    if (turnRun) {
       try {
-        await defaultAssistantKernel.fail(turn, store, error);
+        await turnRun.fail(error);
       } catch (transitionError) {
         console.warn('Proactive SMS assistant turn fail skipped:', transitionError);
       }

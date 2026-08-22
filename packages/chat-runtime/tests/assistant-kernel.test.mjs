@@ -53,6 +53,56 @@ test('retry of a completed turn replays instead of re-running', async () => {
   assert.deepEqual(replay.receiptIds, ['r1']);
 });
 
+test('runTurn owns acceptance, running transition, commit, and replay', async () => {
+  const store = new MemoryAssistantTurnStore();
+  const kernel = new AssistantKernel();
+  const run = await kernel.runTurn({
+    turnId: 'turn-run-owner',
+    conversationId: 'conv-run-owner',
+    channel: 'dashboard',
+    epoch: 4,
+    userMessage: 'hello',
+    store,
+  });
+
+  assert.equal(run.outcome, 'running');
+  assert.equal(run.turn.status, 'running');
+  const completed = await run.complete({ assistantText: 'durable hello', receiptIds: ['receipt-1'] });
+  assert.equal(completed.status, 'completed');
+  assert.equal(completed.assistantText, 'durable hello');
+
+  const replay = await kernel.runTurn({
+    turnId: 'turn-run-owner',
+    conversationId: 'conv-run-owner',
+    channel: 'dashboard',
+    epoch: 4,
+    userMessage: 'hello',
+    store,
+  });
+  assert.equal(replay.outcome, 'replay');
+  assert.equal(replay.turn.assistantText, 'durable hello');
+});
+
+test('runTurn cancels before returning when its signal is already aborted', async () => {
+  const store = new MemoryAssistantTurnStore();
+  const kernel = new AssistantKernel();
+  const controller = new AbortController();
+  controller.abort();
+
+  const run = await kernel.runTurn({
+    turnId: 'turn-pre-aborted',
+    conversationId: null,
+    channel: 'dashboard',
+    epoch: 0,
+    userMessage: 'never execute',
+    store,
+    signal: controller.signal,
+  });
+
+  assert.equal(run.turn.status, 'canceled');
+  assert.equal((await store.get('turn-pre-aborted'))?.status, 'canceled');
+});
+
 test('stale epoch is rejected without changing an accepted turn', async () => {
   const store = new MemoryAssistantTurnStore();
   const kernel = new AssistantKernel();

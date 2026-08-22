@@ -3,7 +3,9 @@
 **Source audit:** [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md)  
 **Scope:** proposed work only; this plan does not implement application changes.  
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
-**Canonical current baseline:** 188,510 after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
+**Canonical current baseline:** 188,714 after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
+
+**Implementation status:** The assistant strangler described below is complete in repository code. `AssistantKernel.runTurn` owns the durable lifecycle for web, SMS, proactive SMS, scheduled workflow synthesis, and desktop replay; `model-engine/*` owns provider request/event translation only. The remaining scheduler and desktop release work is tracked in the final release-gate plan.
 
 ## Decision
 
@@ -34,7 +36,7 @@ The target is not the fewest possible files. It is:
 
 | Priority | Problem | Main modules | User/engineering effect |
 |---:|---|---|---|
-| P0 | Assistant turns have no single durable owner | `packages/chat-runtime/src/chat-stream/*`, `stream-response.ts`, dashboard chat hooks, `conversation_queue_service.py` | Lost persistence, races, ambiguous retries |
+| Resolved P0 | Assistant turns had no single durable owner | `AssistantKernel.runTurn`, `model-engine/*`, FastAPI `assistant_turns`, desktop outbox | Durable acceptance/commit, replay, cancellation, and provider dependency direction are now enforced |
 | P0 | Tauri commands and capabilities disagree | `apps/desktop/src-tauri/src/main.rs`, `capabilities/main.json`, `permissions/*.toml` | Live IPC can be denied; permission drift |
 | P0 | Persisted Query cache is restored before identity | `apps/dashboard/components/providers.tsx` | Cross-user stale state and sync main-thread work |
 | P0 | Current dashboard production build fails | current chat/routine UI changes | No trustworthy product bundle or ship gate |

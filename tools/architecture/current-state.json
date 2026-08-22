@@ -39,6 +39,11 @@
     "apps/dashboard/app/api/internal/workflows/execute/route.ts",
     "packages/chat-runtime/src/index.ts"
   ],
+  "chatOwnership": {
+    "manifest": "tools/architecture/chat-runtime-owners.json",
+    "turnLifecycleOwner": "packages/chat-runtime/src/assistant-kernel.ts#AssistantKernel.runTurn",
+    "providerOwner": "packages/chat-runtime/src/model-engine/openai-adapter.ts#OpenAIModelEngineAdapter.stream"
+  },
   "desktopProcesses": ["Ritual", "ritual-watcher", "ritual-vision-helper"],
   "releaseTargets": {
     "aarch64-apple-darwin": "implemented",

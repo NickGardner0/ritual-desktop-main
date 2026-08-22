@@ -15,13 +15,13 @@ This is a status report of that goal against the live repo, not a new plan. The 
 
 | Plan outcome | Status |
 |---|---|
-| One owner per turn, job, cache, projection, native command | **Mostly true.** AssistantKernel + FastAPI `assistant_turns`; FastAPI cron only; React Query per-user; Tinybird documented; NativeGateway generated triad. Catch-all and Next-owned chat/voice/calendar/OAuth routes still exist on purpose. |
+| One owner per turn, job, cache, projection, native command | **True in repository code except scheduler activation.** `AssistantKernel.runTurn` + FastAPI `assistant_turns`; one provider adapter; React Query per-user; Tinybird documented; NativeGateway generated triad. Railway scheduler activation and Trigger cloud disablement remain release gates. |
 | One obvious path from each client to domain truth | **True at the dashboard/FastAPI route boundary.** Generated-client JSON uses the method-aware catch-all. Multipart import/screenshot and Apple export use three fixed adapters. Habit-log edits use a generated revision-checked PATCH. Chat kernel still uses its internal `fetchPythonApi` transport. |
 | Local desktop reads for local desktop data | **True for recent desktop activity.** `activity.db` with `local \| synced \| unavailable`. Web/iOS and long-range aggregates stay `synced` / Tinybird. |
 | No user-facing control without persisted behavior | **Mostly true.** Fake AI retention/history controls were hidden. Privacy export/sync/erasure were restored on the release tree. |
 | Launch path measured | **Partially true.** Five stored WKWebView cold/warm fixtures gate parser budgets, but cannot certify a live release. Schema v2 now records missing watcher RSS honestly as null/not-applicable and marks release evidence incomplete. |
 | Reproducible builds / immutable releases | **Mostly true.** Sidecars SHA-pinned for Apple Silicon; CI/release actions pinned to SHAs. Intel Macs are not a 0.1.1 target. |
-| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **188,510** after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
+| ~7.5k–12.5k fewer production lines (180k–185k band) | **Not met.** The canonical implementation command reports **188,714** after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries (starting ship baseline: 187,086). See `LOC_BASELINE.md`; the historical 192,474, ~192.6k, and dirty-tree 183.97k figures are no longer current measurements. |
 
 ### Definition of done vs evidence
 
@@ -37,8 +37,8 @@ This is a status report of that goal against the live repo, not a new plan. The 
 | Desktop activity explicit local source | **Yes** for recent desktop. |
 | Remaining projections documented | **Yes.** Tinybird inventory; Typesense deleted; MiniSearch stays for the in-modal habit picker. |
 | Launch / RSS budgets | **Stored webview fixtures exist; live provenance and watcher RSS do not.** |
-| Authored LOC in 180k–185k | **No.** Canonical implementation total is **188,510**. |
-| Legacy orchestration deleted after parity | **Strangler complete for the kernel.** `chat-stream/*` remains the model-loop adapter behind the kernel. |
+| Authored LOC in 180k–185k | **No.** Canonical implementation total is **188,714**. |
+| Legacy orchestration deleted after parity | **Yes.** `AssistantKernel.runTurn` owns durable lifecycle for web, SMS, proactive SMS, scheduled workflow synthesis, and desktop-outbox replay. `model-engine/*` is provider-only; `chat-stream/*` is routing/pure helpers. |
 
 Rough score: **the architecture goal is implemented; the “materially smaller” goal is not proven; a short list of product/ops bugs remains.**
 
@@ -60,7 +60,7 @@ Rough score: **the architecture goal is implemented; the “materially smaller�
 
 ### Consolidated
 
-- **Chat:** one host, dashboard `/api/chat/stream` → `handleChatStreamRequest` → `AssistantKernel` → FastAPI `assistant_turns`. SMS uses the same tool batch. Desktop has a local turn outbox.
+- **Chat:** one host, dashboard `/api/chat/stream` → `handleChatStreamRequest` → `AssistantKernel.runTurn` → FastAPI `assistant_turns`. SMS, proactive SMS, scheduled workflow synthesis, and desktop outbox replay enter the same lifecycle. `model-engine/openai-adapter.ts` alone owns provider request/stream decoding; mutating tools remain serial.
 - **Scheduler:** FastAPI `background_tasks.py` / `secondary_job_runner.py` only. Job table: `SCHEDULER_JOBS.md`.
 - **Search:** command palette / habit search read Turso SQL. MiniSearch is client-only for the in-modal picker.
 - **Analytics:** dashboard Tinybird reads go through FastAPI. Tinybird stays the analytics projection.
@@ -85,12 +85,12 @@ It does **not** feel like a 4–7% smaller codebase, because restored live produ
 
 These are remaining dual paths, unpaid taxes, or incomplete gates. They are documented as leftover on purpose unless noted.
 
-1. **Canonical LOC is 188,510**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
+1. **Canonical LOC is 188,714**, not 180k–185k. The checked-in audit command and bucket data supersede the historical estimates. Further reductions must come only from unreachable code or ownership consolidation, not live product cuts.
 2. **Trigger.dev cloud project** may still fire jobs until it is paused/deleted in the Trigger.dev UI. Railway FastAPI is already the in-repo scheduler.
 3. **Resolved: explicit BFF ownership.** The generic proxy rejects unknown methods, unknown paths, non-JSON content, and the three explicitly owned paths. Import preview, screenshot preview, and Apple export use fixed adapters. Habit-log inline edit uses an idempotent FastAPI PATCH with optimistic revision conflict handling.
 4. **Next-owned AI/OAuth/email routes** listed above. Collapsing them would move streaming, webhooks, or secrets, not delete unused code.
 5. **Watcher live RSS evidence pending.** Native code now separates watcher readiness from `native_ready`, waits for reachability/heartbeat, and rejects enabled zero RSS. The legacy samples are fixtures with null/not-applicable RSS; signed enabled/disabled captures still have to be produced.
-6. **`chat-stream/*` still exists** as the model-loop adapter. That is the strangler leftover, not a second chat host.
+6. **Resolved: one chat lifecycle and provider boundary.** `AssistantKernel.runTurn` owns acceptance through terminal state. `model-engine/*` contains provider construction/decoding only and a static import contract prevents it from reaching persistence, queues, tools, or completion. `chat-stream/*` now contains only classification and pure response helpers.
 7. **Resolved: fail-closed durable chat persistence.** Web and SMS do not start model/tool work before the FastAPI acceptance transaction. A failed provider or terminal commit rejects the stream, retains provisional UI separately, and reuses the stable turn ID on retry or desktop-outbox replay.
 8. **Apple Silicon only.** No Intel `x86_64` sidecars.
 9. **Resolved: deterministic backend contracts.** Local, CI, and Railway now select Python 3.12.12; FastAPI 0.119.0 and Pydantic 2.12.2 are enforced by a complete hash-pinned lock. OpenAPI, client generation, and all 466 backend tests use the isolated lock-keyed environment, so an ambient venv cannot change output.
@@ -161,7 +161,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 | **Trigger.dev cloud project** | Trigger.dev UI | Ops only. No code left in the repo. |
 | **New desktop `.app` containing this native code** | Not shipped as a DMG/app replacement in this pass | Users still run hosted JS in WKWebView. The July `/Applications/Ritual.app` native shell is old. Debug `target/debug/app` is local-only. |
 | **Watcher live RSS samples** | launch budgets | Not yet captured. Legacy missing values are null/not-applicable; release status remains incomplete. |
-| **LOC reduction into 180k–185k** | measurement | Not achieved; no extra deletion pass queued. |
+| **LOC reduction into 180k–185k** | measurement | Not achieved; canonical total is 188,714 and no product deletion is authorized for the metric. |
 | **This overview file** | local | Created on request; **not committed** unless you ask. |
 
 ---
@@ -171,7 +171,7 @@ The **release worktree is clean** — there are **no leftover uncommitted simpli
 1. In Trigger.dev, pause/delete the cloud project after confirming Railway cron is running.
 2. Quit or replace the July `Ritual.app` so deep links hit the this-branch binary; confirm production FastAPI base (not `:8000`) after desktop sign-in.
 3. Run the checked-in signed-app capture command with tracking enabled and disabled on both architectures, then attach raw artifact hashes before marking release evidence complete.
-4. Keep the 180k–185k band as a deletion/consolidation target only. If 188,510 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
+4. Keep the 180k–185k band as a deletion/consolidation target only. If 188,714 cannot be reduced without live product loss, record the honest final result instead of naming product to cut for the metric.
 5. Merge PR 9 to `main` only if you want `main` to match what Vercel/Railway already deploy.
 
 Do not start another deletion pass of the remaining Next routes (chat stream, voice, calendar OpenAI, OAuth, Sendblue) unless the product owner wants those moved. They are still serving unique jobs.

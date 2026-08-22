@@ -1,16 +1,16 @@
 /**
- * OpenAI tool (function) definitions — single source of truth.
+ * Provider-neutral model tool definitions — single source of truth.
  *
  * All 16 tool schemas are defined here. The orchestrator imports this
- * array and passes it to every OpenAI chat.completions.create() call.
+ * array and passes it through the model-engine adapter.
  *
  * Tool names are string constants — never rename them without updating
  * dispatchToolCall() and collectToolResult() in the orchestrator.
  */
 
-import OpenAI from 'openai';
+import type { ModelEngineTool } from './model-engine/types.js';
 
-export const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
+export const tools: ModelEngineTool[] = [
   {
     type: 'function',
     function: {

@@ -41,10 +41,12 @@ Hosted Next + Clerk
   local assistant-turn outbox (desktop offline)
         |
         v
-packages/chat-runtime AssistantKernel
+packages/chat-runtime AssistantKernel.runTurn
   queued -> running -> committing -> completed | failed_retryable | canceled
   serial mutating tools; parallel read-only
   epoch cancel; abort -> canceled; in-flight duplicate 409; stale running reclaim
+        |
+        +--> model-engine/OpenAI adapter (provider request + event decoding only)
         |
         v
 FastAPI
@@ -65,7 +67,8 @@ Desktop
 
 | Concern | Owner |
 |---|---|
-| Assistant turn lifecycle | `AssistantKernel` + `assistant_turns` + desktop outbox |
+| Assistant turn lifecycle | `AssistantKernel.runTurn` + `assistant_turns` + desktop outbox |
+| Model/provider access | `model-engine/openai-adapter.ts`; statically forbidden from persistence, queues, tools, and lifecycle completion |
 | Domain mutations | existing executors, serial when mutating, idempotency key `turnId:toolCallId` |
 | FastAPI JSON from dashboard/Next | generated client (`apiOperationWithAuth` / `apiOperation` / `createServerBackendClient`) |
 | User prompt queue (chips/workflows) | `conversation_queue_items`; execution goes through `sendMessage({ turnId: queue:<id> })` |
@@ -89,8 +92,8 @@ Desktop
 | Desktop activity explicit local source | Recent desktop reads `activity.db` with observable `local \| synced \| unavailable`. Long-range/web still `synced`. |
 | Remaining projections documented | Tinybird inventory. Typesense deleted. MiniSearch stays for the in-modal picker. Dashboard Tinybird reads go through FastAPI. Signed-in FastAPI JSON reads/writes use the generated client. Raw desktop activity events read `activity.db` only. The catch-all is JSON-only and operation/method bounded; import preview, screenshot preview, and Apple export use fixed adapters; habit-log edit uses the generated revision-checked PATCH. Next-owned chat/voice/calendar/OAuth/workflow/email routes remain for their declared boundaries. |
 | Launch/route/CPU/RSS budgets | Legacy five-trial cold/warm debug fixtures exercise parser budgets in `repo:check`. Watcher lifecycle code now samples only after heartbeat readiness and encodes disabled RSS as null/not-applicable. Signed live release evidence is explicitly incomplete. |
-| LOC remeasured | Canonical implementation total 188,510 via `npm run audit:loc` after the additive durable-chat, watcher-lifecycle, and explicit-route boundaries (starting ship baseline 187,086); historical 192,474, ~192.6k, and dirty-tree 183.97k claims are reconciled in `LOC_BASELINE.md`. Next BFF is 19/39 because three named non-JSON adapters replaced generic ownership. |
-| Legacy orchestration deleted after parity | SMS mutation loop uses the same tool batch. Stream abort cancels the kernel turn. The `ChatTurnEngine` wrapper is deleted; BFF routes call `handleChatStreamRequest` / SMS handlers. `chat-stream/*` remains the model-loop adapter behind the kernel. |
+| LOC remeasured | Canonical implementation total 188,714 via `npm run audit:loc` after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries (starting ship baseline 187,086); historical 192,474, ~192.6k, and dirty-tree 183.97k claims are reconciled in `LOC_BASELINE.md`. Next BFF is 19/39 because three named non-JSON adapters replaced generic ownership. |
+| Legacy orchestration deleted after parity | Web, SMS, proactive SMS, scheduled workflow synthesis, and desktop replay delegate lifecycle to `AssistantKernel.runTurn`. Provider request/decoding exists only in `model-engine/openai-adapter.ts`; `chat-stream/*` is classification and pure helpers. `check-chat-runtime-boundaries.mjs` enforces dependency direction. |
 
 ## Intentionally not done
 

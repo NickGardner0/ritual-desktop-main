@@ -5,27 +5,27 @@ import {
   executeGetActivitySummary as executeGetActivitySummaryFromExecutors,
   executeGetDailyBiometrics,
   executeGetCalendarEvents,
-} from '../executors/index.js';
+} from './executors/index.js';
 import {
   streamWeeklyOverviewNarrative,
   inferRecapAnchorDate,
   buildCalendarStyleActivitySummary,
   buildRichActivitySummaryFromStoryPlan,
-} from '../narrative/index.js';
-import type { WeeklyOverviewPayload } from '../narrative/index.js';
-import { isComprehensiveWeeklyRecapQuery, getOverviewTitleFromQuery } from '../query-classifier.js';
-import { createChatStreamResponse } from '../stream-response.js';
-import type { StreamSource } from '../stream-response.js';
+} from './narrative/index.js';
+import type { WeeklyOverviewPayload } from './narrative/index.js';
+import { isComprehensiveWeeklyRecapQuery, getOverviewTitleFromQuery } from './query-classifier.js';
+import { createChatStreamResponse } from './stream-response.js';
+import type { StreamSource } from './stream-response.js';
 import type {
   ActivitySummaryResult,
   BiometricsResult,
   CalendarEventsResult,
   ChatToolResults,
   OverviewResult,
-} from '../types.js';
-import { formatVoiceResponse, generateReplyChips } from '../voice.js';
-import type { ForcedOverviewTool } from './classifier-router.js';
-import { buildCanvasToolPayload, elapsed, safeJsonParse } from './shared.js';
+} from './types.js';
+import { formatVoiceResponse, generateReplyChips } from './voice.js';
+import type { ForcedOverviewTool } from './chat-stream/classifier-router.js';
+import { buildCanvasToolPayload, elapsed, safeJsonParse } from './chat-stream/shared.js';
 
 export async function executeGetActivitySummary(
   token: string,

@@ -6,20 +6,8 @@
  * and all supporting helpers for project-time recap construction.
  */
 
-import OpenAI from 'openai';
 import { fetchPythonApi, getTimezoneYmd, shiftYmd } from '../executors/shared-api.js';
-
-// ---------------------------------------------------------------------------
-// OpenAI client
-// ---------------------------------------------------------------------------
-
-function getOpenAIClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
-  }
-  return new OpenAI({ apiKey });
-}
+import { collectModelEngineResponse, defaultModelEngine } from '../model-engine/index.js';
 
 // ---------------------------------------------------------------------------
 // Text helpers
@@ -513,17 +501,17 @@ Here is the structured outline:
 
 ${outline}`;
 
-    const response = await getOpenAIClient().chat.completions.create({
+    const response = await collectModelEngineResponse(defaultModelEngine, {
       model: 'gpt-4o',
       temperature: 0.2,
-      max_tokens: 2200,
+      maxTokens: 2200,
       messages: [
         { role: 'system', content: prompt },
         { role: 'user', content: `Rewrite this outline into a concrete work summary for ${date}. Preserve chronology and cover the full evidenced day.` },
       ],
     });
 
-    const content = response.choices[0]?.message?.content?.trim();
+    const content = response.content?.trim();
     return content ? sanitizeCalendarStyleActivitySummary(content) : null;
   } catch (error) {
     console.error('❌ buildCalendarStyleActivitySummary error:', error);

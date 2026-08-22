@@ -1,7 +1,6 @@
-import type OpenAI from 'openai';
-
 import { tools as toolSchemas } from './tools.js';
 import type { ToolSideEffect } from './assistant-turn.js';
+import type { ModelEngineTool } from './model-engine/types.js';
 
 export const toolNames = [
   'getHabitStats',
@@ -26,7 +25,7 @@ export const toolNames = [
 ] as const;
 
 export type ToolName = (typeof toolNames)[number];
-export type ChatToolSchema = OpenAI.Chat.Completions.ChatCompletionTool;
+export type ChatToolSchema = ModelEngineTool;
 export type ChatToolChannel = 'dashboard' | 'sms';
 export type ChatToolOwner =
   | 'habits'

@@ -21,12 +21,14 @@ export * from './assistant-turn.js';
 export {
   AssistantKernel,
   AssistantSessionBusyError,
+  AssistantTurnRun,
   AssistantTurnConflictError,
   STALE_IN_FLIGHT_MS,
   defaultAssistantKernel,
   isInFlightTurnStatus,
   isStaleInFlightTurn,
 } from './assistant-kernel.js';
+export type { AssistantTurnRunOutcome } from './assistant-kernel.js';
 export {
   DurableAssistantTurnStore,
   HttpAssistantTurnStore,
@@ -45,4 +47,19 @@ export {
   parsePhaseLine,
   PHASE_LABELS,
 } from './stream-response.js';
-export { setOpenAIClientForTests } from './chat-stream/shared.js';
+export {
+  classifyModelEngineError,
+  collectModelEngineResponse,
+  defaultModelEngine,
+  ModelEngineError,
+  OpenAIModelEngineAdapter,
+  setOpenAIClientForTests,
+} from './model-engine/index.js';
+export type {
+  ModelEngineAdapter,
+  ModelEngineEvent,
+  ModelEngineInput,
+  ModelEngineMessage,
+  ModelEngineResponse,
+  ModelEngineToolCall,
+} from './model-engine/index.js';
