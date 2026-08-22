@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import OpenAI from 'openai';
-import { getBackendBaseUrl } from '@/lib/api/backend-url';
+import { createServerBackendClient } from '@/lib/api/server-client';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
+import type { BackendOperationId, BackendOperationRequest } from '@/lib/api/generated/backend-client';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -27,6 +28,18 @@ function formatMs(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+async function fetchBackendJsonOrNull<TOperation extends BackendOperationId>(
+  client: ReturnType<typeof createServerBackendClient>,
+  operationId: TOperation,
+  request: BackendOperationRequest<TOperation>,
+): Promise<any> {
+  try {
+    return await client.requestOperation(operationId, request);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -80,50 +93,28 @@ export async function POST(req: NextRequest) {
 
     // Fetch compact project-time attribution plus app/domain context. Raw OCR/accessibility
     // snippets are intentionally excluded from the cloud summary path.
-    const params = new URLSearchParams({
-      start_date: date,
-      end_date: date,
-      limit: '8',
-    });
-    const sessionParams = new URLSearchParams({
-      start_date: date,
-      end_date: date,
-      limit: '24',
-    });
-
-    const backendBaseUrl = getBackendBaseUrl();
+    const backend = createServerBackendClient(() => headers);
     const [projectRollups, projectSessions, appsData, domainsData, gitData] = await Promise.all([
-      fetch(
-        `${backendBaseUrl}/api/watcher/project-time/rollups?${params}&group_by=task`,
-        { headers, signal: AbortSignal.timeout(8000) }
-      )
-        .then(async (res) => (res.ok ? res.json() : null))
-        .catch(() => null),
-      fetch(`${backendBaseUrl}/api/watcher/project-time/sessions?${sessionParams}`, {
-        headers,
+      fetchBackendJsonOrNull(backend, 'get_rollups_api_watcher_project_time_rollups_get', {
+        query: { start_date: date, end_date: date, limit: 8, group_by: 'task' },
         signal: AbortSignal.timeout(8000),
-      })
-        .then(async (res) => (res.ok ? res.json() : null))
-        .catch(() => null),
-      fetch(`${backendBaseUrl}/api/watcher/stats/top-apps?${params}`, {
-        headers,
+      }),
+      fetchBackendJsonOrNull(backend, 'get_sessions_api_watcher_project_time_sessions_get', {
+        query: { start_date: date, end_date: date, limit: 24 },
+        signal: AbortSignal.timeout(8000),
+      }),
+      fetchBackendJsonOrNull(backend, 'get_top_apps_stats_api_watcher_stats_top_apps_get', {
+        query: { start_date: date, end_date: date, limit: 8 },
         signal: AbortSignal.timeout(5000),
-      })
-        .then(async (res) => (res.ok ? res.json() : null))
-        .catch(() => null),
-      fetch(`${backendBaseUrl}/api/watcher/stats/top-domains?${params}`, {
-        headers,
+      }),
+      fetchBackendJsonOrNull(backend, 'get_top_domains_api_watcher_stats_top_domains_get', {
+        query: { start_date: date, end_date: date, limit: 8 },
         signal: AbortSignal.timeout(5000),
-      })
-        .then(async (res) => (res.ok ? res.json() : null))
-        .catch(() => null),
-      // Git commit history for the day — shows what was actually accomplished in code
-      fetch(
-        `${backendBaseUrl}/api/watcher/git-commits?date=${date}`,
-        { headers, signal: AbortSignal.timeout(5000) }
-      )
-        .then(async (res) => (res.ok ? res.json() : null))
-        .catch(() => null),
+      }),
+      fetchBackendJsonOrNull(backend, 'get_git_commits_api_watcher_git_commits_get', {
+        query: { date },
+        signal: AbortSignal.timeout(5000),
+      }),
     ]);
 
     // Build context

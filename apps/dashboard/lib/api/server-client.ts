@@ -1,13 +1,14 @@
 import { getBackendBaseUrl } from './backend-url';
+import {
+  createBackendClient,
+  type BackendClientOptions,
+} from './generated/backend-client';
 
-export async function serverBackendFetch(
-  path: string,
-  init?: RequestInit,
-): Promise<Response> {
-  const base = getBackendBaseUrl();
-  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  return fetch(`${base}${normalizedPath}`, {
-    cache: 'no-store',
-    ...init,
+export function createServerBackendClient(
+  getAuthHeaders: BackendClientOptions['getAuthHeaders'],
+) {
+  return createBackendClient({
+    baseUrl: getBackendBaseUrl(),
+    getAuthHeaders,
   });
 }

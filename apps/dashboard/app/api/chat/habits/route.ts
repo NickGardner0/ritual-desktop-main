@@ -3,8 +3,8 @@ import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { NextRequest } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { fetchPythonApi, fetchPythonApiPost } from '@ritual/chat-runtime';
 import { privacyBlockResponse } from '@/lib/privacy/server-policy';
+import { createServerBackendClient } from '@/lib/api/server-client';
 import {
   type LogResult,
   type ResolvedIntent,
@@ -64,19 +64,33 @@ export async function POST(req: NextRequest) {
     let aliasesMap: Record<string, string[]> = {};
 
     if (effectiveToken) {
+      const backend = createServerBackendClient(() => ({
+        Authorization: `Bearer ${effectiveToken}`,
+        'Content-Type': 'application/json',
+      }));
+
       try {
-        userHabits = await fetchPythonApi('/api/habits', effectiveToken, undefined, {
-          timeoutMs: FASTAPI_TIMEOUT_MS,
+        const habits = await backend.requestOperation('get_habits_api_habits_get', {
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
         });
+        userHabits = habits.map((habit) => ({
+          id: habit.id,
+          name: habit.name,
+          category: habit.category,
+          unit_type: habit.unit_type ?? 'count',
+        }));
         console.info('✅ Fetched habits:', userHabits.length);
       } catch (error) {
         console.error('❌ Error fetching habits:', error);
       }
 
       try {
-        aliasesMap = await fetchPythonApi('/api/habits/aliases', effectiveToken, undefined, {
-          timeoutMs: FASTAPI_TIMEOUT_MS,
+        const aliases = await backend.requestOperation('get_all_habit_aliases_api_habits_aliases_get', {
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
         });
+        if (aliases && typeof aliases === 'object' && !Array.isArray(aliases)) {
+          aliasesMap = aliases as Record<string, string[]>;
+        }
       } catch {
         console.warn('⚠️ Could not fetch aliases, continuing with name matching only');
       }
@@ -256,15 +270,22 @@ export async function POST(req: NextRequest) {
         if (!effectiveToken) {
           throw new Error('Missing auth token');
         }
-        const batchResult = await fetchPythonApiPost(
-          '/api/logs/batch',
-          effectiveToken,
-          {
+        const backend = createServerBackendClient(() => ({
+          Authorization: `Bearer ${effectiveToken}`,
+          'Content-Type': 'application/json',
+        }));
+        const batchResult = await backend.requestOperation('batch_log_habits_api_logs_batch_post', {
+          body: {
             items: batchItems,
             client_event_id: clientEventId,
           },
-          { timeoutMs: FASTAPI_TIMEOUT_MS },
-        );
+          signal: AbortSignal.timeout(FASTAPI_TIMEOUT_MS),
+        }) as {
+          overview_snapshot?: unknown;
+          affectedHabitIds?: unknown;
+          affectedDates?: unknown;
+          results?: Array<{ index: number; success: boolean; error?: string }>;
+        };
         console.info('✅ Batch log result:', batchResult);
         overviewSnapshot = batchResult.overview_snapshot;
         affectedHabitIds = Array.isArray(batchResult.affectedHabitIds) ? batchResult.affectedHabitIds : [];

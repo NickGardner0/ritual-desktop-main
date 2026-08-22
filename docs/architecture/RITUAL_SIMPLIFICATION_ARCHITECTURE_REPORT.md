@@ -67,6 +67,7 @@ Desktop
 |---|---|
 | Assistant turn lifecycle | `AssistantKernel` + `assistant_turns` + desktop outbox |
 | Domain mutations | existing executors, serial when mutating, idempotency key `turnId:toolCallId` |
+| FastAPI JSON from dashboard/Next | generated client (`apiOperationWithAuth` / `apiOperation` / `createServerBackendClient`) |
 | User prompt queue (chips/workflows) | `conversation_queue_items`; execution goes through `sendMessage({ turnId: queue:<id> })` |
 | Native commands | generated triad: name + capability + TS input/output; `invokeDesktopCommand` |
 | Recurring jobs | FastAPI loops only — see `SCHEDULER_JOBS.md` |

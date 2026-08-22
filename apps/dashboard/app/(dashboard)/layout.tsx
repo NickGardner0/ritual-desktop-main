@@ -13,7 +13,8 @@ import * as Sentry from '@sentry/nextjs';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { resolveDashboardActivationRedirect } from '@/lib/activation-flow.mjs';
-import { serverBackendFetch } from '@/lib/api/server-client';
+import { createServerBackendClient } from '@/lib/api/server-client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 const FORCE_FRESH_COOKIE = 'ritual_force_fresh_until';
 const DASHBOARD_BOOTSTRAP_TIMEOUT_MS = 8000;
 const DASHBOARD_BOOTSTRAP_RECOVERY_ROUTE = '/auth/sso-callback?reason=dashboard-bootstrap';
@@ -54,43 +55,34 @@ async function assertDashboardActivation() {
   const forceFreshUntil = Number(cookieStore.get(FORCE_FRESH_COOKIE)?.value ?? 0);
   const forceFresh = Number.isFinite(forceFreshUntil) && forceFreshUntil > Date.now();
 
-  let response: Response;
+  let bootstrap: { nextRoute?: unknown } | null = null;
   try {
-    response = await serverBackendFetch('/api/user/bootstrap', {
-      cache: 'no-store',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        ...(forceFresh ? { 'X-Ritual-Force-Fresh': '1' } : {}),
-      },
+    const client = createServerBackendClient(() => ({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(forceFresh ? { 'X-Ritual-Force-Fresh': '1' } : {}),
+    }));
+    bootstrap = await client.requestOperation('get_user_bootstrap_api_user_bootstrap_get', {
       signal: AbortSignal.timeout(DASHBOARD_BOOTSTRAP_TIMEOUT_MS),
     });
   } catch (error) {
-    recoverFromBootstrapFailure('fetch_failed', {
-      error: error instanceof Error ? error.message : String(error),
-      errorName: error instanceof Error ? error.name : undefined,
-      timeoutMs: DASHBOARD_BOOTSTRAP_TIMEOUT_MS,
-    });
-  }
-
-  if (response.status === 401 || response.status === 403) {
-    redirect('/sign-in');
-  }
-
-  if (!response.ok) {
-    recoverFromBootstrapFailure('bad_status', {
-      status: response.status,
-      statusText: response.statusText,
-    });
-  }
-
-  let bootstrap: { nextRoute?: unknown } | null = null;
-  try {
-    bootstrap = await response.json();
-  } catch (error) {
-    recoverFromBootstrapFailure('invalid_json', {
-      error: error instanceof Error ? error.message : String(error),
-    });
+    if (error instanceof BackendClientError && (error.status === 401 || error.status === 403)) {
+      redirect('/sign-in');
+    }
+    recoverFromBootstrapFailure(
+      error instanceof BackendClientError
+        ? 'bad_status'
+        : error instanceof SyntaxError
+          ? 'invalid_json'
+          : 'fetch_failed',
+      error instanceof BackendClientError
+        ? { status: error.status }
+        : {
+            error: error instanceof Error ? error.message : String(error),
+            errorName: error instanceof Error ? error.name : undefined,
+            timeoutMs: DASHBOARD_BOOTSTRAP_TIMEOUT_MS,
+          },
+    );
   }
 
   const redirectRoute = resolveDashboardActivationRedirect(bootstrap?.nextRoute);
