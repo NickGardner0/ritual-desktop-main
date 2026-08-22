@@ -201,6 +201,9 @@ jobs:
 
       - name: Prepare and validate updater manifest
         run: |
+          mv release-assets/dmg/*.dmg release-assets/
+          mv release-assets/macos/* release-assets/
+          rmdir release-assets/dmg release-assets/macos
           cp release-assets/latest-darwin-aarch64.json release-assets/latest.json
           node scripts/validate-updater-artifacts.mjs --latest release-assets/latest.json --platform darwin-aarch64
 
