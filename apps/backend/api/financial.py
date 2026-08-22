@@ -375,9 +375,22 @@ def create_financial_router(
 
         try:
             _enforce_financial_sync_consent(request)
-            return await financial_sync_service.sync_all_active(
-                hour=payload.hour if payload else None,
+            from services.scheduler_service import utc_now
+
+            requested_hour = payload.hour if payload and payload.hour is not None else utc_now().hour
+            from background_tasks import run_financial_scheduler_job
+            from services.scheduler_service import resolve_hourly_delivery_occurrence
+
+            execution = await run_financial_scheduler_job(
+                lambda: financial_sync_service.sync_all_active(hour=requested_hour),
+                now=resolve_hourly_delivery_occurrence(requested_hour),
             )
+            return {
+                "success": True,
+                "occurrence_status": execution.status,
+                "scheduled_for": execution.scheduled_for,
+                **(execution.result or {}),
+            }
         except Exception:
             logger.exception("Bulk Plaid sync failed")
             raise HTTPException(status_code=500, detail="Request could not be processed.")

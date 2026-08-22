@@ -53,6 +53,7 @@ from database.models.reports import (
     ReportRunDB,
     ReportNotificationDB,
 )
+from database.models.scheduler import SchedulerOccurrenceClaimDB
 from database.models.sms import (
     SmsPreferencesDB,
     SmsCopilotEventDB,
@@ -166,6 +167,7 @@ __all__ = [
     "RoutineDB",
     "RoutineRunDB",
     "ScheduledBlockDB",
+    "SchedulerOccurrenceClaimDB",
     "ScreenTimeRollupDB",
     "SmsCopilotEventDB",
     "SmsPreferencesDB",

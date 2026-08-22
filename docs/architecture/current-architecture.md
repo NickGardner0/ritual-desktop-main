@@ -58,7 +58,7 @@ Shared language for navigating this codebase. Terms are used consistently in [de
 | **Integration orchestrator** | Central React layer wiring shared deps into typed plugin-owned runtime contexts |
 | **Chat runtime** | `@ritual/chat-runtime` — shared AI turn engine, tools, SMS handlers used by dashboard and chat-api |
 | **Desktop capabilities** | `useDesktopCapabilities()` — canonical boundary for detecting and invoking Tauri features |
-| **Trigger.dev job** | Scheduled cloud task (wearable sync, Plaid, Tesla, proactive SMS) calling backend with internal auth |
+| **Trigger.dev job (legacy external)** | Historical cloud delivery calling a retained internal-auth adapter. No Trigger source remains; every reachable adapter now enters the FastAPI occurrence fence. |
 
 ---
 
@@ -538,7 +538,7 @@ This is the highest-risk architectural tension for privacy and consistency. Docu
 | Desktop native handoff | Tauri `desktop_set_auth_token` | `desktop_runtime/auth_handoff.rs` |
 | Backend API | JWT via Clerk JWKS | `services/auth_service.py` |
 | Backend internal | `INTERNAL_BACKEND_TOKEN` + `x-internal-user-id` | `app_factory.py` |
-| FastAPI scheduler → Next | `INTERNAL_API_KEY` header | `/api/internal/workflows/execute` |
+| FastAPI scheduler health | `INTERNAL_BACKEND_TOKEN` header | `/api/internal/scheduler/health` |
 | Chat API | Bearer JWT via `jose` + JWKS | `apps/chat-api/src/lib/auth.ts` |
 | iOS companion | Clerk iOS SDK | `Project.swift` |
 | WebSocket | Clerk token in header or query | `app_factory.py` `/ws/{user_id}` |
@@ -593,9 +593,9 @@ IntegrationPlugin {
 
 ### FastAPI scheduler
 
-Trigger.dev **code** is deleted. Recurring wearable, SMS, report, and workflow jobs run from FastAPI `background_tasks.py`. Disable the leftover Trigger.dev cloud project after deploy (`TRIGGER_DEV_OPS.md`).
+Trigger.dev **code** is deleted. `scheduler_service.py` statically registers all 13 owners; `lifespan.py` starts eight loops independently of startup maintenance. Eleven clock jobs use durable `(job_key, scope_key, scheduled_for)` occurrence claims and the two queue workers use atomic domain row claims. The retained proactive and provider bulk-sync adapters call the same claimed functions, so stale cloud delivery cannot create a second mutation path. Disable the leftover Trigger.dev cloud project only after production health evidence (`TRIGGER_DEV_OPS.md`).
 
-Pattern: internal auth (`INTERNAL_API_KEY`) plus privacy consent checks. Workflow execution still POSTs to Next `/api/internal/workflows/execute` so the TypeScript executor can run.
+Pattern: internal auth (`INTERNAL_API_KEY`) plus privacy consent checks at compatibility adapters; scheduler health uses `INTERNAL_BACKEND_TOKEN`. Workflow execution still POSTs to Next `/api/internal/workflows/execute` so the TypeScript executor can run.
 
 ### Backend background workers
 

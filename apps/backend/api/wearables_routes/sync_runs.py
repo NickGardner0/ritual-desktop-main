@@ -192,63 +192,96 @@ def register_sync_run_routes(router: APIRouter, deps: WearablesRouterDeps) -> No
                 "message": "Apple Health sync remains device-managed by the iPhone companion app.",
             }
 
-        async with get_db_session() as session:
-            result = await session.execute(
-                select(WearableConnectionDB).where(
-                    WearableConnectionDB.provider == provider,
-                    WearableConnectionDB.status == "active",
+        scheduled_providers = {"whoop", "oura", "garmin"}
+        if provider not in scheduled_providers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Provider {provider} has no scheduled sync owner",
+            )
+        from services.scheduler_service import utc_now
+
+        requested_hour = payload.hour if payload.hour is not None else utc_now().hour
+
+        async def run_scheduled_provider_sync():
+            async with get_db_session() as session:
+                result = await session.execute(
+                    select(WearableConnectionDB).where(
+                        WearableConnectionDB.provider == provider,
+                        WearableConnectionDB.status == "active",
+                    )
                 )
-            )
-            connections = result.scalars().all()
+                connections = result.scalars().all()
 
-        eligible_connections = [
-            connection
-            for connection in connections
-            if _connection_matches_sync_schedule(
-                connection,
-                provider=provider,
-                requested_hour=payload.hour,
-            )
-        ]
-        sync_results = []
-
-        for connection in eligible_connections:
-            try:
-                sync_result = await sync_wearable_provider_account(
+            eligible_connections = [
+                connection
+                for connection in connections
+                if _connection_matches_sync_schedule(
+                    connection,
                     provider=provider,
-                    user_id=connection.user_id,
-                    services=provider_sync_services,
-                    days_back=payload.days_back,
-                    force_full_sync=payload.force_full_sync,
-                    unsupported_as_partial=False,
+                    requested_hour=requested_hour,
                 )
+            ]
+            sync_results = []
 
-                sync_results.append(
-                    {
-                        "user_id": connection.user_id,
-                        "success": sync_result.status in {"success", "partial"},
-                        "status": sync_result.status,
-                        "data": sync_result.data,
-                        **({"error": sync_result.error} if sync_result.error else {}),
-                    }
-                )
-            except Exception as exc:
-                logger.exception("Scheduled %s sync failed for user %s", provider, connection.user_id)
-                sync_results.append(
-                    {
-                        "user_id": connection.user_id,
-                        "success": False,
-                        "error": str(exc),
-                    }
-                )
+            for connection in eligible_connections:
+                try:
+                    sync_result = await sync_wearable_provider_account(
+                        provider=provider,
+                        user_id=connection.user_id,
+                        services=provider_sync_services,
+                        days_back=payload.days_back,
+                        force_full_sync=payload.force_full_sync,
+                        unsupported_as_partial=False,
+                    )
 
-        successful_syncs = sum(1 for item in sync_results if item["success"])
+                    sync_results.append(
+                        {
+                            "user_id": connection.user_id,
+                            "success": sync_result.status in {"success", "partial"},
+                            "status": sync_result.status,
+                            "data": sync_result.data,
+                            **({"error": sync_result.error} if sync_result.error else {}),
+                        }
+                    )
+                except Exception as exc:
+                    logger.exception("Scheduled %s sync failed for user %s", provider, connection.user_id)
+                    sync_results.append(
+                        {"user_id": connection.user_id, "success": False, "error": str(exc)}
+                    )
+
+            successful_syncs = sum(1 for item in sync_results if item["success"])
+            return {
+                "success": True,
+                "provider": provider,
+                "total_users": len(sync_results),
+                "successful_syncs": successful_syncs,
+                "results": sync_results,
+            }
+
+        from background_tasks import (
+            run_oura_garmin_scheduler_job,
+            run_whoop_scheduler_job,
+        )
+        from services.scheduler_service import resolve_hourly_delivery_occurrence
+
+        occurrence = resolve_hourly_delivery_occurrence(requested_hour)
+        if provider == "whoop":
+            execution = await run_whoop_scheduler_job(
+                run_scheduled_provider_sync,
+                now=occurrence,
+            )
+        else:
+            execution = await run_oura_garmin_scheduler_job(
+                provider,
+                run_scheduled_provider_sync,
+                now=occurrence,
+            )
         return {
             "success": True,
+            "occurrence_status": execution.status,
+            "scheduled_for": execution.scheduled_for,
             "provider": provider,
-            "total_users": len(sync_results),
-            "successful_syncs": successful_syncs,
-            "results": sync_results,
+            **(execution.result or {}),
         }
 
     @router.post("/api/wearables/{provider}/backfill", response_model=dict)

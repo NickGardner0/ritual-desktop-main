@@ -10298,6 +10298,100 @@
         "title": "ScheduledWearableSyncRequest",
         "type": "object"
       },
+      "SchedulerHealthResponse": {
+        "properties": {
+          "activeLeases": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Activeleases",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "jobCount": {
+            "title": "Jobcount",
+            "type": "integer"
+          },
+          "jobs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "neverSucceeded": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Neversucceeded",
+            "type": "array"
+          },
+          "overlappingLeases": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Overlappingleases",
+            "type": "array"
+          },
+          "readiness": {
+            "additionalProperties": true,
+            "title": "Readiness",
+            "type": "object"
+          },
+          "schemaVersion": {
+            "title": "Schemaversion",
+            "type": "integer"
+          },
+          "staleJobs": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Stalejobs",
+            "type": "array"
+          },
+          "startedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Startedat"
+          },
+          "status": {
+            "enum": [
+              "disabled",
+              "starting",
+              "degraded",
+              "healthy"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "status",
+          "enabled",
+          "jobCount",
+          "readiness",
+          "neverSucceeded",
+          "staleJobs",
+          "activeLeases",
+          "overlappingLeases",
+          "jobs"
+        ],
+        "title": "SchedulerHealthResponse",
+        "type": "object"
+      },
       "ScreenTimeBreakdownKind": {
         "enum": [
           "total",
@@ -21769,7 +21863,7 @@
     },
     "/api/integrations/tesla/sync-all": {
       "post": {
-        "description": "Bulk sync all active Tesla connections (called by Trigger.dev).",
+        "description": "Retained external adapter for the FastAPI-owned Tesla occurrence.",
         "operationId": "tesla_sync_all_api_integrations_tesla_sync_all_post",
         "parameters": [
           {
@@ -22118,6 +22212,34 @@
         "tags": [
           "integrations"
         ]
+      }
+    },
+    "/api/internal/scheduler/health": {
+      "get": {
+        "operationId": "scheduler_health_api_internal_scheduler_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchedulerHealthResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchedulerHealthResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Scheduler Health"
       }
     },
     "/api/internal/sms-copilot/evaluate": {

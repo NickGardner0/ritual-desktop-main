@@ -11,8 +11,19 @@
     ]
   },
   "scheduler": {
-    "owner": "apps/backend/background_tasks.py",
+    "owner": "apps/backend/services/scheduler_service.py",
+    "executionOwner": "apps/backend/background_tasks.py",
     "startupOwner": "apps/backend/lifespan.py",
+    "occurrenceTable": "scheduler_occurrence_claims",
+    "healthOperation": "GET /api/internal/scheduler/health",
+    "retainedExternalAdapters": [
+      { "path": "apps/backend/api/proactive_sms.py", "claimFunction": "run_proactive_sms_scheduler_job" },
+      { "path": "apps/backend/api/integrations.py", "claimFunction": "run_whoop_scheduler_job" },
+      { "path": "apps/backend/api/integrations.py", "claimFunction": "run_tesla_scheduler_job" },
+      { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_whoop_scheduler_job" },
+      { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_oura_garmin_scheduler_job" },
+      { "path": "apps/backend/api/financial.py", "claimFunction": "run_financial_scheduler_job" }
+    ],
     "jobCount": 13,
     "jobs": [
       "proactive_sms", "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",

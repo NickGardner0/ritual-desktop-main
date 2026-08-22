@@ -116,7 +116,7 @@ One deep module with small interface:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Callers: iOS, dashboard plugins, Trigger.dev jobs    │
+│  Callers: iOS, dashboard plugins, FastAPI scheduler   │
 └────────────────────────┬────────────────────────────────┘
                          │
               ┌──────────▼──────────┐
@@ -165,7 +165,7 @@ class WearablesIngest:
 
 ### Expected gains
 
-- **Leverage:** iOS, dashboard, Trigger.dev, and backend routes all call same 4-method interface
+- **Leverage:** iOS, dashboard, FastAPI scheduler, and retained internal-auth adapters all call the same provider interface; Trigger.dev has no repository implementation
 - **Locality:** Ingest bugs fixed once; materialization cascade logic in one place
 - **Testability:** Provider scenarios tested through `ingest()` without reaching into projection
 

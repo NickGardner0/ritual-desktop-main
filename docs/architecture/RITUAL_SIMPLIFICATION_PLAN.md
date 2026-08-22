@@ -3,9 +3,9 @@
 **Source audit:** [`RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md`](./RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md)  
 **Scope:** proposed work only; this plan does not implement application changes.  
 **Historical baseline:** 192,474 strict authored production code lines excluding the separate iOS companion.
-**Canonical current baseline:** 188,714 after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
+**Canonical current baseline:** 189,404 after the additive durable-chat, watcher-lifecycle, explicit-route, pure model-engine, and scheduler-fencing boundaries, measured by `npm run audit:loc`; see [`LOC_BASELINE.md`](./LOC_BASELINE.md). The starting ship SHA measured 187,086.
 
-**Implementation status:** The assistant strangler described below is complete in repository code. `AssistantKernel.runTurn` owns the durable lifecycle for web, SMS, proactive SMS, scheduled workflow synthesis, and desktop replay; `model-engine/*` owns provider request/event translation only. The remaining scheduler and desktop release work is tracked in the final release-gate plan.
+**Implementation status:** The assistant strangler and scheduler consolidation described below are complete in repository code. `AssistantKernel.runTurn` owns the durable lifecycle; `model-engine/*` owns provider translation only. FastAPI owns a 13-job registry with durable occurrence fencing and authenticated health. Trigger cloud disablement and desktop release work remain release gates.
 
 ## Decision
 

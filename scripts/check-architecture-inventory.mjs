@@ -25,7 +25,24 @@ if (routes.length !== inventory.dashboardApi.routeCount) {
 if (inventory.scheduler.jobs.length !== inventory.scheduler.jobCount) {
   errors.push("Scheduler inventory jobCount does not match its job list");
 }
-for (const path of [inventory.scheduler.owner, inventory.scheduler.startupOwner, ...inventory.chatEntrypoints]) {
+const schedulerRegistrySource = readFileSync(join(root, inventory.scheduler.owner), "utf8");
+const schedulerExecutionSource = readFileSync(join(root, inventory.scheduler.executionOwner), "utf8");
+const registryJobs = [...schedulerRegistrySource.matchAll(/SchedulerJobDefinition\("([^"]+)"/g)]
+  .map((match) => match[1]);
+if (registryJobs.length !== inventory.scheduler.jobCount) {
+  errors.push(`Scheduler registry drifted: expected ${inventory.scheduler.jobCount}, found ${registryJobs.length}`);
+}
+for (const job of inventory.scheduler.jobs) {
+  if (!registryJobs.includes(job)) errors.push(`Scheduler registry is missing ${job}`);
+  if (!schedulerExecutionSource.includes(`"${job}"`)) errors.push(`Scheduler execution owner is missing ${job}`);
+}
+for (const adapter of inventory.scheduler.retainedExternalAdapters) {
+  const adapterSource = readFileSync(join(root, adapter.path), "utf8");
+  if (!adapterSource.includes(adapter.claimFunction)) {
+    errors.push(`Retained scheduler adapter ${adapter.path} bypasses ${adapter.claimFunction}`);
+  }
+}
+for (const path of [inventory.scheduler.owner, inventory.scheduler.executionOwner, inventory.scheduler.startupOwner, ...inventory.chatEntrypoints]) {
   if (!existsSync(join(root, path))) errors.push(`Inventory path is missing: ${path}`);
 }
 

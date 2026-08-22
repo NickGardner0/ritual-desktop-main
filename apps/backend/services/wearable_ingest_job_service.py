@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from database.connection import get_db_session
 from database.models import (
@@ -274,20 +274,36 @@ class WearableIngestJobService:
     async def claim_next_job(self) -> Optional[WearableIngestJobDB]:
         async with get_db_session() as session:
             result = await session.execute(
-                select(WearableIngestJobDB)
+                select(WearableIngestJobDB.id)
                 .where(WearableIngestJobDB.status == "queued")
                 .order_by(WearableIngestJobDB.created_at.asc())
                 .limit(1)
             )
-            job = result.scalar_one_or_none()
-            if job is None:
+            job_id = result.scalar_one_or_none()
+            if job_id is None:
                 return None
             now = datetime.now(timezone.utc)
-            job.status = "running"
-            job.started_at = now
-            job.last_attempt_at = now
-            job.updated_at = now
-            job.attempts = int(job.attempts or 0) + 1
+            claim = await session.execute(
+                update(WearableIngestJobDB)
+                .where(
+                    WearableIngestJobDB.id == job_id,
+                    WearableIngestJobDB.status == "queued",
+                )
+                .values(
+                    status="running",
+                    started_at=now,
+                    last_attempt_at=now,
+                    updated_at=now,
+                    attempts=func.coalesce(WearableIngestJobDB.attempts, 0) + 1,
+                )
+            )
+            if int(claim.rowcount or 0) != 1:
+                await session.rollback()
+                return None
+            job = await session.get(WearableIngestJobDB, job_id)
+            if job is None:
+                await session.rollback()
+                return None
             if job.batch_id:
                 batch = await session.get(WearableIngestJobBatchDB, job.batch_id)
                 if batch is not None:

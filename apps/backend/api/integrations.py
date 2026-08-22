@@ -315,66 +315,72 @@ def create_whoop_router(
             if internal_key != expected_internal_key:
                 raise HTTPException(status_code=403, detail="Invalid internal API key")
 
-            logger.info("Starting bulk Whoop sync for all users")
-            async with get_db_session() as session:
-                result = await session.execute(
-                    select(WhoopIntegrationDB).where(WhoopIntegrationDB.is_active.is_(True))
-                )
-                integrations = result.scalars().all()
+            from services.scheduler_service import utc_now
 
-            sync_results = []
-            for integration in integrations:
-                canonical = await wearable_connection_service.get_connection(integration.user_id, "whoop")
-                settings = {}
-                if canonical and canonical.settings_json:
+            requested_hour = payload.hour if payload and payload.hour is not None else utc_now().hour
+            from background_tasks import run_whoop_scheduler_job
+            from services.scheduler_service import resolve_hourly_delivery_occurrence
+
+            async def run_bulk_sync():
+                logger.info("Starting bulk Whoop sync for scheduled hour %s", requested_hour)
+                async with get_db_session() as session:
+                    result = await session.execute(
+                        select(WhoopIntegrationDB).where(WhoopIntegrationDB.is_active.is_(True))
+                    )
+                    integrations = result.scalars().all()
+
+                sync_results = []
+                for integration in integrations:
+                    canonical = await wearable_connection_service.get_connection(integration.user_id, "whoop")
+                    settings = {}
+                    if canonical and canonical.settings_json:
+                        try:
+                            settings = json.loads(canonical.settings_json)
+                        except Exception:
+                            settings = {}
+                    enabled = bool(settings.get("auto_sync_enabled", True))
+                    configured_hour = settings.get(
+                        "sync_hour",
+                        settings.get("whoop_sync_hour", integration.whoop_sync_hour or 9),
+                    )
+                    if not enabled or (
+                        requested_hour is not None
+                        and int(configured_hour) != int(requested_hour)
+                    ):
+                        continue
                     try:
-                        import json
-                        settings = json.loads(canonical.settings_json)
+                        result = await _sync_whoop_via_registry(
+                            integration.user_id,
+                            days_back=payload.daysBack if payload else None,
+                            force_full_sync=payload.forceFullSync if payload else False,
+                            full_history=payload.fullHistory if payload else False,
+                        )
+                        sync_results.append(
+                            {"user_id": integration.user_id, "success": True, "data": result}
+                        )
                     except Exception:
-                        settings = {}
-                enabled = bool(settings.get("auto_sync_enabled", True))
-                configured_hour = settings.get("sync_hour", settings.get("whoop_sync_hour", integration.whoop_sync_hour or 9))
-                if not enabled:
-                    continue
-                if payload and payload.hour is not None and int(configured_hour) != int(payload.hour):
-                    continue
-                try:
-                    result = await _sync_whoop_via_registry(
-                        integration.user_id,
-                        days_back=payload.daysBack if payload else None,
-                        force_full_sync=payload.forceFullSync if payload else False,
-                        full_history=payload.fullHistory if payload else False,
-                    )
-                    sync_results.append(
-                        {
-                            "user_id": integration.user_id,
-                            "success": True,
-                            "data": result,
-                        }
-                    )
-                except Exception:
-                    logger.exception(
-                        "Whoop bulk sync failed for user %s", integration.user_id
-                    )
-                    sync_results.append(
-                        {
-                            "user_id": integration.user_id,
-                            "success": False,
-                            "error": "Sync failed",
-                        }
-                    )
+                        logger.exception("Whoop bulk sync failed for user %s", integration.user_id)
+                        sync_results.append(
+                            {"user_id": integration.user_id, "success": False, "error": "Sync failed"}
+                        )
 
-            successful_syncs = sum(1 for r in sync_results if r["success"])
-            logger.info(
-                "Bulk Whoop sync completed: %s/%s successful",
-                successful_syncs,
-                len(sync_results),
+                successful_syncs = sum(1 for item in sync_results if item["success"])
+                return {
+                    "success": True,
+                    "total_users": len(sync_results),
+                    "successful_syncs": successful_syncs,
+                    "results": sync_results,
+                }
+
+            execution = await run_whoop_scheduler_job(
+                run_bulk_sync,
+                now=resolve_hourly_delivery_occurrence(requested_hour),
             )
             return {
                 "success": True,
-                "total_users": len(sync_results),
-                "successful_syncs": successful_syncs,
-                "results": sync_results,
+                "occurrence_status": execution.status,
+                "scheduled_for": execution.scheduled_for,
+                **(execution.result or {}),
             }
         except HTTPException:
             raise
@@ -569,7 +575,7 @@ def create_tesla_router(
         request: Request,
         internal_key: Optional[str] = Header(None, alias="X-Internal-Key"),
     ):
-        """Bulk sync all active Tesla connections (called by Trigger.dev)."""
+        """Retained external adapter for the FastAPI-owned Tesla occurrence."""
         try:
             _enforce_provider_sync_consent(request, data_class="financial")
             expected_internal_key = os.getenv("INTERNAL_API_KEY")
@@ -578,34 +584,19 @@ def create_tesla_router(
             if internal_key != expected_internal_key:
                 raise HTTPException(status_code=403, detail="Invalid internal API key")
 
-            logger.info("Starting bulk Tesla sync for all users")
-            from database.models import WearableConnectionDB as WC
+            from background_tasks import _run_tesla_odometer_sync, run_tesla_scheduler_job
+            from services.scheduler_service import utc_now
 
-            async with get_db_session() as session:
-                result = await session.execute(
-                    select(WC).where(
-                        WC.provider == "tesla",
-                        WC.status == "active",
-                    )
-                )
-                connections = result.scalars().all()
-
-            sync_results = []
-            for conn in connections:
-                try:
-                    r = await tesla_service.sync_odometer(conn.user_id)
-                    sync_results.append({"user_id": conn.user_id, "success": True, "data": r})
-                except Exception:
-                    logger.exception("Tesla bulk sync failed for user %s", conn.user_id)
-                    sync_results.append({"user_id": conn.user_id, "success": False, "error": "Sync failed"})
-
-            successful = sum(1 for r in sync_results if r["success"])
-            logger.info("Bulk Tesla sync completed: %s/%s successful", successful, len(sync_results))
+            now = utc_now()
+            execution = await run_tesla_scheduler_job(
+                lambda: _run_tesla_odometer_sync(tesla_service, now.hour),
+                now=now,
+            )
             return {
                 "success": True,
-                "total_users": len(sync_results),
-                "successful_syncs": successful,
-                "results": sync_results,
+                "occurrence_status": execution.status,
+                "scheduled_for": execution.scheduled_for,
+                "successful_syncs": execution.result or 0,
             }
         except HTTPException:
             raise

@@ -6,7 +6,7 @@
 **Berd upstream:** `https://github.com/block/berd.git`  
 **Scope:** investigation only. No Ritual application code was changed.
 
-> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 188,714 after the additive durable-chat, watcher-lifecycle, explicit-route, and pure model-engine boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
+> **Current ship-branch note (2026-08-22):** The 192,474 figure below is the historical audit snapshot, not the current release baseline. The executable `npm run audit:loc` contract reports 189,404 after the additive durable-chat, watcher-lifecycle, explicit-route, pure model-engine, and scheduler-fencing boundaries (starting ship baseline: 187,086 at `65ced577`). See [`LOC_BASELINE.md`](./LOC_BASELINE.md) for buckets, exclusions, source digest, and reconciliation with the dirty-tree 183.97k and manual ~192.6k claims.
 
 ## Executive assessment
 
@@ -504,8 +504,8 @@ Queues/background work include conversation follow-ups, wearable ingest/event ou
 - `app_factory.py` is a large routing/composition table, but the individual router pattern is conventional.
 - The Next catch-all BFF uses `lib/api/generated/backend-client.ts` as a route matcher. That generated file is reachable and should not be labeled dead.
 - `database/connection.py` uses a Turso/libSQL embedded replica in the server and contains a SQLAlchemy/libSQL cursor compatibility monkeypatch. That is a maintenance smell and should become an upstream/versioned adapter or disappear with a driver upgrade.
-- startup uses a fast database path, then can defer fuller integrity/schema checks and optional Typesense/scheduler startup. This is sensible, but production ownership is difficult to infer from flags.
-- FastAPI lifespan jobs and Trigger.dev jobs create two potential scheduling planes. The audit does not prove both run for every deployment; the inability to determine the owner from source/config alone is itself the problem.
+- The current release code preserves fast database startup but starts all eight scheduler loops independently of deferred maintenance whenever `ENABLE_INTERNAL_SCHEDULER=1`.
+- FastAPI now owns a static 13-job registry. Eleven clock jobs use unique durable occurrence claims; wearable ingest/outbox keep atomic durable row claims. Authenticated health exposes registration, last attempt/success, duration, error, and lease state. Trigger.dev remains only an unverified external cloud blocker.
 - WebSocket auth accepts a JWT in a query parameter. Authentication failures and health responses can include underlying exception text. Both increase secret/logging and information-disclosure risk.
 
 ---

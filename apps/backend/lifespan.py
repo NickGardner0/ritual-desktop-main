@@ -23,6 +23,7 @@ from database.connection import (
     complete_database_startup_maintenance,
     init_database,
 )
+from services.scheduler_service import SCHEDULER_JOB_DEFINITIONS, scheduler_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -54,36 +55,53 @@ async def post_startup_initialization(app: FastAPI, tesla_service) -> None:
         uvicorn_logger.warning("⚠️ Deferred database startup maintenance failed: %s", exc)
         return
 
-    if ENABLE_INTERNAL_SCHEDULER:
-        app.state.scheduler_task = asyncio.create_task(
-            internal_scheduler_loop(tesla_service)
-        )
-        app.state.report_scheduler_task = asyncio.create_task(report_scheduler_loop())
-        app.state.workflow_scheduler_task = asyncio.create_task(workflow_scheduler_loop())
-        app.state.ambient_scheduler_task = asyncio.create_task(ambient_scheduler_loop())
-        app.state.sms_copilot_task = asyncio.create_task(sms_copilot_loop())
-        app.state.wearable_ingest_job_task = asyncio.create_task(wearable_ingest_job_loop())
-        app.state.wearable_maintenance_task = asyncio.create_task(wearable_maintenance_loop())
-        app.state.wearable_event_outbox_task = asyncio.create_task(wearable_event_outbox_loop())
-        uvicorn_logger.info("⏰ Internal hourly scheduler started (proactive SMS + wearable syncs)")
-        uvicorn_logger.info("📨 Report scheduler started")
-        uvicorn_logger.info("🧭 Workflow scheduler started")
-        uvicorn_logger.info("🌤️ Ambient scheduler started")
-        uvicorn_logger.info("📲 SMS copilot scheduler started")
-        uvicorn_logger.info("🧵 Wearable ingest job worker started")
-        uvicorn_logger.info("🧹 Wearable maintenance scheduler started")
-        uvicorn_logger.info("📮 Wearable event outbox worker started")
-    else:
-        uvicorn_logger.info(
-            "⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)"
-        )
-
 
 async def delayed_post_startup_initialization(app: FastAPI, tesla_service) -> None:
     """Wait briefly so platform readiness checks can succeed before heavy startup work."""
     if STARTUP_MAINTENANCE_DELAY_SECONDS > 0:
         await asyncio.sleep(STARTUP_MAINTENANCE_DELAY_SECONDS)
     await post_startup_initialization(app, tesla_service)
+
+
+def start_internal_scheduler_tasks(app: FastAPI, tesla_service) -> None:
+    """Start every scheduler loop independently of deferred startup maintenance."""
+    uvicorn_logger = logging.getLogger("uvicorn")
+    scheduler_runtime.reset()
+    scheduler_runtime.configure(ENABLE_INTERNAL_SCHEDULER)
+    app.state.scheduler_tasks = {}
+    loop_specs = (
+        ("hourly_domain", "scheduler_task", internal_scheduler_loop(tesla_service)),
+        ("habit_reports", "report_scheduler_task", report_scheduler_loop()),
+        ("workflow_runs", "workflow_scheduler_task", workflow_scheduler_loop()),
+        ("ambient_signals", "ambient_scheduler_task", ambient_scheduler_loop()),
+        ("sms_copilot", "sms_copilot_task", sms_copilot_loop()),
+        ("wearable_ingest", "wearable_ingest_job_task", wearable_ingest_job_loop()),
+        ("wearable_maintenance", "wearable_maintenance_task", wearable_maintenance_loop()),
+        ("wearable_event_outbox", "wearable_event_outbox_task", wearable_event_outbox_loop()),
+    )
+    for _, attribute, coroutine in loop_specs:
+        setattr(app.state, attribute, None)
+    if not ENABLE_INTERNAL_SCHEDULER:
+        for _, _, coroutine in loop_specs:
+            coroutine.close()
+        uvicorn_logger.info(
+            "⏭️ Internal scheduler disabled (set ENABLE_INTERNAL_SCHEDULER=1 to enable)"
+        )
+        return
+
+    for loop_key, attribute, coroutine in loop_specs:
+        task = asyncio.create_task(coroutine, name=f"ritual-scheduler:{loop_key}")
+        setattr(app.state, attribute, task)
+        app.state.scheduler_tasks[loop_key] = task
+        scheduler_runtime.register_loop(
+            loop_key,
+            [item.job_key for item in SCHEDULER_JOB_DEFINITIONS if item.loop_key == loop_key],
+        )
+    uvicorn_logger.info(
+        "⏰ Internal scheduler started: %d jobs across %d loops",
+        len(SCHEDULER_JOB_DEFINITIONS),
+        len(loop_specs),
+    )
 
 
 def register_lifecycle(app: FastAPI, tesla_service) -> None:
@@ -104,6 +122,7 @@ def register_lifecycle(app: FastAPI, tesla_service) -> None:
         app.state.wearable_ingest_job_task = None
         app.state.wearable_maintenance_task = None
         app.state.wearable_event_outbox_task = None
+        start_internal_scheduler_tasks(app, tesla_service)
         if ENABLE_STARTUP_MAINTENANCE_TASK:
             app.state.startup_maintenance_task = asyncio.create_task(
                 delayed_post_startup_initialization(app, tesla_service)
@@ -116,29 +135,8 @@ def register_lifecycle(app: FastAPI, tesla_service) -> None:
     @app.on_event("shutdown")
     async def shutdown_event():
         startup_maintenance_task = getattr(app.state, "startup_maintenance_task", None)
-        scheduler_task = getattr(app.state, "scheduler_task", None)
-        report_scheduler_task = getattr(app.state, "report_scheduler_task", None)
-        workflow_scheduler_task = getattr(app.state, "workflow_scheduler_task", None)
-        ambient_scheduler_task = getattr(app.state, "ambient_scheduler_task", None)
-        sms_copilot_task = getattr(app.state, "sms_copilot_task", None)
-        wearable_ingest_job_task = getattr(app.state, "wearable_ingest_job_task", None)
-        wearable_maintenance_task = getattr(app.state, "wearable_maintenance_task", None)
-        wearable_event_outbox_task = getattr(app.state, "wearable_event_outbox_task", None)
-        tasks = [
-            task
-            for task in [
-                startup_maintenance_task,
-                scheduler_task,
-                report_scheduler_task,
-                workflow_scheduler_task,
-                ambient_scheduler_task,
-                sms_copilot_task,
-                wearable_ingest_job_task,
-                wearable_maintenance_task,
-                wearable_event_outbox_task,
-            ]
-            if task is not None
-        ]
+        scheduler_tasks = list(getattr(app.state, "scheduler_tasks", {}).values())
+        tasks = [task for task in [startup_maintenance_task, *scheduler_tasks] if task is not None]
         for task in tasks:
             task.cancel()
         if tasks:

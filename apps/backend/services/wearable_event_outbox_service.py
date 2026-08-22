@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 
 from database.connection import get_db_session
 from database.models import WearableOutboxEventDB
@@ -154,7 +154,7 @@ class WearableEventOutboxService:
         now = datetime.now(timezone.utc)
         async with get_db_session() as session:
             result = await session.execute(
-                select(WearableOutboxEventDB)
+                select(WearableOutboxEventDB.id)
                 .where(
                     WearableOutboxEventDB.status == "queued",
                     WearableOutboxEventDB.available_at <= now,
@@ -162,13 +162,29 @@ class WearableEventOutboxService:
                 .order_by(WearableOutboxEventDB.created_at.asc())
                 .limit(1)
             )
-            event = result.scalar_one_or_none()
-            if event is None:
+            event_id = result.scalar_one_or_none()
+            if event_id is None:
                 return None
-            event.status = "running"
-            event.started_at = now
-            event.updated_at = now
-            event.attempts = int(event.attempts or 0) + 1
+            claim = await session.execute(
+                update(WearableOutboxEventDB)
+                .where(
+                    WearableOutboxEventDB.id == event_id,
+                    WearableOutboxEventDB.status == "queued",
+                )
+                .values(
+                    status="running",
+                    started_at=now,
+                    updated_at=now,
+                    attempts=func.coalesce(WearableOutboxEventDB.attempts, 0) + 1,
+                )
+            )
+            if int(claim.rowcount or 0) != 1:
+                await session.rollback()
+                return None
+            event = await session.get(WearableOutboxEventDB, event_id)
+            if event is None:
+                await session.rollback()
+                return None
             await session.commit()
             await session.refresh(event)
             return event

@@ -1,8 +1,8 @@
 """
 Proactive SMS trigger endpoint.
 
-Called by an external scheduler (Trigger.dev, Railway cron, etc.)
-to sweep for users eligible for proactive messages and send them.
+Legacy authenticated delivery surface. Internal scheduling is owned by FastAPI;
+any stale external call enters the same durable occurrence fence.
 
 Auth: requires x-internal-secret header matching INTERNAL_SMS_CHAT_SECRET.
 
@@ -50,26 +50,24 @@ async def proactive_trigger(request: Request, body: ProactiveTriggerRequest):
     if not INTERNAL_SMS_CHAT_SECRET or secret != INTERNAL_SMS_CHAT_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    # Import here to avoid circular imports at module load time
-    from services.proactive_sms_service import run_proactive_sweep, run_hourly_proactive_sweep
+    from background_tasks import run_proactive_sms_scheduler_job
 
-    if body.trigger_type == "all":
-        results = await run_hourly_proactive_sweep()
-        logger.info("Hourly proactive sweep results: %s", results)
-        return {
-            "status": "ok",
-            "mode": "all",
-            "sweeps": results,
-        }
-
-    result = await run_proactive_sweep(
+    execution = await run_proactive_sms_scheduler_job(
         trigger_type=body.trigger_type,
         target_hour=body.target_hour,
     )
-
-    logger.info("Proactive sweep result: %s", result)
-
+    logger.info("Proactive sweep occurrence result: %s", execution)
+    if body.trigger_type == "all":
+        return {
+            "status": "ok",
+            "occurrence_status": execution.status,
+            "scheduled_for": execution.scheduled_for,
+            "mode": "all",
+            "sweeps": execution.result or [],
+        }
     return {
         "status": "ok",
-        **result,
+        "occurrence_status": execution.status,
+        "scheduled_for": execution.scheduled_for,
+        **(execution.result or {}),
     }

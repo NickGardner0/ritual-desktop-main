@@ -88,7 +88,7 @@ vercel --cwd apps/dashboard --prod
 - Root Directory: `apps/backend`
 - Config as code: uses `apps/backend/railway.json`
 - Start command: `python -m uvicorn main:app --host 0.0.0.0 --port ${PORT}`
-- Healthcheck: `/health`
+- Healthcheck: `/ready`
 
 ### Production Environment Variables
 
@@ -101,6 +101,8 @@ Required:
 - `DEBUG=false`
 - `CORS_ORIGINS`
 - `INTERNAL_API_KEY`
+- `INTERNAL_BACKEND_TOKEN`
+- `ENABLE_INTERNAL_SCHEDULER=1`
 - `TOKEN_ENCRYPTION_KEY`
 - `TURSO_LOCAL_ENCRYPTION_KEY`
 - `TINYBIRD_TOKEN`
@@ -131,6 +133,7 @@ Recommended values:
 - `APP_URL=https://<your-vercel-domain>`
 - `NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>`
 - `NEXT_PUBLIC_WHOOP_REDIRECT_URI=https://<your-vercel-domain>/api/integrations/whoop/callback`
+- `ENABLE_STARTUP_MAINTENANCE_TASK=0` (scheduler startup is independent)
 
 Notes:
 
@@ -158,6 +161,7 @@ Backend:
 - `GET https://<railway-domain>/health`
 - confirm `database.status` is `ok`
 - confirm `tinybird.status` is `ok` or intentionally unavailable
+- run `railway run --service backend-api --environment production npm run ops:scheduler:health` after each owner has reached its first cadence
 
 Frontend:
 

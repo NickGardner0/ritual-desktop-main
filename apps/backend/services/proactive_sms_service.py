@@ -4,9 +4,8 @@ Proactive SMS Service
 Finds users eligible for proactive messages (e.g., end-of-day recap),
 generates the content via the TS orchestrator, and sends via SendBlue.
 
-Called by the proactive trigger endpoint, which is invoked by an
-external scheduler (Trigger.dev, Railway cron, etc.) — typically once
-per hour.
+Called by the FastAPI scheduler owner. The retained authenticated trigger
+endpoint delegates through the same durable occurrence claim for compatibility.
 """
 
 import logging

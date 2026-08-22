@@ -39,6 +39,7 @@ from api.privacy import create_privacy_router
 from api.proactive_sms import router as proactive_sms_router
 from api.reports import create_reports_router
 from api.screen_time import create_screen_time_router
+from api.scheduler import create_scheduler_router
 from api.screenshot import create_screenshot_router
 from api.search import create_search_router
 from api.sendblue import router as sendblue_router
@@ -263,6 +264,7 @@ def create_app() -> FastAPI:
         )
     )
     app.include_router(create_screen_time_router(get_current_user=get_persisted_account))
+    app.include_router(create_scheduler_router())
     app.include_router(
         create_imports_router(
             limiter=limiter,
@@ -286,8 +288,17 @@ def create_app() -> FastAPI:
         return {"message": "Ritual Backend API", "status": "running"}
 
     @app.get("/ready")
-    async def ready_check():
-        return {"status": "ready"}
+    async def ready_check(request: Request):
+        from services.scheduler_service import scheduler_runtime
+
+        scheduler = scheduler_runtime.readiness_snapshot(
+            getattr(request.app.state, "scheduler_tasks", {})
+        )
+        payload = {"status": "ready", "scheduler": scheduler}
+        if scheduler["status"] == "degraded":
+            payload["status"] = "degraded"
+            return JSONResponse(payload, status_code=503)
+        return payload
 
     @app.get("/health")
     async def health_check():
