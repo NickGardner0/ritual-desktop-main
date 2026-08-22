@@ -279,10 +279,36 @@ pub fn flush_pending_auth_deep_link<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+const PRODUCTION_BACKEND_URL: &str = "https://backend-api-production-a37e.up.railway.app";
+
+fn is_production_ritual_env(ritual_env: &str) -> bool {
+    matches!(ritual_env.trim().to_ascii_lowercase().as_str(), "production" | "prod")
+}
+
+fn is_loopback_http_url(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("://127.0.0.1")
+        || lower.contains("://localhost")
+        || lower.contains("://[::1]")
+}
+
 pub(crate) fn normalize_backend_base(value: Option<String>) -> Option<String> {
-    value
+    normalize_backend_base_for_env(value, &configured_ritual_env())
+}
+
+pub(crate) fn normalize_backend_base_for_env(
+    value: Option<String>,
+    ritual_env: &str,
+) -> Option<String> {
+    let url = value
         .map(|item| item.trim().trim_end_matches('/').to_string())
-        .filter(|item| !item.is_empty())
+        .filter(|item| !item.is_empty())?;
+    if is_production_ritual_env(ritual_env) && is_loopback_http_url(&url) {
+        return Some(read_nonempty_env("RITUAL_BACKEND_URL").unwrap_or_else(|| {
+            PRODUCTION_BACKEND_URL.to_string()
+        }));
+    }
+    Some(url)
 }
 
 pub(crate) fn persisted_turso_config_is_fresh_enough() -> bool {
@@ -504,5 +530,27 @@ mod tests {
     fn parses_ps_rss_kilobytes_into_bytes() {
         assert_eq!(parse_ps_rss_bytes("  2048\n"), Some(2048 * 1024));
         assert_eq!(parse_ps_rss_bytes("not-a-number"), None);
+    }
+
+    #[test]
+    fn production_env_rewrites_loopback_backend_base() {
+        assert_eq!(
+            super::normalize_backend_base_for_env(
+                Some("http://127.0.0.1:8000/".to_string()),
+                "production",
+            ),
+            Some("https://backend-api-production-a37e.up.railway.app".to_string()),
+        );
+    }
+
+    #[test]
+    fn development_env_keeps_loopback_backend_base() {
+        assert_eq!(
+            super::normalize_backend_base_for_env(
+                Some("http://127.0.0.1:8000".to_string()),
+                "development",
+            ),
+            Some("http://127.0.0.1:8000".to_string()),
+        );
     }
 }

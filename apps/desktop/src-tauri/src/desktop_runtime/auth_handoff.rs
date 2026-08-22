@@ -41,7 +41,7 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     let normalized_user_id = user_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
-    let normalized_backend_base = normalize_backend_base(backend_base);
+    let incoming_backend_base = backend_base;
     let generation = app
         .state::<DesktopShellState>()
         .auth_generation
@@ -53,9 +53,11 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     update_auth_state(&app, |state| {
         state.token = Some(trimmed_token.clone());
         state.user_id = normalized_user_id.clone();
-        state.backend_base = normalized_backend_base
-            .clone()
-            .or_else(|| state.backend_base.clone());
+        state.backend_base = normalize_backend_base(
+            incoming_backend_base
+                .clone()
+                .or_else(|| state.backend_base.clone()),
+        );
         state.last_updated_at_ms = Some(Utc::now().timestamp_millis());
         state.last_turso_error = None;
     });
@@ -64,7 +66,7 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
         reconcile_native_user_configs(user_id)?;
     }
 
-    if normalized_backend_base.is_some() {
+    if read_auth_state(&app).backend_base.is_some() {
         if should_skip_immediate_turso_refresh(&app) {
             if let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() {
                 super::turso_sync::schedule_turso_config_refresh(

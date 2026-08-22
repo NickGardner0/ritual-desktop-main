@@ -108,4 +108,4 @@ jobs:
 
       - name: Rust desktop RSS and orphan-sidecar tests
         working-directory: apps/desktop/src-tauri
-        run: cargo test --bin app "parses_ps_rss_kilobytes_into_bytes|orphan_sidecar_parser_matches_only_the_requested_device"
+        run: cargo test --bin app "parses_ps_rss_kilobytes_into_bytes|orphan_sidecar_parser_matches_only_the_requested_device|loopback_backend_base"
