@@ -10,6 +10,7 @@ const requiredPython = "3.12.12";
 const requiredFastApi = "0.119.0";
 const requiredPydantic = "2.12.2";
 const lockPath = join(root, "apps/backend/requirements.lock.txt");
+const railwayRequirementPath = join(root, "apps/backend/requirements.txt");
 const requirementInputs = ["apps/backend/requirements.in", "apps/backend/requirements-dev.in"];
 
 function run(command, args, options = {}) {
@@ -88,6 +89,14 @@ function lockedInterpreter() {
     throw new Error("Missing apps/backend/requirements.lock.txt. Regenerate it with the documented uv pip compile command.");
   }
   const lockSource = readFileSync(lockPath);
+  if (
+    !existsSync(railwayRequirementPath)
+    || !readFileSync(railwayRequirementPath).equals(lockSource)
+  ) {
+    throw new Error(
+      "Railway requirements.txt drifted from requirements.lock.txt. Run: npm run backend:lock",
+    );
+  }
   const lockText = lockSource.toString("utf8");
   const recordedInputDigest = lockText.match(/^# ritual-input-sha256: ([a-f0-9]{64})$/m)?.[1];
   if (recordedInputDigest !== requirementInputDigest()) {

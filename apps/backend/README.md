@@ -6,6 +6,8 @@ FastAPI backend for Ritual.
 
 Backend generation, tests, CI, and Railway use Python 3.12.12 and the hash-pinned `requirements.lock.txt`. Do not invoke OpenAPI generation or pytest through an ambient virtualenv.
 
+`requirements.txt` is a generated, byte-identical mirror of the lock because Railpack copies that file into its isolated pip install layer. Regenerate both only with `npm run backend:lock`; the shared `scripts/backend-python.mjs` wrapper rejects drift between them. Railway runs Alembic as a pre-deploy command so an additive migration must succeed before a new application revision can receive traffic.
+
 - `npm run api:openapi`
 - `npm run api:generate-client`
 - `npm run backend:test`
