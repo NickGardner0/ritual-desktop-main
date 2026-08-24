@@ -12,6 +12,7 @@ import { openDesktopSettingsWindow, type DesktopSettingsView } from '@/lib/nativ
 import { SidebarShell, ToolbarButton } from "@/components/ui/ritual-system";
 import { DesktopUpdateControl } from '@/components/desktop-update-control';
 import { CreateMenu } from '@/components/create-menu';
+import CommandPalette from '@/components/command-palette';
 
 const COLLAPSED_WIDTH = 76;
 const EXPANDED_WIDTH = 256;
@@ -37,7 +38,11 @@ function isDesktopSettingsView(value: string | null): value is DesktopSettingsVi
     || value === 'apple-health';
 }
 
-export function Sidebar() {
+export function Sidebar({
+  commandPaletteInitialOpen = false,
+}: {
+  commandPaletteInitialOpen?: boolean;
+}) {
   const { mode, setMode } = useSidebarMode();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -144,7 +149,7 @@ export function Sidebar() {
         </ToolbarButton>
       </div>
       {isExpanded ? (
-        <div className="no-drag absolute right-[42px] top-[2px] z-20 flex items-center gap-0.5">
+        <div className="no-drag absolute right-[70px] top-[2px] z-20 flex items-center gap-0.5">
           <ToolbarButton
             type="button"
             onMouseDown={(event) => event.stopPropagation()}
@@ -173,6 +178,16 @@ export function Sidebar() {
           >
             <CodiconArrowRight className="h-4 w-[18px]" />
           </ToolbarButton>
+        </div>
+      ) : null}
+      {isExpanded ? (
+        <div className="no-drag absolute right-[34px] top-[2px] z-30 flex items-center">
+          <CommandPalette
+            className="app-toolbar-icon-button"
+            initialOpen={commandPaletteInitialOpen}
+            density="tight"
+            triggerVariant="icon"
+          />
         </div>
       ) : null}
       {isExpanded ? (

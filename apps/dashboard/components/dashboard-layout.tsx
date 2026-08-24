@@ -152,7 +152,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className={`app-window-shell relative flex h-full min-w-0 flex-1 flex-col overflow-hidden ${!shouldHideAppSidebar && !detachedSidebarMode ? 'has-shell-sidebar-divider' : ''}`}>
         <div className="app-body flex min-h-0 flex-1 overflow-hidden">
           {/* Clean Midday-style Sidebar - Hidden in Full-Screen Chat */}
-          {!shouldHideAppSidebar && !detachedSidebarMode && <Sidebar />}
+          {!shouldHideAppSidebar && !detachedSidebarMode && (
+            <Sidebar commandPaletteInitialOpen={shouldOpenWhoopModal} />
+          )}
 
           {/* Main content column + full-height right dock (Cursor-style) */}
           <RightDockTargetProvider target={rightDockEl}>
@@ -168,7 +170,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       className="dashboard-app-toolbar-row grid h-7 w-full min-w-0 grid-cols-[minmax(140px,1fr)_auto_minmax(140px,1fr)] items-center gap-2"
                     >
                       <div data-tauri-drag-region className="flex min-w-0 items-center">
-                        {!isChatRoute && (
+                        {!isChatRoute && contentTouchesWindowChrome && (
                           <CommandPalette
                             className="app-toolbar-control no-drag -translate-y-2"
                             initialOpen={shouldOpenWhoopModal}

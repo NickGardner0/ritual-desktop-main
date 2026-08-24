@@ -20,19 +20,25 @@ export const PRIORITY_FILTERS = [
 ] as const;
 export const TASK_SORTS = [
   { id: 'smart', label: 'Smart order' },
+  { id: 'created', label: 'Created' },
   { id: 'due', label: 'Due date' },
   { id: 'priority', label: 'Priority' },
   { id: 'updated', label: 'Recently updated' },
   { id: 'title', label: 'Title' },
 ] as const;
 export const LIST_LAYOUT_MODES = [
-  { id: 'list', label: 'List' },
+  { id: 'list', label: 'No grouping' },
   { id: 'project', label: 'Project' },
   { id: 'priority', label: 'Priority' },
+] as const;
+export const TASK_DISPLAY_MODES = [
+  { id: 'list', label: 'List' },
+  { id: 'board', label: 'Board' },
 ] as const;
 
 export type TaskViewId = (typeof TASK_VIEWS)[number]['id'];
 export type ListLayoutMode = (typeof LIST_LAYOUT_MODES)[number]['id'];
+export type TaskDisplayMode = (typeof TASK_DISPLAY_MODES)[number]['id'];
 export type TaskPriorityFilter = (typeof PRIORITY_FILTERS)[number]['id'];
 export type TaskSortId = (typeof TASK_SORTS)[number]['id'];
 

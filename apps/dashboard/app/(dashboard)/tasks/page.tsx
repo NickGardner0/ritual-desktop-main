@@ -10,14 +10,10 @@ export const metadata: Metadata = {
 function TasksLoading() {
   return (
     <div className="flex h-full flex-col">
-      <div className="px-6 pb-4 pt-7 lg:px-8">
-        <div className="h-8 w-32 animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-4 h-7 w-72 animate-pulse rounded-sm bg-[#f3f3f2]" />
-        <div className="mt-3 h-7 w-56 animate-pulse rounded-sm bg-[#f3f3f2]" />
-      </div>
-      <div className="mx-auto w-full max-w-[1120px] flex-1 space-y-2 px-6 py-4 lg:px-8">
+      <div className="mx-auto w-full max-w-[1120px] flex-1 space-y-2 px-8 pt-3 lg:px-10">
+        <div className="mb-1 h-8 animate-pulse border-b border-[var(--border-subtle)] bg-[var(--surface-raised)]" />
         {[1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="h-8 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
+          <div key={i} className="h-10 animate-pulse rounded-[var(--radius-row)] bg-[var(--surface-panel)]" />
         ))}
       </div>
     </div>

@@ -27,6 +27,7 @@ import {
 import {
   defaultScheduleForView,
   isTaskViewId,
+  type TaskDisplayMode,
   type TaskPriorityFilter,
   type TaskSortId,
   type TaskViewId,
@@ -51,13 +52,11 @@ import { cn } from '@/lib/utils';
 
 import {
   CATEGORY_FILTERS,
-  TASK_VIEWS,
+  TaskBoard,
   TaskGroupSection,
   TaskListSection,
   TaskTableHeader,
   TasksEmptyState,
-  TasksFilterBar,
-  TasksHeader,
   TasksLoadingSkeleton,
   TasksToolbarActions,
   type ListLayoutMode,
@@ -135,23 +134,22 @@ function taskUpdatedValue(task: Task): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function taskCreatedValue(task: Task): number {
+  if (!task.created_at) return 0;
+  const parsed = new Date(task.created_at).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function filterAndSortTasks(
   tasks: Task[],
-  searchQuery: string,
   priorityFilter: TaskPriorityFilter,
   sortMode: TaskSortId,
 ): Task[] {
-  const query = searchQuery.trim().toLocaleLowerCase();
-  const filtered = tasks.filter((task) => {
-    if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
-    if (!query) return true;
-    return [task.title, task.notes, task.project, task.category, ...task.tags]
-      .filter(Boolean)
-      .some((value) => String(value).toLocaleLowerCase().includes(query));
-  });
+  const filtered = tasks.filter((task) => priorityFilter === 'all' || task.priority === priorityFilter);
 
   if (sortMode === 'smart') return filtered;
   return filtered.slice().sort((a, b) => {
+    if (sortMode === 'created') return taskCreatedValue(b) - taskCreatedValue(a);
     if (sortMode === 'due') return taskDateValue(a) - taskDateValue(b);
     if (sortMode === 'priority') {
       return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
@@ -197,7 +195,7 @@ export function TasksClient() {
 
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [layoutMode, setLayoutMode] = useState<ListLayoutMode>('list');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [displayMode, setDisplayMode] = useState<TaskDisplayMode>('list');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriorityFilter>('all');
   const [sortMode, setSortMode] = useState<TaskSortId>('smart');
   const [composerOpen, setComposerOpen] = useState(false);
@@ -381,11 +379,15 @@ export function TasksClient() {
     return dedupeTasksByIdentity([...recentTasks, ...sortedTasks]);
   }, [category, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
   const tasks = useMemo(
-    () => filterAndSortTasks(tasksForView, searchQuery, priorityFilter, sortMode),
-    [priorityFilter, searchQuery, sortMode, tasksForView],
+    () => filterAndSortTasks(tasksForView, priorityFilter, sortMode),
+    [priorityFilter, sortMode, tasksForView],
   );
   const groups = useMemo(
     () => groupTasksForLayout(tasks, layoutMode),
+    [layoutMode, tasks],
+  );
+  const boardGroups = useMemo(
+    () => groupTasksForLayout(tasks, layoutMode === 'list' ? 'priority' : layoutMode),
     [layoutMode, tasks],
   );
   const selectedTask = useMemo(
@@ -435,11 +437,15 @@ export function TasksClient() {
     setMenuTaskId(null);
   };
 
-  const clearListFilters = () => {
-    setSearchQuery('');
+  const clearTaskFilters = () => {
     setPriorityFilter('all');
     setCategory('All');
-    setSortMode('smart');
+    if (view !== 'today') selectView('today');
+  };
+
+  const selectDisplayMode = (nextMode: TaskDisplayMode) => {
+    setDisplayMode(nextMode);
+    if (nextMode === 'board' && layoutMode === 'list') setLayoutMode('priority');
   };
 
   const handleComposerSubmit = (values: NewTaskComposerSubmit) => {
@@ -487,8 +493,7 @@ export function TasksClient() {
     });
   };
 
-  const viewTitle = TASK_VIEWS.find((item) => item.id === view)?.label || 'Tasks';
-  const hasTasks = layoutMode === 'list' ? tasks.length > 0 : groups.length > 0;
+  const hasTasks = tasks.length > 0;
 
   const rowHandlers = {
     menuTaskId,
@@ -504,56 +509,51 @@ export function TasksClient() {
   return (
     <TaskPageShell>
       <TasksToolbarActions
+        displayMode={displayMode}
+        onDisplayModeChange={selectDisplayMode}
         layoutMode={layoutMode}
         onLayoutModeChange={setLayoutMode}
+        view={view}
+        onViewChange={selectView}
+        category={category}
+        onCategoryChange={setCategory}
+        priorityFilter={priorityFilter}
+        onPriorityFilterChange={setPriorityFilter}
+        sortMode={sortMode}
+        onSortModeChange={setSortMode}
+        onClearFilters={clearTaskFilters}
         onNewTask={() => setComposerOpen(true)}
       />
 
-      <div className="min-h-0 flex-1 overflow-auto pb-16 pt-8">
+      <div className="min-h-0 flex-1 overflow-auto pb-16 pt-3">
         <div className={cn(taskContentMaxClass, 'px-8 lg:px-10')}>
-          <TasksHeader
-            title={viewTitle}
-            view={view}
-            taskCount={tasksForView.length}
-            onViewChange={selectView}
-          />
-          <TasksFilterBar
-            category={category}
-            onCategoryChange={setCategory}
-            searchQuery={searchQuery}
-            onSearchQueryChange={setSearchQuery}
-            priorityFilter={priorityFilter}
-            onPriorityFilterChange={setPriorityFilter}
-            sortMode={sortMode}
-            onSortModeChange={setSortMode}
-            visibleCount={tasks.length}
-            totalCount={tasksForView.length}
-            onClear={clearListFilters}
-          />
-
           {tasksQuery.isLoading ? (
             <TasksLoadingSkeleton />
           ) : hasTasks ? (
-            <>
-              <TaskTableHeader />
-              {layoutMode === 'list' ? (
-                <TaskListSection tasks={tasks} {...rowHandlers} />
-              ) : (
-                groups.map(([group, groupTasksValue]) => (
-                  <TaskGroupSection
-                    key={group}
-                    group={group}
-                    tasks={[...groupTasksValue]}
-                    {...rowHandlers}
-                  />
-                ))
-              )}
-            </>
+            displayMode === 'board' ? (
+              <TaskBoard groups={boardGroups} {...rowHandlers} />
+            ) : (
+              <>
+                <TaskTableHeader />
+                {layoutMode === 'list' ? (
+                  <TaskListSection tasks={tasks} {...rowHandlers} />
+                ) : (
+                  groups.map(([group, groupTasksValue]) => (
+                    <TaskGroupSection
+                      key={group}
+                      group={group}
+                      tasks={[...groupTasksValue]}
+                      {...rowHandlers}
+                    />
+                  ))
+                )}
+              </>
+            )
           ) : (
             <TasksEmptyState
               onNewTask={() => setComposerOpen(true)}
-              onClearFilters={clearListFilters}
-              filtered={tasksForView.length > 0}
+              onClearFilters={clearTaskFilters}
+              filtered={tasksForView.length > 0 || view !== 'today' || category !== 'All' || priorityFilter !== 'all'}
             />
           )}
         </div>

@@ -83,6 +83,7 @@ interface CommandPaletteProps {
   onOpenImport?: () => void;
   onOpenSettings?: () => void;
   density?: "default" | "tight";
+  triggerVariant?: "label" | "icon";
 }
 
 function getLocalQuickActions(q: string): QuickAction[] {
@@ -133,6 +134,7 @@ export default function CommandPalette({
   onOpenImport,
   onOpenSettings,
   density = "default",
+  triggerVariant = "label",
 }: CommandPaletteProps) {
   const [open, setOpen] = React.useState(initialOpen);
   const [query, setQuery] = React.useState("");
@@ -465,12 +467,14 @@ export default function CommandPalette({
   // Button when closed — Midday-style quiet search affordance (icon + label, no chrome box)
   if (!open) {
     const isTight = density === "tight";
+    const isIconTrigger = triggerVariant === "icon";
     return (
       <button
         type="button"
-        role="combobox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-label="Search"
+        title={isIconTrigger ? "Search" : undefined}
         onClick={() => {
           setOpen(true);
           trackQuickActionsOpened();
@@ -478,16 +482,23 @@ export default function CommandPalette({
         className={cn(
           "inline-flex items-center border-0 bg-transparent shadow-none transition-colors",
           "text-[rgba(39,37,30,0.55)] hover:text-[#27251E] focus-visible:outline-none focus-visible:ring-0",
-          isTight ? "h-7 gap-1.5 px-1 text-[14px]" : "h-8 gap-2 px-1.5 text-[15px]",
+          isIconTrigger
+            ? "h-7 w-7 justify-center p-0"
+            : isTight
+              ? "h-7 gap-1.5 px-1 text-[14px]"
+              : "h-8 gap-2 px-1.5 text-[15px]",
           className,
         )}
       >
         <Search
-          className={cn("shrink-0 opacity-80", isTight ? "h-4 w-4" : "h-[18px] w-[18px]")}
+          className={cn(
+            "shrink-0 opacity-80",
+            isIconTrigger || isTight ? "h-4 w-4" : "h-[18px] w-[18px]",
+          )}
           strokeWidth={1.85}
           aria-hidden
         />
-        <span className="font-normal leading-none">Search...</span>
+        {!isIconTrigger ? <span className="font-normal leading-none">Search...</span> : null}
       </button>
     );
   }

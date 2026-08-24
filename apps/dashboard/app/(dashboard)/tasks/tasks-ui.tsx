@@ -9,7 +9,10 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  Columns3,
   Flag,
+  List,
+  ListFilter,
   MoreHorizontal,
   Plus,
   Search,
@@ -22,9 +25,15 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
-import { Input } from '@ritual/ui/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
 import { dateInputValue } from '@/lib/tasks/date-format';
 import {
@@ -32,25 +41,23 @@ import {
   LIST_LAYOUT_MODES,
   PRIORITY_FILTERS,
   PRIORITIES,
+  TASK_DISPLAY_MODES,
   TASK_SORTS,
   TASK_VIEWS,
   isTaskViewId,
   type ListLayoutMode,
   type TaskPriorityFilter,
+  type TaskDisplayMode,
   type TaskSortId,
   type TaskViewId,
 } from '@/lib/tasks/task-constants';
 import {
-  GroupBySelect,
   HeaderPortal,
   InlineFieldInput,
   PillSelect,
   priorityBars,
-  TaskPageHeader,
   TaskRowShell,
   toolbarPillClass,
-  ViewTabs,
-  ViewPills,
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskStatus, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
@@ -66,144 +73,176 @@ export {
   type TaskViewId,
 };
 
-export function TasksHeader({
-  title,
+export function TasksToolbarActions({
+  displayMode,
+  onDisplayModeChange,
+  layoutMode,
+  onLayoutModeChange,
   view,
-  taskCount,
   onViewChange,
-}: {
-  title: string;
-  view: TaskViewId;
-  taskCount: number;
-  onViewChange: (view: TaskViewId) => void;
-}) {
-  return (
-    <TaskPageHeader
-      title={title}
-      actions={(
-        <span className="text-[12px] font-normal tabular-nums text-[var(--text-muted)]">
-          {taskCount} {taskCount === 1 ? 'task' : 'tasks'}
-        </span>
-      )}
-    >
-      <ViewTabs value={view} options={TASK_VIEWS} onChange={onViewChange} />
-    </TaskPageHeader>
-  );
-}
-
-export function TasksFilterBar({
   category,
   onCategoryChange,
-  searchQuery,
-  onSearchQueryChange,
   priorityFilter,
   onPriorityFilterChange,
   sortMode,
   onSortModeChange,
-  visibleCount,
-  totalCount,
-  onClear,
+  onClearFilters,
+  onNewTask,
 }: {
+  displayMode: TaskDisplayMode;
+  onDisplayModeChange: (mode: TaskDisplayMode) => void;
+  layoutMode: ListLayoutMode;
+  onLayoutModeChange: (mode: ListLayoutMode) => void;
+  view: TaskViewId;
+  onViewChange: (view: TaskViewId) => void;
   category: (typeof CATEGORY_FILTERS)[number];
   onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
-  searchQuery: string;
-  onSearchQueryChange: (query: string) => void;
   priorityFilter: TaskPriorityFilter;
   onPriorityFilterChange: (priority: TaskPriorityFilter) => void;
   sortMode: TaskSortId;
   onSortModeChange: (sort: TaskSortId) => void;
-  visibleCount: number;
-  totalCount: number;
-  onClear: () => void;
-}) {
-  const hasRefinements = Boolean(
-    searchQuery.trim()
-    || category !== 'All'
-    || priorityFilter !== 'all'
-    || sortMode !== 'smart',
-  );
-
-  return (
-    <div className="space-y-3 pb-5">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[220px] max-w-[360px] flex-1">
-          <Search
-            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--icon-muted)]"
-            aria-hidden="true"
-          />
-          <Input
-            density="compact"
-            value={searchQuery}
-            onChange={(event) => onSearchQueryChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') onSearchQueryChange('');
-            }}
-            placeholder="Search tasks"
-            aria-label="Search tasks"
-            className="h-8 rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] pl-8 text-[13px] shadow-none"
-          />
-        </div>
-
-        <PillSelect
-          value={sortMode}
-          options={TASK_SORTS.map((item) => ({ value: item.id, label: item.label }))}
-          onChange={onSortModeChange}
-          className="h-8 min-w-[132px] !rounded-full"
-        />
-        <PillSelect
-          value={priorityFilter}
-          options={PRIORITY_FILTERS.map((item) => ({ value: item.id, label: item.label }))}
-          onChange={onPriorityFilterChange}
-          className="h-8 min-w-[132px] !rounded-full"
-        />
-
-        {hasRefinements ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="compact"
-            onClick={onClear}
-            className="h-8 px-2 text-[12px] font-normal text-[var(--text-muted)]"
-          >
-            <X className="h-3.5 w-3.5" />
-            Clear
-          </Button>
-        ) : null}
-      </div>
-
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <ViewPills
-          value={category}
-          options={CATEGORY_FILTERS}
-          onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
-        />
-        {visibleCount !== totalCount ? (
-          <span className="shrink-0 text-[11px] tabular-nums text-[var(--text-muted)]">
-            Showing {visibleCount} of {totalCount}
-          </span>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-export function TasksToolbarActions({
-  layoutMode,
-  onLayoutModeChange,
-  onNewTask,
-}: {
-  layoutMode: ListLayoutMode;
-  onLayoutModeChange: (mode: ListLayoutMode) => void;
+  onClearFilters: () => void;
   onNewTask: () => void;
 }) {
+  const hasFilters = view !== 'today' || category !== 'All' || priorityFilter !== 'all';
+
   return (
     <HeaderPortal>
-      <div className="flex items-center gap-2">
-        <GroupBySelect
-          value={layoutMode}
-          options={LIST_LAYOUT_MODES}
-          onChange={(value) => onLayoutModeChange(value as ListLayoutMode)}
-        />
+      <div className="flex items-center gap-1.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-compact"
+              className={cn(
+                'h-7 w-7 !rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--icon-default)] shadow-none',
+                hasFilters && 'bg-[var(--surface-panel)] text-[var(--text-primary)]',
+              )}
+              aria-label="Filter tasks"
+              title="Filter tasks"
+            >
+              <ListFilter className="h-3.5 w-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Filter tasks</DropdownMenuLabel>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span>Scope</span>
+                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">
+                  {TASK_VIEWS.find((item) => item.id === view)?.label}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuRadioGroup value={view} onValueChange={(value) => onViewChange(value as TaskViewId)}>
+                  {TASK_VIEWS.map((option) => (
+                    <DropdownMenuRadioItem key={option.id} value={option.id}>
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span>Priority</span>
+                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">
+                  {PRIORITY_FILTERS.find((item) => item.id === priorityFilter)?.label}
+                </span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-48">
+                <DropdownMenuRadioGroup
+                  value={priorityFilter}
+                  onValueChange={(value) => onPriorityFilterChange(value as TaskPriorityFilter)}
+                >
+                  {PRIORITY_FILTERS.map((option) => (
+                    <DropdownMenuRadioItem key={option.id} value={option.id}>
+                      {option.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <span>Category</span>
+                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">{category}</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-44">
+                <DropdownMenuRadioGroup
+                  value={category}
+                  onValueChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
+                >
+                  {CATEGORY_FILTERS.map((option) => (
+                    <DropdownMenuRadioItem key={option} value={option}>
+                      {option}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem disabled={!hasFilters} onSelect={onClearFilters}>
+              <X className="h-3.5 w-3.5" />
+              Clear filters
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-compact"
+              className="h-7 w-7 !rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--icon-default)] shadow-none"
+              aria-label="Change task view"
+              title="Change task view"
+            >
+              {displayMode === 'board' ? <Columns3 className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Layout</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={displayMode}
+              onValueChange={(value) => onDisplayModeChange(value as TaskDisplayMode)}
+            >
+              {TASK_DISPLAY_MODES.map((option) => (
+                <DropdownMenuRadioItem key={option.id} value={option.id}>
+                  {option.id === 'list' ? <List className="h-3.5 w-3.5" /> : <Columns3 className="h-3.5 w-3.5" />}
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Grouping</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={layoutMode}
+              onValueChange={(value) => onLayoutModeChange(value as ListLayoutMode)}
+            >
+              {LIST_LAYOUT_MODES.map((option) => (
+                <DropdownMenuRadioItem key={option.id} value={option.id}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Ordering</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={sortMode}
+              onValueChange={(value) => onSortModeChange(value as TaskSortId)}
+            >
+              {TASK_SORTS.map((option) => (
+                <DropdownMenuRadioItem key={option.id} value={option.id}>
+                  {option.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <Button
           type="button"
           variant="brand"
@@ -271,9 +310,20 @@ function groupOverdueLabel(tasks: Task[]): string | null {
 const TASK_ROW_GRID_CLASS = cn(
   'grid items-center gap-2',
   'grid-cols-[minmax(0,1fr)_96px_28px]',
-  'md:grid-cols-[minmax(220px,1fr)_96px_88px_28px]',
-  'xl:grid-cols-[minmax(240px,1fr)_96px_88px_128px_88px_28px]',
+  'md:grid-cols-[minmax(220px,1fr)_96px_88px_28px_88px]',
 );
+
+function formatTaskCreatedDate(value: string | null): string {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  const currentYear = new Date().getFullYear();
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === currentYear ? {} : { year: 'numeric' }),
+  }).format(date);
+}
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
   { value: 'open', label: 'Open' },
@@ -383,9 +433,8 @@ export function TaskTableHeader() {
       <span>Task</span>
       <span>Status</span>
       <span className="hidden md:block">Priority</span>
-      <span className="hidden xl:block">Project</span>
-      <span className="hidden xl:block">Due</span>
       <span />
+      <span className="hidden text-right md:block">Created</span>
     </div>
   );
 }
@@ -485,9 +534,7 @@ export function TaskRow({
   onUpdate: (patch: TaskUpdateInput) => void;
   onOpen: () => void;
 }) {
-  const dateLabel = relativeDayLabel(task.scheduled_for || task.due_at);
-  const isOverdue = dateLabel.endsWith('ago');
-  const projectLabel = task.project || task.category || 'Inbox';
+  const createdLabel = formatTaskCreatedDate(task.created_at);
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -541,19 +588,6 @@ export function TaskRow({
           <TaskPriorityControl task={task} onUpdate={onUpdate} />
         </div>
 
-        <span className="hidden min-w-0 truncate text-[12px] text-[var(--text-muted)] xl:block">
-          {projectLabel}
-        </span>
-
-        <span
-          className={cn(
-            'hidden min-w-0 truncate text-[12px] tabular-nums xl:block',
-            isOverdue ? 'text-[var(--ritual-status-danger)]' : 'text-[var(--text-muted)]',
-          )}
-        >
-          {dateLabel || '—'}
-        </span>
-
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -564,9 +598,128 @@ export function TaskRow({
             <MoreHorizontal className="h-4 w-4" />
           </button>
         </PopoverTrigger>
+
+        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] md:block">
+          {createdLabel}
+        </span>
       </TaskRowShell>
       <TaskRowMenu task={task} onUpdate={onUpdate} />
     </Popover>
+  );
+}
+
+function TaskBoardCard({
+  task,
+  menuOpen,
+  onMenuOpenChange,
+  onComplete,
+  onUpdate,
+  onOpen,
+}: {
+  task: Task;
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  onComplete: () => void;
+  onUpdate: (patch: TaskUpdateInput) => void;
+  onOpen: () => void;
+}) {
+  const contextLabel = task.project || task.category || 'Inbox';
+
+  return (
+    <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(event) => {
+          if (event.target === event.currentTarget && event.key === 'Enter') onOpen();
+        }}
+        className="group rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] p-3 transition-colors hover:border-[var(--border-floating)] hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+      >
+        <div className="flex items-start gap-2.5">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onComplete();
+            }}
+            className={cn(
+              'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
+              task.status === 'completed'
+                ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--surface-raised)]'
+                : 'border-[var(--border-floating)] bg-[var(--surface-raised)] text-transparent',
+            )}
+            aria-label={`Complete ${task.title}`}
+            aria-pressed={task.status === 'completed'}
+          >
+            <Check className="h-3 w-3" />
+          </button>
+          <span className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-[var(--text-primary)]">
+            {task.title}
+          </span>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              onClick={(event) => event.stopPropagation()}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-row)] text-[var(--icon-muted)] opacity-0 hover:bg-[var(--surface-panel)] hover:text-[var(--text-primary)] focus:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] group-hover:opacity-100 data-[state=open]:opacity-100"
+              aria-label={`More options for ${task.title}`}
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </PopoverTrigger>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2 pl-6 text-[11px] text-[var(--text-muted)]">
+          <span className="truncate">{contextLabel}</span>
+          <span className="shrink-0 tabular-nums">{formatTaskCreatedDate(task.created_at)}</span>
+        </div>
+      </div>
+      <TaskRowMenu task={task} onUpdate={onUpdate} />
+    </Popover>
+  );
+}
+
+export function TaskBoard({
+  groups,
+  menuTaskId,
+  onMenuTaskChange,
+  onComplete,
+  onUpdate,
+  onOpen,
+}: {
+  groups: Array<readonly [string, Task[]]>;
+  menuTaskId: string | null;
+  onMenuTaskChange: (taskId: string | null) => void;
+  onComplete: (task: Task) => void;
+  onUpdate: (id: string, patch: TaskUpdateInput) => void;
+  onOpen: (task: Task) => void;
+}) {
+  return (
+    <div className="grid auto-cols-[minmax(240px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4">
+      {groups.map(([group, tasks]) => (
+        <section
+          key={group}
+          className="min-h-[240px] rounded-[var(--radius-card)] border border-[var(--border-subtle)] bg-[var(--surface-panel)] p-2"
+        >
+          <header className="flex h-8 items-center justify-between gap-2 px-1.5">
+            <h2 className="truncate text-[12px] font-medium text-[var(--text-secondary)]">{group}</h2>
+            <span className="text-[11px] tabular-nums text-[var(--text-muted)]">{tasks.length}</span>
+          </header>
+          <div className="space-y-1.5">
+            {tasks.map((task) => (
+              <TaskBoardCard
+                key={task.id}
+                task={task}
+                menuOpen={menuTaskId === task.id}
+                onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
+                onComplete={() => onComplete(task)}
+                onUpdate={(patch) => onUpdate(task.id, patch)}
+                onOpen={() => onOpen(task)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 
