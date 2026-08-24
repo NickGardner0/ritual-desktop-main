@@ -15,7 +15,7 @@ function TasksLoading() {
         <div className="mt-4 h-7 w-72 animate-pulse rounded-sm bg-[#f3f3f2]" />
         <div className="mt-3 h-7 w-56 animate-pulse rounded-sm bg-[#f3f3f2]" />
       </div>
-      <div className="mx-auto w-full max-w-[720px] flex-1 space-y-2 px-6 py-4 lg:px-8">
+      <div className="mx-auto w-full max-w-[1120px] flex-1 space-y-2 px-6 py-4 lg:px-8">
         {[1, 2, 3, 4, 5].map((i) => (
           <div key={i} className="h-8 animate-pulse rounded-[6px] bg-[#f3f3f2]" />
         ))}

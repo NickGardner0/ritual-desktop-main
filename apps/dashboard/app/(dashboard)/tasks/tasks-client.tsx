@@ -24,7 +24,13 @@ import {
   buildTaskUpdateOutboxItem,
   mergeTasksWithOutbox,
 } from '@/lib/tasks/local-first-writes';
-import { defaultScheduleForView, isTaskViewId, type TaskViewId } from '@/lib/tasks/task-constants';
+import {
+  defaultScheduleForView,
+  isTaskViewId,
+  type TaskPriorityFilter,
+  type TaskSortId,
+  type TaskViewId,
+} from '@/lib/tasks/task-constants';
 import {
   NewTaskComposer,
   type NewTaskComposerSubmit,
@@ -48,6 +54,7 @@ import {
   TASK_VIEWS,
   TaskGroupSection,
   TaskListSection,
+  TaskTableHeader,
   TasksEmptyState,
   TasksFilterBar,
   TasksHeader,
@@ -107,7 +114,67 @@ function dedupeTasksByIdentity(tasks: Task[]): Task[] {
   });
 }
 
-function groupTasksByProject(tasks: Task[]) {
+const PRIORITY_ORDER: Record<Task['priority'], number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+  none: 3,
+};
+
+function taskDateValue(task: Task): number {
+  const value = task.due_at || task.scheduled_for;
+  if (!value) return Number.POSITIVE_INFINITY;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;
+}
+
+function taskUpdatedValue(task: Task): number {
+  const value = task.updated_at || task.created_at;
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function filterAndSortTasks(
+  tasks: Task[],
+  searchQuery: string,
+  priorityFilter: TaskPriorityFilter,
+  sortMode: TaskSortId,
+): Task[] {
+  const query = searchQuery.trim().toLocaleLowerCase();
+  const filtered = tasks.filter((task) => {
+    if (priorityFilter !== 'all' && task.priority !== priorityFilter) return false;
+    if (!query) return true;
+    return [task.title, task.notes, task.project, task.category, ...task.tags]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase().includes(query));
+  });
+
+  if (sortMode === 'smart') return filtered;
+  return filtered.slice().sort((a, b) => {
+    if (sortMode === 'due') return taskDateValue(a) - taskDateValue(b);
+    if (sortMode === 'priority') {
+      return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority]
+        || taskDateValue(a) - taskDateValue(b);
+    }
+    if (sortMode === 'updated') return taskUpdatedValue(b) - taskUpdatedValue(a);
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  });
+}
+
+function groupTasksForLayout(tasks: Task[], layoutMode: ListLayoutMode) {
+  if (layoutMode === 'priority') {
+    const labels: Record<Task['priority'], string> = {
+      high: 'High priority',
+      medium: 'Medium priority',
+      low: 'Low priority',
+      none: 'No priority',
+    };
+    return (['high', 'medium', 'low', 'none'] as const)
+      .map((priority) => [labels[priority], tasks.filter((task) => task.priority === priority)] as const)
+      .filter(([, items]) => items.length > 0);
+  }
+
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
     const key = task.project || task.category || 'Inbox';
@@ -130,6 +197,9 @@ export function TasksClient() {
 
   const [category, setCategory] = useState<(typeof CATEGORY_FILTERS)[number]>('All');
   const [layoutMode, setLayoutMode] = useState<ListLayoutMode>('list');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState<TaskPriorityFilter>('all');
+  const [sortMode, setSortMode] = useState<TaskSortId>('smart');
   const [composerOpen, setComposerOpen] = useState(false);
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [demoGeneratedTasks, setDemoGeneratedTasks] = useState<Task[]>([]);
@@ -304,13 +374,20 @@ export function TasksClient() {
     },
   });
 
-  const tasks = useMemo(() => {
+  const tasksForView = useMemo(() => {
     const demoTasks = filterTasksForView(demoGeneratedTasks, view, category);
     const sortedTasks = sortTasksForDisplay(dedupeTasksByIdentity([...(tasksQuery.data || []), ...demoTasks]));
     const recentTasks = filterTasksForView(recentlyCreatedTasks, view, category);
     return dedupeTasksByIdentity([...recentTasks, ...sortedTasks]);
   }, [category, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
-  const groups = useMemo(() => groupTasksByProject(tasks), [tasks]);
+  const tasks = useMemo(
+    () => filterAndSortTasks(tasksForView, searchQuery, priorityFilter, sortMode),
+    [priorityFilter, searchQuery, sortMode, tasksForView],
+  );
+  const groups = useMemo(
+    () => groupTasksForLayout(tasks, layoutMode),
+    [layoutMode, tasks],
+  );
   const selectedTask = useMemo(
     () => (selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null),
     [selectedTaskId, tasks],
@@ -341,6 +418,28 @@ export function TasksClient() {
     params.delete('task');
     const query = params.toString();
     router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+  };
+
+  const openTask = (task: Task) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('task', task.id);
+    const query = params.toString();
+    router.replace(query ? `/tasks?${query}` : '/tasks', { scroll: false });
+  };
+
+  const selectView = (nextView: TaskViewId) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('view', nextView);
+    params.delete('task');
+    router.replace(`/tasks?${params.toString()}`, { scroll: false });
+    setMenuTaskId(null);
+  };
+
+  const clearListFilters = () => {
+    setSearchQuery('');
+    setPriorityFilter('all');
+    setCategory('All');
+    setSortMode('smart');
   };
 
   const handleComposerSubmit = (values: NewTaskComposerSubmit) => {
@@ -399,6 +498,7 @@ export function TasksClient() {
       patch: { status: task.status === 'completed' ? 'open' : 'completed' },
     }),
     onUpdate: (id: string, patch: TaskUpdateInput) => updateTaskMutation.mutate({ id, patch }),
+    onOpen: openTask,
   };
 
   return (
@@ -411,26 +511,50 @@ export function TasksClient() {
 
       <div className="min-h-0 flex-1 overflow-auto pb-16 pt-8">
         <div className={cn(taskContentMaxClass, 'px-8 lg:px-10')}>
-          <TasksHeader title={viewTitle} />
-          <TasksFilterBar category={category} onCategoryChange={setCategory} />
+          <TasksHeader
+            title={viewTitle}
+            view={view}
+            taskCount={tasksForView.length}
+            onViewChange={selectView}
+          />
+          <TasksFilterBar
+            category={category}
+            onCategoryChange={setCategory}
+            searchQuery={searchQuery}
+            onSearchQueryChange={setSearchQuery}
+            priorityFilter={priorityFilter}
+            onPriorityFilterChange={setPriorityFilter}
+            sortMode={sortMode}
+            onSortModeChange={setSortMode}
+            visibleCount={tasks.length}
+            totalCount={tasksForView.length}
+            onClear={clearListFilters}
+          />
 
           {tasksQuery.isLoading ? (
             <TasksLoadingSkeleton />
           ) : hasTasks ? (
-            layoutMode === 'list' ? (
-              <TaskListSection tasks={tasks} {...rowHandlers} />
-            ) : (
-              groups.map(([group, groupTasksValue]) => (
-                <TaskGroupSection
-                  key={group}
-                  group={group}
-                  tasks={groupTasksValue}
-                  {...rowHandlers}
-                />
-              ))
-            )
+            <>
+              <TaskTableHeader />
+              {layoutMode === 'list' ? (
+                <TaskListSection tasks={tasks} {...rowHandlers} />
+              ) : (
+                groups.map(([group, groupTasksValue]) => (
+                  <TaskGroupSection
+                    key={group}
+                    group={group}
+                    tasks={[...groupTasksValue]}
+                    {...rowHandlers}
+                  />
+                ))
+              )}
+            </>
           ) : (
-            <TasksEmptyState onNewTask={() => setComposerOpen(true)} />
+            <TasksEmptyState
+              onNewTask={() => setComposerOpen(true)}
+              onClearFilters={clearListFilters}
+              filtered={tasksForView.length > 0}
+            />
           )}
         </div>
       </div>

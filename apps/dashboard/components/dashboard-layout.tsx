@@ -170,7 +170,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                       <div data-tauri-drag-region className="flex min-w-0 items-center">
                         {!isChatRoute && (
                           <CommandPalette
-                            className="app-toolbar-control no-drag"
+                            className="app-toolbar-control no-drag -translate-y-2"
                             initialOpen={shouldOpenWhoopModal}
                             density="tight"
                           />

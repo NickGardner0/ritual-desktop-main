@@ -2,13 +2,23 @@
 
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ArrowUp, ArrowUpRight, AudioLines, Download, FileUp, Plus } from 'lucide-react';
+import {
+  ArrowUp,
+  ArrowUpRight,
+  AudioLines,
+  Download,
+  FileUp,
+  ListPlus,
+  MessageCircle,
+  Plus,
+} from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
+import { Tabs, TabsList, TabsTrigger } from '@ritual/ui/tabs';
 import { cn } from '@/lib/utils';
 import { VoiceWaveform, VoiceWaveformMini } from '../voice-waveform';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -220,7 +230,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
               </AnimatePresence>
             </div>
 
-            <div className="absolute bottom-2.5 left-4 right-12 flex items-center gap-2 text-[var(--text-secondary)]">
+            <div className="absolute bottom-2.5 left-4 right-24 flex items-center gap-2 text-[var(--text-secondary)]">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -257,40 +267,55 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => setMode(mode === 'log' ? 'chat' : 'log')}
-                  className={cn(
-                    "relative h-5 w-10 rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]",
-                    mode === 'chat'
-                      ? "bg-primary"
-                      : "bg-[color-mix(in_srgb,var(--text-primary)_16%,transparent)]"
-                  )}
-                  role="switch"
-                  aria-checked={mode === 'chat'}
-                  aria-label="Toggle between log and chat mode"
+              <Tabs
+                value={mode}
+                onValueChange={(value) => {
+                  if (value === 'log' || value === 'chat') {
+                    setMode(value);
+                  }
+                }}
+              >
+                <TabsList
+                  variant="segmented"
+                  className="h-8 rounded-[10px] bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)] p-0.5"
+                  aria-label="Composer mode"
                 >
-                  <span
-                    className={cn(
-                      "absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-[var(--surface-raised)] shadow-sm transition-transform duration-150 ease-out",
-                      mode === 'chat' ? "translate-x-5" : "translate-x-0"
-                    )}
-                  />
-                </button>
-                <span className="text-[13px] font-normal text-[var(--text-secondary)]">
-                  {mode === 'chat' ? 'Chat' : 'Log'}
-                </span>
-              </div>
+                  <TabsTrigger
+                    value="log"
+                    className="h-7 gap-1.5 rounded-[8px] border border-transparent px-2.5 text-[var(--text-secondary)] shadow-none data-[state=active]:border-[var(--border-default)] data-[state=active]:bg-[var(--surface-raised)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
+                    onMouseDown={(event) => event.preventDefault()}
+                  >
+                    <ListPlus className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    Log
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="chat"
+                    className="h-7 gap-1.5 rounded-[8px] border border-transparent px-2.5 text-[var(--text-secondary)] shadow-none data-[state=active]:border-[var(--border-default)] data-[state=active]:bg-[var(--surface-raised)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
+                    onMouseDown={(event) => event.preventDefault()}
+                  >
+                    <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
+                    Chat
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
 
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+
+            <div className="absolute bottom-2.5 right-3 flex items-center gap-2">
               <button
                 type="button"
                 className={cn(
                   composerActionClass,
                   (isListening || isProcessingVoice) && "text-[var(--text-primary)]"
                 )}
-                onMouseDown={(e) => e.preventDefault()}
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={startVoiceRecognition}
                 aria-label={isListening ? 'Stop recording' : 'Start voice recording'}
               >
@@ -303,28 +328,19 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 )}
               </button>
 
+              <button
+                type="submit"
+                disabled={!hasInput || submitButtonLoading}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--surface-raised)] transition-none hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="Submit"
+              >
+                {submitButtonLoading ? (
+                  <BrailleSpinner className="text-sm text-[var(--surface-raised)]" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </button>
             </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileChange}
-            />
-
-            <button
-              type="submit"
-              disabled={!hasInput || submitButtonLoading}
-              className="absolute bottom-2.5 right-3 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--text-primary)] text-[var(--surface-raised)] transition-none hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)] disabled:cursor-not-allowed disabled:opacity-35"
-              aria-label="Submit"
-            >
-              {submitButtonLoading ? (
-                <BrailleSpinner className="text-sm text-[var(--surface-raised)]" />
-              ) : (
-                <ArrowUp className="h-4 w-4" />
-              )}
-            </button>
           </div>
         </form>
       </div>

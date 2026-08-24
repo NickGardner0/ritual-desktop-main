@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { TaskPriority } from './types';
 
-export const taskContentMaxClass = 'w-full max-w-[var(--task-content-max,720px)]';
+export const taskContentMaxClass = 'w-full max-w-[var(--task-content-max,1120px)]';
 
 export const toolbarPillClass =
   'inline-flex h-7 items-center gap-1 rounded-full border border-[var(--border-floating)] bg-[var(--surface-raised)] px-2.5 text-[12px] font-medium text-[var(--text-primary)] shadow-none hover:bg-[var(--row-hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 disabled:opacity-50';
