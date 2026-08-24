@@ -512,24 +512,26 @@ export function TasksClient() {
   return (
     <TaskPageShell>
       <TasksToolbarActions
-        displayMode={displayMode}
-        onDisplayModeChange={selectDisplayMode}
-        layoutMode={layoutMode}
-        onLayoutModeChange={setLayoutMode}
-        view={view}
-        onViewChange={selectView}
-        category={category}
-        priorityFilter={priorityFilter}
-        onPriorityFilterChange={setPriorityFilter}
-        sortMode={sortMode}
-        onSortModeChange={setSortMode}
-        onClearFilters={clearTaskFilters}
         onNewTask={() => setComposerOpen(true)}
       />
 
       <div className="min-h-0 flex-1 overflow-auto pb-16 pt-3">
         <div className={cn(taskContentMaxClass, 'px-8 lg:px-10')}>
-          <TasksCategoryPills category={category} onCategoryChange={setCategory} />
+          <TasksCategoryPills
+            category={category}
+            onCategoryChange={setCategory}
+            displayMode={displayMode}
+            onDisplayModeChange={selectDisplayMode}
+            layoutMode={layoutMode}
+            onLayoutModeChange={setLayoutMode}
+            view={view}
+            onViewChange={selectView}
+            priorityFilter={priorityFilter}
+            onPriorityFilterChange={setPriorityFilter}
+            sortMode={sortMode}
+            onSortModeChange={setSortMode}
+            onClearFilters={clearTaskFilters}
+          />
           {tasksQuery.isLoading ? (
             <TasksLoadingSkeleton />
           ) : hasTasks ? (

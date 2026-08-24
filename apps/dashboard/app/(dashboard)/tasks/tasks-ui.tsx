@@ -78,39 +78,66 @@ export {
 };
 
 export function TasksToolbarActions({
+  onNewTask,
+}: {
+  onNewTask: () => void;
+}) {
+  return (
+    <HeaderPortal>
+      <Button
+        type="button"
+        variant="brand"
+        size="compact"
+        onClick={onNewTask}
+        className="h-7 !rounded-full px-3 font-medium [&_svg]:size-3.5"
+        data-cuelume-release="bloom"
+      >
+        <Plus className="h-3.5 w-3.5" />
+        New task
+      </Button>
+    </HeaderPortal>
+  );
+}
+
+export function TasksCategoryPills({
+  category,
+  onCategoryChange,
   displayMode,
   onDisplayModeChange,
   layoutMode,
   onLayoutModeChange,
   view,
   onViewChange,
-  category,
   priorityFilter,
   onPriorityFilterChange,
   sortMode,
   onSortModeChange,
   onClearFilters,
-  onNewTask,
 }: {
+  category: (typeof CATEGORY_FILTERS)[number];
+  onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
   displayMode: TaskDisplayMode;
   onDisplayModeChange: (mode: TaskDisplayMode) => void;
   layoutMode: ListLayoutMode;
   onLayoutModeChange: (mode: ListLayoutMode) => void;
   view: TaskViewId;
   onViewChange: (view: TaskViewId) => void;
-  category: (typeof CATEGORY_FILTERS)[number];
   priorityFilter: TaskPriorityFilter;
   onPriorityFilterChange: (priority: TaskPriorityFilter) => void;
   sortMode: TaskSortId;
   onSortModeChange: (sort: TaskSortId) => void;
   onClearFilters: () => void;
-  onNewTask: () => void;
 }) {
   const hasFilters = view !== 'today' || category !== 'All' || priorityFilter !== 'all';
 
   return (
-    <HeaderPortal>
-      <div className="flex items-center gap-1.5">
+    <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+      <ViewPills
+        value={category}
+        options={CATEGORY_FILTERS}
+        onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
+      />
+      <div className="flex shrink-0 items-center gap-1.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -226,37 +253,7 @@ export function TasksToolbarActions({
             </DropdownMenuRadioGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Button
-          type="button"
-          variant="brand"
-          size="compact"
-          onClick={onNewTask}
-          className="h-7 !rounded-full px-3 font-medium [&_svg]:size-3.5"
-          data-cuelume-release="bloom"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          New task
-        </Button>
       </div>
-    </HeaderPortal>
-  );
-}
-
-export function TasksCategoryPills({
-  category,
-  onCategoryChange,
-}: {
-  category: (typeof CATEGORY_FILTERS)[number];
-  onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
-}) {
-  return (
-    <div className="pb-3">
-      <ViewPills
-        value={category}
-        options={CATEGORY_FILTERS}
-        onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
-      />
     </div>
   );
 }
@@ -539,7 +536,6 @@ export function TaskRow({
 }) {
   const createdLabel = formatTaskCreatedDate(task.created_at);
   const deadlineLabel = relativeDayLabel(task.due_at);
-  const deadlineOverdue = deadlineLabel.endsWith('ago');
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -604,12 +600,7 @@ export function TaskRow({
           {createdLabel}
         </span>
 
-        <span
-          className={cn(
-            'hidden min-w-0 truncate text-right text-[12px] tabular-nums lg:block',
-            deadlineOverdue ? 'text-[var(--ritual-status-danger)]' : 'text-[var(--text-muted)]',
-          )}
-        >
+        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] lg:block">
           {deadlineLabel || '—'}
         </span>
       </TaskRowShell>

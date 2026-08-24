@@ -169,7 +169,7 @@ export function TaskRowShell({
   return (
     <div
       className={cn(
-        'ritual-snappy-row group/row flex min-h-[var(--task-row-height,36px)] items-center gap-2.5 rounded-[var(--sidebar-row-radius,var(--radius-row))] px-1 py-1.5 outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
+        'ritual-snappy-row group/row min-h-[var(--task-row-height,36px)] w-full items-center gap-2.5 rounded-[var(--sidebar-row-radius,var(--radius-row))] px-1 py-1.5 outline-none hover:bg-[var(--row-hover)] focus-visible:bg-[var(--row-hover)] focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
         className,
       )}
       {...props}
