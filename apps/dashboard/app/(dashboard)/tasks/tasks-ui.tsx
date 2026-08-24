@@ -140,7 +140,7 @@ export function TasksFilterBar({
             }}
             placeholder="Search tasks"
             aria-label="Search tasks"
-            className="h-8 rounded-[var(--radius-control)] border-[var(--border-subtle)] bg-[var(--surface-raised)] pl-8 text-[13px] shadow-none"
+            className="h-8 rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] pl-8 text-[13px] shadow-none"
           />
         </div>
 
@@ -148,13 +148,13 @@ export function TasksFilterBar({
           value={sortMode}
           options={TASK_SORTS.map((item) => ({ value: item.id, label: item.label }))}
           onChange={onSortModeChange}
-          className="h-8 min-w-[132px] rounded-[var(--radius-control)]"
+          className="h-8 min-w-[132px] !rounded-full"
         />
         <PillSelect
           value={priorityFilter}
           options={PRIORITY_FILTERS.map((item) => ({ value: item.id, label: item.label }))}
           onChange={onPriorityFilterChange}
-          className="h-8 min-w-[132px] rounded-[var(--radius-control)]"
+          className="h-8 min-w-[132px] !rounded-full"
         />
 
         {hasRefinements ? (
@@ -269,10 +269,10 @@ function groupOverdueLabel(tasks: Task[]): string | null {
 }
 
 const TASK_ROW_GRID_CLASS = cn(
-  'grid items-center gap-3',
-  'grid-cols-[minmax(0,1fr)_104px_28px]',
-  'md:grid-cols-[minmax(0,1fr)_112px_96px_28px]',
-  'lg:grid-cols-[minmax(0,1fr)_112px_96px_140px_100px_28px]',
+  'grid items-center gap-2',
+  'grid-cols-[minmax(0,1fr)_96px_28px]',
+  'md:grid-cols-[minmax(220px,1fr)_96px_88px_28px]',
+  'xl:grid-cols-[minmax(240px,1fr)_96px_88px_128px_88px_28px]',
 );
 
 const STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
@@ -310,7 +310,7 @@ function TaskStatusControl({
         <button
           type="button"
           onClick={(event) => event.stopPropagation()}
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-[var(--radius-row)] px-1.5 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-transparent px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] data-[state=open]:border-[var(--border-floating)] data-[state=open]:bg-[var(--surface-raised)]"
           aria-label={`Change status for ${task.title}`}
         >
           <TaskStatusIcon status={task.status} />
@@ -343,7 +343,7 @@ function TaskPriorityControl({
         <button
           type="button"
           onClick={(event) => event.stopPropagation()}
-          className="flex h-7 min-w-0 items-center gap-1.5 rounded-[var(--radius-row)] px-1.5 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+          className="flex h-7 min-w-0 items-center gap-1.5 rounded-full border border-transparent px-2 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] data-[state=open]:border-[var(--border-floating)] data-[state=open]:bg-[var(--surface-raised)]"
           aria-label={`Change priority for ${task.title}`}
         >
           {task.priority === 'none' ? (
@@ -383,8 +383,8 @@ export function TaskTableHeader() {
       <span>Task</span>
       <span>Status</span>
       <span className="hidden md:block">Priority</span>
-      <span className="hidden lg:block">Project</span>
-      <span className="hidden lg:block">Due</span>
+      <span className="hidden xl:block">Project</span>
+      <span className="hidden xl:block">Due</span>
       <span />
     </div>
   );
@@ -541,13 +541,13 @@ export function TaskRow({
           <TaskPriorityControl task={task} onUpdate={onUpdate} />
         </div>
 
-        <span className="hidden min-w-0 truncate text-[12px] text-[var(--text-muted)] lg:block">
+        <span className="hidden min-w-0 truncate text-[12px] text-[var(--text-muted)] xl:block">
           {projectLabel}
         </span>
 
         <span
           className={cn(
-            'hidden min-w-0 truncate text-[12px] tabular-nums lg:block',
+            'hidden min-w-0 truncate text-[12px] tabular-nums xl:block',
             isOverdue ? 'text-[var(--ritual-status-danger)]' : 'text-[var(--text-muted)]',
           )}
         >

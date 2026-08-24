@@ -64,7 +64,7 @@ export function ViewTabs<T extends string>({
   return (
     <div
       className={cn(
-        'inline-flex min-w-0 flex-wrap items-center gap-0.5 rounded-sm bg-[#F3F3F3]/70 p-0.5',
+        'inline-flex min-w-0 flex-wrap items-center gap-0.5 rounded-full bg-[var(--surface-panel)] p-0.5',
         className,
       )}
       role="tablist"
@@ -77,10 +77,10 @@ export function ViewTabs<T extends string>({
           aria-selected={value === option.id}
           onClick={() => onChange(option.id)}
           className={cn(
-            'h-7 rounded-sm px-3 text-[12.5px] focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 focus-visible:ring-offset-1',
+            'h-7 rounded-full border px-3 text-[12.5px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
             value === option.id
-              ? 'bg-white font-medium text-[#27251E] shadow-[0_1px_3px_rgba(15,23,42,0.08)]'
-              : 'bg-transparent font-normal text-[rgba(39,37,30,0.75)] hover:bg-white/45 hover:text-[#27251E]',
+              ? 'border-[var(--border-floating)] bg-[var(--surface-raised)] font-medium text-[var(--text-primary)]'
+              : 'border-transparent bg-transparent font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
           )}
         >
           {option.label}

@@ -8,8 +8,6 @@ import {
   AudioLines,
   Download,
   FileUp,
-  ListPlus,
-  MessageCircle,
   Plus,
 } from 'lucide-react';
 import {
@@ -18,7 +16,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
-import { Tabs, TabsList, TabsTrigger } from '@ritual/ui/tabs';
 import { cn } from '@/lib/utils';
 import { VoiceWaveform, VoiceWaveformMini } from '../voice-waveform';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -267,37 +264,35 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                 </DropdownMenuContent>
               </DropdownMenu>
 
-              <Tabs
-                value={mode}
-                onValueChange={(value) => {
-                  if (value === 'log' || value === 'chat') {
-                    setMode(value);
-                  }
-                }}
+              <div
+                role="group"
+                aria-label="Composer mode"
+                className="inline-flex h-8 items-center rounded-full bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)] p-0.5"
               >
-                <TabsList
-                  variant="segmented"
-                  className="h-8 rounded-[10px] bg-[color-mix(in_srgb,var(--text-primary)_5%,transparent)] p-0.5"
-                  aria-label="Composer mode"
-                >
-                  <TabsTrigger
-                    value="log"
-                    className="h-7 gap-1.5 rounded-[8px] border border-transparent px-2.5 text-[var(--text-secondary)] shadow-none data-[state=active]:border-[var(--border-default)] data-[state=active]:bg-[var(--surface-raised)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
-                    onMouseDown={(event) => event.preventDefault()}
-                  >
-                    <ListPlus className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                    Log
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="chat"
-                    className="h-7 gap-1.5 rounded-[8px] border border-transparent px-2.5 text-[var(--text-secondary)] shadow-none data-[state=active]:border-[var(--border-default)] data-[state=active]:bg-[var(--surface-raised)] data-[state=active]:text-[var(--text-primary)] data-[state=active]:shadow-none"
-                    onMouseDown={(event) => event.preventDefault()}
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden="true" />
-                    Chat
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+                {(['log', 'chat'] as const).map((nextMode) => {
+                  const isActive = mode === nextMode;
+                  return (
+                    <button
+                      key={nextMode}
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => {
+                        setMode(nextMode);
+                        setClarifications([]);
+                        requestAnimationFrame(() => textareaRef.current?.focus());
+                      }}
+                      className={cn(
+                        'flex h-7 items-center justify-center rounded-full border px-3.5 text-[13px] font-normal transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]',
+                        isActive
+                          ? 'border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--text-primary)]'
+                          : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+                      )}
+                    >
+                      {nextMode === 'log' ? 'Log' : 'Chat'}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <input
