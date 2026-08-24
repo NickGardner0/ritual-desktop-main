@@ -177,7 +177,11 @@ export function buildOptimisticTaskUpdate(
     ...task,
     ...patch,
     user_id: userId,
-    completed_at: patch.status === 'completed' && !patch.completed_at ? nowIso : patch.completed_at ?? task.completed_at,
+    completed_at: patch.status === 'completed'
+      ? patch.completed_at ?? task.completed_at ?? nowIso
+      : patch.status
+        ? null
+        : patch.completed_at ?? task.completed_at,
     updated_at: nowIso,
     client_event_id: clientEventId,
     sync_status: 'pending',

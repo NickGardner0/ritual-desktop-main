@@ -215,7 +215,15 @@ function parseDateMentionQuery(query, now = new Date("2026-08-17T12:00:00")) {
 function entityPillMeta(summary) {
   const type = summary.ref.type;
   if (type === "task") {
-    const labels = { open: "Open", completed: "Done", skipped: "Skipped", archived: "Archived" };
+    const labels = {
+      open: "Not Started",
+      in_progress: "In Progress",
+      in_review: "In Review",
+      completed: "Completed",
+      canceled: "Canceled",
+      skipped: "Canceled",
+      archived: "Archived",
+    };
     const status = (summary.status || "").trim();
     return labels[status] || status || (summary.subtitle || "").trim() || undefined;
   }
@@ -253,8 +261,8 @@ test("relative dates canonicalize in local timezone with Sunday weeks", () => {
 });
 
 test("compact pills prefer status or a short subtitle", () => {
-  assert.equal(entityPillMeta({ ref: { type: "task", id: "t1" }, status: "open", subtitle: "Personal" }), "Open");
-  assert.equal(entityPillMeta({ ref: { type: "task", id: "t2" }, status: "completed" }), "Done");
+  assert.equal(entityPillMeta({ ref: { type: "task", id: "t1" }, status: "open", subtitle: "Personal" }), "Not Started");
+  assert.equal(entityPillMeta({ ref: { type: "task", id: "t2" }, status: "completed" }), "Completed");
   assert.equal(entityPillMeta({ ref: { type: "habit_log", id: "l1" }, status: "completed", subtitle: "2026-08-17" }), "2026-08-17");
   assert.equal(entityPillMeta({ ref: { type: "calendar_block", id: "b1" }, status: "09:00–10:00", subtitle: "2026-08-17 · 09:00–10:00" }), "09:00–10:00");
   assert.equal(entityPillMeta({ ref: { type: "artifact", id: "a1" }, subtitle: "notebook", status: "published" }), "notebook");

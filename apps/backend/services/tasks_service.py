@@ -290,7 +290,7 @@ class TasksService:
         async with get_db_session() as session:
             filters = [TaskDB.user_id == user_id]
             if view == "today":
-                filters.append(TaskDB.status == "open")
+                filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
                 filters.append(
                     or_(
                         and_(TaskDB.scheduled_for.is_not(None), TaskDB.scheduled_for < tomorrow_start),
@@ -298,7 +298,7 @@ class TasksService:
                     )
                 )
             elif view == "upcoming":
-                filters.append(TaskDB.status == "open")
+                filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
                 filters.append(
                     or_(
                         TaskDB.scheduled_for >= tomorrow_start,
@@ -306,13 +306,13 @@ class TasksService:
                     )
                 )
             elif view == "anytime":
-                filters.append(TaskDB.status == "open")
+                filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
                 filters.append(TaskDB.scheduled_for.is_(None))
                 filters.append(TaskDB.due_at.is_(None))
             elif view == "completed":
                 filters.append(TaskDB.status == "completed")
             elif view == "skipped":
-                filters.append(TaskDB.status == "skipped")
+                filters.append(TaskDB.status.in_(("canceled", "skipped")))
             elif view == "archived":
                 filters.append(TaskDB.status == "archived")
             else:

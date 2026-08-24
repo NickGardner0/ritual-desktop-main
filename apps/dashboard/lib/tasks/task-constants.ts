@@ -1,18 +1,26 @@
-import type { TaskPriority } from './types';
+import type { TaskPriority, TaskStatus } from './types';
 
 export const TASK_VIEWS = [
   { id: 'today', label: 'Today' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'anytime', label: 'Anytime' },
   { id: 'completed', label: 'Completed' },
-  { id: 'skipped', label: 'Skipped' },
+  { id: 'skipped', label: 'Canceled' },
   { id: 'archived', label: 'Archived' },
 ] as const;
 
-export const CATEGORY_FILTERS = ['All', 'Health', 'Work', 'Personal', 'Finance', 'Experiments', 'AI'] as const;
-export const PRIORITIES: TaskPriority[] = ['none', 'low', 'medium', 'high'];
+export const CATEGORY_FILTERS = ['All', 'Health', 'Productivity', 'Learning', 'Experiments'] as const;
+export const TASK_STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
+  { value: 'open', label: 'Not Started' },
+  { value: 'in_progress', label: 'In Progress' },
+  { value: 'in_review', label: 'In Review' },
+  { value: 'completed', label: 'Completed' },
+  { value: 'canceled', label: 'Canceled' },
+];
+export const PRIORITIES: TaskPriority[] = ['none', 'urgent', 'high', 'medium', 'low'];
 export const PRIORITY_FILTERS = [
   { id: 'all', label: 'All priorities' },
+  { id: 'urgent', label: 'Urgent' },
   { id: 'high', label: 'High priority' },
   { id: 'medium', label: 'Medium priority' },
   { id: 'low', label: 'Low priority' },

@@ -9643,7 +9643,8 @@
               "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "urgent"
             ],
             "title": "Priority",
             "type": "string"
@@ -9986,7 +9987,8 @@
               "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "urgent"
             ],
             "title": "Priority",
             "type": "string"
@@ -10345,7 +10347,8 @@
                   "none",
                   "low",
                   "medium",
-                  "high"
+                  "high",
+                  "urgent"
                 ],
                 "type": "string"
               },
@@ -11695,7 +11698,8 @@
               "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "urgent"
             ],
             "title": "Priority",
             "type": "string"
@@ -11762,7 +11766,10 @@
             "default": "open",
             "enum": [
               "open",
+              "in_progress",
+              "in_review",
               "completed",
+              "canceled",
               "skipped",
               "archived"
             ],
@@ -11902,7 +11909,8 @@
               "none",
               "low",
               "medium",
-              "high"
+              "high",
+              "urgent"
             ],
             "title": "Priority",
             "type": "string"
@@ -11978,7 +11986,10 @@
           "status": {
             "enum": [
               "open",
+              "in_progress",
+              "in_review",
               "completed",
+              "canceled",
               "skipped",
               "archived"
             ],
@@ -12112,7 +12123,8 @@
                   "none",
                   "low",
                   "medium",
-                  "high"
+                  "high",
+                  "urgent"
                 ],
                 "type": "string"
               },
@@ -12150,7 +12162,10 @@
               {
                 "enum": [
                   "open",
+                  "in_progress",
+                  "in_review",
                   "completed",
+                  "canceled",
                   "skipped",
                   "archived"
                 ],

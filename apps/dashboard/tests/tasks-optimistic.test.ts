@@ -156,3 +156,21 @@ test("task local-first updates use their own outbox id and can be rewritten to s
   assert.equal(shouldReplayTaskRoutineOutboxItem(rewritten), true);
   assert.equal(syncedCreate.serverEntityId, "task-server-1");
 });
+
+test("task local-first status updates keep completion timestamps consistent", () => {
+  const completed = buildOptimisticTaskUpdate(
+    baseTask,
+    { status: "completed" },
+    "user-1",
+    { clientEventId: "task-completed-event", now: NOW },
+  );
+  const reviewed = buildOptimisticTaskUpdate(
+    completed,
+    { status: "in_review" },
+    "user-1",
+    { clientEventId: "task-review-event", now: NOW },
+  );
+
+  assert.equal(completed.completed_at, NOW);
+  assert.equal(reviewed.completed_at, null);
+});

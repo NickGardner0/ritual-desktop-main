@@ -8,8 +8,16 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 
-TaskStatus = Literal["open", "completed", "skipped", "archived"]
-TaskPriority = Literal["none", "low", "medium", "high"]
+TaskStatus = Literal[
+    "open",
+    "in_progress",
+    "in_review",
+    "completed",
+    "canceled",
+    "skipped",
+    "archived",
+]
+TaskPriority = Literal["none", "low", "medium", "high", "urgent"]
 TaskSource = Literal["manual", "routine", "ai", "calendar", "habit", "experiment"]
 
 RoutineStatus = Literal["draft", "scheduled", "paused", "archived"]

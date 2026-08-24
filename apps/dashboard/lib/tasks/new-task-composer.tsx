@@ -35,6 +35,7 @@ export type NewTaskComposerSubmit = TaskCreateInput & {
 
 const PRIORITY_LABELS: Record<TaskPriority, string> = {
   none: 'No priority',
+  urgent: 'Urgent',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
@@ -102,7 +103,7 @@ function defaultFormState(defaultSchedule: ScheduleWhen): Omit<TaskComposerDraft
     title: '',
     notes: '',
     priority: 'none',
-    category: 'Personal',
+    category: 'Productivity',
     dueDate: '',
     deadlineDate: '',
     schedule: defaultSchedule,
@@ -129,7 +130,7 @@ export function NewTaskComposer({
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [priority, setPriority] = useState<TaskPriority>('none');
-  const [category, setCategory] = useState('Personal');
+  const [category, setCategory] = useState('Productivity');
   const [dueDate, setDueDate] = useState('');
   const [deadlineDate, setDeadlineDate] = useState('');
   const [schedule, setSchedule] = useState<ScheduleWhen>(defaultSchedule);

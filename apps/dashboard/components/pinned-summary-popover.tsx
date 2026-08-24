@@ -183,7 +183,7 @@ export function PinnedSummaryPopover() {
           event.stopPropagation();
           setOpen((current) => !current);
         }}
-        className="app-toolbar-icon-button"
+        className="app-toolbar-icon-button app-toolbar-pill-button"
         aria-label="Toggle pinned summary"
         aria-expanded={open}
         title="Toggle pinned summary"

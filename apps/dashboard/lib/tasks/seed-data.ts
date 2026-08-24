@@ -47,7 +47,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(0, 11),
       source: "manual",
       project: "Telos public launch",
-      category: "Work",
+      category: "Productivity",
       tags: ["launch", "demo"],
       routine_id: null,
       routine_run_id: null,
@@ -65,7 +65,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(0, 14),
       source: "manual",
       project: "Telos public launch",
-      category: "Work",
+      category: "Productivity",
       tags: ["writing"],
       routine_id: null,
       routine_run_id: null,
@@ -83,7 +83,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(0, 15),
       source: "manual",
       project: "Telos public launch",
-      category: "Work",
+      category: "Productivity",
       tags: ["deep-work"],
       routine_id: null,
       routine_run_id: null,
@@ -101,7 +101,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(-15, 9),
       source: "manual",
       project: "2025 tax filing",
-      category: "Finance",
+      category: "Productivity",
       tags: ["taxes"],
       routine_id: null,
       routine_run_id: null,
@@ -137,7 +137,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(0, 20),
       source: "manual",
       project: "Personal",
-      category: "Personal",
+      category: "Learning",
       tags: ["reading"],
       routine_id: null,
       routine_run_id: null,
@@ -155,7 +155,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(-6, 16),
       source: "routine",
       project: "Pre-launch polish",
-      category: "Personal",
+      category: "Productivity",
       tags: ["review"],
       routine_id: "seed-routine-weekday-planning",
       routine_run_id: null,
@@ -173,7 +173,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(-3, 13),
       source: "manual",
       project: "Pre-launch polish",
-      category: "Work",
+      category: "Productivity",
       tags: ["design"],
       routine_id: null,
       routine_run_id: null,
@@ -191,7 +191,7 @@ export function buildSeedTasks(userId: string): Task[] {
       scheduled_for: atLocalDay(1, 18),
       source: "manual",
       project: "Personal",
-      category: "Personal",
+      category: "Productivity",
       tags: ["home"],
       routine_id: "seed-routine-grocery-shopping",
       routine_run_id: null,
@@ -210,7 +210,7 @@ export function buildSeedTasks(userId: string): Task[] {
       completed_at: atLocalDay(-1, 13),
       source: "manual",
       project: "Telos public launch",
-      category: "Work",
+      category: "Productivity",
       tags: ["done"],
       routine_id: null,
       routine_run_id: null,
@@ -293,7 +293,7 @@ export function buildSeedRoutines(userId: string): Routine[] {
         title: "Buy groceries",
         notes: "Check staples, produce, protein, coffee, and paper goods.",
         project: "Personal",
-        category: "Personal",
+        category: "Productivity",
         tags: ["home"],
         linked_habit_id: null,
       },
@@ -319,7 +319,7 @@ export function buildSeedRoutines(userId: string): Routine[] {
         title: "Weekly grocery reset",
         notes: "Plan meals and buy the basics for the week.",
         project: "Personal",
-        category: "Personal",
+        category: "Productivity",
         tags: ["home", "planning"],
         linked_habit_id: null,
       },
@@ -345,7 +345,7 @@ export function buildSeedRoutines(userId: string): Routine[] {
         title: "Monthly budget review",
         notes: "Review runway, tax items, upcoming bills, and account drift.",
         project: "2025 tax filing",
-        category: "Finance",
+        category: "Productivity",
         tags: ["finance", "review"],
         linked_habit_id: null,
       },
@@ -371,7 +371,7 @@ export function buildSeedRoutines(userId: string): Routine[] {
         title: "Review Ritual work plan",
         notes: "Use the generated summary to choose one deep-work block.",
         project: "Pre-launch polish",
-        category: "AI",
+        category: "Productivity",
         tags: ["ai", "focus"],
         linked_habit_id: null,
       },
@@ -397,7 +397,7 @@ export function buildSeedRoutines(userId: string): Routine[] {
         title: "Schedule oil change",
         notes: "Book service after the previous oil change is complete.",
         project: "Personal",
-        category: "Personal",
+        category: "Productivity",
         tags: ["maintenance"],
         linked_habit_id: null,
       },
@@ -535,11 +535,13 @@ export function subscribeDemoRoutineGeneration(callback: () => void) {
   };
 }
 
+const ACTIVE_TASK_STATUSES = new Set<Task['status']>(['open', 'in_progress', 'in_review']);
+
 export function sortTasksForDisplay(tasks: Task[]) {
   return tasks.slice().sort((a, b) => {
     const aTime = new Date(a.scheduled_for || a.due_at || a.created_at || 0).getTime();
     const bTime = new Date(b.scheduled_for || b.due_at || b.created_at || 0).getTime();
-    if (a.status !== b.status) return a.status === "open" ? -1 : 1;
+    if (a.status !== b.status) return ACTIVE_TASK_STATUSES.has(a.status) ? -1 : 1;
     return aTime - bTime;
   });
 }

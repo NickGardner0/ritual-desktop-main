@@ -481,7 +481,7 @@ export function DateRangePicker({
               aria-label={`Date range: ${formatDateRange()}`}
               className={cn(
                 isTitlebar
-                  ? "app-toolbar-date-button h-7 min-w-[104px] justify-between gap-1 rounded-[7px] border border-transparent bg-transparent px-2 text-left text-[13px] font-normal leading-none text-[#6b6a66] shadow-none hover:bg-black/[0.045] hover:text-[#2f302d] data-[state=open]:bg-black/[0.045] data-[state=open]:text-[#2f302d] focus-visible:bg-black/[0.045] focus-visible:ring-0"
+                  ? "app-toolbar-date-button app-toolbar-pill-button min-w-[104px] justify-between text-left font-normal leading-none focus-visible:ring-0"
                   : "w-[116px] justify-between text-left font-normal text-[13px] px-2.5 py-1 h-7 border border-black/[0.07] bg-white/60 text-black shadow-[0_1px_2px_rgba(15,23,42,0.07)] hover:bg-white/75 hover:border-black/[0.09] rounded-[8px] backdrop-blur-md",
                 !date && (isTitlebar ? "text-[#6b6a66]" : "text-black"),
                 isTitlebar ? undefined : className

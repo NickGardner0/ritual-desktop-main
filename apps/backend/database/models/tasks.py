@@ -15,8 +15,10 @@ class TaskDB(Base):
     user_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
-    status = Column(String, nullable=False, default="open")  # open | completed | skipped | archived
-    priority = Column(String, nullable=False, default="none")  # none | low | medium | high
+    # User-facing: open | in_progress | in_review | completed | canceled.
+    # skipped and archived remain readable for legacy/internal records.
+    status = Column(String, nullable=False, default="open")
+    priority = Column(String, nullable=False, default="none")  # none | low | medium | high | urgent
     due_at = Column(DateTime, nullable=True)
     scheduled_for = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)

@@ -374,7 +374,7 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=self.build_app())
         return httpx.AsyncClient(transport=transport, base_url="http://testserver")
 
-    async def test_task_api_crud_reschedule_skip_archive_reload(self):
+    async def test_task_api_crud_reschedule_macro_statuses_archive_reload(self):
         with patch("services.tasks_service.get_db_session", self.db_session):
             async with await self.api_client() as client:
                 created_response = await client.post(
@@ -403,12 +403,25 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(rescheduled_response.status_code, 200)
                 self.assertEqual(rescheduled_response.json()["status"], "open")
 
-                skipped_response = await client.patch(f"/api/tasks/{task_id}", json={"status": "skipped"})
-                self.assertEqual(skipped_response.status_code, 200)
+                in_progress_response = await client.patch(
+                    f"/api/tasks/{task_id}", json={"status": "in_progress", "priority": "urgent"}
+                )
+                self.assertEqual(in_progress_response.status_code, 200)
+                self.assertEqual(in_progress_response.json()["status"], "in_progress")
+                self.assertEqual(in_progress_response.json()["priority"], "urgent")
 
-                skipped_list = await client.get("/api/tasks?view=skipped")
-                self.assertEqual(skipped_list.status_code, 200)
-                self.assertEqual([item["id"] for item in skipped_list.json()["items"]], [task_id])
+                in_review_response = await client.patch(
+                    f"/api/tasks/{task_id}", json={"status": "in_review"}
+                )
+                self.assertEqual(in_review_response.status_code, 200)
+                self.assertEqual(in_review_response.json()["status"], "in_review")
+
+                canceled_response = await client.patch(f"/api/tasks/{task_id}", json={"status": "canceled"})
+                self.assertEqual(canceled_response.status_code, 200)
+
+                canceled_list = await client.get("/api/tasks?view=skipped")
+                self.assertEqual(canceled_list.status_code, 200)
+                self.assertEqual([item["id"] for item in canceled_list.json()["items"]], [task_id])
 
                 archived_response = await client.patch(f"/api/tasks/{task_id}", json={"status": "archived"})
                 self.assertEqual(archived_response.status_code, 200)

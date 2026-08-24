@@ -198,7 +198,7 @@ class ActionReceiptService:
                     )
                 )
                 task_row = task_result.scalar_one_or_none()
-                if task_row and task_row.status == "open":
+                if task_row and task_row.status in {"open", "in_progress", "in_review"}:
                     task_row.status = "archived"
                     task_row.updated_at = _utc_now()
             else:

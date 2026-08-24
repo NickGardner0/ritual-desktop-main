@@ -1,5 +1,12 @@
-export type TaskStatus = 'open' | 'completed' | 'skipped' | 'archived';
-export type TaskPriority = 'none' | 'low' | 'medium' | 'high';
+export type TaskStatus =
+  | 'open'
+  | 'in_progress'
+  | 'in_review'
+  | 'completed'
+  | 'canceled'
+  | 'skipped'
+  | 'archived';
+export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
 export type TaskSource = 'manual' | 'routine' | 'ai' | 'calendar' | 'habit' | 'experiment';
 
 export type RoutineStatus = 'draft' | 'scheduled' | 'paused' | 'archived';

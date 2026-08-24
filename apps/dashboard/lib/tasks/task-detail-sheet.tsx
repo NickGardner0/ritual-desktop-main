@@ -8,7 +8,7 @@ import { EntityRelatedPanel } from '@/components/entities/entity-related-panel';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { entityProtocolEnabled } from '@/lib/entities/feature-flag';
 import { dateInputValue } from '@/lib/tasks/date-format';
-import { CATEGORY_FILTERS, PRIORITIES } from '@/lib/tasks/task-constants';
+import { CATEGORY_FILTERS, PRIORITIES, TASK_STATUS_OPTIONS } from '@/lib/tasks/task-constants';
 import {
   DetailCard,
   DetailFieldRow,
@@ -18,16 +18,8 @@ import {
 import type {
   Task,
   TaskPriority,
-  TaskStatus,
   TaskUpdateInput,
 } from '@/lib/tasks/types';
-
-const STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
-  { value: 'open', label: 'Open' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'skipped', label: 'Skipped' },
-  { value: 'archived', label: 'Archived' },
-];
 
 const PRIORITY_OPTIONS = PRIORITIES.map((priority) => ({
   value: priority,
@@ -115,7 +107,7 @@ function TaskDetailEditor({
           <DetailFieldRow label="Status" inCard>
             <PillSelect
               value={task.status}
-              options={STATUS_OPTIONS}
+              options={TASK_STATUS_OPTIONS}
               onChange={(status) => onUpdate(task.id, { status })}
             />
           </DetailFieldRow>
@@ -128,7 +120,7 @@ function TaskDetailEditor({
           </DetailFieldRow>
           <DetailFieldRow label="Category" inCard>
             <PillSelect
-              value={task.category || 'Personal'}
+              value={task.category || 'Productivity'}
               options={CATEGORY_OPTIONS}
               onChange={(category) => onUpdate(task.id, { category })}
             />

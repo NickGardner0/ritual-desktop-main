@@ -315,11 +315,13 @@ function UnifiedAnalyticsContent() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="app-toolbar-icon-button"
-                  aria-label="Add habit"
-                  title="Add habit"
+                  type="button"
+                  className="app-toolbar-pill-button"
+                  aria-label="Dashboard actions"
+                  title="Dashboard actions"
                 >
                   <Plus strokeWidth={1.75} />
+                  <span>Actions</span>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent

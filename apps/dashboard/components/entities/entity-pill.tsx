@@ -21,9 +21,12 @@ const TYPE_ICON: Record<EntityType, typeof CheckSquare> = {
 };
 
 const TASK_STATUS_LABELS: Record<string, string> = {
-  open: "Open",
-  completed: "Done",
-  skipped: "Skipped",
+  open: "Not Started",
+  in_progress: "In Progress",
+  in_review: "In Review",
+  completed: "Completed",
+  canceled: "Canceled",
+  skipped: "Canceled",
   archived: "Archived",
 };
 
@@ -79,7 +82,7 @@ export function EntityPill({
   const Icon = summary.ref.type === "task" && summary.status === "completed" ? Check : TYPE_ICON[summary.ref.type];
   const disabled = summary.availability !== "ok";
   const meta = entityPillMeta(summary);
-  const skipped = summary.ref.type === "task" && summary.status === "skipped";
+  const skipped = summary.ref.type === "task" && ["canceled", "skipped"].includes(summary.status || "");
   const completed = summary.ref.type === "task" && summary.status === "completed";
   const pill = (
     <span

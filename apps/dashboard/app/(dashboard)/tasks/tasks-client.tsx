@@ -56,6 +56,7 @@ import {
   TaskGroupSection,
   TaskListSection,
   TaskTableHeader,
+  TasksCategoryPills,
   TasksEmptyState,
   TasksLoadingSkeleton,
   TasksToolbarActions,
@@ -89,9 +90,9 @@ function isTaskInView(task: Task, view: TaskViewId): boolean {
   const scheduled = task.scheduled_for ? new Date(task.scheduled_for).getTime() : null;
   const due = task.due_at ? new Date(task.due_at).getTime() : null;
   if (view === 'completed') return task.status === 'completed';
-  if (view === 'skipped') return task.status === 'skipped';
+  if (view === 'skipped') return task.status === 'canceled' || task.status === 'skipped';
   if (view === 'archived') return task.status === 'archived';
-  if (task.status !== 'open') return false;
+  if (!['open', 'in_progress', 'in_review'].includes(task.status)) return false;
   if (view === 'anytime') return !scheduled && !due;
   if (view === 'upcoming') return Boolean((scheduled && scheduled >= tomorrowStart) || (due && due >= tomorrowStart));
   return Boolean((scheduled && scheduled < tomorrowStart) || (due && due < tomorrowStart));
@@ -114,10 +115,11 @@ function dedupeTasksByIdentity(tasks: Task[]): Task[] {
 }
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = {
-  high: 0,
-  medium: 1,
-  low: 2,
-  none: 3,
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
 };
 
 function taskDateValue(task: Task): number {
@@ -163,12 +165,13 @@ function filterAndSortTasks(
 function groupTasksForLayout(tasks: Task[], layoutMode: ListLayoutMode) {
   if (layoutMode === 'priority') {
     const labels: Record<Task['priority'], string> = {
+      urgent: 'Urgent',
       high: 'High priority',
       medium: 'Medium priority',
       low: 'Low priority',
       none: 'No priority',
     };
-    return (['high', 'medium', 'low', 'none'] as const)
+    return (['urgent', 'high', 'medium', 'low', 'none'] as const)
       .map((priority) => [labels[priority], tasks.filter((task) => task.priority === priority)] as const)
       .filter(([, items]) => items.length > 0);
   }
@@ -516,7 +519,6 @@ export function TasksClient() {
         view={view}
         onViewChange={selectView}
         category={category}
-        onCategoryChange={setCategory}
         priorityFilter={priorityFilter}
         onPriorityFilterChange={setPriorityFilter}
         sortMode={sortMode}
@@ -527,6 +529,7 @@ export function TasksClient() {
 
       <div className="min-h-0 flex-1 overflow-auto pb-16 pt-3">
         <div className={cn(taskContentMaxClass, 'px-8 lg:px-10')}>
+          <TasksCategoryPills category={category} onCategoryChange={setCategory} />
           {tasksQuery.isLoading ? (
             <TasksLoadingSkeleton />
           ) : hasTasks ? (

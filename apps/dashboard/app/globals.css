@@ -858,6 +858,52 @@ table tbody tr,
     background: rgba(0, 0, 0, 0.07) !important;
   }
 
+  .app-toolbar-pill-button,
+  .app-toolbar-icon-button.app-toolbar-pill-button {
+    display: inline-flex;
+    height: 28px !important;
+    width: auto !important;
+    min-width: 36px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 9999px !important;
+    background: var(--surface-control) !important;
+    padding: 0 10px !important;
+    color: var(--text-secondary) !important;
+    box-shadow: none !important;
+    font-size: 12.5px;
+    font-weight: 450;
+    line-height: 1;
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  }
+
+  .app-toolbar-pill-button:hover,
+  .app-toolbar-pill-button:focus-visible,
+  .app-toolbar-pill-button[data-state="open"],
+  .app-toolbar-pill-button[aria-expanded="true"],
+  .app-toolbar-icon-button.app-toolbar-pill-button:hover,
+  .app-toolbar-icon-button.app-toolbar-pill-button:focus-visible,
+  .app-toolbar-icon-button.app-toolbar-pill-button[data-state="open"],
+  .app-toolbar-icon-button.app-toolbar-pill-button[aria-expanded="true"] {
+    border-color: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
+    background: var(--surface-control-hover) !important;
+    color: var(--text-primary) !important;
+  }
+
+  .app-toolbar-pill-button:active,
+  .app-toolbar-icon-button.app-toolbar-pill-button:active {
+    background: var(--row-active) !important;
+  }
+
+  .app-toolbar-pill-button svg {
+    width: 15px;
+    height: 15px;
+    stroke-width: 1.75;
+  }
+
   .titlebar-segmented-control {
     border-radius: 0.125rem !important;
     border: 1px solid rgba(15, 23, 42, 0.055);

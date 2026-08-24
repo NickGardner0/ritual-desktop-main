@@ -9,6 +9,9 @@ import {
   Circle,
   CircleCheck,
   CircleDashed,
+  CircleDotDashed,
+  CircleGauge,
+  CircleX,
   Columns3,
   Flag,
   List,
@@ -16,7 +19,6 @@ import {
   MoreHorizontal,
   Plus,
   Search,
-  SkipForward,
   X,
 } from 'lucide-react';
 
@@ -42,6 +44,7 @@ import {
   PRIORITY_FILTERS,
   PRIORITIES,
   TASK_DISPLAY_MODES,
+  TASK_STATUS_OPTIONS,
   TASK_SORTS,
   TASK_VIEWS,
   isTaskViewId,
@@ -58,6 +61,7 @@ import {
   priorityBars,
   TaskRowShell,
   toolbarPillClass,
+  ViewPills,
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskStatus, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
@@ -81,7 +85,6 @@ export function TasksToolbarActions({
   view,
   onViewChange,
   category,
-  onCategoryChange,
   priorityFilter,
   onPriorityFilterChange,
   sortMode,
@@ -96,7 +99,6 @@ export function TasksToolbarActions({
   view: TaskViewId;
   onViewChange: (view: TaskViewId) => void;
   category: (typeof CATEGORY_FILTERS)[number];
-  onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
   priorityFilter: TaskPriorityFilter;
   onPriorityFilterChange: (priority: TaskPriorityFilter) => void;
   sortMode: TaskSortId;
@@ -159,24 +161,6 @@ export function TasksToolbarActions({
                   {PRIORITY_FILTERS.map((option) => (
                     <DropdownMenuRadioItem key={option.id} value={option.id}>
                       {option.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <span>Category</span>
-                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">{category}</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-44">
-                <DropdownMenuRadioGroup
-                  value={category}
-                  onValueChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
-                >
-                  {CATEGORY_FILTERS.map((option) => (
-                    <DropdownMenuRadioItem key={option} value={option}>
-                      {option}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
@@ -259,6 +243,24 @@ export function TasksToolbarActions({
   );
 }
 
+export function TasksCategoryPills({
+  category,
+  onCategoryChange,
+}: {
+  category: (typeof CATEGORY_FILTERS)[number];
+  onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
+}) {
+  return (
+    <div className="pb-3">
+      <ViewPills
+        value={category}
+        options={CATEGORY_FILTERS}
+        onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
+      />
+    </div>
+  );
+}
+
 function ProjectGroupHeader({
   name,
   count,
@@ -309,8 +311,9 @@ function groupOverdueLabel(tasks: Task[]): string | null {
 
 const TASK_ROW_GRID_CLASS = cn(
   'grid items-center gap-2',
-  'grid-cols-[minmax(0,1fr)_96px_28px]',
-  'md:grid-cols-[minmax(220px,1fr)_96px_88px_28px_88px]',
+  'grid-cols-[minmax(0,1fr)_108px_28px]',
+  'md:grid-cols-[minmax(220px,1fr)_112px_88px_28px_88px]',
+  'lg:grid-cols-[minmax(240px,1fr)_112px_92px_28px_88px_96px]',
 );
 
 function formatTaskCreatedDate(value: string | null): string {
@@ -325,23 +328,21 @@ function formatTaskCreatedDate(value: string | null): string {
   }).format(date);
 }
 
-const STATUS_OPTIONS: ReadonlyArray<{ value: TaskStatus; label: string }> = [
-  { value: 'open', label: 'Open' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'skipped', label: 'Skipped' },
-  { value: 'archived', label: 'Archived' },
-];
-
 const PRIORITY_LABELS: Record<TaskPriority, string> = {
   none: 'None',
+  urgent: 'Urgent',
   low: 'Low',
   medium: 'Medium',
   high: 'High',
 };
 
 function TaskStatusIcon({ status }: { status: TaskStatus }) {
-  if (status === 'completed') return <CircleCheck className="h-3.5 w-3.5 text-[var(--text-primary)]" />;
-  if (status === 'skipped') return <SkipForward className="h-3.5 w-3.5 text-[var(--icon-muted)]" />;
+  if (status === 'in_progress') return <CircleGauge className="h-3.5 w-3.5 text-[var(--ritual-status-warning)]" />;
+  if (status === 'in_review') return <CircleDotDashed className="h-3.5 w-3.5 text-[var(--ritual-status-info)]" />;
+  if (status === 'completed') return <CircleCheck className="h-3.5 w-3.5 text-[var(--ritual-status-success)]" />;
+  if (status === 'canceled' || status === 'skipped') {
+    return <CircleX className="h-3.5 w-3.5 text-[var(--icon-muted)]" />;
+  }
   if (status === 'archived') return <Archive className="h-3.5 w-3.5 text-[var(--icon-muted)]" />;
   return <Circle className="h-3.5 w-3.5 text-[var(--icon-default)]" />;
 }
@@ -353,7 +354,8 @@ function TaskStatusControl({
   task: Task;
   onUpdate: (patch: TaskUpdateInput) => void;
 }) {
-  const label = STATUS_OPTIONS.find((option) => option.value === task.status)?.label || task.status;
+  const label = TASK_STATUS_OPTIONS.find((option) => option.value === task.status)?.label
+    || (task.status === 'skipped' ? 'Canceled' : task.status === 'archived' ? 'Archived' : task.status);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -368,7 +370,7 @@ function TaskStatusControl({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-40">
-        {STATUS_OPTIONS.map((option) => (
+        {TASK_STATUS_OPTIONS.map((option) => (
           <DropdownMenuItem key={option.value} onSelect={() => onUpdate({ status: option.value })}>
             <TaskStatusIcon status={option.value} />
             {option.label}
@@ -435,6 +437,7 @@ export function TaskTableHeader() {
       <span className="hidden md:block">Priority</span>
       <span />
       <span className="hidden text-right md:block">Created</span>
+      <span className="hidden text-right lg:block">Deadline</span>
     </div>
   );
 }
@@ -535,6 +538,8 @@ export function TaskRow({
   onOpen: () => void;
 }) {
   const createdLabel = formatTaskCreatedDate(task.created_at);
+  const deadlineLabel = relativeDayLabel(task.due_at);
+  const deadlineOverdue = deadlineLabel.endsWith('ago');
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -546,10 +551,6 @@ export function TaskRow({
           if (event.key === 'Enter') {
             event.preventDefault();
             onOpen();
-          } else if (event.key.toLowerCase() === 's' && task.status === 'open') {
-            onUpdate({ status: 'skipped' });
-          } else if (event.key.toLowerCase() === 'a' && task.status !== 'archived') {
-            onUpdate({ status: 'archived' });
           }
         }}
         className={cn(TASK_ROW_GRID_CLASS, 'min-h-10 cursor-default px-2.5 py-1')}
@@ -601,6 +602,15 @@ export function TaskRow({
 
         <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] md:block">
           {createdLabel}
+        </span>
+
+        <span
+          className={cn(
+            'hidden min-w-0 truncate text-right text-[12px] tabular-nums lg:block',
+            deadlineOverdue ? 'text-[var(--ritual-status-danger)]' : 'text-[var(--text-muted)]',
+          )}
+        >
+          {deadlineLabel || '—'}
         </span>
       </TaskRowShell>
       <TaskRowMenu task={task} onUpdate={onUpdate} />
@@ -746,39 +756,29 @@ export function TaskRowMenu({
         </div>
         <div>
           <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-[rgba(39,37,30,0.45)]">
-            Date
+            Deadline
           </label>
           <InlineFieldInput
             type="date"
-            value={dateInputValue(task.scheduled_for || task.due_at)}
+            value={dateInputValue(task.due_at)}
             onChange={(event) => {
               const next = event.target.value
                 ? new Date(`${event.target.value}T09:00:00`).toISOString()
                 : null;
-              onUpdate({ scheduled_for: next, due_at: next });
+              onUpdate({ due_at: next });
             }}
             className="w-full"
           />
         </div>
         <div className="flex flex-wrap gap-1.5 border-t border-[var(--border-subtle)] pt-3">
-          {task.status === 'open' ? (
+          {task.status !== 'canceled' && task.status !== 'completed' ? (
             <button
               type="button"
-              onClick={() => onUpdate({ status: 'skipped' })}
+              onClick={() => onUpdate({ status: 'canceled' })}
               className="inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
             >
-              <SkipForward className="h-3.5 w-3.5" />
-              Skip
-            </button>
-          ) : null}
-          {task.status !== 'archived' ? (
-            <button
-              type="button"
-              onClick={() => onUpdate({ status: 'archived' })}
-              className="inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[12.5px] text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              Archive
+              <CircleX className="h-3.5 w-3.5" />
+              Cancel
             </button>
           ) : null}
         </div>
@@ -820,7 +820,7 @@ export function TasksEmptyState({
           {filtered ? 'No matching tasks' : 'No tasks here'}
         </div>
         <p className="mt-1.5 text-[13px] text-[var(--text-muted)]">
-          {filtered ? 'Try clearing a filter or using a different search.' : 'Create a task to start this list.'}
+          {filtered ? 'Try clearing a filter or choosing a different scope.' : 'Create a task to start this list.'}
         </p>
         {filtered && onClearFilters ? (
           <Button
