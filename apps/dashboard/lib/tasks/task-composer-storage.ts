@@ -1,8 +1,10 @@
+import type { TaskChecklistItem } from './checklist';
 import type { TaskPriority } from './types';
 
 export type TaskComposerDraft = {
   title: string;
   notes: string;
+  checklist: TaskChecklistItem[];
   priority: TaskPriority;
   category: string;
   dueDate: string;
@@ -26,6 +28,7 @@ export function loadTaskComposerDraft(): TaskComposerDraft | null {
     }
     return {
       ...draft,
+      checklist: Array.isArray(draft.checklist) ? draft.checklist : [],
       dueDate: typeof draft.dueDate === 'string' ? draft.dueDate : '',
       deadlineDate: typeof draft.deadlineDate === 'string' ? draft.deadlineDate : '',
     };
@@ -55,6 +58,7 @@ export function touchTaskComposerDraft(): void {
   saveTaskComposerDraft({
     title: draft.title,
     notes: draft.notes,
+    checklist: draft.checklist || [],
     priority: draft.priority,
     category: draft.category,
     dueDate: draft.dueDate,

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { ListTodo } from 'lucide-react';
 
 import { EntityLinkPicker } from '@/components/entities/entity-link-picker';
 import { EntityNoteField } from '@/components/entities/entity-note-field';
@@ -15,6 +16,13 @@ import {
   InlineFieldInput,
   PillSelect,
 } from '@/lib/tasks/task-ui-shell';
+import {
+  createChecklistItem,
+  joinTaskNotes,
+  splitTaskNotes,
+  type TaskChecklistItem,
+} from '@/lib/tasks/checklist';
+import { TaskChecklistEditor } from '@/lib/tasks/task-checklist-editor';
 import type {
   Task,
   TaskPriority,
@@ -41,11 +49,42 @@ function TaskDetailEditor({
   task: Task;
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
 }) {
+  const parsedNotes = splitTaskNotes(task.notes);
   const [relatedRefreshKey, setRelatedRefreshKey] = useState(0);
   const [titleDraft, setTitleDraft] = useState(task.title);
-  const [notesDraft, setNotesDraft] = useState(task.notes || '');
+  const [notesDraft, setNotesDraft] = useState(parsedNotes.description);
+  const [checklist, setChecklist] = useState<TaskChecklistItem[]>(parsedNotes.items);
+  const [checklistOpen, setChecklistOpen] = useState(parsedNotes.items.length > 0);
   const [projectDraft, setProjectDraft] = useState(task.project || '');
   const [tagsDraft, setTagsDraft] = useState(task.tags.join(', '));
+  const persistTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const next = splitTaskNotes(task.notes);
+    setTitleDraft(task.title);
+    setNotesDraft(next.description);
+    setChecklist(next.items);
+    setChecklistOpen(next.items.length > 0);
+    setProjectDraft(task.project || '');
+    setTagsDraft(task.tags.join(', '));
+    return () => {
+      if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    };
+  }, [task.id]);
+
+  const persistNotes = (description: string, items: TaskChecklistItem[], immediate = false) => {
+    const write = () => {
+      const next = joinTaskNotes(description, items);
+      if (next === (task.notes || null)) return;
+      onUpdate(task.id, { notes: next });
+    };
+    if (persistTimerRef.current) window.clearTimeout(persistTimerRef.current);
+    if (immediate) {
+      write();
+      return;
+    }
+    persistTimerRef.current = window.setTimeout(write, 280);
+  };
 
   const commitTitle = () => {
     const title = titleDraft.trim();
@@ -90,18 +129,39 @@ function TaskDetailEditor({
       </SheetHeader>
 
       <div className="space-y-5 px-6">
-        <EntityNoteField
-          value={notesDraft}
-          onChange={setNotesDraft}
-          onBlur={(notes) => {
-            const next = notes.trim() || null;
-            if (next === task.notes) return;
-            onUpdate(task.id, { notes: next });
-          }}
-          placeholder="Add a description or @mention related Ritual data…"
-          rows={4}
-          className="min-h-[92px] w-full resize-none rounded-[var(--radius-row)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-3 py-2.5 text-[13px] leading-5 text-[var(--text-secondary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
-        />
+        <div>
+          <EntityNoteField
+            value={notesDraft}
+            onChange={setNotesDraft}
+            onBlur={(notes) => persistNotes(notes, checklist, true)}
+            placeholder="Add a description or @mention related Ritual data…"
+            rows={4}
+            className="min-h-[92px] w-full resize-none rounded-[var(--radius-row)] border border-[var(--border-subtle)] bg-[var(--surface-recessed)] px-3 py-2.5 text-[13px] leading-5 text-[var(--text-secondary)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]"
+          />
+          {checklistOpen ? (
+            <TaskChecklistEditor
+              items={checklist.length > 0 ? checklist : [createChecklistItem()]}
+              onChange={(items) => {
+                setChecklist(items);
+                persistNotes(notesDraft, items);
+              }}
+              className="mt-2 rounded-[var(--radius-row)] border border-[var(--border-subtle)] bg-[var(--surface-raised)] px-2"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                const next = [createChecklistItem()];
+                setChecklist(next);
+                setChecklistOpen(true);
+              }}
+              className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-full px-2 text-[12px] text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+            >
+              <ListTodo className="h-3.5 w-3.5" />
+              Add checklist
+            </button>
+          )}
+        </div>
 
         <DetailCard className="bg-[var(--surface-panel)]">
           <DetailFieldRow label="Status" inCard>

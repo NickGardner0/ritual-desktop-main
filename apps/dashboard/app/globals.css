@@ -496,7 +496,7 @@ table tbody tr,
   /* Tasks / Routines layout */
   --task-row-height: 36px;
   --task-group-gap: 24px;
-  --task-content-max: 680px;
+  --task-content-max: 1120px;
 }
 
 .dark {

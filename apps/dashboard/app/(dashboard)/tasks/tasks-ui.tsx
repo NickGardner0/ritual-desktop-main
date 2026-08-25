@@ -65,6 +65,7 @@ import {
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskStatus, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
+import { checklistProgress, splitTaskNotes } from '@/lib/tasks/checklist';
 import { cn } from '@/lib/utils';
 
 export {
@@ -131,21 +132,22 @@ export function TasksCategoryPills({
   const hasFilters = view !== 'today' || category !== 'All' || priorityFilter !== 'all';
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 pb-3">
+    <div className="flex w-full items-center gap-3 pb-3">
       <ViewPills
+        className="min-w-0"
         value={category}
         options={CATEGORY_FILTERS}
         onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
       />
-      <div className="flex shrink-0 items-center gap-1.5">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-compact"
               className={cn(
-                'h-7 w-7 !rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--icon-default)] shadow-none',
+                'h-7 w-7 text-[var(--icon-default)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
                 hasFilters && 'bg-[var(--surface-panel)] text-[var(--text-primary)]',
               )}
               aria-label="Filter tasks"
@@ -205,9 +207,9 @@ export function TasksCategoryPills({
           <DropdownMenuTrigger asChild>
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               size="icon-compact"
-              className="h-7 w-7 !rounded-full border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--icon-default)] shadow-none"
+              className="h-7 w-7 text-[var(--icon-default)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
               aria-label="Change task view"
               title="Change task view"
             >
@@ -307,10 +309,10 @@ function groupOverdueLabel(tasks: Task[]): string | null {
 }
 
 const TASK_ROW_GRID_CLASS = cn(
-  'grid items-center gap-2',
-  'grid-cols-[minmax(0,1fr)_108px_28px]',
-  'md:grid-cols-[minmax(220px,1fr)_112px_88px_28px_88px]',
-  'lg:grid-cols-[minmax(240px,1fr)_112px_92px_28px_88px_96px]',
+  'grid w-full min-w-0 items-center gap-2',
+  'grid-cols-[minmax(0,1fr)_minmax(108px,auto)_1.75rem]',
+  'md:grid-cols-[minmax(0,1fr)_112px_92px_72px_1.75rem]',
+  'lg:grid-cols-[minmax(0,1fr)_112px_92px_72px_88px_1.75rem]',
 );
 
 function formatTaskCreatedDate(value: string | null): string {
@@ -432,9 +434,9 @@ export function TaskTableHeader() {
       <span>Task</span>
       <span>Status</span>
       <span className="hidden md:block">Priority</span>
-      <span />
       <span className="hidden text-right md:block">Created</span>
       <span className="hidden text-right lg:block">Deadline</span>
+      <span />
     </div>
   );
 }
@@ -536,6 +538,7 @@ export function TaskRow({
 }) {
   const createdLabel = formatTaskCreatedDate(task.created_at);
   const deadlineLabel = relativeDayLabel(task.due_at);
+  const progress = checklistProgress(splitTaskNotes(task.notes).items);
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -569,13 +572,20 @@ export function TaskRow({
           >
             <Check className="h-3 w-3" />
           </button>
-          <div
-            className={cn(
-              'min-w-0 truncate text-[14px] font-normal leading-5 text-[var(--text-primary)]',
-              task.status === 'completed' && 'text-[var(--text-muted)] line-through',
-            )}
-          >
-            {task.title}
+          <div className="flex min-w-0 items-center gap-2">
+            <div
+              className={cn(
+                'min-w-0 truncate text-[14px] font-normal leading-5 text-[var(--text-primary)]',
+                task.status === 'completed' && 'text-[var(--text-muted)] line-through',
+              )}
+            >
+              {task.title}
+            </div>
+            {progress.total > 0 ? (
+              <span className="shrink-0 tabular-nums text-[11px] text-[var(--text-muted)]">
+                {progress.done}/{progress.total}
+              </span>
+            ) : null}
           </div>
         </div>
 
@@ -584,6 +594,14 @@ export function TaskRow({
         <div className="hidden min-w-0 md:block">
           <TaskPriorityControl task={task} onUpdate={onUpdate} />
         </div>
+
+        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] md:block">
+          {createdLabel}
+        </span>
+
+        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] lg:block">
+          {deadlineLabel || '—'}
+        </span>
 
         <PopoverTrigger asChild>
           <button
@@ -595,14 +613,6 @@ export function TaskRow({
             <MoreHorizontal className="h-4 w-4" />
           </button>
         </PopoverTrigger>
-
-        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] md:block">
-          {createdLabel}
-        </span>
-
-        <span className="hidden min-w-0 truncate text-right text-[12px] tabular-nums text-[var(--text-muted)] lg:block">
-          {deadlineLabel || '—'}
-        </span>
       </TaskRowShell>
       <TaskRowMenu task={task} onUpdate={onUpdate} />
     </Popover>

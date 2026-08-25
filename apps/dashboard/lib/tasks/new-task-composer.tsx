@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Calendar, ChevronDown, CircleDashed, Flag, Tag, X } from 'lucide-react';
+import { Calendar, ChevronDown, CircleDashed, Flag, ListTodo, Tag, X } from 'lucide-react';
 
 import { Button } from '@ritual/ui/button';
 import {
@@ -23,6 +23,19 @@ import {
 import type { TaskCreateInput, TaskPriority } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 import { EntityNoteField } from '@/components/entities/entity-note-field';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  createChecklistItem,
+  joinTaskNotes,
+  meaningfulChecklistItems,
+  type TaskChecklistItem,
+} from '@/lib/tasks/checklist';
+import { TaskChecklistEditor } from '@/lib/tasks/task-checklist-editor';
 import { priorityBars } from '@/lib/tasks/task-ui-shell';
 
 import { CATEGORY_FILTERS, PRIORITIES } from '@/lib/tasks/task-constants';
@@ -102,6 +115,7 @@ function defaultFormState(defaultSchedule: ScheduleWhen): Omit<TaskComposerDraft
   return {
     title: '',
     notes: '',
+    checklist: [],
     priority: 'none',
     category: 'Productivity',
     dueDate: '',
@@ -129,6 +143,8 @@ export function NewTaskComposer({
 
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
+  const [checklist, setChecklist] = useState<TaskChecklistItem[]>([]);
+  const [checklistOpen, setChecklistOpen] = useState(false);
   const [priority, setPriority] = useState<TaskPriority>('none');
   const [category, setCategory] = useState('Productivity');
   const [dueDate, setDueDate] = useState('');
@@ -140,6 +156,8 @@ export function NewTaskComposer({
   const applyFormState = useCallback((state: Omit<TaskComposerDraft, 'savedAt'>) => {
     setTitle(state.title);
     setNotes(state.notes);
+    setChecklist(state.checklist || []);
+    setChecklistOpen((state.checklist || []).length > 0);
     setPriority(state.priority);
     setCategory(state.category);
     setDueDate(state.dueDate);
@@ -172,13 +190,14 @@ export function NewTaskComposer({
     if (!open) return;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = window.setTimeout(() => {
-      if (!title.trim() && !notes.trim()) {
+      if (!title.trim() && !notes.trim() && meaningfulChecklistItems(checklist).length === 0) {
         clearTaskComposerDraft();
         return;
       }
       saveTaskComposerDraft({
         title,
         notes,
+        checklist,
         priority,
         category,
         dueDate,
@@ -189,7 +208,7 @@ export function NewTaskComposer({
     return () => {
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     };
-  }, [open, title, notes, priority, category, dueDate, deadlineDate, schedule]);
+  }, [open, title, notes, checklist, priority, category, dueDate, deadlineDate, schedule]);
 
   useEffect(() => {
     if (!open) return;
@@ -209,7 +228,7 @@ export function NewTaskComposer({
     const scheduledFor = scheduleToDate(schedule, dueDate);
     onSubmit({
       title: trimmedTitle,
-      notes: notes.trim() || null,
+      notes: joinTaskNotes(notes, checklist),
       priority,
       category,
       scheduled_for: scheduledFor,
@@ -230,6 +249,7 @@ export function NewTaskComposer({
     defaultSchedule,
     dueDate,
     notes,
+    checklist,
     onSubmit,
     pending,
     priority,
@@ -297,7 +317,7 @@ export function NewTaskComposer({
               New task
             </h2>
             <div className="flex items-center gap-0.5">
-              {title.trim() || notes.trim() ? (
+              {title.trim() || notes.trim() || meaningfulChecklistItems(checklist).length > 0 ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -320,7 +340,7 @@ export function NewTaskComposer({
             </div>
           </div>
 
-          <div className="px-5 pb-2 pt-2">
+          <div className="min-h-0 flex-1 overflow-auto px-5 pb-2 pt-2">
             <input
               ref={titleRef}
               value={title}
@@ -337,13 +357,15 @@ export function NewTaskComposer({
             <EntityNoteField
               value={notes}
               onChange={setNotes}
-              placeholder="Add description..."
+              placeholder="Notes"
               rows={2}
-              className="mt-2 min-h-[56px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
+              className="mt-2 min-h-[48px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-secondary)] outline-none placeholder:text-[var(--text-muted)]"
             />
-          </div>
+            {checklistOpen ? (
+              <TaskChecklistEditor items={checklist} onChange={setChecklist} className="mt-2" />
+            ) : null}
 
-          <div className="relative flex flex-wrap items-center gap-1.5 px-5 pb-3">
+            <div className="relative mt-3 flex flex-wrap items-center gap-1.5 pb-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <ComposerPill>
@@ -443,6 +465,43 @@ export function NewTaskComposer({
                 </ComposerPill>
               }
             />
+
+            <TooltipProvider delayDuration={120}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (checklistOpen) {
+                        if (meaningfulChecklistItems(checklist).length === 0) {
+                          setChecklist([]);
+                          setChecklistOpen(false);
+                        }
+                        return;
+                      }
+                      const next = checklist.length > 0 ? checklist : [createChecklistItem()];
+                      setChecklist(next);
+                      setChecklistOpen(true);
+                    }}
+                    className={cn(
+                      'ml-auto flex h-7 w-7 items-center justify-center rounded-[var(--radius-row)] text-[var(--icon-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
+                      checklistOpen && 'bg-[var(--row-hover)] text-[var(--text-primary)]',
+                    )}
+                    aria-label="Checklist"
+                    aria-pressed={checklistOpen}
+                  >
+                    <ListTodo className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent
+                  side="bottom"
+                  className="rounded-md border-[var(--border-floating)] bg-[var(--surface-raised)] px-2 py-1 text-[12px] text-[var(--text-primary)] shadow-sm"
+                >
+                  Checklist
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-3 border-t border-[var(--divider-subtle)] px-5 py-2.5">
