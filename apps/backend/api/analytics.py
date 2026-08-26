@@ -14,6 +14,10 @@ from sqlalchemy import select, and_, or_
 from database.connection import get_db_session
 from database.models import HabitDB, HabitLogDB
 from services.analytics_service import analytics_service
+from services.computed_metrics_service import (
+    computed_metrics_service,
+    is_computed_computer_time_habit,
+)
 from services.habit_daily_policy import daily_policy_v2_enabled
 
 logger = logging.getLogger(__name__)
@@ -46,12 +50,41 @@ def create_analytics_router(
     ):
         try:
             tb = require_tinybird()
-            return await tb.get_habits_summary_payload(
+            payload = await tb.get_habits_summary_payload(
                 current_user["id"],
                 days_back,
                 start_date,
                 end_date,
             )
+            async with get_db_session() as session:
+                habits_result = await session.execute(
+                    select(HabitDB).where(HabitDB.user_id == current_user["id"])
+                )
+                computer_habit = next(
+                    (
+                        habit
+                        for habit in habits_result.scalars().all()
+                        if is_computed_computer_time_habit(habit)
+                    ),
+                    None,
+                )
+            if computer_habit is not None:
+                computed_row = await computed_metrics_service.build_summary_row(
+                    user_id=current_user["id"],
+                    habit=computer_habit,
+                    start_date=start_date,
+                    end_date=end_date,
+                    days_back=days_back,
+                    custom_range=bool(start_date and end_date),
+                )
+                rows = [
+                    row
+                    for row in payload.get("data") or []
+                    if row.get("habit_id") != computer_habit.id
+                ]
+                rows.append(computed_row)
+                payload["data"] = rows
+            return payload
         except HTTPException:
             raise
         except Exception:

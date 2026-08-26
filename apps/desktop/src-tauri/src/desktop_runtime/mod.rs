@@ -32,6 +32,8 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-privacy-state-v1",
     "desktop-local-activity-rollups-v1",
     "desktop-computer-sync-v2",
+    "desktop-computer-sync-v3",
+    "desktop-resident-runtime-v1",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
 pub(crate) const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
@@ -97,6 +99,9 @@ pub enum DesktopComputerSyncStage {
     Uploading,
     Verifying,
     Downloading,
+    // Serialized by sync-v2 clients during the compatibility window. New
+    // sync-v3 orchestration never constructs this stage.
+    #[allow(dead_code)]
     Projecting,
     Synced,
     PrivacyBlocked,
@@ -216,7 +221,9 @@ impl Default for DesktopShellState {
             pending_update: Mutex::new(None),
             pending_auth_deep_link: Mutex::new(None),
             auth_state: Mutex::new(DesktopAuthState::default()),
-            privacy_state: Mutex::new(crate::privacy_policy::DesktopPrivacyState::default()),
+            privacy_state: Mutex::new(
+                crate::privacy_policy::load_persisted_privacy_state().unwrap_or_default(),
+            ),
             computer_sync_state: Mutex::new(DesktopComputerSyncRuntimeState::default()),
             auth_generation: AtomicU64::new(0),
             biome_drain: Mutex::new(BiomeDrainSnapshot::default()),
@@ -623,6 +630,7 @@ pub async fn desktop_set_privacy_state<R: Runtime + 'static>(
     state: crate::privacy_policy::DesktopPrivacyStateInput,
 ) -> Result<DesktopRuntimeState, String> {
     let next_state = crate::privacy_policy::DesktopPrivacyState::try_from(state)?;
+    crate::privacy_policy::persist_privacy_state(&next_state)?;
     let cloud_allowed = crate::privacy_policy::plaintext_cloud_sync_allowed(&next_state).is_ok();
     let state_changed = {
         let shell = app.state::<DesktopShellState>();

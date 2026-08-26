@@ -14,5 +14,6 @@ pub mod queries;
 pub use config::{
     clear_watcher_config, get_saved_watcher_config, save_watcher_config, WatcherConfig,
 };
+pub(crate) use config::{load_watcher_preference, WatcherPreferenceState};
 pub use lifecycle::{get_watcher_lifecycle_snapshot, start_watcher_sync, WatcherLifecycleSnapshot};
 pub use permissions::check_accessibility_permission;

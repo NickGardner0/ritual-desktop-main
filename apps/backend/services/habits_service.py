@@ -22,6 +22,7 @@ from services.tinybird_service import TinybirdService
 from services.habit_daily_policy import daily_policy_v2_enabled, is_sleep_like, log_shadow_mismatch
 from services.secondary_job_runner import secondary_job_runner
 from services.action_receipt_service import action_receipt_service
+from services.computed_metrics_service import is_computed_computer_time_habit
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,10 @@ class HabitLogRevisionConflictError(Exception):
 
 class HabitLogUpdateValidationError(Exception):
     """The requested habit-log edit is invalid."""
+
+
+class ComputedMetricReadOnlyError(Exception):
+    """A derived system metric cannot accept manual habit-log writes."""
 
 
 # Phase 5A: Built-in synonym map for common habit types
@@ -524,6 +529,25 @@ class HabitsService:
                     )
                     existing_row = dup.scalar_one_or_none()
                     if existing_row:
+                        incoming_computer_time = (
+                            str(habit_data.metric_type or "").strip().lower() == "computer_time"
+                        )
+                        safe_legacy_computer_time = (
+                            incoming_computer_time
+                            and existing_row.is_custom is False
+                            and not (existing_row.metric_type or "").strip()
+                            and not (existing_row.integration_source or "").strip()
+                            and (existing_row.name or "").strip().lower()
+                            in {"computer time", "computer use", "computer activity"}
+                        )
+                        if safe_legacy_computer_time:
+                            existing_row.metric_type = "computer_time"
+                            existing_row.integration_source = "ritual_watcher"
+                            existing_row.sensor_type = "Automatic"
+                            existing_row.unit_type = existing_row.unit_type or "Hours"
+                            existing_row.updated_at = datetime.utcnow()
+                            await session.commit()
+                            await session.refresh(existing_row)
                         logger.info(
                             "Habit '%s' already exists for user %s; returning existing",
                             habit_data.name,
@@ -750,6 +774,10 @@ class HabitsService:
                 habit = await self.get_habit_by_id(habit_id, user_id)
                 if not habit:
                     raise Exception("Habit not found or not authorized")
+                if is_computed_computer_time_habit(habit):
+                    raise ComputedMetricReadOnlyError(
+                        "Computer Time is calculated automatically from Ritual Watcher rollups."
+                    )
 
                 client_event_id = getattr(log_data, "client_event_id", None)
                 conversation_id = getattr(log_data, "conversation_id", None)
@@ -1147,6 +1175,15 @@ class HabitsService:
                             "index": index,
                             "success": False,
                             "error": f"Habit not found or not authorized: {habit_id}"
+                        })
+                        continue
+
+                    if is_computed_computer_time_habit(habit):
+                        validation_errors.append({
+                            "index": index,
+                            "success": False,
+                            "error": "Computer Time is calculated automatically from Ritual Watcher rollups.",
+                            "code": "computed_metric_read_only",
                         })
                         continue
 

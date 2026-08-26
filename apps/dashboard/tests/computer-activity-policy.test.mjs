@@ -129,7 +129,7 @@ test("non-ready empty computer states never render as factual zero", () => {
     state: "sync_pending",
     looksEmpty: true,
     isPlaceholder: false,
-  }), "Sync pending");
+  }), "—");
   assert.equal(getComputerUnavailableDisplay({
     state: "unavailable",
     looksEmpty: true,
@@ -141,6 +141,55 @@ test("non-ready empty computer states never render as factual zero", () => {
     looksEmpty: true,
     isPlaceholder: false,
   }), "Update required");
+});
+
+test("Index computer totals never expose cloud sync status text", () => {
+  const metricsSource = readFileSync(
+    join(
+      process.cwd(),
+      "apps/dashboard/components/analytics/overview/useOverviewHabitMetrics.ts",
+    ),
+    "utf8",
+  );
+  assert.doesNotMatch(metricsSource, /Sync pending/);
+});
+
+test("desktop Computer Time refreshes automatically in foreground and background", () => {
+  const querySource = readFileSync(
+    join(process.cwd(), "apps/dashboard/hooks/use-computer-snapshot-query.ts"),
+    "utf8",
+  );
+  assert.match(querySource, /refetchOnWindowFocus:\s*shouldAutoRefresh/);
+  assert.match(querySource, /refetchInterval:\s*shouldAutoRefresh \? 5_000 : false/);
+  assert.match(querySource, /refetchIntervalInBackground:\s*shouldAutoRefresh/);
+});
+
+test("Computer Time is a stable read-only system-derived habit", () => {
+  const ensureSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/lib/ensure-computer-time-habit.ts"),
+    "utf8",
+  );
+  const discriminatorSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/lib/computer-time-habit.ts"),
+    "utf8",
+  );
+  assert.match(ensureSource, /sensor_type:\s*'Automatic'/);
+  assert.match(ensureSource, /integration_source:\s*'ritual_watcher'/);
+  assert.match(ensureSource, /metric_type:\s*'computer_time'/);
+  assert.match(discriminatorSource, /metricType === 'computer_time'/);
+  assert.match(discriminatorSource, /habit\.is_custom === false/);
+  assert.match(discriminatorSource, /integrationSource === 'ritual_watcher'/);
+});
+
+test("resident controls remain in Computer Use settings while Index stays quiet", () => {
+  const settingsSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/components/computer-tracking-settings.tsx"),
+    "utf8",
+  );
+  assert.match(settingsSource, /desktop-resident-runtime-v1/);
+  assert.match(settingsSource, /title="Launch at Login"/);
+  assert.match(settingsSource, /title="Show in Menu Bar"/);
+  assert.doesNotMatch(settingsSource, /projecting:\s*'Updating habit/);
 });
 
 test("only factual empty may continue to numeric zero rendering", () => {

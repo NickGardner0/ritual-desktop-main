@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Shield,
   Eye,
@@ -10,39 +10,37 @@ import {
   RefreshCw,
   Clock,
   Database,
+  LogIn,
+  Menu,
   Monitor,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuth } from '@clerk/nextjs';
-import { useQueryClient } from '@tanstack/react-query';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 import { apiOperationWithAuth } from '@/lib/api/client';
 import {
   desktopHasCapability,
-  desktopSetPrivacyState,
-  getDesktopRuntimeState,
-  syncComputerActivityNow,
-  type ComputerActivitySyncResult,
-  type DesktopComputerSyncStage,
+  desktopSetComputerTracking,
+  desktopSetLaunchAtLogin,
+  desktopSetMenuBarVisibility,
+  getDesktopResidentRuntimeState,
+  type DesktopResidentRuntimeState,
+  type DesktopWatcherConfig,
 } from '@/lib/native-gateway';
-import { invalidateAfterComputerSync } from '@/lib/query-invalidation';
-import { readPrivacySettings, type PrivacySettings } from '@/lib/privacy/privacy-settings';
 import { cn } from '@/lib/utils';
+import {
+  attributionHealthStatusClass,
+  DiagRow,
+  formatDebugTimestamp,
+  NativeRow,
+  NativeSection,
+  NativeToggle,
+} from '@/components/computer-tracking-settings.native';
+import { useComputerActivitySync } from '@/components/use-computer-activity-sync';
 
-interface WatcherConfig {
-  device_id: string;
-  user_id: string;
-  poll_interval_ms: number;
-  title_mode: 'off' | 'full' | 'truncate' | 'hash';
-  truncate_length: number;
-  excluded_bundle_ids: string[];
-  afk_timeout_seconds?: number;
-  url_mode?: string;
-  track_incognito?: boolean;
-  browser_heartbeat_port?: number;
-}
+type WatcherConfig = DesktopWatcherConfig;
 
 interface WatcherStatus {
   is_running: boolean;
@@ -141,8 +139,7 @@ interface ComputerTrackingSettingsProps {
 
 export function ComputerTrackingSettings({ userId, showAttributionHealth = false, onClose }: ComputerTrackingSettingsProps) {
   const { getToken } = useAuth();
-  const queryClient = useQueryClient();
-  const { habits, createHabit, fetchHabits } = useHabits();
+  const { habits, createHabit, updateHabit, fetchHabits } = useHabits();
   const cachedState = useRef(getCachedState());
 
   const [isLoading, setIsLoading] = useState(true);
@@ -161,118 +158,32 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   const [pollInterval, setPollInterval] = useState(2000);
   const [excludedApps, setExcludedApps] = useState<string[]>([]);
   const [afkTimeout, setAfkTimeout] = useState(900);
-  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [computerSyncCapability, setComputerSyncCapability] = useState<boolean | null>(null);
-  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(() => readPrivacySettings());
-  const [computerSyncStage, setComputerSyncStage] = useState<DesktopComputerSyncStage>('idle');
-  const [computerSyncResult, setComputerSyncResult] = useState<ComputerActivitySyncResult | null>(null);
+  const [residentCapability, setResidentCapability] = useState<boolean | null>(null);
+  const [residentState, setResidentState] = useState<DesktopResidentRuntimeState | null>(null);
+  const [residentBusy, setResidentBusy] = useState(false);
   const [browserDiagnostics, setBrowserDiagnostics] = useState<BrowserExtensionDiagnostics | null>(null);
   const [attributionHealth, setAttributionHealth] = useState<ProjectTimeAttributionHealth | null>(null);
   const [attributionHealthLoading, setAttributionHealthLoading] = useState(false);
 
   // ------ callbacks ------
 
-  const syncComputerActivity = useCallback(async () => {
-    if (!computerSyncCapability) return;
-    let runtimePoll: ReturnType<typeof setInterval> | null = null;
-    try {
-      setIsSyncing(true);
-      setComputerSyncResult(null);
-      setComputerSyncStage('materializing');
-      const currentPrivacy = readPrivacySettings();
-      setPrivacySettings(currentPrivacy);
-      await desktopSetPrivacyState(currentPrivacy);
-      runtimePoll = setInterval(() => {
-        void getDesktopRuntimeState().then((runtime) => {
-          if (runtime?.computerSync.stage) setComputerSyncStage(runtime.computerSync.stage);
-        });
-      }, 400);
-      const result = await syncComputerActivityNow();
-      if (!result) {
-        throw new Error('Desktop sync is unavailable. Update Ritual and try again.');
-      }
-      setComputerSyncResult(result);
-      setComputerSyncStage(result.stage);
-      if (result.outcome === 'cloud_synced' || result.outcome === 'local_refreshed') {
-        setLastSyncTime(new Date());
-      }
-      await invalidateAfterComputerSync(queryClient, userId);
-    } catch (e) {
-      console.error('Failed to sync to habit:', e);
-      setComputerSyncStage('failed');
-      setComputerSyncResult({
-        outcome: 'failed',
-        stage: 'failed',
-        uploadedRollups: 0,
-        supersededRawRows: 0,
-        pendingRollups: 0,
-        pendingRawRows: 0,
-        errorCode: 'desktop_sync_unavailable',
-        errorMessage: e instanceof Error ? e.message : String(e),
-      });
-    } finally {
-      if (runtimePoll) clearInterval(runtimePoll);
-      setIsSyncing(false);
-    }
-  }, [computerSyncCapability, queryClient, userId]);
+  const computerSync = useComputerActivitySync(userId);
 
   useEffect(() => {
     let cancelled = false;
-    void desktopHasCapability('desktop-computer-sync-v2').then((supported) => {
-      if (!cancelled) setComputerSyncCapability(supported);
+    void desktopHasCapability('desktop-resident-runtime-v1').then((residentSupported) => {
+      if (cancelled) return;
+      setResidentCapability(residentSupported);
+      if (residentSupported) {
+        void getDesktopResidentRuntimeState().then((state) => {
+          if (!cancelled && state) setResidentState(state);
+        });
+      }
     });
-    const handlePrivacyChange = () => setPrivacySettings(readPrivacySettings());
-    window.addEventListener('ritual:privacy-settings-changed', handlePrivacyChange);
     return () => {
       cancelled = true;
-      window.removeEventListener('ritual:privacy-settings-changed', handlePrivacyChange);
     };
   }, []);
-
-  const cloudRollupSyncEnabled = privacySettings.mode === 'cloud_intelligence'
-    && privacySettings.consents.plaintext_sync === true;
-  const syncActionLabel = computerSyncCapability === false
-    ? 'Update required'
-    : cloudRollupSyncEnabled
-      ? 'Sync Now'
-      : 'Refresh Local Stats';
-  const syncProgressLabel: Partial<Record<DesktopComputerSyncStage, string>> = {
-    materializing: 'Refreshing...',
-    obtaining_config: 'Connecting...',
-    uploading: 'Uploading...',
-    verifying: 'Verifying...',
-    downloading: 'Downloading...',
-    projecting: 'Updating habit...',
-  };
-  const syncDescription = (() => {
-    if (computerSyncCapability === false) return 'Update Ritual to use local-first Computer Time sync.';
-    if (isSyncing) return syncProgressLabel[computerSyncStage] || 'Refreshing local statistics...';
-    if (computerSyncResult?.outcome === 'privacy_blocked') return 'Privacy consent required for cloud rollup sync.';
-    if (computerSyncResult?.outcome === 'cloud_pending') {
-      if (computerSyncResult.errorMessage) return computerSyncResult.errorMessage;
-      const pending = [
-        computerSyncResult.pendingRollups > 0
-          ? `${computerSyncResult.pendingRollups.toLocaleString()} rollups pending`
-          : null,
-        computerSyncResult.pendingRawRows > 0
-          ? `${computerSyncResult.pendingRawRows.toLocaleString()} historical rows awaiting acknowledgement`
-          : null,
-      ].filter(Boolean);
-      return `${pending.join(' · ') || 'Cloud sync pending'}; background sync will continue.`;
-    }
-    if (computerSyncResult?.outcome === 'failed') {
-      return computerSyncResult.errorMessage || 'Aggregation unavailable.';
-    }
-    if (computerSyncResult?.outcome === 'local_refreshed') return 'Local statistics refreshed. No cloud data was sent.';
-    if (computerSyncResult?.outcome === 'cloud_synced') return 'Synced local rollups and downloaded other-device totals.';
-    if (lastSyncTime) {
-      return `Last synced ${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    }
-    return cloudRollupSyncEnabled
-      ? 'Upload privacy-safe daily rollups and update Computer Time.'
-      : 'Refresh Computer Time from activity stored on this Mac.';
-  })();
 
   const checkAccessibility = useCallback(async () => {
     try {
@@ -313,10 +224,11 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       setIsLoading(true);
       setError(null);
 
-      const [accessGranted, status, diagnostics] = await Promise.all([
+      const [accessGranted, status, diagnostics, resident] = await Promise.all([
         invoke<boolean>('check_accessibility_permission').catch(() => false),
         invoke<WatcherStatus>('get_watcher_status').catch(() => null),
-        invoke<BrowserExtensionDiagnostics>('get_browser_extension_diagnostics').catch(() => null)
+        invoke<BrowserExtensionDiagnostics>('get_browser_extension_diagnostics').catch(() => null),
+        getDesktopResidentRuntimeState().catch(() => null),
       ]);
 
       setAccessibilityGranted(accessGranted);
@@ -324,12 +236,18 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         setIsRunning(status.is_running);
         if (status.is_running) setIsEnabled(true);
       }
+      if (resident) {
+        setResidentState(resident);
+        setIsEnabled(resident.trackingEnabled);
+        setIsRunning(resident.watcherRunning);
+        if (resident.lastErrorMessage) setError(resident.lastErrorMessage);
+      }
       if (diagnostics) setBrowserDiagnostics(diagnostics);
       setIsStatusLoading(false);
 
       setCachedState({
-        isRunning: status?.is_running ?? false,
-        isEnabled: status?.is_running ?? false,
+        isRunning: resident?.watcherRunning ?? status?.is_running ?? false,
+        isEnabled: resident?.trackingEnabled ?? status?.is_running ?? false,
         accessibilityGranted: accessGranted,
         deviceId: deviceId,
         titleMode: titleMode
@@ -342,15 +260,15 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         if (data.devices && data.devices.length > 0) {
           const device = data.devices[0];
           setDeviceId(device.device_id);
-          if (!status?.is_running) setIsEnabled(Boolean(device.is_enabled));
+          if (!resident && !status?.is_running) setIsEnabled(Boolean(device.is_enabled));
           setTitleMode((device.state?.title_mode || 'off') as CachedWatcherState['titleMode']);
           setPollInterval(device.state?.poll_interval_ms || 2000);
           setExcludedApps(device.state?.excluded_bundle_ids || []);
           setAfkTimeout(device.state?.afk_timeout_seconds || 900);
 
           setCachedState({
-            isRunning: status?.is_running ?? false,
-            isEnabled: Boolean(status?.is_running || device.is_enabled),
+            isRunning: resident?.watcherRunning ?? status?.is_running ?? false,
+            isEnabled: resident?.trackingEnabled ?? Boolean(status?.is_running || device.is_enabled),
             accessibilityGranted: accessGranted,
             deviceId: device.device_id,
             titleMode: (device.state?.title_mode || 'off') as CachedWatcherState['titleMode'],
@@ -431,8 +349,17 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
 
     if (isEnabled) {
       try {
-        await invoke('stop_watcher');
-        await invoke('clear_watcher_config_cmd');
+        const resident = residentCapability
+          ? await desktopSetComputerTracking({ enabled: false })
+          : null;
+        if (!residentCapability) {
+          await invoke('stop_watcher');
+          await invoke('clear_watcher_config_cmd');
+        }
+        if (resident) {
+          setResidentState(resident);
+          if (resident.lastErrorMessage) setError(resident.lastErrorMessage);
+        }
         setIsRunning(false);
         setIsEnabled(false);
         await getBrowserExtensionDiagnostics();
@@ -462,10 +389,23 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           track_incognito: false,
           browser_heartbeat_port: 8766,
         };
-        await invoke('start_watcher', { config });
-        await invoke('save_watcher_config_cmd', { config });
+        const resident = residentCapability
+          ? await desktopSetComputerTracking({ enabled: true, config })
+          : null;
+        if (!residentCapability) {
+          await invoke('start_watcher', { config });
+          await invoke('save_watcher_config_cmd', { config });
+        }
+        if (resident) {
+          setResidentState(resident);
+          if (resident.lastErrorMessage) setError(resident.lastErrorMessage);
+        }
         setIsRunning(true);
         setIsEnabled(true);
+        await ensureComputerTimeHabit(habits, createHabit, updateHabit).catch((habitError) => {
+          console.warn('Could not ensure system-derived Computer Time habit:', habitError);
+        });
+        void fetchHabits().catch(() => undefined);
         await getBrowserExtensionDiagnostics();
         setCachedState({ isRunning: true, isEnabled: true, accessibilityGranted, deviceId, titleMode });
         if (deviceId) {
@@ -482,7 +422,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
     setIsSaving(true);
     try {
       try {
-        await ensureComputerTimeHabit(habits, createHabit);
+        await ensureComputerTimeHabit(habits, createHabit, updateHabit);
         await fetchHabits();
       } catch (e) {
         console.warn('Could not ensure Computer Time habit:', e);
@@ -501,7 +441,6 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       );
 
       if (isRunning) {
-        await invoke('stop_watcher');
         const config: WatcherConfig = {
           device_id: deviceId,
           user_id: userId,
@@ -514,8 +453,17 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           track_incognito: false,
           browser_heartbeat_port: 8766,
         };
-        await invoke('start_watcher', { config });
-        await invoke('save_watcher_config_cmd', { config });
+        if (residentCapability) {
+          const resident = await desktopSetComputerTracking({ enabled: true, config });
+          if (resident) {
+            setResidentState(resident);
+            if (resident.lastErrorMessage) setError(resident.lastErrorMessage);
+          }
+        } else {
+          await invoke('stop_watcher');
+          await invoke('start_watcher', { config });
+          await invoke('save_watcher_config_cmd', { config });
+        }
       }
     } catch (e) {
       setError('Failed to save settings');
@@ -529,6 +477,40 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       setExcludedApps(excludedApps.filter(id => id !== bundleId));
     } else {
       setExcludedApps([...excludedApps, bundleId]);
+    }
+  };
+
+  const toggleLaunchAtLogin = async () => {
+    if (!residentCapability || !residentState) return;
+    setResidentBusy(true);
+    setError(null);
+    try {
+      const state = await desktopSetLaunchAtLogin(!residentState.launchAtLoginRegistered);
+      if (state) {
+        setResidentState(state);
+        if (state.lastErrorMessage) setError(state.lastErrorMessage);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update Launch at Login');
+    } finally {
+      setResidentBusy(false);
+    }
+  };
+
+  const toggleMenuBarVisibility = async () => {
+    if (!residentCapability || !residentState) return;
+    setResidentBusy(true);
+    setError(null);
+    try {
+      const state = await desktopSetMenuBarVisibility(!residentState.showMenuBar);
+      if (state) {
+        setResidentState(state);
+        if (state.lastErrorMessage) setError(state.lastErrorMessage);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update menu-bar visibility');
+    } finally {
+      setResidentBusy(false);
     }
   };
 
@@ -564,6 +546,37 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           )}
         />
 
+        {residentCapability && residentState && (
+          <>
+            <NativeRow
+              icon={<LogIn className="h-4 w-4" />}
+              title="Launch at Login"
+              description={residentState.loginPromptState === 'required'
+                ? 'Finish setup so Ritual can keep tracking after you restart your Mac.'
+                : 'Start Ritual quietly and resume tracking when you sign in.'}
+              control={(
+                <NativeToggle
+                  checked={residentState.launchAtLoginRegistered}
+                  onClick={toggleLaunchAtLogin}
+                  disabled={residentBusy}
+                />
+              )}
+            />
+            <NativeRow
+              icon={<Menu className="h-4 w-4" />}
+              title="Show in Menu Bar"
+              description="Optional controls for opening Ritual, pausing tracking, and quitting completely."
+              control={(
+                <NativeToggle
+                  checked={residentState.showMenuBar}
+                  onClick={toggleMenuBarVisibility}
+                  disabled={residentBusy}
+                />
+              )}
+            />
+          </>
+        )}
+
         {!accessibilityGranted && (
           <NativeRow
             icon={<AlertCircle className="h-4 w-4 text-amber-600" />}
@@ -581,16 +594,16 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         )}
 
         <NativeRow
-          icon={<RefreshCw className={cn('h-4 w-4', isSyncing && 'animate-spin')} />}
-          title={cloudRollupSyncEnabled ? 'Sync computer activity' : 'Local computer statistics'}
-          description={syncDescription}
+          icon={<RefreshCw className={cn('h-4 w-4', computerSync.isSyncing && 'animate-spin')} />}
+          title={computerSync.cloudEnabled ? 'Sync computer activity' : 'Local computer statistics'}
+          description={computerSync.description}
           control={(
             <button
-              onClick={syncComputerActivity}
-              disabled={isSyncing || computerSyncCapability !== true}
+              onClick={computerSync.sync}
+              disabled={computerSync.isSyncing || computerSync.capability !== true}
               className="settings-value-button disabled:opacity-50"
             >
-              {isSyncing ? (syncProgressLabel[computerSyncStage] || 'Refreshing...') : syncActionLabel}
+              {computerSync.isSyncing ? computerSync.progressLabel : computerSync.actionLabel}
             </button>
           )}
         />
@@ -691,7 +704,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           description="Controlled by Cloud Intelligence and plaintext sync consent in Privacy settings."
           control={(
             <span className="text-[12px] font-medium text-[#6f6f6f]">
-              {cloudRollupSyncEnabled ? 'Enabled' : 'Off'}
+              {computerSync.cloudEnabled ? 'Enabled' : 'Off'}
             </span>
           )}
         />
@@ -761,106 +774,5 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       </div>
 
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Helper components
-// ---------------------------------------------------------------------------
-
-function DiagRow({ label, value, ok }: { label: string; value: string; ok?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-4 text-xs">
-      <span className="text-gray-500">{label}</span>
-      <span className={cn('text-right', ok === true ? 'text-green-700' : ok === false ? 'text-red-700' : 'text-gray-900')}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-function formatDebugTimestamp(value: unknown): string {
-  const ts = Number(value || 0);
-  if (!Number.isFinite(ts) || ts <= 0) return 'Unavailable';
-  return new Date(ts).toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function attributionHealthStatusClass(status?: string): string {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'healthy') return 'border-green-200 bg-green-50 text-green-700';
-  if (normalized === 'catching up') return 'border-amber-200 bg-amber-50 text-amber-700';
-  if (normalized === 'degraded but usable') return 'border-orange-200 bg-orange-50 text-orange-700';
-  return 'border-red-200 bg-red-50 text-red-700';
-}
-
-function NativeSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h2 className="mb-[6px] ml-[10px] text-[11px] font-semibold uppercase leading-none tracking-[0.045em] text-[#8a8a8a]">{title}</h2>
-      <div className="settings-group-card overflow-hidden">
-        {children}
-      </div>
-    </section>
-  );
-}
-
-function NativeRow({
-  icon,
-  title,
-  description,
-  control,
-}: {
-  icon?: React.ReactNode;
-  title: string;
-  description?: React.ReactNode;
-  control: React.ReactNode;
-}) {
-  return (
-    <div className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-[18px] py-[7px]">
-      <div className="flex min-w-0 items-center gap-3">
-        {icon ? <div className="shrink-0 text-[#7a7a7a]">{icon}</div> : null}
-        <div className="min-w-0">
-          <p className="text-[13px] font-medium leading-[16px] text-[#1d1d1f]">{title}</p>
-          {description ? (
-            <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">{description}</p>
-          ) : null}
-        </div>
-      </div>
-      <div className="flex shrink-0 items-center justify-end">{control}</div>
-    </div>
-  );
-}
-
-function NativeToggle({
-  checked,
-  onClick,
-  disabled,
-}: {
-  checked: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={checked}
-      className={cn(
-        'relative inline-flex h-4 w-[28px] flex-shrink-0 items-center rounded-full transition-colors duration-200 shadow-[inset_0_1px_2px_rgba(0,0,0,0.10)] disabled:opacity-50',
-        checked ? 'bg-black' : 'bg-[#d9d9d7]',
-      )}
-    >
-      <span
-        className={cn(
-          'inline-block h-3 w-3 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform duration-200',
-          checked ? 'translate-x-[13px]' : 'translate-x-[2px]',
-        )}
-      />
-    </button>
   );
 }

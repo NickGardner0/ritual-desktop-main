@@ -224,6 +224,7 @@ export function useComputerSnapshotQuery({
   const rangeWindow = useMemo(() => getAnalyticsRangeWindow(dateRange), [dateRange]);
   const rangeKey = rangeWindow.rangeKey;
   const queryUserId = userId ?? 'anonymous';
+  const shouldAutoRefresh = isDesktopTauriRuntime();
   const persistedSnapshot = useMemo(
     () => readPersistedSnapshot(userId, rangeKey),
     [userId, rangeKey],
@@ -257,8 +258,9 @@ export function useComputerSnapshotQuery({
     placeholderData: (previous) => previous ?? persistedSnapshot?.data ?? EMPTY_COMPUTER_SNAPSHOT,
     staleTime: QUERY_POLICY.computerSnapshot.staleTime,
     gcTime: QUERY_POLICY.computerSnapshot.gcTime,
-    refetchOnWindowFocus: false,
-    refetchInterval: isDesktopTauriRuntime() ? 5_000 : false,
+    refetchOnWindowFocus: shouldAutoRefresh,
+    refetchInterval: shouldAutoRefresh ? 5_000 : false,
+    refetchIntervalInBackground: shouldAutoRefresh,
   });
 
   useEffect(() => {

@@ -25,7 +25,7 @@ import { differenceInDays } from 'date-fns';
 import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { useHabits } from '@/contexts/HabitsContext';
 import type { RangeKey } from '@/components/charts/PerplexityExpandedHabitChart';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { isComputerTimeHabit } from '@/lib/computer-time-habit';
 import {
   buildComputerActivityMetricCardData,
   buildHabitMetricCardData,
@@ -378,7 +378,13 @@ export function useMetricsView({
     const next: Record<string, MetricCardData> = {};
     for (const habit of availableHabits) {
       const habitId = habit.habit_id;
-      if (!habitId || isComputerHabitName(habit.habit_name)) continue;
+      if (!habitId || isComputerTimeHabit({
+        name: habit.habit_name,
+        metric_type: typeof habit.metric_type === 'string' ? habit.metric_type : null,
+        integration_source: typeof habit.integration_source === 'string' ? habit.integration_source : null,
+        sensor_type: typeof habit.sensor_type === 'string' ? habit.sensor_type : null,
+        is_custom: typeof habit.is_custom === 'boolean' ? habit.is_custom : null,
+      })) continue;
       const card = buildHabitMetricCardData({
         habit,
         logs: mergedCardAnalyticsData[habitId] || [],

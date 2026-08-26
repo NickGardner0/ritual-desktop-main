@@ -7,7 +7,7 @@ members = [
 
 [package]
 name = "app"
-version = "0.1.100"
+version = "0.1.101"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -64,6 +64,8 @@ tauri-plugin-fs = "2.5.0"
 tauri-plugin-shell = "2.3.5"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-global-shortcut = "2.3.2"
+tauri-plugin-autostart = "2.5.1"
+tauri-plugin-single-instance = "2.4.3"
 
 # macOS specific for watcher + vibrancy
 [target.'cfg(target_os = "macos")'.dependencies]

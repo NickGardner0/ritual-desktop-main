@@ -147,6 +147,38 @@ export type ComputerActivitySyncResult = {
   errorMessage?: string | null;
 };
 
+export type DesktopLoginPromptState =
+  | 'not_required'
+  | 'required'
+  | 'accepted'
+  | 'dismissed';
+
+export type DesktopResidentRuntimeState = {
+  backgroundLaunch: boolean;
+  trackingEnabled: boolean;
+  watcherRunning: boolean;
+  launchAtLogin: boolean;
+  launchAtLoginRegistered: boolean;
+  showMenuBar: boolean;
+  windowVisible: boolean;
+  loginPromptState: DesktopLoginPromptState;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+};
+
+export type DesktopWatcherConfig = {
+  device_id: string;
+  user_id: string;
+  poll_interval_ms: number;
+  title_mode: 'off' | 'full' | 'truncate' | 'hash';
+  truncate_length: number;
+  excluded_bundle_ids: string[];
+  afk_timeout_seconds?: number;
+  url_mode?: string;
+  track_incognito?: boolean;
+  browser_heartbeat_port?: number;
+};
+
 export type DesktopProcessMetrics = {
   webviewPid?: number | null;
   webviewRssBytes?: number | null;
@@ -413,6 +445,43 @@ export async function desktopSetPrivacyState(input: {
 export async function syncComputerActivityNow(): Promise<ComputerActivitySyncResult | null> {
   if (!isDesktopTauriRuntime()) return null;
   return invokeDesktopCommand<ComputerActivitySyncResult>('sync_computer_activity_now');
+}
+
+export async function getDesktopResidentRuntimeState(): Promise<DesktopResidentRuntimeState | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopResidentRuntimeState>('desktop_get_resident_runtime_state');
+}
+
+export async function desktopSetComputerTracking(input: {
+  enabled: boolean;
+  config?: DesktopWatcherConfig | null;
+}): Promise<DesktopResidentRuntimeState | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopResidentRuntimeState>('desktop_set_computer_tracking', {
+    input: {
+      enabled: input.enabled,
+      config: input.config ?? null,
+    },
+  });
+}
+
+export async function desktopSetLaunchAtLogin(
+  enabled: boolean,
+): Promise<DesktopResidentRuntimeState | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopResidentRuntimeState>('desktop_set_launch_at_login', { enabled });
+}
+
+export async function desktopSetMenuBarVisibility(
+  visible: boolean,
+): Promise<DesktopResidentRuntimeState | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopResidentRuntimeState>('desktop_set_menu_bar_visibility', { visible });
+}
+
+export async function desktopQuitCompletely(): Promise<void> {
+  if (!isDesktopTauriRuntime()) return;
+  await invokeDesktopCommand('desktop_quit_completely');
 }
 
 export async function desktopClearAuthState(): Promise<DesktopRuntimeState | null> {

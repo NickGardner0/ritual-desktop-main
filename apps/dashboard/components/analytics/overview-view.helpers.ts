@@ -97,7 +97,7 @@ export function getComputerUnavailableDisplay(input: {
 }): string | null {
   if (!input.looksEmpty || input.isPlaceholder || input.state === 'empty') return null;
   if (input.emptyReason?.includes('update_required')) return 'Update required';
-  if (input.state === 'sync_pending') return 'Sync pending';
+  if (input.state === 'sync_pending') return '—';
   return 'Unavailable';
 }
 

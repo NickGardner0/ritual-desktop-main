@@ -11,6 +11,7 @@ mod desktop_runtime_types;
 mod local_vault;
 mod native_widget;
 mod privacy_policy;
+mod resident_runtime;
 mod ritual_database;
 mod sidecar_integrity;
 mod watcher;
@@ -554,14 +555,19 @@ fn install_qa_reload_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Resu
     Ok(())
 }
 
-fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
+fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(
+    app: tauri::AppHandle<R>,
+    background_launch: bool,
+) {
     tauri::async_runtime::spawn(async move {
         let startup_started_at = Instant::now();
         let mut activity_database_ready = false;
 
-        // Let the webview paint before doing heavier native startup work so the
-        // main app finishes launching faster and the Dock icon settles sooner.
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        // Direct launches get a brief first-paint head start. Login launches
+        // prioritize capture because their webview starts hidden.
+        if !background_launch {
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
 
         let persisted_sync_started_at = Instant::now();
         match tauri::async_runtime::spawn_blocking(load_persisted_turso_sync_config).await {
@@ -2185,8 +2191,16 @@ fn sidebar_get_main_state(
 
 /// Show the main window (called from frontend when React is ready)
 #[tauri::command]
-#[instrument(skip(window))]
-fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
+#[instrument(skip(window, resident))]
+fn show_main_window(
+    window: tauri::WebviewWindow,
+    resident: tauri::State<resident_runtime::ResidentRuntimeStore>,
+) -> Result<(), String> {
+    // The hosted dashboard announces readiness on every load. A login launch
+    // must not become visible merely because its hidden auth webview mounted.
+    if resident.background_launch {
+        return Ok(());
+    }
     window
         .show()
         .map_err(|e| format!("Failed to show window: {}", e))?;
@@ -2194,6 +2208,24 @@ fn show_main_window(window: tauri::WebviewWindow) -> Result<(), String> {
         .set_focus()
         .map_err(|e| format!("Failed to focus window: {}", e))?;
     Ok(())
+}
+
+fn show_main_window_for_app<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    app.show()
+        .map_err(|error| format!("Failed to show Ritual application: {error}"))?;
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main Ritual window is unavailable".to_string())?;
+    window
+        .show()
+        .map_err(|error| format!("Failed to show Ritual window: {error}"))?;
+    if let Some(sidebar) = app.get_webview_window("sidebar") {
+        let _ = sidebar.show();
+    }
+    window
+        .set_focus()
+        .map_err(|error| format!("Failed to focus Ritual window: {error}"))
 }
 
 /// Read saved watcher config for auto-start
@@ -2204,8 +2236,14 @@ fn read_watcher_config() -> Option<watcher::WatcherConfig> {
 /// Save watcher config for auto-start (called from frontend)
 #[tauri::command]
 #[instrument(skip(config), fields(device_id = %config.device_id, user_id = %config.user_id))]
-fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String> {
+fn save_watcher_config_cmd(
+    app: tauri::AppHandle,
+    config: watcher::WatcherConfig,
+) -> Result<(), String> {
     watcher::save_watcher_config(&config)?;
+    app.state::<resident_runtime::ResidentRuntimeStore>()
+        .record_legacy_tracking_intent(true)?;
+    let _ = resident_runtime::refresh_tray_menu(&app);
     info!("Watcher config saved for auto-start");
     Ok(())
 }
@@ -2213,8 +2251,11 @@ fn save_watcher_config_cmd(config: watcher::WatcherConfig) -> Result<(), String>
 /// Clear watcher config (disable auto-start) (called from frontend)
 #[tauri::command]
 #[instrument]
-fn clear_watcher_config_cmd() -> Result<(), String> {
+fn clear_watcher_config_cmd(app: tauri::AppHandle) -> Result<(), String> {
     watcher::clear_watcher_config()?;
+    app.state::<resident_runtime::ResidentRuntimeStore>()
+        .record_legacy_tracking_intent(false)?;
+    let _ = resident_runtime::refresh_tray_menu(&app);
     info!("Watcher config cleared (auto-start disabled)");
     Ok(())
 }
@@ -2241,7 +2282,7 @@ fn reconcile_watcher_config_user_cmd(user_id: String) -> Result<bool, String> {
         "Reconciling watcher config user"
     );
     config.user_id = trimmed_user_id.to_string();
-    save_watcher_config_cmd(config.clone())?;
+    watcher::save_watcher_config(&config)?;
 
     if watcher::permissions::check_accessibility_permission() {
         match watcher::lifecycle::start_watcher_sync(config) {
@@ -2269,8 +2310,16 @@ fn main() {
     info!("Starting Ritual desktop app");
     let shell_feature_flags = DesktopShellFeatureFlags::from_env();
     shell_feature_flags.log_effective_values();
+    let background_launch = env::args().any(|argument| argument == "--background");
 
-    let builder = tauri::Builder::default();
+    // This plugin is intentionally first: all later startup paths assume there
+    // can be only one resident native host and one watcher sidecar.
+    let builder =
+        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Err(error) = show_main_window_for_app(app) {
+                warn!(error = %error, "Failed to reveal Ritual from second-instance launch");
+            }
+        }));
     #[cfg(any(debug_assertions, feature = "qa-tools"))]
     let builder = builder.on_menu_event(|app, event| {
         if event.id().as_ref() == "reload_main_webview" {
@@ -2278,6 +2327,13 @@ fn main() {
         }
     });
     let builder = builder
+        .plugin({
+            let builder = tauri_plugin_autostart::Builder::new().arg("--background");
+            #[cfg(target_os = "macos")]
+            let builder =
+                builder.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+            builder.build()
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
@@ -2302,6 +2358,9 @@ fn main() {
         .manage(VoiceHudRuntimeState::default())
         .manage(shell_feature_flags)
         .manage(desktop_runtime::DesktopShellState::default())
+        .manage(resident_runtime::ResidentRuntimeStore::load(
+            background_launch,
+        ))
         // Only expose native macOS features - auth is handled by Clerk
         .invoke_handler(tauri::generate_handler![
             // Window management
@@ -2363,6 +2422,11 @@ fn main() {
             desktop_runtime::auth_handoff::desktop_set_auth_token,
             desktop_runtime::desktop_set_privacy_state,
             cloud_sync::sync_computer_activity_now,
+            resident_runtime::desktop_get_resident_runtime_state,
+            resident_runtime::desktop_set_computer_tracking,
+            resident_runtime::desktop_set_launch_at_login,
+            resident_runtime::desktop_set_menu_bar_visibility,
+            resident_runtime::desktop_quit_completely,
             desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
             desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
             desktop_runtime::auth_handoff::desktop_clear_auth_state,
@@ -2389,8 +2453,10 @@ fn main() {
             ritual_database::init_ritual_database,
             ritual_database::get_project_time_attribution_health,
         ])
-        .setup(|app| {
+        .setup(move |app| {
             let setup_started_at = Instant::now();
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
@@ -2399,25 +2465,49 @@ fn main() {
             #[cfg(any(debug_assertions, feature = "qa-tools"))]
             install_qa_reload_menu(app)?;
 
-            let quit = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
-            let check_updates =
-                MenuItemBuilder::with_id("check_updates", "Check for Updates").build(app)?;
-            let tray_menu = MenuBuilder::new(app)
-                .items(&[&check_updates, &quit])
-                .build()?;
-            let _tray = TrayIconBuilder::new()
-                .menu(&tray_menu)
+            let resident_preferences = app.state::<resident_runtime::ResidentRuntimeStore>().read();
+            let tray = TrayIconBuilder::with_id(resident_runtime::RESIDENT_TRAY_ID)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id().as_ref() {
+                    "open_ritual" => {
+                        if let Err(error) = show_main_window_for_app(app) {
+                            warn!(error = %error, "Failed to open Ritual from menu bar");
+                        }
+                    }
+                    "toggle_tracking" => {
+                        let currently_enabled = app
+                            .state::<resident_runtime::ResidentRuntimeStore>()
+                            .read()
+                            .tracking_enabled;
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = resident_runtime::desktop_set_computer_tracking(
+                                app,
+                                resident_runtime::SetComputerTrackingInput {
+                                    enabled: !currently_enabled,
+                                    config: None,
+                                },
+                            )
+                            .await;
+                        });
+                    }
+                    "launch_at_login" => {
+                        let enabled = !app
+                            .state::<resident_runtime::ResidentRuntimeStore>()
+                            .read()
+                            .launch_at_login;
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ =
+                                resident_runtime::desktop_set_launch_at_login(app, enabled).await;
+                        });
+                    }
                     "quit" => {
-                        std::process::exit(0);
+                        resident_runtime::desktop_quit_completely(app.clone());
                     }
                     "check_updates" => {
                         info!("Check for updates requested from system tray");
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = show_main_window_for_app(app);
                         desktop_runtime::tray_check_for_updates(app.clone());
                     }
                     _ => {}
@@ -2430,13 +2520,17 @@ fn main() {
                     } = event
                     {
                         let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.set_focus();
-                        }
+                        let _ = show_main_window_for_app(app);
                     }
                 })
                 .build(app)?;
+            resident_runtime::refresh_tray_menu(app.handle())?;
+            tray.set_visible(resident_preferences.show_menu_bar)?;
+
+            // Capture and cloud workers are scheduled before the hosted
+            // dashboard window is constructed. A background login launch keeps
+            // the webview hidden while still allowing Clerk to refresh auth.
+            spawn_background_startup_tasks(app.handle().clone(), background_launch);
 
             #[cfg(target_os = "macos")]
             {
@@ -2487,7 +2581,7 @@ fn main() {
                         .decorations(true)
                         .transparent(main_glass_enabled)
                         .shadow(true)
-                        .visible(true);
+                        .visible(!background_launch);
 
                 #[cfg(target_os = "macos")]
                 {
@@ -2557,7 +2651,11 @@ fn main() {
                                 if let Some(sidebar_window) =
                                     app_handle_for_sync.get_webview_window("sidebar")
                                 {
-                                    let _ = sidebar_window.close();
+                                    // The global resident-runtime handler hides
+                                    // the main window instead of terminating it.
+                                    // Preserve the detached companion as well so
+                                    // reopening Ritual restores the same process.
+                                    let _ = sidebar_window.hide();
                                 }
                             }
                             _ => {}
@@ -2593,13 +2691,14 @@ fn main() {
                     );
                     std::process::exit(0);
                 }
-                let _ = window.show();
-                let _ = window.set_focus();
+                if !background_launch {
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
             }
             info!("Using watcher-owned context capture; legacy recorder sidecar is not shipped");
 
             desktop_runtime::emit_runtime_state_changed(app.handle().clone());
-            spawn_background_startup_tasks(app.handle().clone());
             #[cfg(all(debug_assertions, unix))]
             spawn_debug_webview_reload_on_sigusr1(app.handle().clone());
 
@@ -2613,10 +2712,36 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| match event {
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+        .run(|app_handle, event| match event {
+            RunEvent::WindowEvent {
+                label,
+                event: tauri::WindowEvent::CloseRequested { api, .. },
+                ..
+            } if label == "main" => {
+                let quitting = app_handle
+                    .state::<resident_runtime::ResidentRuntimeStore>()
+                    .quitting
+                    .load(std::sync::atomic::Ordering::SeqCst);
+                if !quitting {
+                    api.prevent_close();
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                    if let Some(sidebar) = app_handle.get_webview_window("sidebar") {
+                        let _ = sidebar.hide();
+                    }
+                    desktop_runtime::emit_runtime_state_changed(app_handle.clone());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                let _ = show_main_window_for_app(app_handle);
+            }
+            RunEvent::ExitRequested { .. } => {
+                resident_runtime::mark_quitting(app_handle);
                 shutdown_background_helpers();
             }
+            RunEvent::Exit => shutdown_background_helpers(),
             _ => {}
         });
 

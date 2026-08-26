@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useUser, useAuth } from '@clerk/nextjs';
 import { apiOperationWithAuth } from '@/lib/api/client';
 import type { Habit } from '@/contexts/HabitsContext';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { isComputerTimeHabit } from '@/lib/computer-time-habit';
 import {
   buildMetricContextModel,
   getMetricContextFetchWindow,
@@ -63,7 +63,7 @@ export function useOverviewMetricContext({
   }, [habitsById, orderedHabits, selectedContextHabitId]);
 
   const selectedContextIsComputer = Boolean(
-    selectedContextHabit && isComputerHabitName(selectedContextHabit.name),
+    selectedContextHabit && isComputerTimeHabit(selectedContextHabit),
   );
 
   const selectedContextIsWearable = Boolean(
@@ -78,8 +78,7 @@ export function useOverviewMetricContext({
   const contextHabitIds = useMemo(() => {
     const sourceHabits = orderedHabits.length > 0 ? orderedHabits : habits;
     return sourceHabits
-      .map((habit) => ({ id: habit.id || '', name: habit.name || '' }))
-      .filter((habit) => habit.id && !isComputerHabitName(habit.name))
+      .filter((habit) => habit.id && !isComputerTimeHabit(habit))
       .map((habit) => habit.id)
       .slice(0, 40);
   }, [habits, orderedHabits]);
@@ -207,7 +206,7 @@ export function useOverviewMetricContext({
         const habitId = habit.id || '';
         return habitId
           && habitId !== selectedContextHabitId
-          && !isComputerHabitName(habit.name)
+          && !isComputerTimeHabit(habit)
           && rowsByHabitId.has(habitId);
       })
       .slice(0, 12)

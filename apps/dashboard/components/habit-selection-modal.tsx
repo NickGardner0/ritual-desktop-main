@@ -39,7 +39,7 @@ type WatcherStatus = {
 export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCreated, initialCategory = null }: HabitSelectionModalProps): React.ReactElement | null {
   const { isDesktop } = useDesktopCapabilities();
   const queryClient = useQueryClient();
-  const { createHabit, habits, fetchHabits } = useHabits();
+  const { createHabit, updateHabit, habits, fetchHabits } = useHabits();
   const { getToken, userId } = useAuth();
   const { user } = useUser();
   /** `useAuth().userId` can be undefined briefly; settings need a real id */
@@ -299,7 +299,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   const handleComputerUseConnect = useCallback(async () => {
     setIsAddingComputerHabit(true);
     try {
-      const result = await ensureComputerTimeHabit(habits, createHabit);
+      const result = await ensureComputerTimeHabit(habits, createHabit, updateHabit);
       if (result.created && result.habit && user?.id) {
         const created = result.habit as StoredHabit;
         queryClient.setQueryData<StoredHabit[]>(habitKeys.list(user.id), (old = []) => {
@@ -323,6 +323,7 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   }, [
     habits,
     createHabit,
+    updateHabit,
     fetchHabits,
     onHabitCreated,
     checkComputerTrackingConnection,
@@ -333,13 +334,13 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
   /** Open watcher settings (after ensuring habit exists). */
   const openComputerUseSettings = useCallback(async () => {
     try {
-      await ensureComputerTimeHabit(habits, createHabit);
+      await ensureComputerTimeHabit(habits, createHabit, updateHabit);
       await fetchHabits();
     } catch (e) {
       console.warn('Could not ensure Computer Time habit:', e);
     }
     setShowComputerTracking(true);
-  }, [habits, createHabit, fetchHabits]);
+  }, [habits, createHabit, updateHabit, fetchHabits]);
 
   async function checkWhoopConnection() {
     try {

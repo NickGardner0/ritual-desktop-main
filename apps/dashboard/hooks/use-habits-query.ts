@@ -637,6 +637,7 @@ export function useUpdateHabitMutation() {
               is_custom: updates.is_custom,
               metric_type: updates.metric_type,
               unit_type: updates.unit_type,
+              sensor_type: updates.sensor_type,
             },
           },
           user.id,

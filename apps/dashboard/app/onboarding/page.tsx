@@ -299,11 +299,11 @@ export default function OnboardingPage() {
           name: "Computer Time",
           category: "Productivity",
           is_custom: false,
-          sensor_type: "Manual",
+          sensor_type: "Automatic",
           icon: "lucide:monitor",
           unit_type: "Hours",
-          integration_source: null,
-          metric_type: null,
+          integration_source: "ritual_watcher",
+          metric_type: "computer_time",
         },
       },
       user?.id,
@@ -338,8 +338,13 @@ export default function OnboardingPage() {
       track_incognito: false,
       browser_heartbeat_port: 8766,
     }
-    await invoke("start_watcher", { config })
-    await invoke("save_watcher_config_cmd", { config })
+    const runtime = await invoke<{ capabilities?: string[] }>("get_desktop_runtime_info").catch(() => null)
+    if (runtime?.capabilities?.includes("desktop-resident-runtime-v1")) {
+      await invoke("desktop_set_computer_tracking", { input: { enabled: true, config } })
+    } else {
+      await invoke("start_watcher", { config })
+      await invoke("save_watcher_config_cmd", { config })
+    }
     await ensureComputerTimeHabit()
     await apiOperationWithAuth(
       "start_watcher_api_watcher_devices__device_id__start_post",

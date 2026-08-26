@@ -28,6 +28,7 @@ import {
   useLogHabitMutation,
   useCreateHabitMutation,
   useDeleteHabitMutation,
+  useUpdateHabitMutation,
   habitKeys,
   habitLogKeys,
 } from '@/hooks/use-habits-query';
@@ -52,6 +53,7 @@ export interface HabitsContextType {
   fetchHabitLogs: () => Promise<void>;
   logHabit: (habitLog: Omit<HabitLog, 'id'>) => Promise<void>;
   createHabit: (habitData: CreateHabitInput) => Promise<HabitRecord>;
+  updateHabit: (habitId: string, updates: Partial<Habit>) => Promise<Habit>;
   deleteHabit: (habitId: string) => Promise<void>;
   
   // Computed values
@@ -80,6 +82,9 @@ export const HabitsContext = React.createContext<HabitsContextType>({
   fetchHabitLogs: async () => {},
   logHabit: async () => {},
   createHabit: async (): Promise<HabitRecord> => {
+    throw new Error('HabitsContext not initialized');
+  },
+  updateHabit: async (): Promise<Habit> => {
     throw new Error('HabitsContext not initialized');
   },
   deleteHabit: async () => {},
@@ -126,6 +131,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   const logsQuery = useHabitLogsQuery({ enabled: shouldLoadHabitLogs });
   const logHabitMutation = useLogHabitMutation();
   const createHabitMutation = useCreateHabitMutation();
+  const updateHabitMutation = useUpdateHabitMutation();
   const deleteHabitMutation = useDeleteHabitMutation();
   
   // Legacy state for backward compatibility
@@ -189,6 +195,13 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     if (process.env.NODE_ENV !== 'production') { console.log('➕ [Compat] createHabit called - using React Query mutation'); }
     return await createHabitMutation.mutateAsync(habitData);
   }, [createHabitMutation.mutateAsync]);
+
+  const updateHabit = React.useCallback(async (
+    habitId: string,
+    updates: Partial<Habit>,
+  ): Promise<Habit> => {
+    return await updateHabitMutation.mutateAsync({ habitId, updates }) as Habit;
+  }, [updateHabitMutation.mutateAsync]);
   
   const deleteHabit = React.useCallback(async (habitId: string) => {
     if (process.env.NODE_ENV !== 'production') { console.log('🗑️ [Compat] deleteHabit called - using React Query mutation'); }
@@ -274,6 +287,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     fetchHabitLogs,
     logHabit,
     createHabit,
+    updateHabit,
     deleteHabit,
     totalMinutesToday,
     completedHabitsToday,
@@ -296,6 +310,7 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
     fetchHabitLogs,
     logHabit,
     createHabit,
+    updateHabit,
     deleteHabit,
     totalMinutesToday,
     completedHabitsToday,

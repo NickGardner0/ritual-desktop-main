@@ -46,6 +46,10 @@ from schemas.reports import (
 )
 from services.analytics_service import analytics_service
 from services.artifact_service import artifact_service
+from services.computed_metrics_service import (
+    computed_metrics_service,
+    is_computed_computer_time_habit,
+)
 from services.recurrence import localize_reference, next_report_run_at, normalize_timezone
 
 logger = logging.getLogger(__name__)
@@ -544,11 +548,45 @@ class ReportsService:
         for log in streak_logs:
             by_habit_streak_logs.setdefault(log.habit_id, []).append(log)
 
+        computed_computer_range: Optional[Dict[str, Any]] = None
+        if any(is_computed_computer_time_habit(habit) for habit in habits):
+            computed_computer_range = await computed_metrics_service.read_computer_time_range(
+                user_id=user.id,
+                start_date=streak_window_start.isoformat(),
+                end_date=window.end_date.isoformat(),
+            )
+
         habit_metrics: List[Dict[str, Any]] = []
         for habit in habits:
-            daily_values = analytics_service._aggregate_by_date(habit, by_habit_logs.get(habit.id, []))
-            streak_values = analytics_service._aggregate_by_date(habit, by_habit_streak_logs.get(habit.id, []))
-            total = float(sum(item["value"] for item in daily_values.values()))
+            is_computer_time = is_computed_computer_time_habit(habit)
+            if is_computer_time:
+                # Computer Time is system-derived. Never fall back to historical
+                # projection logs when the rollup provider is unavailable.
+                if computed_computer_range and computed_computer_range["available"]:
+                    daily_values = {
+                        str(row.get("date") or row.get("day")): {
+                            "value": float(row.get("active_ms") or 0) / 3_600_000,
+                        }
+                        for row in computed_computer_range["daily"]
+                        if str(row.get("date") or row.get("day") or "") >= window.start_date.isoformat()
+                        and float(row.get("active_ms") or 0) > 0
+                    }
+                    streak_values = {
+                        str(row.get("date") or row.get("day")): {
+                            "value": float(row.get("active_ms") or 0) / 3_600_000,
+                        }
+                        for row in computed_computer_range["daily"]
+                        if float(row.get("active_ms") or 0) > 0
+                    }
+                    total = sum(item["value"] for item in daily_values.values())
+                else:
+                    daily_values = {}
+                    streak_values = {}
+                    total = 0.0
+            else:
+                daily_values = analytics_service._aggregate_by_date(habit, by_habit_logs.get(habit.id, []))
+                streak_values = analytics_service._aggregate_by_date(habit, by_habit_streak_logs.get(habit.id, []))
+                total = float(sum(item["value"] for item in daily_values.values()))
             days_with_data = len(daily_values)
             if days_with_data == 0:
                 streak = 0
@@ -558,10 +596,13 @@ class ReportsService:
                 {
                     "id": habit.id,
                     "name": habit.name,
-                    "unit": habit.unit_type or "sessions",
+                    "unit": "Hours" if is_computer_time else (habit.unit_type or "sessions"),
                     "total": total,
                     "days_with_data": days_with_data,
                     "streak": streak,
+                    "available": not is_computer_time or bool(
+                        computed_computer_range and computed_computer_range["available"]
+                    ),
                 }
             )
 
@@ -612,13 +653,24 @@ class ReportsService:
                 f"{strongest_streak['name']} is carrying a {strongest_streak['streak']}-day streak into the next window."
             )
         if "missed-habits" in self._parse_json(schedule.sections_json, []) and habit_metrics:
-            missed = [item["name"] for item in habit_metrics if item["days_with_data"] == 0][:3]
+            missed = [
+                item["name"]
+                for item in habit_metrics
+                if item["available"] and item["days_with_data"] == 0
+            ][:3]
             if missed:
                 highlights.append(
                     f"No logs landed for {', '.join(missed)} during this window."
                 )
         if "computer-activity" in self._parse_json(schedule.sections_json, []):
-            computer_habit = next((item for item in habit_metrics if item["name"].strip().lower() == "computer time"), None)
+            computer_habit = next((
+                item for item in habit_metrics
+                if item["id"] in {
+                    habit.id for habit in habits
+                    if is_computed_computer_time_habit(habit)
+                }
+                or item["name"].strip().lower() == "computer time"
+            ), None)
             if computer_habit and computer_habit["total"] > 0:
                 highlights.append(
                     f"Computer Time totaled {self._format_metric_value(computer_habit['total'], computer_habit['unit'])} {computer_habit['unit'].lower()}."

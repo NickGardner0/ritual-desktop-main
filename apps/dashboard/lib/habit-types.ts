@@ -10,6 +10,7 @@ export interface Habit {
   updated_at?: string
   user_id?: string
   unit_type?: string
+  sensor_type?: string
 }
 
 export interface HabitLog {

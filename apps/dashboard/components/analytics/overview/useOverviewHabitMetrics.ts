@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import type { Habit } from '@/contexts/HabitsContext';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { isComputerTimeHabit } from '@/lib/computer-time-habit';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import { isWearableBackedHabit } from '@/lib/wearables-dashboard';
@@ -315,7 +315,7 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
           const habitId = habit.id || '';
           if (!habitId) continue;
 
-          if (isComputerHabitName(habit.name)) {
+          if (isComputerTimeHabit(habit)) {
             const unavailableDisplay = getComputerUnavailableDisplay({
               state: computerSnapshotQuery.data?.state,
               emptyReason: computerSnapshotQuery.data?.emptyReason,
@@ -361,13 +361,9 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
             const totalHours = summaryForDisplay
               ? getComputerSummaryHours(summaryForDisplay)
               : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
-            const computerSyncSuffix = computerSnapshotQuery.data?.syncPending
-              ? ' · Sync pending'
-              : '';
-
             if (rows.length === 0 && effectiveComputerActivitySummary) {
               next.set(habitId, {
-                display: `${formatHabitStatNumber(totalHours)} Hours${computerSyncSuffix}`,
+                display: `${formatHabitStatNumber(totalHours)} Hours`,
                 stats: {
                   unitLabel: 'Hours',
                   sumFormatted: `${formatHabitStatNumber(getComputerSummaryHours(effectiveComputerActivitySummary))} Hours`,
@@ -396,7 +392,7 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
               : 0;
 
             next.set(habitId, {
-              display: `${formatHabitStatNumber(totalHours)} Hours${computerSyncSuffix}`,
+              display: `${formatHabitStatNumber(totalHours)} Hours`,
               stats: {
                 unitLabel: 'Hours',
                 sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,
@@ -494,7 +490,7 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
   const getHabitMetricDisplay = useCallback((habit: Habit, previewValue?: number | null): string => {
     const unitType = habit.unit_type || 'sessions';
 
-    if (isComputerHabitName(habit.name) && scrubberHoveredDate) {
+    if (isComputerTimeHabit(habit) && scrubberHoveredDate) {
       const hoveredRow = computerActivityByDay.get(scrubberHoveredDate);
       if (hoveredRow) {
         return `${formatHabitStatNumber(Number(hoveredRow.active_hours || 0))} Hours`;

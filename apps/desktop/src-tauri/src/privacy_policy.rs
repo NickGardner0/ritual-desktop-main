@@ -3,7 +3,12 @@ use chrono::DateTime;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager, Runtime};
+
+const PRIVACY_STATE_SCHEMA_VERSION: u8 = 1;
+const PRIVACY_STATE_FILE: &str = "desktop-privacy-state.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,12 +69,18 @@ pub struct DesktopPrivacyStateInput {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopPrivacyState {
     pub mode: PrivacyMode,
     pub consents: BTreeSet<CloudConsent>,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct PersistedDesktopPrivacyState {
+    schema_version: u8,
+    state: DesktopPrivacyState,
 }
 
 impl Default for DesktopPrivacyState {
@@ -112,6 +123,54 @@ impl DesktopPrivacyState {
             .collect::<Vec<_>>()
             .join(",")
     }
+}
+
+fn privacy_state_path() -> PathBuf {
+    crate::app_paths::auxiliary_data_dir().join(PRIVACY_STATE_FILE)
+}
+
+pub fn load_persisted_privacy_state() -> Result<DesktopPrivacyState, String> {
+    let path = privacy_state_path();
+    if !path.exists() {
+        return Ok(DesktopPrivacyState::default());
+    }
+    let contents = fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read desktop privacy state: {error}"))?;
+    let persisted: PersistedDesktopPrivacyState = serde_json::from_str(&contents)
+        .map_err(|error| format!("Failed to parse desktop privacy state: {error}"))?;
+    if persisted.schema_version != PRIVACY_STATE_SCHEMA_VERSION {
+        return Err(format!(
+            "Unsupported desktop privacy state schema version: {}",
+            persisted.schema_version
+        ));
+    }
+    DateTime::parse_from_rfc3339(&persisted.state.updated_at)
+        .map_err(|_| "Persisted privacy updatedAt must be an RFC 3339 timestamp".to_string())?;
+    Ok(persisted.state)
+}
+
+pub fn persist_privacy_state(state: &DesktopPrivacyState) -> Result<(), String> {
+    let path = privacy_state_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("Failed to create privacy state directory: {error}"))?;
+    }
+    let encoded = serde_json::to_string_pretty(&PersistedDesktopPrivacyState {
+        schema_version: PRIVACY_STATE_SCHEMA_VERSION,
+        state: state.clone(),
+    })
+    .map_err(|error| format!("Failed to serialize desktop privacy state: {error}"))?;
+    let temporary = path.with_extension("json.tmp");
+    fs::write(&temporary, encoded)
+        .map_err(|error| format!("Failed to write desktop privacy state: {error}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&temporary, fs::Permissions::from_mode(0o600))
+            .map_err(|error| format!("Failed to protect desktop privacy state: {error}"))?;
+    }
+    fs::rename(&temporary, &path)
+        .map_err(|error| format!("Failed to replace desktop privacy state: {error}"))
 }
 
 pub fn read_privacy_state<R: Runtime>(app: &AppHandle<R>) -> DesktopPrivacyState {

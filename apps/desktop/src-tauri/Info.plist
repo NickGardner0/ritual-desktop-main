@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Prevent a Dock-icon flash before Rust applies Accessory policy. -->
+	<key>LSUIElement</key>
+	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Ritual uses the microphone so you can log habits with your voice</string>
 	<key>NSLocationWhenInUseUsageDescription</key>

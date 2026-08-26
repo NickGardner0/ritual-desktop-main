@@ -22,7 +22,7 @@ import {
   type BarListRange,
   type HabitData,
 } from '../metrics-view.shared';
-import { isComputerHabitName } from '@/lib/computer-time-habit';
+import { isComputerTimeHabit } from '@/lib/computer-time-habit';
 
 export function useMetricsViewDerived({
   user,
@@ -89,12 +89,24 @@ export function useMetricsViewDerived({
   const availableHabits = transformedHabits;
 
   const detectedComputerHabitId = useMemo(
-    () => availableHabits.find((habit) => isComputerHabitName(habit.habit_name))?.habit_id || null,
+    () => availableHabits.find((habit) => isComputerTimeHabit({
+      name: habit.habit_name,
+      metric_type: typeof habit.metric_type === 'string' ? habit.metric_type : null,
+      integration_source: typeof habit.integration_source === 'string' ? habit.integration_source : null,
+      sensor_type: typeof habit.sensor_type === 'string' ? habit.sensor_type : null,
+      is_custom: typeof habit.is_custom === 'boolean' ? habit.is_custom : null,
+    }))?.habit_id || null,
     [availableHabits],
   );
 
   const filteredHabits = useMemo(
-    () => availableHabits.filter((habit) => !isComputerHabitName(habit.habit_name)),
+    () => availableHabits.filter((habit) => !isComputerTimeHabit({
+      name: habit.habit_name,
+      metric_type: typeof habit.metric_type === 'string' ? habit.metric_type : null,
+      integration_source: typeof habit.integration_source === 'string' ? habit.integration_source : null,
+      sensor_type: typeof habit.sensor_type === 'string' ? habit.sensor_type : null,
+      is_custom: typeof habit.is_custom === 'boolean' ? habit.is_custom : null,
+    })),
     [availableHabits],
   );
 

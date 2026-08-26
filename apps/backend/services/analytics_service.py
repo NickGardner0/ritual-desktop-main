@@ -27,6 +27,10 @@ from services.habit_daily_policy import (
     is_sleep_like,
     log_shadow_mismatch,
 )
+from services.computed_metrics_service import (
+    computed_metrics_service,
+    is_computed_computer_time_habit,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -213,23 +217,33 @@ class AnalyticsService:
             
             # Get logs for date range
             # Note: HabitLogDB doesn't have user_id - we filter by habit_ids which are already user-scoped
-            habit_ids = [h.id for h in habits]
-            logs_query = select(HabitLogDB).where(
-                and_(
-                    HabitLogDB.habit_id.in_(habit_ids),
-                    self._completed_log_filter(),
-                    HabitLogDB.date >= str(start_dt),
-                    HabitLogDB.date <= str(end_dt)
+            habit_ids = [h.id for h in habits if not is_computed_computer_time_habit(h)]
+            all_logs = []
+            if habit_ids:
+                logs_query = select(HabitLogDB).where(
+                    and_(
+                        HabitLogDB.habit_id.in_(habit_ids),
+                        self._completed_log_filter(),
+                        HabitLogDB.date >= str(start_dt),
+                        HabitLogDB.date <= str(end_dt)
+                    )
                 )
-            )
-            logs_result = await session.execute(logs_query)
-            all_logs = logs_result.scalars().all()
+                logs_result = await session.execute(logs_query)
+                all_logs = logs_result.scalars().all()
             
             # Calculate stats per habit
             stats = []
             for habit in habits:
-                habit_logs = [l for l in all_logs if l.habit_id == habit.id]
-                habit_stats = self._calculate_habit_stats(habit, habit_logs)
+                if is_computed_computer_time_habit(habit):
+                    habit_stats = await computed_metrics_service.build_habit_stats(
+                        user_id=user_id,
+                        habit=habit,
+                        start_date=str(start_dt),
+                        end_date=str(end_dt),
+                    )
+                else:
+                    habit_logs = [l for l in all_logs if l.habit_id == habit.id]
+                    habit_stats = self._calculate_habit_stats(habit, habit_logs)
                 stats.append(habit_stats)
             
             return {
@@ -276,6 +290,14 @@ class AnalyticsService:
                     "error": f"No habit found matching '{habit_name or habit_id}'",
                     "available_habits": await self._get_habit_names(session, user_id)
                 }
+
+            if is_computed_computer_time_habit(habit):
+                return await computed_metrics_service.build_daily_breakdown(
+                    user_id=user_id,
+                    habit=habit,
+                    start_date=str(start_dt),
+                    end_date=str(end_dt),
+                )
             
             # Get logs (habit is already user-scoped, so no need to filter by user_id)
             query_start = start_dt - timedelta(days=1) if timezone else start_dt

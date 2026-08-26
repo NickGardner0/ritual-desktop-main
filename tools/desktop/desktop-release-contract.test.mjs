@@ -40,8 +40,8 @@ test('desktop patch version and generated identity source stay synchronized', as
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.100');
-  assert.match(cargo, /^version = "0\.1\.100"$/m);
+  assert.equal(production.version, '0.1.101');
+  assert.match(cargo, /^version = "0\.1\.101"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 
@@ -71,6 +71,39 @@ test('release matrix and sidecar contract ship Apple Silicon only', async () => 
   assert.deepEqual(lock.shippedTargets, ['aarch64-apple-darwin']);
   assert.deepEqual(lock.externalPendingTargets, {});
   assert.match(lock.unsupportedTargets['x86_64-apple-darwin'], /Apple Silicon only/i);
+});
+
+test('DMG uses the compact Ritual installer composition', async () => {
+  const release = await readFile('scripts/build-macos-desktop-release.sh', 'utf8');
+  const background = await readFile('scripts/generate-macos-dmg-background.mjs', 'utf8');
+  assert.match(release, /--icon-size 112/);
+  assert.match(release, /--window-size 520 356/);
+  assert.match(release, /--icon "\$\{PRODUCT_NAME\}\.app" 140 165/);
+  assert.match(release, /--app-drop-link 380 165/);
+  assert.match(background, /fill="#FAFAF7"/);
+  assert.match(background, /Drag Ritual to the Applications folder to install/);
+});
+
+test('desktop ships a single resident host with quiet login startup', async () => {
+  const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
+  const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
+  const resident = await readFile('apps/desktop/src-tauri/src/resident_runtime.rs', 'utf8');
+  const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
+  assert.match(cargo, /tauri-plugin-autostart/);
+  assert.match(cargo, /tauri-plugin-single-instance/);
+  assert.match(main, /MacosLauncher::LaunchAgent/);
+  assert.match(main, /ActivationPolicy::Accessory/);
+  assert.match(infoPlist, /<key>LSUIElement<\/key>\s*<true\/>/);
+  assert.match(main, /argument == "--background"/);
+  assert.match(main, /api\.prevent_close\(\)/);
+  assert.match(resident, /desktop_set_computer_tracking/);
+  assert.match(resident, /show_menu_bar:\s*false/);
+});
+
+test('new desktop sync never projects rollups into habit logs', async () => {
+  const sync = await readFile('apps/desktop/src-tauri/src/cloud_sync.rs', 'utf8');
+  assert.doesNotMatch(sync, /project_computer_time_habit/);
+  assert.doesNotMatch(sync, /\/api\/watcher\/sync-to-habit/);
 });
 
 test('runtime sidecar hashes are derived from the signed bytes actually bundled', async () => {

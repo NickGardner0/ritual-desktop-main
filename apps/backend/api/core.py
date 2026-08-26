@@ -34,6 +34,7 @@ from models.user_models import (
 from services.account_context import ensure_current_user_record
 from services.activation_service import activation_service
 from services.habits_service import (
+    ComputedMetricReadOnlyError,
     HabitLogNotFoundError,
     HabitLogRevisionConflictError,
     HabitLogUpdateValidationError,
@@ -728,6 +729,11 @@ def create_core_router(
             return await habits_service.log_habit(habit_id, log_data, current_user["id"])
         except HTTPException:
             raise
+        except ComputedMetricReadOnlyError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "computed_metric_read_only", "message": str(exc)},
+            ) from exc
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 

@@ -3,7 +3,7 @@ use chrono::Utc;
 use libsql::{Builder, Connection, Database};
 use serde::Serialize;
 use serde_json::Value;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, Runtime};
 use tracing::{debug, info, warn};
@@ -13,10 +13,8 @@ const CLOUD_SYNC_BATCH_SIZE: i64 = 2000;
 const CLOUD_SYNC_STARTUP_DELAY_SECS: u64 = 5;
 const BACKGROUND_SYNC_BUDGET_SECS: u64 = 30;
 const MANUAL_SYNC_BUDGET_SECS: u64 = 55;
-const BACKGROUND_PROJECTION_INTERVAL_MS: i64 = 5 * 60 * 1000;
 
 static CLOUD_SYNC_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
-static LAST_BACKGROUND_PROJECTION_AT_MS: AtomicI64 = AtomicI64::new(0);
 
 #[derive(Debug, Clone, Default)]
 struct CloudSyncProgress {
@@ -433,105 +431,6 @@ async fn download_remote_activity_rollups(
     Ok(remote_watermark)
 }
 
-async fn local_projection_range() -> Result<Option<(String, String)>, String> {
-    let guard =
-        ritual_database::get_or_initialize_activity_db("cloud_sync:projection_range").await?;
-    let db = guard
-        .as_ref()
-        .ok_or_else(|| "Activity database is not initialized".to_string())?;
-    let conn = db.connection().await;
-    let mut rows = conn
-        .query(
-            "SELECT MIN(date), MAX(date) FROM daily_rollup_cache WHERE origin = 'local'",
-            (),
-        )
-        .await
-        .map_err(|error| format!("Failed reading activity projection range: {error}"))?;
-    Ok(rows
-        .next()
-        .await
-        .map_err(|error| format!("Failed reading activity projection range row: {error}"))?
-        .and_then(|row| {
-            let start = row.get::<Option<String>>(0).ok().flatten()?;
-            let end = row.get::<Option<String>>(1).ok().flatten()?;
-            Some((start, end))
-        }))
-}
-
-async fn project_computer_time_habit<R: Runtime + 'static>(
-    app: &AppHandle<R>,
-    budget: Duration,
-) -> Result<(), String> {
-    let Some((start_date, end_date)) = local_projection_range().await? else {
-        return Ok(());
-    };
-    let auth = desktop_runtime::read_auth_state(app);
-    let token = auth
-        .token
-        .ok_or_else(|| "authentication_required: desktop auth token is unavailable".to_string())?;
-    let backend_base = auth
-        .backend_base
-        .ok_or_else(|| "backend_unavailable: backend URL is unavailable".to_string())?;
-    let privacy = privacy_policy::read_privacy_state(app);
-    let privacy_mode = privacy.mode.as_header_value().to_string();
-    let cloud_consents = privacy.cloud_consents_header();
-    if budget.is_zero() {
-        return Err("projection_pending: manual sync time budget was exhausted".to_string());
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(budget.min(Duration::from_secs(20)))
-            .build()
-            .map_err(|error| format!("projection_failed: {error}"))?;
-        let response = client
-            .post(format!("{backend_base}/api/watcher/sync-to-habit"))
-            .bearer_auth(token)
-            .header("X-Ritual-Privacy-Mode", privacy_mode)
-            .header("X-Ritual-Cloud-Consents", cloud_consents)
-            .query(&[
-                ("start_date", start_date.as_str()),
-                ("end_date", end_date.as_str()),
-            ])
-            .send()
-            .map_err(|error| format!("projection_failed: {error}"))?;
-        let status = response.status().as_u16();
-        let body = response.text().unwrap_or_default();
-        if status == 401 {
-            return Err(
-                "authentication_required: habit projection needs a fresh token".to_string(),
-            );
-        }
-        if status == 403 {
-            return Err(
-                "privacy_blocked: habit projection was blocked by privacy policy".to_string(),
-            );
-        }
-        if !(200..300).contains(&status) {
-            return Err(format!("projection_failed: HTTP {status}"));
-        }
-        let payload: Value = serde_json::from_str(&body)
-            .map_err(|error| format!("projection_failed: invalid response: {error}"))?;
-        if payload.get("success").and_then(Value::as_bool) == Some(false) {
-            let state = payload.get("state").and_then(Value::as_str).unwrap_or("");
-            let reason = payload
-                .get("reason")
-                .and_then(Value::as_str)
-                .or_else(|| payload.get("error").and_then(Value::as_str))
-                .unwrap_or("backend projection failed");
-            if state == "sync_pending" {
-                return Err(format!("projection_pending: {reason}"));
-            }
-            if state == "unavailable" {
-                return Err(format!("aggregation_unavailable: {reason}"));
-            }
-            return Err(format!("projection_failed: {}", reason));
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|error| format!("projection_failed: task failed: {error}"))?
-}
-
 async fn run_background_replication_tail<R: Runtime + 'static>(
     app: AppHandle<R>,
     pass_started_at: Instant,
@@ -620,44 +519,6 @@ async fn run_background_replication_tail<R: Runtime + 'static>(
         state.last_error_code = None;
         state.last_error_message = None;
     });
-
-    let now = Utc::now().timestamp_millis();
-    let last_projection = LAST_BACKGROUND_PROJECTION_AT_MS.load(Ordering::SeqCst);
-    let projection_due = pending_rollups == 0
-        && now.saturating_sub(last_projection) >= BACKGROUND_PROJECTION_INTERVAL_MS;
-    let projection_budget = total_budget
-        .saturating_sub(pass_started_at.elapsed())
-        .min(Duration::from_secs(10));
-    if projection_due && !projection_budget.is_zero() {
-        LAST_BACKGROUND_PROJECTION_AT_MS.store(now, Ordering::SeqCst);
-        desktop_runtime::update_computer_sync_state(&app, |state| {
-            state.stage = desktop_runtime::DesktopComputerSyncStage::Projecting;
-        });
-        match project_computer_time_habit(&app, projection_budget).await {
-            Ok(()) => {
-                desktop_runtime::update_computer_sync_state(&app, |state| {
-                    state.stage = desktop_runtime::DesktopComputerSyncStage::Synced;
-                    state.last_error_code = None;
-                    state.last_error_message = None;
-                });
-            }
-            Err(error) => {
-                let code = sync_error_code(&error);
-                if code == "authentication_required" {
-                    desktop_runtime::request_token_refresh(&app);
-                }
-                desktop_runtime::update_computer_sync_state(&app, |state| {
-                    state.stage = if code == "privacy_blocked" {
-                        desktop_runtime::DesktopComputerSyncStage::PrivacyBlocked
-                    } else {
-                        desktop_runtime::DesktopComputerSyncStage::Failed
-                    };
-                    state.last_error_code = Some(code);
-                    state.last_error_message = Some(error);
-                });
-            }
-        }
-    }
 
     Ok(progress)
 }
@@ -922,64 +783,6 @@ async fn sync_computer_activity_now_inner<R: Runtime + 'static>(
             remote_watermark_ms,
             error_code: None,
             error_message: None,
-        };
-        update_sync_runtime(&app, &result);
-        desktop_runtime::emit_runtime_state_changed(app);
-        return Ok(result);
-    }
-
-    desktop_runtime::update_computer_sync_state(&app, |state| {
-        state.stage = desktop_runtime::DesktopComputerSyncStage::Projecting;
-    });
-    let projection_budget =
-        Duration::from_secs(MANUAL_SYNC_BUDGET_SECS).saturating_sub(started_at.elapsed());
-    if projection_budget.is_zero() {
-        let result = ComputerActivitySyncResult {
-            outcome: ComputerActivitySyncOutcome::CloudPending,
-            stage: desktop_runtime::DesktopComputerSyncStage::Projecting,
-            uploaded_rollups: progress.uploaded_rollups,
-            superseded_raw_rows: progress.superseded_raw_rows,
-            pending_rollups,
-            pending_raw_rows,
-            local_watermark_ms,
-            remote_watermark_ms,
-            error_code: Some("projection_pending".to_string()),
-            error_message: Some(
-                "Rollups are synced; habit projection will finish on the next sync".to_string(),
-            ),
-        };
-        update_sync_runtime(&app, &result);
-        desktop_runtime::emit_runtime_state_changed(app);
-        return Ok(result);
-    }
-    if let Err(error) = project_computer_time_habit(&app, projection_budget).await {
-        let code = sync_error_code(&error);
-        if code == "authentication_required" {
-            desktop_runtime::request_token_refresh(&app);
-        }
-        let result = ComputerActivitySyncResult {
-            outcome: if code == "privacy_blocked" {
-                ComputerActivitySyncOutcome::PrivacyBlocked
-            } else if code == "projection_pending" {
-                ComputerActivitySyncOutcome::CloudPending
-            } else {
-                ComputerActivitySyncOutcome::Failed
-            },
-            stage: if code == "privacy_blocked" {
-                desktop_runtime::DesktopComputerSyncStage::PrivacyBlocked
-            } else if code == "projection_pending" {
-                desktop_runtime::DesktopComputerSyncStage::Projecting
-            } else {
-                desktop_runtime::DesktopComputerSyncStage::Failed
-            },
-            uploaded_rollups: progress.uploaded_rollups,
-            superseded_raw_rows: progress.superseded_raw_rows,
-            pending_rollups,
-            pending_raw_rows,
-            local_watermark_ms,
-            remote_watermark_ms,
-            error_code: Some(code),
-            error_message: Some(error),
         };
         update_sync_runtime(&app, &result);
         desktop_runtime::emit_runtime_state_changed(app);
