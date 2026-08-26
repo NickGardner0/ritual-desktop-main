@@ -12226,6 +12226,11 @@
       },
       "TursoSyncConfigResponse": {
         "properties": {
+          "activity_schema_version": {
+            "default": 2,
+            "title": "Activity Schema Version",
+            "type": "integer"
+          },
           "auth_token": {
             "title": "Auth Token",
             "type": "string"
@@ -30441,7 +30446,7 @@
     },
     "/api/watcher/sync-to-habit": {
       "post": {
-        "description": "Sync computer time to the user's \"Computer Time\" habit.\nSupports either single-day sync or range backfill.\n\nThis endpoint is called hourly by the Tauri app to keep the dashboard updated.\n\nQuery params:\n- day: YYYY-MM-DD (single day sync)\n- start_date: YYYY-MM-DD (range sync start)\n- end_date: YYYY-MM-DD (range sync end)\n- days_back: backfill last N days when explicit dates are not provided\n- reconcile: run post-sync projection reconciliation and auto-repair\n- tolerance_seconds: acceptable mismatch before a day is repaired",
+        "description": "Sync computer time to the user's \"Computer Time\" habit.\nSupports either single-day sync or range backfill.\n\nThis compatibility projection is called by the native rollup orchestrator\nonly after acknowledged computer-activity rollups are ready.\n\nQuery params:\n- day: YYYY-MM-DD (single day sync)\n- start_date: YYYY-MM-DD (range sync start)\n- end_date: YYYY-MM-DD (range sync end)\n- days_back: backfill last N days when explicit dates are not provided\n- reconcile: run post-sync projection reconciliation and auto-repair\n- tolerance_seconds: acceptable mismatch before a day is repaired",
         "operationId": "sync_to_computer_use_habit_api_watcher_sync_to_habit_post",
         "parameters": [
           {

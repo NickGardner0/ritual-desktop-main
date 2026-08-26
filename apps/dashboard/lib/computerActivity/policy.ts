@@ -45,13 +45,13 @@ export function shouldPreferRecentDesktopLocalTruth(params: ComputerActivityRang
 }
 
 export function shouldReadDesktopAggregateLocalFirst(params: ComputerActivityRangeParams) {
-  return shouldPreferRecentDesktopLocalTruth(params)
+  void params
+  return isTauri()
 }
 
 export function shouldAllowDesktopLocalFallback(params: ComputerActivityRangeParams) {
-  if (!isTauri()) return false
-  return rangeIncludesLocalToday(params)
-    && getInclusiveRangeDays(params) <= COMPUTER_ACTIVITY_POLICY.DESKTOP_LOCAL_FALLBACK_MAX_DAYS
+  void params
+  return isTauri()
 }
 
 export function shouldAllowDesktopAggregateLocalFallback(params: ComputerActivityRangeParams) {
@@ -82,7 +82,7 @@ export function stampReadSource(
     ...result,
     source: readSource,
     read_source: readSource,
-    state: readSource,
+    state: result.state ?? readSource,
     summary: {
       ...result.summary,
       source: readSource,
@@ -103,7 +103,7 @@ export function stampReadSource(
 }
 
 export function asDesktopLocalTruth(result: AggregatedComputerStatsResponse): AggregatedComputerStatsResponse {
-  return stampReadSource({ ...result, sync_pending: false }, 'local')
+  return stampReadSource(result, 'local')
 }
 
 export function unavailableComputerStats(): AggregatedComputerStatsResponse {
@@ -122,6 +122,8 @@ export function unavailableComputerStats(): AggregatedComputerStatsResponse {
     daily: [],
     apps: [],
     domains: [],
+    state: 'unavailable',
+    empty_reason: 'desktop_local_rollups_unavailable',
     sync_pending: false,
   }, 'unavailable')
 }

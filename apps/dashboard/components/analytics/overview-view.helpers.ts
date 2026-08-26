@@ -89,6 +89,18 @@ export function isProjectTimeRollupSnapshot(snapshot?: ComputerSnapshot | null):
   return source === 'project_time_rollups';
 }
 
+export function getComputerUnavailableDisplay(input: {
+  state?: string;
+  emptyReason?: string;
+  looksEmpty: boolean;
+  isPlaceholder: boolean;
+}): string | null {
+  if (!input.looksEmpty || input.isPlaceholder || input.state === 'empty') return null;
+  if (input.emptyReason?.includes('update_required')) return 'Update required';
+  if (input.state === 'sync_pending') return 'Sync pending';
+  return 'Unavailable';
+}
+
 export function calculateTrackedSpanDays(dateKeys: string[]): number {
   const validDates = dateKeys
     .map((value) => value?.trim())

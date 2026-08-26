@@ -4,6 +4,8 @@ import {
   invokeDailySummariesWithInitRetry,
   invokeDetailedActivityWithInitRetry,
 } from './tauri-activity'
+import { invokeDesktopCommand } from '@/lib/native-gateway'
+import { desktopHasCapability, buildDesktopCommandOrigin } from '@/lib/desktop-bridge/runtime'
 import { perfWarn } from '@/lib/perf-debug'
 import { getRangeTimestamps } from './policy'
 import { normalizeDailyRows } from './backend-read'
@@ -25,6 +27,24 @@ export async function getDesktopLocalAggregatedStats(
   params: ComputerActivityRangeParams,
   limit: number,
 ): Promise<AggregatedComputerStatsResponse> {
+  if (await desktopHasCapability('desktop-local-activity-rollups-v1')) {
+    return invokeDesktopCommand<AggregatedComputerStatsResponse>('get_local_computer_activity_snapshot', {
+      startDate: params.startDate,
+      endDate: params.endDate,
+      limit,
+      origin: buildDesktopCommandOrigin('computer-activity:local-rollup-snapshot'),
+    })
+  }
+
+  const rangeDays = Math.max(
+    1,
+    Math.ceil((new Date(`${params.endDate}T23:59:59.999`).getTime()
+      - new Date(`${params.startDate}T00:00:00`).getTime()) / 86_400_000),
+  )
+  if (rangeDays > 365) {
+    throw new Error('desktop_update_required: local all-time rollups are not supported by this desktop build')
+  }
+
   const { startTs, endTs } = getRangeTimestamps(params)
   const [dailyResult, detailedResult] = await Promise.allSettled([
     getDesktopLocalDailyRows(params),

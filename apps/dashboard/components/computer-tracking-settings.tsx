@@ -14,10 +14,21 @@ import {
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { useAuth } from '@clerk/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { useHabits } from '@/contexts/HabitsContext';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
 import { apiOperationWithAuth } from '@/lib/api/client';
+import {
+  desktopHasCapability,
+  desktopSetPrivacyState,
+  getDesktopRuntimeState,
+  syncComputerActivityNow,
+  type ComputerActivitySyncResult,
+  type DesktopComputerSyncStage,
+} from '@/lib/native-gateway';
+import { invalidateAfterComputerSync } from '@/lib/query-invalidation';
+import { readPrivacySettings, type PrivacySettings } from '@/lib/privacy/privacy-settings';
 import { cn } from '@/lib/utils';
 
 interface WatcherConfig {
@@ -130,6 +141,7 @@ interface ComputerTrackingSettingsProps {
 
 export function ComputerTrackingSettings({ userId, showAttributionHealth = false, onClose }: ComputerTrackingSettingsProps) {
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const { habits, createHabit, fetchHabits } = useHabits();
   const cachedState = useRef(getCachedState());
 
@@ -148,38 +160,119 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
   const [titleMode, setTitleMode] = useState<'off' | 'full' | 'truncate' | 'hash'>(cachedState.current?.titleMode ?? 'off');
   const [pollInterval, setPollInterval] = useState(2000);
   const [excludedApps, setExcludedApps] = useState<string[]>([]);
-  const [syncAnalytics, setSyncAnalytics] = useState(false);
   const [afkTimeout, setAfkTimeout] = useState(900);
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [computerSyncCapability, setComputerSyncCapability] = useState<boolean | null>(null);
+  const [privacySettings, setPrivacySettings] = useState<PrivacySettings>(() => readPrivacySettings());
+  const [computerSyncStage, setComputerSyncStage] = useState<DesktopComputerSyncStage>('idle');
+  const [computerSyncResult, setComputerSyncResult] = useState<ComputerActivitySyncResult | null>(null);
   const [browserDiagnostics, setBrowserDiagnostics] = useState<BrowserExtensionDiagnostics | null>(null);
   const [attributionHealth, setAttributionHealth] = useState<ProjectTimeAttributionHealth | null>(null);
   const [attributionHealthLoading, setAttributionHealthLoading] = useState(false);
 
   // ------ callbacks ------
 
-  const syncToHabit = useCallback(async () => {
+  const syncComputerActivity = useCallback(async () => {
+    if (!computerSyncCapability) return;
+    let runtimePoll: ReturnType<typeof setInterval> | null = null;
     try {
       setIsSyncing(true);
-      const result = await apiOperationWithAuth(
-        'sync_to_computer_use_habit_api_watcher_sync_to_habit_post', getToken, {}, userId,
-      ) as { success?: boolean; synced?: boolean };
-      if (result.success && result.synced) {
+      setComputerSyncResult(null);
+      setComputerSyncStage('materializing');
+      const currentPrivacy = readPrivacySettings();
+      setPrivacySettings(currentPrivacy);
+      await desktopSetPrivacyState(currentPrivacy);
+      runtimePoll = setInterval(() => {
+        void getDesktopRuntimeState().then((runtime) => {
+          if (runtime?.computerSync.stage) setComputerSyncStage(runtime.computerSync.stage);
+        });
+      }, 400);
+      const result = await syncComputerActivityNow();
+      if (!result) {
+        throw new Error('Desktop sync is unavailable. Update Ritual and try again.');
+      }
+      setComputerSyncResult(result);
+      setComputerSyncStage(result.stage);
+      if (result.outcome === 'cloud_synced' || result.outcome === 'local_refreshed') {
         setLastSyncTime(new Date());
       }
+      await invalidateAfterComputerSync(queryClient, userId);
     } catch (e) {
       console.error('Failed to sync to habit:', e);
+      setComputerSyncStage('failed');
+      setComputerSyncResult({
+        outcome: 'failed',
+        stage: 'failed',
+        uploadedRollups: 0,
+        supersededRawRows: 0,
+        pendingRollups: 0,
+        pendingRawRows: 0,
+        errorCode: 'desktop_sync_unavailable',
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
     } finally {
+      if (runtimePoll) clearInterval(runtimePoll);
       setIsSyncing(false);
     }
-  }, [getToken, userId]);
+  }, [computerSyncCapability, queryClient, userId]);
 
   useEffect(() => {
-    if (!isRunning || !isEnabled) return;
-    syncToHabit();
-    const interval = setInterval(() => syncToHabit(), 3600000);
-    return () => clearInterval(interval);
-  }, [isRunning, isEnabled, syncToHabit]);
+    let cancelled = false;
+    void desktopHasCapability('desktop-computer-sync-v2').then((supported) => {
+      if (!cancelled) setComputerSyncCapability(supported);
+    });
+    const handlePrivacyChange = () => setPrivacySettings(readPrivacySettings());
+    window.addEventListener('ritual:privacy-settings-changed', handlePrivacyChange);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('ritual:privacy-settings-changed', handlePrivacyChange);
+    };
+  }, []);
+
+  const cloudRollupSyncEnabled = privacySettings.mode === 'cloud_intelligence'
+    && privacySettings.consents.plaintext_sync === true;
+  const syncActionLabel = computerSyncCapability === false
+    ? 'Update required'
+    : cloudRollupSyncEnabled
+      ? 'Sync Now'
+      : 'Refresh Local Stats';
+  const syncProgressLabel: Partial<Record<DesktopComputerSyncStage, string>> = {
+    materializing: 'Refreshing...',
+    obtaining_config: 'Connecting...',
+    uploading: 'Uploading...',
+    verifying: 'Verifying...',
+    downloading: 'Downloading...',
+    projecting: 'Updating habit...',
+  };
+  const syncDescription = (() => {
+    if (computerSyncCapability === false) return 'Update Ritual to use local-first Computer Time sync.';
+    if (isSyncing) return syncProgressLabel[computerSyncStage] || 'Refreshing local statistics...';
+    if (computerSyncResult?.outcome === 'privacy_blocked') return 'Privacy consent required for cloud rollup sync.';
+    if (computerSyncResult?.outcome === 'cloud_pending') {
+      if (computerSyncResult.errorMessage) return computerSyncResult.errorMessage;
+      const pending = [
+        computerSyncResult.pendingRollups > 0
+          ? `${computerSyncResult.pendingRollups.toLocaleString()} rollups pending`
+          : null,
+        computerSyncResult.pendingRawRows > 0
+          ? `${computerSyncResult.pendingRawRows.toLocaleString()} historical rows awaiting acknowledgement`
+          : null,
+      ].filter(Boolean);
+      return `${pending.join(' · ') || 'Cloud sync pending'}; background sync will continue.`;
+    }
+    if (computerSyncResult?.outcome === 'failed') {
+      return computerSyncResult.errorMessage || 'Aggregation unavailable.';
+    }
+    if (computerSyncResult?.outcome === 'local_refreshed') return 'Local statistics refreshed. No cloud data was sent.';
+    if (computerSyncResult?.outcome === 'cloud_synced') return 'Synced local rollups and downloaded other-device totals.';
+    if (lastSyncTime) {
+      return `Last synced ${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+    return cloudRollupSyncEnabled
+      ? 'Upload privacy-safe daily rollups and update Computer Time.'
+      : 'Refresh Computer Time from activity stored on this Mac.';
+  })();
 
   const checkAccessibility = useCallback(async () => {
     try {
@@ -253,7 +346,6 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           setTitleMode((device.state?.title_mode || 'off') as CachedWatcherState['titleMode']);
           setPollInterval(device.state?.poll_interval_ms || 2000);
           setExcludedApps(device.state?.excluded_bundle_ids || []);
-          setSyncAnalytics(Boolean(device.state?.sync_analytics));
           setAfkTimeout(device.state?.afk_timeout_seconds || 900);
 
           setCachedState({
@@ -403,7 +495,7 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         getToken,
         {
           pathParams: { device_id: deviceId },
-          body: { poll_interval_ms: pollInterval, title_mode: titleMode, excluded_bundle_ids: excludedApps, sync_analytics: syncAnalytics, afk_timeout_seconds: afkTimeout },
+          body: { poll_interval_ms: pollInterval, title_mode: titleMode, excluded_bundle_ids: excludedApps, afk_timeout_seconds: afkTimeout },
         },
         userId,
       );
@@ -488,26 +580,20 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
           />
         )}
 
-        {isEnabled && (
-          <NativeRow
-            icon={<RefreshCw className={cn('h-4 w-4', isSyncing && 'animate-spin')} />}
-            title="Sync to habit"
-            description={
-              lastSyncTime
-                ? `Last synced ${lastSyncTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                : 'Update your Computer Time habit from the local watcher.'
-            }
-            control={(
-              <button
-                onClick={syncToHabit}
-                disabled={isSyncing}
-                className="settings-value-button disabled:opacity-50"
-              >
-                {isSyncing ? 'Syncing...' : 'Sync Now'}
-              </button>
-            )}
-          />
-        )}
+        <NativeRow
+          icon={<RefreshCw className={cn('h-4 w-4', isSyncing && 'animate-spin')} />}
+          title={cloudRollupSyncEnabled ? 'Sync computer activity' : 'Local computer statistics'}
+          description={syncDescription}
+          control={(
+            <button
+              onClick={syncComputerActivity}
+              disabled={isSyncing || computerSyncCapability !== true}
+              className="settings-value-button disabled:opacity-50"
+            >
+              {isSyncing ? (syncProgressLabel[computerSyncStage] || 'Refreshing...') : syncActionLabel}
+            </button>
+          )}
+        />
       </NativeSection>
 
       <NativeSection title="Privacy">
@@ -601,9 +687,13 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
         </div>
 
         <NativeRow
-          title="Sync analytics to cloud"
-          description="Send summarized activity analytics to Ritual."
-          control={<NativeToggle checked={syncAnalytics} onClick={() => setSyncAnalytics(!syncAnalytics)} />}
+          title="Cloud rollup replication"
+          description="Controlled by Cloud Intelligence and plaintext sync consent in Privacy settings."
+          control={(
+            <span className="text-[12px] font-medium text-[#6f6f6f]">
+              {cloudRollupSyncEnabled ? 'Enabled' : 'Off'}
+            </span>
+          )}
         />
       </NativeSection>
 

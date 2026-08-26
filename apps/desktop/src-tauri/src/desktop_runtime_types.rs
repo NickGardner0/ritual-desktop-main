@@ -7,6 +7,12 @@ pub(crate) struct TursoSyncConfigResponse {
     pub(crate) auth_token: String,
     pub(crate) expires_at: String,
     pub(crate) database_name: String,
+    #[serde(default = "default_activity_schema_version")]
+    pub(crate) activity_schema_version: i64,
+}
+
+fn default_activity_schema_version() -> i64 {
+    1
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

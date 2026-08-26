@@ -53,6 +53,7 @@ class DesktopSyncConfig:
     auth_token: str
     expires_at: str
     database_name: str
+    activity_schema_version: int = 2
 
 
 @dataclass
@@ -1190,6 +1191,15 @@ class TursoUserService:
         if self.is_rollout_gate_user(user_id) and user.turso_migrated_at is None:
             raise TursoProvisioningError("Per-user Turso migration has not completed yet")
 
+        # Desktop schema v2 is additive and idempotent. Keeping this gate on the
+        # config endpoint makes older provisioned databases safe for a v2 client
+        # before credentials are handed out.
+        await self._ensure_remote_schema_once(
+            user_id,
+            user.turso_db_url,
+            user.turso_db_name,
+        )
+
         token, expires_at_epoch = await self.get_cached_database_token(
             user.turso_db_name,
             expiration=self.desktop_token_ttl,
@@ -1202,6 +1212,7 @@ class TursoUserService:
             auth_token=token,
             expires_at=expires_at,
             database_name=user.turso_db_name,
+            activity_schema_version=2,
         )
 
 

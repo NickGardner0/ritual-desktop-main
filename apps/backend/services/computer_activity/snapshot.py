@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 import logging
@@ -44,7 +45,10 @@ def _empty_computer_activity_snapshot(
     *,
     source: str,
     empty_reason: str,
+    state: Optional[str] = None,
+    scope: str = "all_devices",
 ) -> Dict[str, Any]:
+    resolved_state = state or ("sync_pending" if source == "sync_pending" else "empty")
     return {
         "summary": {
             "total_active_ms": 0,
@@ -61,8 +65,10 @@ def _empty_computer_activity_snapshot(
         "apps": [],
         "domains": [],
         "source": source,
-        "state": "sync_pending" if source == "sync_pending" else "empty",
-        "sync_pending": source == "sync_pending",
+        "state": resolved_state,
+        "scope": scope,
+        "last_synced_at": None,
+        "sync_pending": resolved_state == "sync_pending",
         "empty_reason": empty_reason,
     }
 
@@ -227,8 +233,238 @@ def _build_snapshot_from_event_rows_impl(
         "domains": _build_top_domains_from_daily_rows_impl(detailed_rows, limit, source=source),
         "source": source,
         "state": "ready",
+        "scope": "all_devices",
+        "last_synced_at": None,
         "sync_pending": False,
     }
+
+
+def _parse_rollup_json_list(value: Any) -> List[Any]:
+    if isinstance(value, list):
+        return value
+    if not isinstance(value, str) or not value.strip():
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def _normalize_rollup_intervals(value: Any) -> List[tuple[int, int]]:
+    intervals: List[tuple[int, int]] = []
+    for item in _parse_rollup_json_list(value):
+        if not isinstance(item, (list, tuple)) or len(item) != 2:
+            continue
+        try:
+            start_ms = int(item[0])
+            end_ms = int(item[1])
+        except (TypeError, ValueError):
+            continue
+        if end_ms > start_ms:
+            intervals.append((start_ms, end_ms))
+    return intervals
+
+
+def _build_snapshot_from_rollup_rows_impl(
+    rows: List[tuple[Any, ...]],
+    *,
+    limit: int,
+    scope: str,
+) -> Optional[Dict[str, Any]]:
+    if not rows:
+        return None
+
+    by_day: Dict[str, Dict[str, Any]] = {}
+    app_groups: Dict[tuple[str, str], Dict[str, Any]] = {}
+    domain_groups: Dict[str, Dict[str, Any]] = {}
+    last_synced_at: Optional[int] = None
+
+    for row in rows:
+        day = str(row[0] or "").strip()
+        if not day:
+            continue
+        day_bucket = by_day.setdefault(
+            day,
+            {
+                "active_intervals": [],
+                "afk_intervals": [],
+                "events_count": 0,
+                "apps": set(),
+                "domains": set(),
+            },
+        )
+        day_bucket["active_intervals"].extend(_normalize_rollup_intervals(row[1]))
+        day_bucket["afk_intervals"].extend(_normalize_rollup_intervals(row[2]))
+        day_bucket["events_count"] += max(0, int(row[3] or 0))
+
+        for summary in _parse_rollup_json_list(row[4]):
+            if not isinstance(summary, dict):
+                continue
+            bundle_id = str(
+                summary.get("bundle_id") or summary.get("app_bundle_id") or "unknown"
+            ).strip() or "unknown"
+            app_name = str(
+                summary.get("name") or summary.get("app_name") or bundle_id or "Unknown"
+            ).strip() or "Unknown"
+            active_ms = max(0, int(summary.get("active_ms") or 0))
+            events_count = max(0, int(summary.get("events_count") or 0))
+            if active_ms <= 0:
+                continue
+            day_bucket["apps"].add(bundle_id)
+            bucket = app_groups.setdefault(
+                (bundle_id, app_name),
+                {"active_ms": 0, "events_count": 0, "days": set()},
+            )
+            bucket["active_ms"] += active_ms
+            bucket["events_count"] += events_count
+            bucket["days"].add(day)
+
+        for summary in _parse_rollup_json_list(row[5]):
+            if not isinstance(summary, dict):
+                continue
+            domain = str(summary.get("domain") or "").strip().lower()
+            active_ms = max(0, int(summary.get("active_ms") or 0))
+            events_count = max(0, int(summary.get("events_count") or 0))
+            if not domain or active_ms <= 0:
+                continue
+            day_bucket["domains"].add(domain)
+            bucket = domain_groups.setdefault(
+                domain,
+                {"active_ms": 0, "events_count": 0, "days": set()},
+            )
+            bucket["active_ms"] += active_ms
+            bucket["events_count"] += events_count
+            bucket["days"].add(day)
+
+        updated_at = int(row[6] or 0)
+        if updated_at > 0:
+            last_synced_at = max(last_synced_at or 0, updated_at)
+
+    if not by_day:
+        return None
+
+    daily: List[Dict[str, Any]] = []
+    for day, bucket in sorted(by_day.items()):
+        active_intervals = merge_time_intervals_impl(bucket["active_intervals"])
+        afk_intervals = merge_time_intervals_impl(bucket["afk_intervals"])
+        active_ms = sum(end - start for start, end in active_intervals)
+        afk_ms = sum(end - start for start, end in afk_intervals)
+        daily.append(
+            {
+                "day": day,
+                "active_hours": round(active_ms / (1000 * 60 * 60), 2),
+                "active_ms": active_ms,
+                "afk_ms": afk_ms,
+                "events_count": int(bucket["events_count"]),
+                "apps_count": len(bucket["apps"]),
+                "domains_count": len(bucket["domains"]),
+                "source": "turso_rollups_v2",
+            }
+        )
+
+    apps = sorted(app_groups.items(), key=lambda item: item[1]["active_ms"], reverse=True)[
+        : max(1, min(int(limit or 10), 100))
+    ]
+    domains = sorted(domain_groups.items(), key=lambda item: item[1]["active_ms"], reverse=True)[
+        : max(1, min(int(limit or 10), 100))
+    ]
+    total_active_ms = sum(int(row["active_ms"]) for row in daily)
+    total_afk_ms = sum(int(row["afk_ms"]) for row in daily)
+    total_events = sum(int(row["events_count"]) for row in daily)
+    days_tracked = sum(1 for row in daily if int(row["active_ms"]) > 0)
+    total_hours = round(total_active_ms / (1000 * 60 * 60), 2)
+
+    return {
+        "summary": {
+            "total_active_ms": total_active_ms,
+            "total_hours": total_hours,
+            "total_events": total_events,
+            "days_tracked": days_tracked,
+            "unique_apps": len({bundle_id for bundle_id, _ in app_groups}),
+            "unique_domains": len(domain_groups),
+            "total_afk_ms": total_afk_ms,
+            "avg_daily_hours": round(total_hours / max(days_tracked, 1), 2),
+            "source": "turso_rollups_v2",
+        },
+        "daily": daily,
+        "apps": [
+            {
+                "app_bundle_id": key[0],
+                "app_name": key[1],
+                "total_active_ms": int(bucket["active_ms"]),
+                "total_events": int(bucket["events_count"]),
+                "days_used": len(bucket["days"]),
+                "hours": round(int(bucket["active_ms"]) / (1000 * 60 * 60), 2),
+                "source": "turso_rollups_v2",
+            }
+            for key, bucket in apps
+        ],
+        "domains": [
+            {
+                "domain": domain,
+                "total_active_ms": int(bucket["active_ms"]),
+                "total_events": int(bucket["events_count"]),
+                "days_used": len(bucket["days"]),
+                "hours": round(int(bucket["active_ms"]) / (1000 * 60 * 60), 2),
+                "minutes": round(int(bucket["active_ms"]) / (1000 * 60), 1),
+                "source": "turso_rollups_v2",
+            }
+            for domain, bucket in domains
+        ],
+        "source": "turso_rollups_v2",
+        "state": "ready" if total_active_ms > 0 else "empty",
+        "scope": scope,
+        "last_synced_at": last_synced_at,
+        "sync_pending": False,
+        "empty_reason": "no_activity_rows" if total_active_ms <= 0 else None,
+    }
+
+
+async def _fetch_remote_activity_rollup_snapshot_impl(
+    *,
+    user_id: str,
+    activity_user_ids: List[str],
+    start_date: str,
+    end_date: str,
+    limit: int,
+    device_id: Optional[str] = None,
+) -> tuple[Optional[Dict[str, Any]], Any]:
+    user_placeholders = ", ".join(["?"] * len(activity_user_ids))
+    params: List[Any] = [start_date, end_date, *activity_user_ids]
+    device_clause = ""
+    if device_id:
+        device_clause = " AND device_id = ?"
+        params.append(device_id)
+    result = await fetch_remote_activity_rows(
+        user_id,
+        f"""
+        SELECT
+            date,
+            active_intervals_json,
+            afk_intervals_json,
+            events_count,
+            app_summaries_json,
+            domain_summaries_json,
+            updated_at
+        FROM activity_daily_rollups
+        WHERE date >= ? AND date <= ?
+          AND user_id IN ({user_placeholders})
+          {device_clause}
+        ORDER BY date ASC, device_id ASC
+        """,
+        params,
+    )
+    if result.error or not result.rows:
+        return None, result
+    return (
+        _build_snapshot_from_rollup_rows_impl(
+            result.rows,
+            limit=limit,
+            scope="device" if device_id else "all_devices",
+        ),
+        result,
+    )
 
 
 def _fetch_local_activity_event_rows_impl(
@@ -644,61 +880,33 @@ async def _build_computer_activity_snapshot_impl(
     source_clause, source_params = _activity_source_sql_clause(source_filter)
     params.extend(source_params)
 
-    aggregate_timed_out = False
-    try:
-        aggregate_snapshot = await asyncio.wait_for(
-            _fetch_remote_activity_sql_aggregate_snapshot_impl(
-                user_id=user_id,
-                activity_user_ids=activity_user_ids,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                limit=limit,
-                device_id=device_id,
-                source_filter=source_filter,
-            ),
-            timeout=REMOTE_AGGREGATE_TIMEOUT_SECONDS,
-        )
-    except asyncio.TimeoutError:
-        aggregate_timed_out = True
-        aggregate_snapshot = None
-        logger.warning(
-            "Remote computer activity aggregate timed out after %.1fs for user=%s range=%s..%s",
-            REMOTE_AGGREGATE_TIMEOUT_SECONDS,
-            user_id,
-            start_date,
-            end_date,
-        )
-    if aggregate_snapshot:
-        return aggregate_snapshot
-
-    if aggregate_timed_out:
-        local_rows = _fetch_local_activity_event_rows_impl(
-            start_ms=start_ms,
-            end_ms=end_ms,
-            user_ids=activity_user_ids,
-            device_id=device_id,
-            source_filter=source_filter,
-        )
-        if local_rows:
-            snapshot = _build_snapshot_from_event_rows_impl(
-                local_rows,
-                start_ms=start_ms,
-                end_ms=end_ms,
-                source="legacy_fallback",
-                limit=limit,
-            )
-            snapshot["state"] = "legacy_fallback"
-            return snapshot
-
+    rollup_result = None
+    rollup_timed_out = False
+    if _normalize_activity_source_filter(source_filter) == "desktop":
         try:
-            access = await turso_user_service.get_user_activity_access(user_id)
-        except Exception:
-            access = None
-        if getattr(access, "use_per_user_db", False):
-            return _empty_computer_activity_snapshot(
-                source="sync_pending",
-                empty_reason="remote_activity_aggregate_timeout",
+            rollup_snapshot, rollup_result = await asyncio.wait_for(
+                _fetch_remote_activity_rollup_snapshot_impl(
+                    user_id=user_id,
+                    activity_user_ids=activity_user_ids,
+                    start_date=start_date,
+                    end_date=end_date,
+                    limit=limit,
+                    device_id=device_id,
+                ),
+                timeout=REMOTE_AGGREGATE_TIMEOUT_SECONDS,
             )
+        except asyncio.TimeoutError:
+            rollup_timed_out = True
+            rollup_snapshot = None
+            logger.warning(
+                "Remote computer activity rollup read timed out after %.1fs for user=%s range=%s..%s",
+                REMOTE_AGGREGATE_TIMEOUT_SECONDS,
+                user_id,
+                start_date,
+                end_date,
+            )
+        if rollup_snapshot:
+            return rollup_snapshot
 
     remote_result = None
     raw_timed_out = False
@@ -768,9 +976,18 @@ async def _build_computer_activity_snapshot_impl(
         snapshot["state"] = "legacy_fallback"
         return snapshot
 
-    if remote_result is not None and remote_result.expected_remote:
+    if rollup_timed_out:
         return _empty_computer_activity_snapshot(
-            source="sync_pending",
+            source="unavailable",
+            state="unavailable",
+            scope="device" if device_id else "all_devices",
+            empty_reason="remote_activity_rollup_timeout",
+        )
+    if remote_result is not None and remote_result.expected_remote and remote_result.error:
+        return _empty_computer_activity_snapshot(
+            source="unavailable",
+            state="unavailable",
+            scope="device" if device_id else "all_devices",
             empty_reason=remote_result.error or "remote_activity_unhydrated",
         )
     if raw_timed_out:
@@ -780,10 +997,26 @@ async def _build_computer_activity_snapshot_impl(
             access = None
         if getattr(access, "use_per_user_db", False):
             return _empty_computer_activity_snapshot(
-                source="sync_pending",
+                source="unavailable",
+                state="unavailable",
+                scope="device" if device_id else "all_devices",
                 empty_reason="remote_activity_raw_timeout",
             )
-    if remote_result is None:
+    if rollup_result is not None and rollup_result.error:
+        return _empty_computer_activity_snapshot(
+            source="unavailable",
+            state="unavailable",
+            scope="device" if device_id else "all_devices",
+            empty_reason=rollup_result.error,
+        )
+    if range_days > RAW_EVENT_FALLBACK_MAX_DAYS and rollup_result is not None and rollup_result.expected_remote:
+        return _empty_computer_activity_snapshot(
+            source="sync_pending",
+            state="sync_pending",
+            scope="device" if device_id else "all_devices",
+            empty_reason="activity_rollups_not_materialized",
+        )
+    if remote_result is None and rollup_result is None:
         try:
             access = await turso_user_service.get_user_activity_access(user_id)
         except Exception:
@@ -791,11 +1024,15 @@ async def _build_computer_activity_snapshot_impl(
         if getattr(access, "use_per_user_db", False):
             return _empty_computer_activity_snapshot(
                 source="sync_pending",
-                empty_reason="compact_activity_aggregate_unavailable",
+                state="sync_pending",
+                scope="device" if device_id else "all_devices",
+                empty_reason="activity_rollups_unavailable",
             )
 
     return _empty_computer_activity_snapshot(
         source="legacy_fallback",
+        state="empty",
+        scope="device" if device_id else "all_devices",
         empty_reason="no_activity_rows",
     )
 
@@ -819,5 +1056,3 @@ async def get_computer_activity_snapshot_impl(
         device_id=device_id,
         source_filter=source_filter,
     )
-
-

@@ -8,6 +8,8 @@ commands.allow = [
   "desktop_begin_auth_handoff",
   "desktop_complete_auth_handoff",
   "desktop_set_auth_token",
+  "desktop_set_privacy_state",
+  "sync_computer_activity_now",
   "desktop_clear_auth_state",
   "desktop_frontend_ready",
   "desktop_manual_update_check",

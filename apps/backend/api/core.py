@@ -110,6 +110,7 @@ class TursoSyncConfigResponse(BaseModel):
     auth_token: str
     expires_at: str
     database_name: str
+    activity_schema_version: int = 2
 
 
 def _validate_scheduled_block_values(day: str, start_minutes: int, end_minutes: int):
@@ -416,6 +417,7 @@ def create_core_router(
                 auth_token=config.auth_token,
                 expires_at=config.expires_at,
                 database_name=config.database_name,
+                activity_schema_version=config.activity_schema_version,
             )
         except HTTPException:
             raise

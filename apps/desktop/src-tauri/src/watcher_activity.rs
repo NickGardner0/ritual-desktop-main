@@ -65,7 +65,7 @@ pub(crate) fn clip_interval(
     }
 }
 
-fn merge_intervals(mut intervals: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
+pub(crate) fn merge_intervals(mut intervals: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     if intervals.is_empty() {
         return Vec::new();
     }
@@ -87,7 +87,7 @@ fn merge_intervals(mut intervals: Vec<(i64, i64)>) -> Vec<(i64, i64)> {
     merged
 }
 
-fn total_interval_ms(intervals: Vec<(i64, i64)>) -> i64 {
+pub(crate) fn total_interval_ms(intervals: Vec<(i64, i64)>) -> i64 {
     merge_intervals(intervals)
         .into_iter()
         .map(|(start, end)| end.saturating_sub(start))

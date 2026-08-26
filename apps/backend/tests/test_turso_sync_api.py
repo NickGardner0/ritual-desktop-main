@@ -88,6 +88,7 @@ class TursoSyncApiTests(unittest.TestCase):
                 "auth_token": "scoped-token",
                 "expires_at": "2026-03-27T12:00:00+00:00",
                 "database_name": "ritual-user-1",
+                "activity_schema_version": 2,
             },
         )
         self.assertNotIn("DATABASE_URL", response.text)

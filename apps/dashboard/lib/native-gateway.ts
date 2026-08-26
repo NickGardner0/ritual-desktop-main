@@ -48,6 +48,8 @@ export {
   desktopBeginAuthHandoff,
   desktopCompleteAuthHandoff,
   desktopSetAuthToken,
+  desktopSetPrivacyState,
+  syncComputerActivityNow,
   desktopClearAuthState,
   desktopFrontendReady,
   getDesktopCompatibilityIssue,
@@ -61,6 +63,8 @@ export {
   type DesktopRuntimeState,
   type DesktopDiagnostics,
   type DesktopProcessMetrics,
+  type DesktopComputerSyncStage,
+  type ComputerActivitySyncResult,
   type DesktopCompatibilityIssue,
   type UpdateManifest,
 } from "@/lib/desktop-bridge/runtime";

@@ -343,7 +343,8 @@ async def sync_to_computer_use_habit(
     Sync computer time to the user's "Computer Time" habit.
     Supports either single-day sync or range backfill.
     
-    This endpoint is called hourly by the Tauri app to keep the dashboard updated.
+    This compatibility projection is called by the native rollup orchestrator
+    only after acknowledged computer-activity rollups are ready.
     
     Query params:
     - day: YYYY-MM-DD (single day sync)

@@ -35,6 +35,9 @@ export async function tryGetDesktopLocalFirstAggregate(
       error: localError instanceof Error ? localError.message : String(localError),
     })
     const unavailable = unavailableComputerStats()
+    if (String(localError).includes('desktop_update_required')) {
+      unavailable.empty_reason = 'desktop_update_required'
+    }
     cacheAggregatedResult(cacheKey, params, limit, unavailable)
     return unavailable
   }

@@ -29,6 +29,9 @@ pub(crate) const DESKTOP_RUNTIME_CAPABILITIES: &[&str] = &[
     "desktop-auth-handoff-v2",
     "desktop-channel-identity-v1",
     "desktop-runtime-events-v1",
+    "desktop-privacy-state-v1",
+    "desktop-local-activity-rollups-v1",
+    "desktop-computer-sync-v2",
 ];
 pub(crate) const TURSO_SYNC_FETCH_RETRY_ATTEMPTS: usize = 3;
 pub(crate) const TURSO_SYNC_FETCH_RETRY_BASE_SECS: u64 = 3;
@@ -80,6 +83,39 @@ pub struct DesktopAuthRuntimeState {
     pub last_turso_sync_at_ms: Option<i64>,
     pub turso_refresh_scheduled_for_ms: Option<i64>,
     pub last_turso_error: Option<String>,
+    pub last_turso_error_code: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopComputerSyncStage {
+    #[default]
+    Idle,
+    Materializing,
+    LocalReady,
+    ObtainingConfig,
+    Uploading,
+    Verifying,
+    Downloading,
+    Projecting,
+    Synced,
+    PrivacyBlocked,
+    Failed,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopComputerSyncRuntimeState {
+    pub stage: DesktopComputerSyncStage,
+    pub pending_rollups: u64,
+    pub pending_raw_rows: u64,
+    pub uploaded_rollups: u64,
+    pub superseded_raw_rows: u64,
+    pub local_watermark_ms: Option<i64>,
+    pub remote_watermark_ms: Option<i64>,
+    pub last_error_code: Option<String>,
+    pub last_error_message: Option<String>,
+    pub last_updated_at_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
@@ -106,6 +142,8 @@ pub struct DesktopProcessMetrics {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopRuntimeState {
     pub auth: DesktopAuthRuntimeState,
+    pub privacy: crate::privacy_policy::DesktopPrivacyState,
+    pub computer_sync: DesktopComputerSyncRuntimeState,
     pub database: crate::ritual_database::DatabaseRuntimeStateSnapshot,
     pub watcher: crate::watcher::WatcherLifecycleSnapshot,
     pub process: DesktopProcessMetrics,
@@ -148,13 +186,14 @@ pub struct DesktopDiagnostics {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct DesktopAuthState {
-    token: Option<String>,
-    user_id: Option<String>,
-    backend_base: Option<String>,
+    pub(crate) token: Option<String>,
+    pub(crate) user_id: Option<String>,
+    pub(crate) backend_base: Option<String>,
     last_updated_at_ms: Option<i64>,
     last_turso_sync_at_ms: Option<i64>,
     turso_refresh_scheduled_for_ms: Option<i64>,
     last_turso_error: Option<String>,
+    last_turso_error_code: Option<String>,
 }
 
 pub struct DesktopShellState {
@@ -163,7 +202,9 @@ pub struct DesktopShellState {
     pending_update: Mutex<Option<PendingUpdateManifest>>,
     pending_auth_deep_link: Mutex<Option<String>>,
     auth_state: Mutex<DesktopAuthState>,
-    auth_generation: AtomicU64,
+    pub(crate) privacy_state: Mutex<crate::privacy_policy::DesktopPrivacyState>,
+    pub(crate) computer_sync_state: Mutex<DesktopComputerSyncRuntimeState>,
+    pub(crate) auth_generation: AtomicU64,
     biome_drain: Mutex<BiomeDrainSnapshot>,
 }
 
@@ -175,6 +216,8 @@ impl Default for DesktopShellState {
             pending_update: Mutex::new(None),
             pending_auth_deep_link: Mutex::new(None),
             auth_state: Mutex::new(DesktopAuthState::default()),
+            privacy_state: Mutex::new(crate::privacy_policy::DesktopPrivacyState::default()),
+            computer_sync_state: Mutex::new(DesktopComputerSyncRuntimeState::default()),
             auth_generation: AtomicU64::new(0),
             biome_drain: Mutex::new(BiomeDrainSnapshot::default()),
         }
@@ -433,7 +476,31 @@ fn build_auth_runtime_state<R: Runtime>(app: &AppHandle<R>) -> DesktopAuthRuntim
         last_turso_sync_at_ms: auth_state.last_turso_sync_at_ms,
         turso_refresh_scheduled_for_ms: auth_state.turso_refresh_scheduled_for_ms,
         last_turso_error: auth_state.last_turso_error,
+        last_turso_error_code: auth_state.last_turso_error_code,
     }
+}
+
+pub(crate) fn read_computer_sync_state<R: Runtime>(
+    app: &AppHandle<R>,
+) -> DesktopComputerSyncRuntimeState {
+    app.state::<DesktopShellState>()
+        .computer_sync_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+pub(crate) fn update_computer_sync_state<R: Runtime, F>(app: &AppHandle<R>, mutator: F)
+where
+    F: FnOnce(&mut DesktopComputerSyncRuntimeState),
+{
+    let state = app.state::<DesktopShellState>();
+    let mut computer_sync = state
+        .computer_sync_state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    mutator(&mut computer_sync);
+    computer_sync.last_updated_at_ms = Some(Utc::now().timestamp_millis());
 }
 
 pub(crate) fn request_token_refresh<R: Runtime>(app: &AppHandle<R>) {
@@ -533,16 +600,87 @@ async fn build_runtime_state<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<DesktopRuntimeState, String> {
     let auth = build_auth_runtime_state(app);
+    let privacy = crate::privacy_policy::read_privacy_state(app);
+    let computer_sync = read_computer_sync_state(app);
     let database = crate::ritual_database::database_runtime_state_snapshot();
     let watcher = crate::watcher::get_watcher_lifecycle_snapshot().await;
     let process = collect_process_metrics(&watcher);
 
     Ok(DesktopRuntimeState {
         auth,
+        privacy,
+        computer_sync,
         database,
         watcher,
         process,
     })
+}
+
+#[tauri::command]
+#[instrument(skip(app, state))]
+pub async fn desktop_set_privacy_state<R: Runtime + 'static>(
+    app: AppHandle<R>,
+    state: crate::privacy_policy::DesktopPrivacyStateInput,
+) -> Result<DesktopRuntimeState, String> {
+    let next_state = crate::privacy_policy::DesktopPrivacyState::try_from(state)?;
+    let cloud_allowed = crate::privacy_policy::plaintext_cloud_sync_allowed(&next_state).is_ok();
+    let state_changed = {
+        let shell = app.state::<DesktopShellState>();
+        let mut current = shell
+            .privacy_state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let changed = *current != next_state;
+        *current = next_state.clone();
+        changed
+    };
+
+    if !cloud_allowed {
+        crate::native_widget::clear_turso_sync_config()?;
+        update_auth_state(&app, |auth| {
+            auth.turso_refresh_scheduled_for_ms = None;
+            auth.last_turso_error = None;
+            auth.last_turso_error_code = None;
+        });
+        update_computer_sync_state(&app, |sync| {
+            sync.stage = if matches!(
+                next_state.mode,
+                crate::privacy_policy::PrivacyMode::CloudIntelligence
+            ) {
+                sync.last_error_code = Some("privacy_blocked".to_string());
+                sync.last_error_message = Some(
+                    "Cloud Intelligence requires plaintext_sync consent for computer rollups"
+                        .to_string(),
+                );
+                DesktopComputerSyncStage::PrivacyBlocked
+            } else {
+                sync.last_error_code = None;
+                sync.last_error_message = None;
+                DesktopComputerSyncStage::LocalReady
+            };
+        });
+    } else if state_changed {
+        update_computer_sync_state(&app, |sync| {
+            sync.stage = DesktopComputerSyncStage::ObtainingConfig;
+            sync.last_error_code = None;
+            sync.last_error_message = None;
+        });
+        let generation = app
+            .state::<DesktopShellState>()
+            .auth_generation
+            .load(Ordering::SeqCst);
+        let auth = read_auth_state(&app);
+        if auth.token.is_some() && auth.backend_base.is_some() {
+            if let Err(error) = turso_sync::refresh_turso_sync_config(app.clone(), generation).await
+            {
+                warn!(error = %error, "Turso refresh failed after privacy state update");
+            }
+        }
+    }
+
+    let runtime_state = build_runtime_state(&app).await?;
+    let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
+    Ok(runtime_state)
 }
 
 fn callback_scheme_owner(scheme: &str) -> Option<String> {

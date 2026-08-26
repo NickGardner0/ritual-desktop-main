@@ -3,6 +3,7 @@
 //! These tests verify the complete workflow from database creation
 //! through all CRUD operations.
 
+use chrono::{Local, TimeZone};
 use ritual_db::{ActivityEvent, DatabaseConfig, OcrFrame, RitualDatabase, VideoChunk};
 use tempfile::TempDir;
 
@@ -27,6 +28,20 @@ async fn insert_test_activity_event(
     db.insert_activity_event(&event)
         .await
         .expect("Failed to insert test activity event")
+}
+
+async fn dirty_activity_day_count(db: &RitualDatabase) -> i64 {
+    let conn = db.connection().await;
+    let mut rows = conn
+        .query("SELECT COUNT(*) FROM activity_rollup_dirty_days", ())
+        .await
+        .expect("Dirty-day query failed");
+    rows.next()
+        .await
+        .expect("Dirty-day row failed")
+        .expect("Dirty-day count missing")
+        .get(0)
+        .expect("Dirty-day count invalid")
 }
 
 // ============================================================================
@@ -349,20 +364,18 @@ async fn test_sync_queue_basic() {
     let second_id = insert_test_activity_event(&db, 2000, 2500).await;
 
     let count = db.pending_sync_count().await.expect("Query failed");
-    assert_eq!(count, 2);
+    assert_eq!(count, 0);
+    assert_eq!(dirty_activity_day_count(&db).await, 1);
 
-    // Get pending
+    // Raw activity is never exposed to the plaintext uploader.
     let pending = db.get_pending_sync(10).await.expect("Query failed");
-    assert_eq!(pending.len(), 2);
+    assert!(pending.is_empty());
     assert_eq!(db.pending_sync_count().await.expect("Query failed"), 0);
 
     db.queue_activity_sync(first_id).await.expect("Queue failed");
     db.queue_activity_sync(second_id).await.expect("Queue failed");
-    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 2);
-
-    // Mark as synced
-    db.mark_synced(pending[0].id).await.expect("Mark failed");
-    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 1);
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 0);
+    assert_eq!(dirty_activity_day_count(&db).await, 1);
 }
 
 #[tokio::test]
@@ -370,16 +383,17 @@ async fn test_sync_queue_deduplication() {
     let (db, _temp) = create_test_db().await;
 
     let event_id = insert_test_activity_event(&db, 1000, 1500).await;
-    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 1);
+    assert_eq!(db.pending_sync_count().await.expect("Query failed"), 0);
 
     // Queue same event multiple times
     db.queue_activity_sync(event_id).await.expect("Queue failed");
     db.queue_activity_sync(event_id).await.expect("Queue failed");
     db.queue_activity_sync(event_id).await.expect("Queue failed");
 
-    // Should only have one entry
+    // All writes for the same device/day coalesce into one dirty rollup day.
     let count = db.pending_sync_count().await.expect("Query failed");
-    assert_eq!(count, 1);
+    assert_eq!(count, 0);
+    assert_eq!(dirty_activity_day_count(&db).await, 1);
 }
 
 #[tokio::test]
@@ -401,12 +415,34 @@ async fn test_sync_queue_update_coalescing() {
         .await
         .expect("Queue failed");
 
-    // Should only have one entry with latest ts_end
+    // No raw queue entry is produced; the dirty-day watermark advances instead.
     let count = db.pending_sync_count().await.expect("Query failed");
-    assert_eq!(count, 1);
+    assert_eq!(count, 0);
+    let conn = db.connection().await;
+    let mut rows = conn
+        .query(
+            "SELECT source_event_watermark FROM activity_rollup_dirty_days LIMIT 1",
+            (),
+        )
+        .await
+        .expect("Dirty-day query failed");
+    assert_eq!(
+        rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap(),
+        3000
+    );
+}
 
-    let pending = db.get_pending_sync(10).await.expect("Query failed");
-    assert_eq!(pending[0].ts_end, Some(3000));
+#[tokio::test]
+async fn test_activity_crossing_midnight_marks_every_affected_day_dirty() {
+    let (db, _temp) = create_test_db().await;
+    let start = Local
+        .with_ymd_and_hms(2026, 8, 25, 23, 59, 0)
+        .single()
+        .expect("Local test timestamp should resolve")
+        .timestamp_millis();
+    insert_test_activity_event(&db, start, start + 2 * 60 * 1000).await;
+
+    assert_eq!(dirty_activity_day_count(&db).await, 2);
 }
 
 // ============================================================================
@@ -531,7 +567,8 @@ async fn test_complete_workflow() {
     assert_eq!(stats.activity_event_count, 1);
     assert_eq!(stats.ocr_frame_count, 5);
     assert_eq!(stats.video_chunk_count, 1);
-    assert!(stats.sync_queue_pending > 0);
+    assert_eq!(stats.sync_queue_pending, 0);
+    assert_eq!(dirty_activity_day_count(&db).await, 1);
 
     // Verify activity
     let retrieved = db.get_activity_event(activity_id).await.unwrap().unwrap();

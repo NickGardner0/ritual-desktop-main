@@ -17,6 +17,7 @@ import {
   calculateTrackedSpanDays,
   formatMetricDisplay,
   getComputerSummaryHours,
+  getComputerUnavailableDisplay,
   type HabitMetricData,
   type MetricLogEntry,
 } from '@/components/analytics/overview-view.helpers';
@@ -296,11 +297,37 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
           };
         };
 
+        const buildUnavailableComputerMetricData = (display: string): HabitMetricData => ({
+          display,
+          stats: {
+            unitLabel: 'Hours',
+            sumFormatted: display,
+            avgFormatted: '—',
+            minFormatted: '—',
+            maxFormatted: '—',
+            stdDevFormatted: '—',
+            daysWithData: 0,
+            trackedDays: 0,
+          },
+        });
+
         for (const habit of habitsForMetrics) {
           const habitId = habit.id || '';
           if (!habitId) continue;
 
           if (isComputerHabitName(habit.name)) {
+            const unavailableDisplay = getComputerUnavailableDisplay({
+              state: computerSnapshotQuery.data?.state,
+              emptyReason: computerSnapshotQuery.data?.emptyReason,
+              looksEmpty: computerSnapshotLooksEmpty,
+              isPlaceholder: computerSnapshotQuery.isPlaceholderData,
+            });
+            if (unavailableDisplay) {
+              const display = unavailableDisplay;
+              next.set(habitId, buildUnavailableComputerMetricData(display));
+              continue;
+            }
+
             const cachedStats = effectiveCachedStats[habitId];
             const shouldUseCachedComputerFallback =
               Boolean(cachedStats)
@@ -334,10 +361,13 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
             const totalHours = summaryForDisplay
               ? getComputerSummaryHours(summaryForDisplay)
               : rows.reduce((sum, row) => sum + Number(row.active_hours || 0), 0);
+            const computerSyncSuffix = computerSnapshotQuery.data?.syncPending
+              ? ' · Sync pending'
+              : '';
 
             if (rows.length === 0 && effectiveComputerActivitySummary) {
               next.set(habitId, {
-                display: `${formatHabitStatNumber(totalHours)} Hours`,
+                display: `${formatHabitStatNumber(totalHours)} Hours${computerSyncSuffix}`,
                 stats: {
                   unitLabel: 'Hours',
                   sumFormatted: `${formatHabitStatNumber(getComputerSummaryHours(effectiveComputerActivitySummary))} Hours`,
@@ -366,7 +396,7 @@ export function useOverviewHabitMetrics(input: OverviewMetricsComputationInput) 
               : 0;
 
             next.set(habitId, {
-              display: `${formatHabitStatNumber(totalHours)} Hours`,
+              display: `${formatHabitStatNumber(totalHours)} Hours${computerSyncSuffix}`,
               stats: {
                 unitLabel: 'Hours',
                 sumFormatted: `${formatHabitStatNumber(totalHours)} Hours`,

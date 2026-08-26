@@ -11,6 +11,7 @@ from typing import Any
 ACTIVITY_MIGRATION_TABLES = (
     "activity_events",
     "afk_events",
+    "activity_daily_rollups",
     "project_time_sessions",
     "project_time_daily_rollups",
     "project_classification_rules",
@@ -62,6 +63,27 @@ ACTIVITY_SCHEMA_STATEMENTS = (
         ts_end INTEGER NOT NULL,
         status TEXT NOT NULL,
         created_at INTEGER NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS activity_daily_rollups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        rollup_uid TEXT NOT NULL UNIQUE,
+        user_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        date TEXT NOT NULL,
+        total_active_ms INTEGER NOT NULL DEFAULT 0,
+        total_afk_ms INTEGER NOT NULL DEFAULT 0,
+        events_count INTEGER NOT NULL DEFAULT 0,
+        active_intervals_json TEXT NOT NULL DEFAULT '[]',
+        afk_intervals_json TEXT NOT NULL DEFAULT '[]',
+        app_summaries_json TEXT NOT NULL DEFAULT '[]',
+        domain_summaries_json TEXT NOT NULL DEFAULT '[]',
+        source_event_watermark INTEGER NOT NULL DEFAULT 0,
+        source_version TEXT NOT NULL DEFAULT 'computer_activity_rollup_v1',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(user_id, device_id, date)
     )
     """,
     """
@@ -145,6 +167,9 @@ ACTIVITY_INDEX_STATEMENTS = (
     "CREATE INDEX IF NOT EXISTS idx_activity_events_source_ts ON activity_events(user_id, source, ts_start)",
     "CREATE INDEX IF NOT EXISTS idx_afk_events_user_device_ts ON afk_events(user_id, device_id, ts_start)",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_afk_events_afk_uid ON afk_events(afk_uid)",
+    "CREATE INDEX IF NOT EXISTS idx_activity_daily_rollups_user_date ON activity_daily_rollups(user_id, date)",
+    "CREATE INDEX IF NOT EXISTS idx_activity_daily_rollups_cursor ON activity_daily_rollups(user_id, updated_at, rollup_uid)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_daily_rollups_device_date ON activity_daily_rollups(user_id, device_id, date)",
     "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_user_date ON project_time_sessions(user_id, date, start_ts)",
     "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_project ON project_time_sessions(user_id, project_key, task_key, start_ts)",
     "CREATE INDEX IF NOT EXISTS idx_project_time_daily_rollups_user_date ON project_time_daily_rollups(user_id, date, project_key, task_key)",
@@ -152,9 +177,9 @@ ACTIVITY_INDEX_STATEMENTS = (
 )
 
 PROJECT_TIME_SCHEMA_STATEMENTS = (
-    ACTIVITY_SCHEMA_STATEMENTS[2],
     ACTIVITY_SCHEMA_STATEMENTS[3],
     ACTIVITY_SCHEMA_STATEMENTS[4],
+    ACTIVITY_SCHEMA_STATEMENTS[5],
     "CREATE INDEX IF NOT EXISTS idx_project_time_sessions_user_date ON project_time_sessions(user_id, date, start_ts)",
     "CREATE INDEX IF NOT EXISTS idx_project_time_daily_rollups_user_date ON project_time_daily_rollups(user_id, date, project_key, task_key)",
     "CREATE INDEX IF NOT EXISTS idx_project_classification_rules_user_enabled ON project_classification_rules(user_id, enabled, priority)",

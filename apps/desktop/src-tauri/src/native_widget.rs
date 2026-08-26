@@ -50,6 +50,12 @@ pub struct TursoSyncConfig {
     pub expires_at: String,
     #[serde(default)]
     pub database_name: String,
+    #[serde(default = "default_activity_schema_version")]
+    pub activity_schema_version: i64,
+}
+
+fn default_activity_schema_version() -> i64 {
+    1
 }
 
 #[derive(serde::Serialize)]
@@ -186,11 +192,16 @@ fn apply_turso_env(config: Option<&TursoSyncConfig>) {
         std::env::set_var("TURSO_AUTH_TOKEN", &config.auth_token);
         std::env::set_var("TURSO_SYNC_EXPIRES_AT", &config.expires_at);
         std::env::set_var("TURSO_DATABASE_NAME", &config.database_name);
+        std::env::set_var(
+            "TURSO_ACTIVITY_SCHEMA_VERSION",
+            config.activity_schema_version.to_string(),
+        );
     } else {
         std::env::remove_var("TURSO_SYNC_URL");
         std::env::remove_var("TURSO_AUTH_TOKEN");
         std::env::remove_var("TURSO_SYNC_EXPIRES_AT");
         std::env::remove_var("TURSO_DATABASE_NAME");
+        std::env::remove_var("TURSO_ACTIVITY_SCHEMA_VERSION");
     }
 }
 

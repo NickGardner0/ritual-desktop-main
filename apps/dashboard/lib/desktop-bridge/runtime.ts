@@ -1,6 +1,7 @@
 import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
 import { recordDesktopShellEvent } from '@/lib/desktop-bridge/observability';
+import type { CloudConsent, PrivacyMode } from '@ritual/shared-contracts';
 
 export type UpdateManifest = {
   body?: string | null;
@@ -91,6 +92,59 @@ export type DesktopAuthRuntimeState = {
   lastTursoSyncAtMs?: number | null;
   tursoRefreshScheduledForMs?: number | null;
   lastTursoError?: string | null;
+  lastTursoErrorCode?: string | null;
+};
+
+export type DesktopPrivacyRuntimeState = {
+  mode: PrivacyMode;
+  consents: CloudConsent[];
+  updatedAt: string;
+};
+
+export type DesktopComputerSyncStage =
+  | 'idle'
+  | 'materializing'
+  | 'local_ready'
+  | 'obtaining_config'
+  | 'uploading'
+  | 'verifying'
+  | 'downloading'
+  | 'projecting'
+  | 'synced'
+  | 'privacy_blocked'
+  | 'failed';
+
+export type DesktopComputerSyncRuntimeState = {
+  stage: DesktopComputerSyncStage;
+  pendingRollups: number;
+  pendingRawRows: number;
+  uploadedRollups: number;
+  supersededRawRows: number;
+  localWatermarkMs?: number | null;
+  remoteWatermarkMs?: number | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+  lastUpdatedAtMs?: number | null;
+};
+
+export type ComputerActivitySyncOutcome =
+  | 'local_refreshed'
+  | 'cloud_synced'
+  | 'cloud_pending'
+  | 'privacy_blocked'
+  | 'failed';
+
+export type ComputerActivitySyncResult = {
+  outcome: ComputerActivitySyncOutcome;
+  stage: DesktopComputerSyncStage;
+  uploadedRollups: number;
+  supersededRawRows: number;
+  pendingRollups: number;
+  pendingRawRows: number;
+  localWatermarkMs?: number | null;
+  remoteWatermarkMs?: number | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
 };
 
 export type DesktopProcessMetrics = {
@@ -104,6 +158,8 @@ export type DesktopProcessMetrics = {
 
 export type DesktopRuntimeState = {
   auth: DesktopAuthRuntimeState;
+  privacy: DesktopPrivacyRuntimeState;
+  computerSync: DesktopComputerSyncRuntimeState;
   database: DesktopDatabaseRuntimeState;
   watcher: DesktopWatcherRuntimeState;
   process?: DesktopProcessMetrics;
@@ -341,6 +397,22 @@ export async function desktopSetAuthToken(input: {
     console.warn('Desktop auth handoff unavailable:', error);
     return null;
   }
+}
+
+export async function desktopSetPrivacyState(input: {
+  mode: PrivacyMode;
+  consents: Partial<Record<CloudConsent, boolean>>;
+  updatedAt: string;
+}): Promise<DesktopRuntimeState | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<DesktopRuntimeState>('desktop_set_privacy_state', {
+    state: input,
+  });
+}
+
+export async function syncComputerActivityNow(): Promise<ComputerActivitySyncResult | null> {
+  if (!isDesktopTauriRuntime()) return null;
+  return invokeDesktopCommand<ComputerActivitySyncResult>('sync_computer_activity_now');
 }
 
 export async function desktopClearAuthState(): Promise<DesktopRuntimeState | null> {

@@ -258,13 +258,16 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
         );
         state.last_updated_at_ms = Some(Utc::now().timestamp_millis());
         state.last_turso_error = None;
+        state.last_turso_error_code = None;
     });
 
     if let Some(user_id) = normalized_user_id.as_deref() {
         reconcile_native_user_configs(user_id)?;
     }
 
-    if read_auth_state(&app).backend_base.is_some() {
+    if read_auth_state(&app).backend_base.is_some()
+        && crate::privacy_policy::plaintext_cloud_sync_allowed_for_app(&app).is_ok()
+    {
         if should_skip_immediate_turso_refresh(&app) {
             if let Ok(Some(config)) = crate::native_widget::load_turso_sync_config() {
                 super::turso_sync::schedule_turso_config_refresh(
@@ -274,6 +277,7 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
                 );
                 update_auth_state(&app, |state| {
                     state.last_turso_error = None;
+                    state.last_turso_error_code = None;
                 });
                 log::info!(
                     "[DESKTOP_RUNTIME] reusing persisted Turso config after auth handoff; skipping immediate activity.db reload"
@@ -324,6 +328,7 @@ pub async fn desktop_clear_auth_state<R: Runtime + 'static>(
     update_auth_state(&app, |state| {
         state.last_updated_at_ms = Some(Utc::now().timestamp_millis());
         state.last_turso_error = None;
+        state.last_turso_error_code = None;
         state.turso_refresh_scheduled_for_ms = None;
     });
 

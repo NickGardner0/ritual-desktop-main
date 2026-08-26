@@ -2,21 +2,21 @@
 
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { QueryClient } from '@tanstack/react-query';
+import { apiOperationWithAuth } from '@/lib/api/client';
 import { invokeDesktopCommand } from '@/lib/native-gateway';
 import {
   buildDesktopCommandOrigin,
   desktopHasCapability,
+  desktopSetPrivacyState,
   desktopSetAuthToken,
   getDesktopRuntimeInfo,
+  syncComputerActivityNow,
 } from '@/lib/native-gateway';
 import { acknowledgeDesktopAuthHandoff } from '@/lib/desktop-auth-handoff';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
-import { apiOperationWithAuth } from '@/lib/api/client';
-import { canSendToCloud } from '@ritual/shared-contracts';
 import { readPrivacySettings } from '@/lib/privacy/privacy-settings';
 import {
-  COMPUTER_HISTORY_BACKFILL_DAYS,
   COMPUTER_HISTORY_BACKFILL_DELAY_MS,
   COMPUTER_HISTORY_BACKFILL_LAST_KEY,
   COMPUTER_HISTORY_BACKFILL_THROTTLE_MS,
@@ -130,6 +130,11 @@ export function useDesktopAuthBridge(input: {
         const token = await getToken();
         if (!token || cancelled) return;
 
+        if (await desktopHasCapability('desktop-privacy-state-v1')) {
+          await desktopSetPrivacyState(readPrivacySettings());
+          if (cancelled) return;
+        }
+
         const nativeResult = await desktopSetAuthToken({
           token,
           userId: userId ?? null,
@@ -171,10 +176,16 @@ export function useDesktopAuthBridge(input: {
       void syncAuthToken();
     };
 
+    const handlePrivacySettingsChanged = () => {
+      if (cancelled || bridgeMode !== 'native') return;
+      void desktopSetPrivacyState(readPrivacySettings());
+    };
+
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', handleVisibilityRefresh);
     }
     window.addEventListener('focus', handleVisibilityRefresh);
+    window.addEventListener('ritual:privacy-settings-changed', handlePrivacySettingsChanged);
 
     if (bridgeMode === 'legacy') {
       interval = setInterval(() => {
@@ -189,6 +200,7 @@ export function useDesktopAuthBridge(input: {
         document.removeEventListener('visibilitychange', handleVisibilityRefresh);
       }
       window.removeEventListener('focus', handleVisibilityRefresh);
+      window.removeEventListener('ritual:privacy-settings-changed', handlePrivacySettingsChanged);
     };
   }, [bridgeMode, getToken, isDesktop, lastLegacyReconciledUserRef, setBridgeMode, userId]);
 }
@@ -335,6 +347,11 @@ export function useDesktopNativeEvents(input: {
       const token = await getToken();
       if (!token || cancelled) return;
 
+      if (await desktopHasCapability('desktop-privacy-state-v1')) {
+        await desktopSetPrivacyState(readPrivacySettings());
+        if (cancelled) return;
+      }
+
       await desktopSetAuthToken({
         token,
         userId: userId ?? null,
@@ -370,7 +387,7 @@ export function useDesktopActivityBackfill(input: {
   queryClient: QueryClient;
   userId?: string;
 }): void {
-  const { isDesktop, bridgeMode, getToken, queryClient, userId } = input;
+  const { isDesktop, bridgeMode, queryClient, userId } = input;
 
   useEffect(() => {
     if (!isDesktop || bridgeMode === 'probing' || !userId) return;
@@ -390,30 +407,20 @@ export function useDesktopActivityBackfill(input: {
         return;
       }
 
-      const privacy = readPrivacySettings();
-      const syncAllowed = canSendToCloud({
-        mode: privacy.mode,
-        consents: privacy.consents,
-        dataClass: 'computer_activity',
-        destination: 'backend',
-        purpose: 'plaintext_sync',
-      });
-      if (!syncAllowed.allowed) {
+      if (bridgeMode !== 'native' || !(await desktopHasCapability('desktop-computer-sync-v2'))) {
         return;
       }
 
       try {
-        const result = await apiOperationWithAuth(
-          'sync_to_computer_use_habit_api_watcher_sync_to_habit_post',
-          getToken,
-          { query: { days_back: COMPUTER_HISTORY_BACKFILL_DAYS } },
-          userId,
-        ) as { success?: boolean; synced?: boolean };
-        window.localStorage.setItem(storageKey, String(Date.now()));
+        await desktopSetPrivacyState(readPrivacySettings());
+        const result = await syncComputerActivityNow();
+        if (result && result.outcome !== 'failed' && result.outcome !== 'privacy_blocked') {
+          window.localStorage.setItem(storageKey, String(Date.now()));
+        }
 
         if (cancelled) return;
 
-        if (result?.success && result?.synced) {
+        if (result && result.outcome !== 'failed' && result.outcome !== 'privacy_blocked') {
           markReadConsistencyRequired(userId);
           await invalidateAfterComputerSync(queryClient, userId);
         }
@@ -430,7 +437,7 @@ export function useDesktopActivityBackfill(input: {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [bridgeMode, getToken, isDesktop, queryClient, userId]);
+  }, [bridgeMode, isDesktop, queryClient, userId]);
 }
 
 export function useDesktopRealtimeSync(input: {

@@ -4,6 +4,7 @@ description = "Allows the hosted dashboard to query local desktop activity data 
 commands.allow = [
   "get_detailed_activity",
   "get_daily_summaries",
+  "get_local_computer_activity_snapshot",
   "init_ritual_database",
   "check_accessibility_permission",
   "request_accessibility_permission",

@@ -140,6 +140,29 @@ pub(super) async fn apply_migrations(conn: &Connection) -> Result<()> {
     add_column_if_missing(conn, "context_snapshots", "activity_event_uid", "TEXT").await?;
     add_column_if_missing(conn, "context_snapshots", "session_uid", "TEXT").await?;
     super::sync::create_sync_tables(conn).await?;
+    add_column_if_missing(
+        conn,
+        "cloud_sync_outbox",
+        "superseded_by_rollup_uid",
+        "TEXT",
+    )
+    .await?;
+    for (column, definition) in [
+        ("events_count", "INTEGER NOT NULL DEFAULT 0"),
+        ("active_intervals_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("afk_intervals_json", "TEXT NOT NULL DEFAULT '[]'"),
+        ("source_event_watermark", "INTEGER NOT NULL DEFAULT 0"),
+        ("rollup_uid", "TEXT NOT NULL DEFAULT ''"),
+        (
+            "source_version",
+            "TEXT NOT NULL DEFAULT 'computer_activity_rollup_v1'",
+        ),
+        ("sync_status", "TEXT NOT NULL DEFAULT 'pending'"),
+        ("origin", "TEXT NOT NULL DEFAULT 'local'"),
+        ("created_at", "INTEGER NOT NULL DEFAULT 0"),
+    ] {
+        add_column_if_missing(conn, "daily_rollup_cache", column, definition).await?;
+    }
 
     let _ = conn
         .execute(
@@ -221,7 +244,7 @@ pub(super) async fn apply_migrations(conn: &Connection) -> Result<()> {
         )
         .await;
 
-    backfill_cloud_sync_outbox(conn).await?;
+    seed_activity_rollup_dirty_days(conn).await?;
 
     debug!("Schema migrations complete");
     Ok(())
@@ -265,48 +288,60 @@ async fn add_column_if_missing(
     Ok(())
 }
 
-async fn backfill_cloud_sync_outbox(conn: &Connection) -> Result<()> {
+async fn seed_activity_rollup_dirty_days(conn: &Connection) -> Result<()> {
+    let mut meta_rows = conn
+        .query(
+            "SELECT value FROM activity_rollup_meta WHERE key = 'historical_backfill_v1' LIMIT 1",
+            (),
+        )
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+    if meta_rows
+        .next()
+        .await
+        .map_err(|e| DatabaseError::Schema(e.to_string()))?
+        .is_some()
+    {
+        return Ok(());
+    }
+
     let now = chrono::Utc::now().timestamp_millis();
 
     conn.execute(
         r#"
-        INSERT OR IGNORE INTO cloud_sync_outbox (
-            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
-            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        INSERT INTO activity_rollup_dirty_days (
+            user_id, device_id, date, source_event_watermark, updated_at
+        )
+        WITH RECURSIVE affected(user_id, device_id, day, last_day, watermark) AS (
+            SELECT
+                user_id,
+                device_id,
+                date(ts_start / 1000, 'unixepoch', 'localtime'),
+                date(MAX(ts_start, ts_end - 1) / 1000, 'unixepoch', 'localtime'),
+                MAX(ts_start, ts_end)
+            FROM activity_events
+            UNION ALL
+            SELECT
+                user_id,
+                device_id,
+                date(day, '+1 day'),
+                last_day,
+                watermark
+            FROM affected
+            WHERE day < last_day
         )
         SELECT
             user_id,
             device_id,
-            'activity_event',
-            event_uid,
-            'upsert',
-            json_object(
-                'id', id,
-                'event_uid', event_uid,
-                'device_id', device_id,
-                'user_id', user_id,
-                'ts_start', ts_start,
-                'ts_end', ts_end,
-                'app_bundle_id', app_bundle_id,
-                'app_name', app_name,
-                'window_title', window_title,
-                'window_title_hash', window_title_hash,
-                'window_owner_pid', window_owner_pid,
-                'is_afk', is_afk,
-                'browser_url', browser_url,
-                'browser_domain', browser_domain,
-                'is_incognito', is_incognito,
-                'source', source,
-                'created_at', created_at
-            ),
-            'pending',
-            0,
-            NULL,
-            NULL,
-            created_at,
+            day,
+            MAX(watermark),
             ?
-        FROM activity_events
-        WHERE TRIM(COALESCE(event_uid, '')) != ''
+        FROM affected
+        WHERE TRUE
+        GROUP BY user_id, device_id, day
+        ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+            source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+            updated_at = excluded.updated_at
         "#,
         libsql::params![now],
     )
@@ -315,34 +350,50 @@ async fn backfill_cloud_sync_outbox(conn: &Connection) -> Result<()> {
 
     conn.execute(
         r#"
-        INSERT OR IGNORE INTO cloud_sync_outbox (
-            user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
-            status, retry_count, next_retry_at, last_error, created_at, updated_at
+        INSERT INTO activity_rollup_dirty_days (
+            user_id, device_id, date, source_event_watermark, updated_at
+        )
+        WITH RECURSIVE affected(user_id, device_id, day, last_day, watermark) AS (
+            SELECT
+                user_id,
+                device_id,
+                date(ts_start / 1000, 'unixepoch', 'localtime'),
+                date(MAX(ts_start, ts_end - 1) / 1000, 'unixepoch', 'localtime'),
+                MAX(ts_start, ts_end)
+            FROM afk_events
+            UNION ALL
+            SELECT
+                user_id,
+                device_id,
+                date(day, '+1 day'),
+                last_day,
+                watermark
+            FROM affected
+            WHERE day < last_day
         )
         SELECT
             user_id,
             device_id,
-            'afk_event',
-            afk_uid,
-            'upsert',
-            json_object(
-                'id', id,
-                'afk_uid', afk_uid,
-                'device_id', device_id,
-                'user_id', user_id,
-                'ts_start', ts_start,
-                'ts_end', ts_end,
-                'status', status,
-                'created_at', created_at
-            ),
-            'pending',
-            0,
-            NULL,
-            NULL,
-            created_at,
+            day,
+            MAX(watermark),
             ?
-        FROM afk_events
-        WHERE TRIM(COALESCE(afk_uid, '')) != ''
+        FROM affected
+        WHERE TRUE
+        GROUP BY user_id, device_id, day
+        ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+            source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+            updated_at = excluded.updated_at
+        "#,
+        libsql::params![now],
+    )
+    .await
+    .map_err(|e| DatabaseError::Schema(e.to_string()))?;
+
+    conn.execute(
+        r#"
+        INSERT INTO activity_rollup_meta (key, value, updated_at)
+        VALUES ('historical_backfill_v1', 'queued', ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
         "#,
         libsql::params![now],
     )
@@ -376,4 +427,3 @@ pub async fn needs_schema_update(conn: &Connection) -> Result<bool> {
     let current = get_schema_version(conn).await?;
     Ok(current.map(|v| v < super::SCHEMA_VERSION).unwrap_or(true))
 }
-

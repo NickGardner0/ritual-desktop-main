@@ -17,6 +17,7 @@ export const NATIVE_COMMANDS = [
   "desktop_manual_update_check",
   "desktop_record_shell_event",
   "desktop_set_auth_token",
+  "desktop_set_privacy_state",
   "desktop_trigger_biome_iphone_sync",
   "get_app_icon",
   "get_app_icons_batch",
@@ -28,6 +29,7 @@ export const NATIVE_COMMANDS = [
   "get_desktop_runtime_state",
   "get_desktop_shell_bootstrap_config",
   "get_detailed_activity",
+  "get_local_computer_activity_snapshot",
   "get_native_speech_state",
   "get_project_time_attribution_health",
   "get_voice_hotkey_settings",
@@ -57,6 +59,7 @@ export const NATIVE_COMMANDS = [
   "start_watcher",
   "stop_native_speech_recognition",
   "stop_watcher",
+  "sync_computer_activity_now",
   "update_voice_hud_state",
   "vault_compare_and_swap",
   "vault_get_record",
@@ -93,6 +96,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "desktop_manual_update_check": "desktop-runtime",
   "desktop_record_shell_event": "desktop-shell-bootstrap",
   "desktop_set_auth_token": "desktop-runtime",
+  "desktop_set_privacy_state": "desktop-runtime",
   "desktop_trigger_biome_iphone_sync": "desktop-runtime",
   "get_app_icon": "desktop-activity",
   "get_app_icons_batch": "desktop-activity",
@@ -104,6 +108,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "get_desktop_runtime_state": "desktop-runtime",
   "get_desktop_shell_bootstrap_config": "desktop-shell-bootstrap",
   "get_detailed_activity": "desktop-activity",
+  "get_local_computer_activity_snapshot": "desktop-activity",
   "get_native_speech_state": "desktop-runtime",
   "get_project_time_attribution_health": "desktop-activity",
   "get_voice_hotkey_settings": "desktop-shell-ui",
@@ -133,6 +138,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "start_watcher": "desktop-activity",
   "stop_native_speech_recognition": "desktop-runtime",
   "stop_watcher": "desktop-activity",
+  "sync_computer_activity_now": "desktop-runtime",
   "update_voice_hud_state": "desktop-shell-ui",
   "vault_compare_and_swap": "desktop-vault",
   "vault_get_record": "desktop-vault",
@@ -169,6 +175,7 @@ export type NativeCommandInputs = {
   desktop_manual_update_check: Record<string, never>;
   desktop_record_shell_event: { name: string; level?: string | null; data?: unknown | null };
   desktop_set_auth_token: { token: string; userId?: string | null; backendBase?: string | null };
+  desktop_set_privacy_state: { state: unknown };
   desktop_trigger_biome_iphone_sync: Record<string, never>;
   get_app_icon: { bundleId: string };
   get_app_icons_batch: { bundleIds: Array<string> };
@@ -180,6 +187,7 @@ export type NativeCommandInputs = {
   get_desktop_runtime_state: Record<string, never>;
   get_desktop_shell_bootstrap_config: Record<string, never>;
   get_detailed_activity: { startTs: number; endTs: number; limit?: number | null; origin?: string | null };
+  get_local_computer_activity_snapshot: { startDate: string; endDate: string; limit?: number | null; origin?: string | null };
   get_native_speech_state: Record<string, never>;
   get_project_time_attribution_health: { origin?: string | null };
   get_voice_hotkey_settings: Record<string, never>;
@@ -209,6 +217,7 @@ export type NativeCommandInputs = {
   start_watcher: { config: unknown };
   stop_native_speech_recognition: Record<string, never>;
   stop_watcher: Record<string, never>;
+  sync_computer_activity_now: Record<string, never>;
   update_voice_hud_state: { state: unknown };
   vault_compare_and_swap: { input: unknown };
   vault_get_record: { userId: string; collection: string; recordId: string };
@@ -243,6 +252,7 @@ export type NativeCommandOutputs = {
   desktop_manual_update_check: unknown;
   desktop_record_shell_event: void;
   desktop_set_auth_token: unknown;
+  desktop_set_privacy_state: unknown;
   desktop_trigger_biome_iphone_sync: unknown;
   get_app_icon: unknown;
   get_app_icons_batch: Array<unknown>;
@@ -254,6 +264,7 @@ export type NativeCommandOutputs = {
   get_desktop_runtime_state: unknown;
   get_desktop_shell_bootstrap_config: unknown;
   get_detailed_activity: unknown;
+  get_local_computer_activity_snapshot: unknown;
   get_native_speech_state: unknown;
   get_project_time_attribution_health: unknown;
   get_voice_hotkey_settings: unknown;
@@ -283,6 +294,7 @@ export type NativeCommandOutputs = {
   start_watcher: unknown;
   stop_native_speech_recognition: void;
   stop_watcher: unknown;
+  sync_computer_activity_now: unknown;
   update_voice_hud_state: void;
   vault_compare_and_swap: unknown;
   vault_get_record: unknown | null;

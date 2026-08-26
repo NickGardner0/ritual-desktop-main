@@ -182,8 +182,14 @@ export function normalizeAggregatedPayload(payload: any): AggregatedComputerStat
     domains: normalizeTopDomainRows(Array.isArray(data.domains) ? data.domains : []),
     source: data.source || data.summary?.source || 'backend',
     state: typeof data.state === 'string' ? data.state : undefined,
+    scope: typeof data.scope === 'string' ? data.scope : undefined,
+    last_synced_at: typeof data.last_synced_at === 'number' || typeof data.last_synced_at === 'string'
+      ? data.last_synced_at
+      : null,
     sync_pending: Boolean(data.sync_pending),
     empty_reason: typeof data.empty_reason === 'string' ? data.empty_reason : undefined,
+    pending_rollups: Math.max(0, Number(data.pending_rollups || 0)),
+    local_watermark_ms: data.local_watermark_ms == null ? null : Number(data.local_watermark_ms),
   }
 }
 

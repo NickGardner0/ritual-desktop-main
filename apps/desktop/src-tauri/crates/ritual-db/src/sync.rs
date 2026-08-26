@@ -128,8 +128,12 @@ impl<'a> SyncOps<'a> {
                 FROM cloud_sync_outbox
                 WHERE status = ?
                   AND COALESCE(next_retry_at, 0) <= ?
-                  AND entity_type NOT IN ('context_session', 'context_snapshot', 'session_retrieval_doc')
-                ORDER BY created_at ASC, id ASC
+                  AND entity_type NOT IN (
+                      'activity_event', 'afk_event',
+                      'context_session', 'context_snapshot', 'session_retrieval_doc'
+                  )
+                ORDER BY CASE WHEN entity_type = 'activity_daily_rollup' THEN 0 ELSE 1 END,
+                         created_at ASC, id ASC
                 LIMIT ?
                 "#,
                     libsql::params![desired_status, now, remaining],
@@ -240,6 +244,31 @@ impl<'a> SyncOps<'a> {
         let now = Self::now_ms();
         let sql = format!(
             "UPDATE cloud_sync_outbox SET status = 'uploaded', last_error = NULL, next_retry_at = NULL, updated_at = ? WHERE id IN ({})",
+            ids.join(",")
+        );
+        self.conn
+            .execute(&sql, libsql::params![now])
+            .await
+            .map_err(|e| DatabaseError::Query(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Release rows claimed by a bounded uploader pass but not yet attempted.
+    pub async fn release_claims(&self, queue_ids: &[i64]) -> Result<()> {
+        let ids: Vec<String> = queue_ids
+            .iter()
+            .copied()
+            .filter(|id| *id > 0)
+            .map(|id| id.to_string())
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+
+        let now = Self::now_ms();
+        let sql = format!(
+            "UPDATE cloud_sync_outbox SET status = 'pending', next_retry_at = NULL, last_error = NULL, updated_at = ? WHERE status = 'uploading' AND id IN ({})",
             ids.join(",")
         );
         self.conn
@@ -368,12 +397,12 @@ impl<'a> SyncOps<'a> {
         self.conn.execute(
             r#"
             INSERT INTO daily_rollup_cache (date, device_id, user_id, total_active_ms, total_afk_ms, app_summaries, domain_summaries, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, COALESCE(?, '[]'), COALESCE(?, '[]'), ?)
             ON CONFLICT(date, device_id) DO UPDATE SET
                 total_active_ms = ?,
                 total_afk_ms = ?,
-                app_summaries = ?,
-                domain_summaries = ?,
+                app_summaries = COALESCE(?, '[]'),
+                domain_summaries = COALESCE(?, '[]'),
                 updated_at = ?
             "#,
             libsql::params![
@@ -551,53 +580,25 @@ impl<'a> SyncOps<'a> {
         self.conn
             .execute(
                 r#"
-                INSERT INTO cloud_sync_outbox (
-                    user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
-                    status, retry_count, next_retry_at, last_error, created_at, updated_at
+                INSERT INTO activity_rollup_dirty_days (
+                    user_id, device_id, date, source_event_watermark, updated_at
                 )
                 SELECT
                     user_id,
                     device_id,
-                    'activity_event',
-                    event_uid,
-                    'upsert',
-                    json_object(
-                        'id', id,
-                        'event_uid', event_uid,
-                        'device_id', device_id,
-                        'user_id', user_id,
-                        'ts_start', ts_start,
-                        'ts_end', ts_end,
-                        'app_bundle_id', app_bundle_id,
-                        'app_name', app_name,
-                        'window_title', window_title,
-                        'window_title_hash', window_title_hash,
-                        'window_owner_pid', window_owner_pid,
-                        'is_afk', is_afk,
-                        'browser_url', browser_url,
-                        'browser_domain', browser_domain,
-                        'is_incognito', is_incognito,
-                        'source', source,
-                        'created_at', created_at
-                    ),
-                    'pending',
-                    0,
-                    NULL,
-                    NULL,
-                    COALESCE(created_at, ?),
+                    date(ts_start / 1000, 'unixepoch', 'localtime'),
+                    MAX(ts_start, ts_end),
                     ?
                 FROM activity_events
                 WHERE id = ?
-                  AND TRIM(COALESCE(event_uid, '')) != ''
-                ON CONFLICT(entity_type, entity_uid, op_kind) DO UPDATE SET
-                    payload_json = excluded.payload_json,
-                    status = 'pending',
-                    retry_count = 0,
-                    next_retry_at = NULL,
-                    last_error = NULL,
+                ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                    source_event_watermark = MAX(
+                        source_event_watermark,
+                        excluded.source_event_watermark
+                    ),
                     updated_at = excluded.updated_at
                 "#,
-                libsql::params![now, now, event_id],
+                libsql::params![now, event_id],
             )
             .await
             .map_err(|e| DatabaseError::Query(e.to_string()))
@@ -649,6 +650,29 @@ mod tests {
         .unwrap();
     }
 
+    async fn insert_rollup_sync_item(conn: &Connection, id: i64, entity_uid: &str) {
+        conn.execute(
+            r#"
+            INSERT INTO cloud_sync_outbox (
+                id, user_id, device_id, entity_type, entity_uid, op_kind,
+                payload_json, status, retry_count, created_at, updated_at
+            ) VALUES (?, 'user-1', 'device-1', 'activity_daily_rollup', ?, 'upsert',
+                      '{}', 'pending', 0, ?, ?)
+            "#,
+            libsql::params![id, entity_uid, id, id],
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn dirty_day_count(conn: &Connection) -> i64 {
+        let mut rows = conn
+            .query("SELECT COUNT(*) FROM activity_rollup_dirty_days", ())
+            .await
+            .unwrap();
+        rows.next().await.unwrap().unwrap().get(0).unwrap()
+    }
+
     #[tokio::test]
     async fn test_queue_activity_sync() {
         let (_db, conn, _temp) = create_test_db().await;
@@ -658,22 +682,25 @@ mod tests {
         assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         insert_activity_event(&conn, 1, "event-1", 1500).await;
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
+        assert_eq!(dirty_day_count(&conn).await, 1);
 
         // Explicitly forcing the same event should not duplicate the trigger-created row.
         ops.queue_activity_sync(1).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
+        assert_eq!(dirty_day_count(&conn).await, 1);
 
         // Duplicate should not increase count
         ops.queue_activity_sync(1).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         insert_activity_event(&conn, 2, "event-2", 2500).await;
-        assert_eq!(ops.pending_count().await.unwrap(), 2);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         // Explicitly forcing a second event also should not duplicate it.
         ops.queue_activity_sync(2).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 2);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
+        assert_eq!(dirty_day_count(&conn).await, 1);
     }
 
     #[tokio::test]
@@ -688,19 +715,28 @@ mod tests {
             .unwrap();
         // Queue an update
         ops.queue_activity_update(1, 2000).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
         conn.execute("UPDATE activity_events SET ts_end = 3000 WHERE id = 1", ())
             .await
             .unwrap();
         // Update the same event - should update existing entry
         ops.queue_activity_update(1, 3000).await.unwrap();
-        assert_eq!(ops.pending_count().await.unwrap(), 1);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
 
-        // Get pending and verify ts_end was updated
-        let pending = ops.get_pending(10).await.unwrap();
-        assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].ts_end, Some(3000));
+        // Activity updates remain local and only advance the dirty-day watermark.
+        let mut rows = conn
+            .query(
+                "SELECT source_event_watermark FROM activity_rollup_dirty_days LIMIT 1",
+                (),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.next().await.unwrap().unwrap().get::<i64>(0).unwrap(),
+            3000
+        );
+        assert!(ops.get_pending(10).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -708,12 +744,8 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
-        insert_activity_event(&conn, 1, "event-1", 1500).await;
-        insert_activity_event(&conn, 2, "event-2", 2500).await;
-
-        // Queue events
-        ops.queue_activity_sync(1).await.unwrap();
-        ops.queue_activity_sync(2).await.unwrap();
+        insert_rollup_sync_item(&conn, 1, "rollup-1").await;
+        insert_rollup_sync_item(&conn, 2, "rollup-2").await;
 
         let pending = ops.get_pending(10).await.unwrap();
         assert_eq!(pending.len(), 2);
@@ -738,10 +770,7 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
-        insert_activity_event(&conn, 1, "event-1", 1500).await;
-        insert_activity_event(&conn, 2, "event-2", 2500).await;
-
-        ops.queue_activity_sync(1).await.unwrap();
+        insert_rollup_sync_item(&conn, 1, "rollup-1").await;
         let first = ops.get_pending(1).await.unwrap();
         ops.mark_failed(first[0].id).await.unwrap();
         conn.execute(
@@ -751,11 +780,11 @@ mod tests {
         .await
         .unwrap();
 
-        ops.queue_activity_sync(2).await.unwrap();
+        insert_rollup_sync_item(&conn, 2, "rollup-2").await;
         let pending = ops.get_pending(1).await.unwrap();
 
         assert_eq!(pending.len(), 1);
-        assert_eq!(pending[0].entity_uid.as_deref(), Some("event-2"));
+        assert_eq!(pending[0].entity_uid.as_deref(), Some("rollup-2"));
     }
 
     #[tokio::test]
@@ -763,8 +792,7 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
-        insert_activity_event(&conn, 1, "event-1", 1500).await;
-        ops.queue_activity_sync(1).await.unwrap();
+        insert_rollup_sync_item(&conn, 1, "rollup-1").await;
         let pending = ops.get_pending(1).await.unwrap();
         ops.mark_dead_letter(pending[0].id, "invalid payload")
             .await
@@ -780,10 +808,7 @@ mod tests {
         let (_db, conn, _temp) = create_test_db().await;
         let ops = SyncOps::new(&conn);
 
-        insert_activity_event(&conn, 1, "event-1", 1500).await;
-
-        // Queue and fail an event
-        ops.queue_activity_sync(1).await.unwrap();
+        insert_rollup_sync_item(&conn, 1, "rollup-1").await;
         let pending = ops.get_pending(10).await.unwrap();
         ops.mark_failed(pending[0].id).await.unwrap();
 
@@ -795,6 +820,21 @@ mod tests {
         assert_eq!(reset, 1);
 
         // Should be pending again
+        assert_eq!(ops.pending_count().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_release_unprocessed_claims() {
+        let (_db, conn, _temp) = create_test_db().await;
+        let ops = SyncOps::new(&conn);
+
+        insert_rollup_sync_item(&conn, 1, "rollup-1").await;
+        insert_rollup_sync_item(&conn, 2, "rollup-2").await;
+        let claimed = ops.get_pending(10).await.unwrap();
+        assert_eq!(claimed.len(), 2);
+        assert_eq!(ops.pending_count().await.unwrap(), 0);
+
+        ops.release_claims(&[claimed[1].id]).await.unwrap();
         assert_eq!(ops.pending_count().await.unwrap(), 1);
     }
 

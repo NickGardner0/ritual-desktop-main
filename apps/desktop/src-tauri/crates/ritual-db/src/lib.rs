@@ -788,6 +788,12 @@ impl RitualDatabase {
         sync::SyncOps::new(&conn).mark_synced_many(queue_ids).await
     }
 
+    /// Release sync rows claimed by a bounded pass but not attempted.
+    pub async fn release_sync_claims(&self, queue_ids: &[i64]) -> Result<()> {
+        let conn = self.conn.read().await;
+        sync::SyncOps::new(&conn).release_claims(queue_ids).await
+    }
+
     /// Mark sync item as failed
     pub async fn mark_sync_failed(&self, queue_id: i64) -> Result<()> {
         let conn = self.conn.read().await;

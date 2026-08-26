@@ -16,7 +16,7 @@ use tracing::{debug, info};
 
 use crate::error::Result;
 
-pub const SCHEMA_VERSION: i32 = 10;
+pub const SCHEMA_VERSION: i32 = 11;
 
 pub async fn initialize_schema(conn: &Connection) -> Result<()> {
     info!("Initializing Ritual database schema v{}", SCHEMA_VERSION);

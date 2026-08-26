@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 #![allow(unexpected_cfgs)]
 
+mod activity_rollups;
 mod app_paths;
 mod cloud_sync;
 mod desktop_observability;
@@ -2342,6 +2343,7 @@ fn main() {
             // Local activity queries (for detailed view with full URLs/titles)
             watcher::queries::get_detailed_activity,
             watcher::queries::get_daily_summaries,
+            activity_rollups::get_local_computer_activity_snapshot,
             watcher::diagnostics::get_browser_extension_diagnostics,
             // App icon extraction
             watcher::icons::get_app_icon,
@@ -2359,6 +2361,8 @@ fn main() {
             desktop_runtime::get_desktop_runtime_state,
             desktop_runtime::get_desktop_diagnostics,
             desktop_runtime::auth_handoff::desktop_set_auth_token,
+            desktop_runtime::desktop_set_privacy_state,
+            cloud_sync::sync_computer_activity_now,
             desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
             desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
             desktop_runtime::auth_handoff::desktop_clear_auth_state,

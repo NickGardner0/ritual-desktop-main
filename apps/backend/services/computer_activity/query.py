@@ -118,6 +118,15 @@ async def get_computer_time_summary_impl(
         source_filter=source_filter,
     )
     summary = dict(snapshot["summary"])
+    summary.update(
+        {
+            "state": snapshot.get("state", "empty"),
+            "scope": snapshot.get("scope", "all_devices"),
+            "last_synced_at": snapshot.get("last_synced_at"),
+            "empty_reason": snapshot.get("empty_reason"),
+            "sync_pending": bool(snapshot.get("sync_pending")),
+        }
+    )
     _log_activity_perf(
         "summary",
         start=perf_start,

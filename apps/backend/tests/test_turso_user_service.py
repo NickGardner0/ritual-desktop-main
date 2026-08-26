@@ -302,12 +302,22 @@ class TursoUserServiceTests(unittest.IsolatedAsyncioTestCase):
             service,
             "_mint_database_token",
             AsyncMock(return_value="desktop-token"),
-        ):
+        ), patch.object(
+            service,
+            "_ensure_remote_schema_once",
+            AsyncMock(),
+        ) as ensure_schema:
             config = await service.get_desktop_sync_config("user-1")
 
         self.assertEqual(config.sync_url, "libsql://ritual-user-1.turso.io")
         self.assertEqual(config.auth_token, "desktop-token")
         self.assertEqual(config.database_name, "ritual-user-1")
+        self.assertEqual(config.activity_schema_version, 2)
+        ensure_schema.assert_awaited_once_with(
+            "user-1",
+            "libsql://ritual-user-1.turso.io",
+            "ritual-user-1",
+        )
 
     async def test_get_desktop_sync_config_refuses_rollout_user_until_operator_migration_completes(self):
         service = TursoUserService()

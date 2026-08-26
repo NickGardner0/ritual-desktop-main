@@ -49,6 +49,30 @@ function loadPolicyModule(isTauri = false) {
   return loadedModule.exports;
 }
 
+function loadOverviewHelpersModule() {
+  const sourcePath = join(
+    process.cwd(),
+    "apps/dashboard/components/analytics/overview-view.helpers.ts",
+  );
+  const output = ts.transpileModule(readFileSync(sourcePath, "utf8"), {
+    compilerOptions: {
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2020,
+    },
+  }).outputText;
+  const loadedModule = { exports: {} };
+  vm.runInNewContext(output, {
+    module: loadedModule,
+    exports: loadedModule.exports,
+    Date,
+    Math,
+    Number,
+    String,
+    Array,
+  }, { filename: sourcePath });
+  return loadedModule.exports;
+}
+
 function makeAggregate(totalActiveMs, overrides = {}) {
   return {
     summary: { total_active_ms: totalActiveMs, total_afk_ms: 0 },
@@ -97,6 +121,40 @@ const {
   stampReadSource,
   unavailableComputerStats,
 } = loadPolicyModule(false);
+
+const { getComputerUnavailableDisplay } = loadOverviewHelpersModule();
+
+test("non-ready empty computer states never render as factual zero", () => {
+  assert.equal(getComputerUnavailableDisplay({
+    state: "sync_pending",
+    looksEmpty: true,
+    isPlaceholder: false,
+  }), "Sync pending");
+  assert.equal(getComputerUnavailableDisplay({
+    state: "unavailable",
+    looksEmpty: true,
+    isPlaceholder: false,
+  }), "Unavailable");
+  assert.equal(getComputerUnavailableDisplay({
+    state: "unavailable",
+    emptyReason: "desktop_update_required",
+    looksEmpty: true,
+    isPlaceholder: false,
+  }), "Update required");
+});
+
+test("only factual empty may continue to numeric zero rendering", () => {
+  assert.equal(getComputerUnavailableDisplay({
+    state: "empty",
+    looksEmpty: true,
+    isPlaceholder: false,
+  }), null);
+  assert.equal(getComputerUnavailableDisplay({
+    state: "sync_pending",
+    looksEmpty: false,
+    isPlaceholder: false,
+  }), null);
+});
 
 const desktopPolicy = loadPolicyModule(true);
 
@@ -172,12 +230,12 @@ test("asDesktopLocalTruth stamps an observable local source", () => {
   const result = asDesktopLocalTruth(input);
   assert.equal(result.source, "local");
   assert.equal(result.read_source, "local");
-  assert.equal(result.state, "local");
+  assert.equal(result.state, "synced");
   assert.equal(result.summary.source, "local");
   assert.equal(result.daily[0].source, "local");
   assert.equal(result.apps[0].source, "local");
   assert.equal(result.domains[0].source, "local");
-  assert.equal(result.sync_pending, false);
+  assert.equal(result.sync_pending, true);
 });
 
 test("stampReadSource and unavailableComputerStats expose local|synced|unavailable", () => {
@@ -249,10 +307,10 @@ test("desktop allows offline local reads for recent ranges including today", () 
   assert.equal(desktopPolicy.shouldAllowDesktopAggregateLocalFallback(params), true);
 });
 
-test("desktop suppresses offline local reads for large historical ranges", () => {
+test("desktop permits local rollup reads for large historical ranges", () => {
   const params = { startDate: "2020-01-01", endDate: "2020-12-31" };
-  assert.equal(desktopPolicy.shouldAllowDesktopLocalFallback(params), false);
-  assert.equal(desktopPolicy.shouldAllowDesktopAggregateLocalFallback(params), false);
+  assert.equal(desktopPolicy.shouldAllowDesktopLocalFallback(params), true);
+  assert.equal(desktopPolicy.shouldAllowDesktopAggregateLocalFallback(params), true);
 });
 
 test("shouldPreferRecentDesktopLocalTruth requires tauri and recent range including today", () => {
@@ -261,13 +319,13 @@ test("shouldPreferRecentDesktopLocalTruth requires tauri and recent range includ
   assert.equal(desktopPolicy.shouldPreferRecentDesktopLocalTruth(params), true);
 });
 
-test("shouldReadDesktopAggregateLocalFirst mirrors recent desktop local truth policy", () => {
+test("shouldReadDesktopAggregateLocalFirst covers every desktop range", () => {
   const params = rangeEndingToday(7);
   assert.equal(shouldReadDesktopAggregateLocalFirst(params), false);
   assert.equal(desktopPolicy.shouldReadDesktopAggregateLocalFirst(params), true);
   assert.equal(
     desktopPolicy.shouldReadDesktopAggregateLocalFirst({ startDate: "2020-01-01", endDate: "2020-01-07" }),
-    false,
+    true,
   );
 });
 

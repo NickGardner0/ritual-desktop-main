@@ -32,6 +32,7 @@ pub(super) async fn create_sync_tables(conn: &Connection) -> Result<()> {
             retry_count INTEGER NOT NULL DEFAULT 0,
             next_retry_at INTEGER,
             last_error TEXT,
+            superseded_by_rollup_uid TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         );
@@ -73,10 +74,41 @@ pub(super) async fn create_sync_tables(conn: &Connection) -> Result<()> {
             user_id TEXT NOT NULL,
             total_active_ms INTEGER NOT NULL DEFAULT 0,
             total_afk_ms INTEGER NOT NULL DEFAULT 0,
-            app_summaries TEXT,
-            domain_summaries TEXT,
+            events_count INTEGER NOT NULL DEFAULT 0,
+            active_intervals_json TEXT NOT NULL DEFAULT '[]',
+            afk_intervals_json TEXT NOT NULL DEFAULT '[]',
+            app_summaries TEXT NOT NULL DEFAULT '[]',
+            domain_summaries TEXT NOT NULL DEFAULT '[]',
+            source_event_watermark INTEGER NOT NULL DEFAULT 0,
+            rollup_uid TEXT NOT NULL DEFAULT '',
+            source_version TEXT NOT NULL DEFAULT 'computer_activity_rollup_v1',
+            sync_status TEXT NOT NULL DEFAULT 'pending',
+            origin TEXT NOT NULL DEFAULT 'local',
+            created_at INTEGER NOT NULL DEFAULT 0,
             updated_at INTEGER NOT NULL,
             PRIMARY KEY (date, device_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS activity_rollup_dirty_days (
+            user_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            source_event_watermark INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (user_id, device_id, date)
+        );
+
+        CREATE TABLE IF NOT EXISTS activity_rollup_remote_cursor (
+            user_id TEXT PRIMARY KEY,
+            updated_at INTEGER NOT NULL DEFAULT 0,
+            rollup_uid TEXT NOT NULL DEFAULT '',
+            refreshed_at INTEGER NOT NULL DEFAULT 0
+        );
+
+        CREATE TABLE IF NOT EXISTS activity_rollup_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
         );
         
         -- Activity segments for sessionization
@@ -198,6 +230,19 @@ pub(super) async fn create_indexes(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS idx_cloud_sync_outbox_status_created
             ON cloud_sync_outbox(status, created_at, id);
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_daily_rollup_cache_uid
+            ON daily_rollup_cache(rollup_uid)
+            WHERE TRIM(COALESCE(rollup_uid, '')) != '';
+
+        CREATE INDEX IF NOT EXISTS idx_daily_rollup_cache_user_date
+            ON daily_rollup_cache(user_id, date, device_id);
+
+        CREATE INDEX IF NOT EXISTS idx_daily_rollup_cache_sync
+            ON daily_rollup_cache(origin, sync_status, updated_at);
+
+        CREATE INDEX IF NOT EXISTS idx_activity_rollup_dirty_days_updated
+            ON activity_rollup_dirty_days(updated_at, date);
 
         CREATE INDEX IF NOT EXISTS idx_location_delivery_outbox_claim
             ON location_delivery_outbox(next_attempt_at, lease_expires_at, created_at);
@@ -322,7 +367,7 @@ pub(super) async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> 
 
         CREATE TRIGGER activity_events_cloud_sync_ai
         AFTER INSERT ON activity_events
-        WHEN TRIM(COALESCE(NEW.event_uid, '')) != ''
+        WHEN 0 AND TRIM(COALESCE(NEW.event_uid, '')) != ''
         BEGIN
             INSERT INTO cloud_sync_outbox (
                 user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
@@ -370,7 +415,7 @@ pub(super) async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> 
 
         CREATE TRIGGER activity_events_cloud_sync_au
         AFTER UPDATE ON activity_events
-        WHEN TRIM(COALESCE(NEW.event_uid, '')) != ''
+        WHEN 0 AND TRIM(COALESCE(NEW.event_uid, '')) != ''
         BEGIN
             INSERT INTO cloud_sync_outbox (
                 user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
@@ -418,7 +463,7 @@ pub(super) async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> 
 
         CREATE TRIGGER afk_events_cloud_sync_ai
         AFTER INSERT ON afk_events
-        WHEN TRIM(COALESCE(NEW.afk_uid, '')) != ''
+        WHEN 0 AND TRIM(COALESCE(NEW.afk_uid, '')) != ''
         BEGIN
             INSERT INTO cloud_sync_outbox (
                 user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
@@ -457,7 +502,7 @@ pub(super) async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> 
 
         CREATE TRIGGER afk_events_cloud_sync_au
         AFTER UPDATE ON afk_events
-        WHEN TRIM(COALESCE(NEW.afk_uid, '')) != ''
+        WHEN 0 AND TRIM(COALESCE(NEW.afk_uid, '')) != ''
         BEGIN
             INSERT INTO cloud_sync_outbox (
                 user_id, device_id, entity_type, entity_uid, op_kind, payload_json,
@@ -740,6 +785,164 @@ pub(super) async fn create_cloud_sync_triggers(conn: &Connection) -> Result<()> 
                 retry_count = 0,
                 next_retry_at = NULL,
                 last_error = NULL,
+                updated_at = excluded.updated_at;
+        END;
+
+        -- Raw activity is permanently local. It invalidates a derived day but
+        -- never queues window titles, URLs, or raw event payloads for upload.
+        DROP TRIGGER IF EXISTS activity_events_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS activity_events_cloud_sync_au;
+        DROP TRIGGER IF EXISTS afk_events_cloud_sync_ai;
+        DROP TRIGGER IF EXISTS afk_events_cloud_sync_au;
+
+        DROP TRIGGER IF EXISTS activity_events_rollup_dirty_ai;
+        DROP TRIGGER IF EXISTS activity_events_rollup_dirty_au;
+        DROP TRIGGER IF EXISTS afk_events_rollup_dirty_ai;
+        DROP TRIGGER IF EXISTS afk_events_rollup_dirty_au;
+
+        CREATE TRIGGER activity_events_rollup_dirty_ai
+        AFTER INSERT ON activity_events
+        BEGIN
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(NEW.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(NEW.ts_start, NEW.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                NEW.user_id,
+                NEW.device_id,
+                day,
+                MAX(NEW.ts_end, NEW.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER activity_events_rollup_dirty_au
+        AFTER UPDATE ON activity_events
+        BEGIN
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(OLD.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(OLD.ts_start, OLD.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                OLD.user_id,
+                OLD.device_id,
+                day,
+                MAX(OLD.ts_end, OLD.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+                updated_at = excluded.updated_at;
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(NEW.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(NEW.ts_start, NEW.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                NEW.user_id,
+                NEW.device_id,
+                day,
+                MAX(NEW.ts_end, NEW.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER afk_events_rollup_dirty_ai
+        AFTER INSERT ON afk_events
+        BEGIN
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(NEW.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(NEW.ts_start, NEW.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                NEW.user_id,
+                NEW.device_id,
+                day,
+                MAX(NEW.ts_end, NEW.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+                updated_at = excluded.updated_at;
+        END;
+
+        CREATE TRIGGER afk_events_rollup_dirty_au
+        AFTER UPDATE ON afk_events
+        BEGIN
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(OLD.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(OLD.ts_start, OLD.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                OLD.user_id,
+                OLD.device_id,
+                day,
+                MAX(OLD.ts_end, OLD.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
+                updated_at = excluded.updated_at;
+            INSERT INTO activity_rollup_dirty_days (
+                user_id, device_id, date, source_event_watermark, updated_at
+            )
+            WITH RECURSIVE affected(day, last_day) AS (
+                SELECT
+                    date(NEW.ts_start / 1000, 'unixepoch', 'localtime'),
+                    date(MAX(NEW.ts_start, NEW.ts_end - 1) / 1000, 'unixepoch', 'localtime')
+                UNION ALL
+                SELECT date(day, '+1 day'), last_day FROM affected WHERE day < last_day
+            )
+            SELECT
+                NEW.user_id,
+                NEW.device_id,
+                day,
+                MAX(NEW.ts_end, NEW.ts_start),
+                CAST(strftime('%s','now') AS INTEGER) * 1000
+            FROM affected
+            WHERE TRUE
+            ON CONFLICT(user_id, device_id, date) DO UPDATE SET
+                source_event_watermark = MAX(source_event_watermark, excluded.source_event_watermark),
                 updated_at = excluded.updated_at;
         END;
         "#,

@@ -147,6 +147,10 @@ export interface AggregatedComputerStatsResponse {
   source?: string
   read_source?: ComputerActivityReadSource
   state?: string
+  scope?: string
+  last_synced_at?: number | string | null
   sync_pending?: boolean
   empty_reason?: string
+  pending_rollups?: number
+  local_watermark_ms?: number | null
 }
