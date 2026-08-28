@@ -2,6 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "sidebar-window",
   "description": "Production capability set for the detached Ritual sidebar window.",
+  "local": true,
   "windows": ["sidebar"],
   "permissions": [
     "core:event:default",

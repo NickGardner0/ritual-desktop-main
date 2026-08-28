@@ -25,7 +25,11 @@ export function ClerkProvider(props: ComponentProps<typeof ClerkReactProvider>) 
     props.publishableKey
     || (import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY as string | undefined)
     || (import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined)
+    || process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
     || '';
+  if (!publishableKey) {
+    throw new Error('Ritual desktop is missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY.');
+  }
   return <ClerkReactProvider {...props} publishableKey={publishableKey} />;
 }
 

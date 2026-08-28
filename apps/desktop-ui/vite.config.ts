@@ -36,8 +36,15 @@ function stubUnknownNextImports(): Plugin {
   };
 }
 
+const PRODUCTION_PUBLIC_ENV: Record<string, string> = {
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_Y2xlcmsucml0dWFsZGIuY29tJA',
+  NEXT_PUBLIC_PYTHON_API_URL: 'https://backend-api-production-a37e.up.railway.app',
+  VITE_HOSTED_ORIGIN: 'https://desktop.ritualdb.com',
+};
+
 export default defineConfig(({ mode }) => {
   const env = {
+    ...(mode === 'production' ? PRODUCTION_PUBLIC_ENV : {}),
     ...loadEnv(mode, dashboard, ''),
     ...loadEnv(mode, root, ''),
   };
@@ -50,6 +57,16 @@ export default defineConfig(({ mode }) => {
       processEnv[key] = value;
     }
   }
+  for (const key of ['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'NEXT_PUBLIC_PYTHON_API_URL', 'VITE_HOSTED_ORIGIN']) {
+    const fromProcess = process.env[key];
+    if (fromProcess) processEnv[key] = fromProcess;
+  }
+
+  if (mode === 'production' && !/^pk_(live|test)_/.test(processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '')) {
+    throw new Error(
+      'desktop-ui production build requires NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (pk_live_ or pk_test_).',
+    );
+  }
 
   return {
     base: './',
@@ -59,6 +76,12 @@ export default defineConfig(({ mode }) => {
     envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     define: {
       'process.env': JSON.stringify(processEnv),
+      'import.meta.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY': JSON.stringify(
+        processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '',
+      ),
+      'import.meta.env.VITE_CLERK_PUBLISHABLE_KEY': JSON.stringify(
+        processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '',
+      ),
     },
     resolve: {
       dedupe: ['react', 'react-dom'],

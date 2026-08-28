@@ -36,12 +36,21 @@ test('QA and development capabilities cannot read the production app-data root',
   assert.match(build, /_ => "capabilities\/\*\.json"/);
 });
 
+test('production local SPA capabilities apply to the bundled webview', async () => {
+  const main = await readJson('apps/desktop/src-tauri/capabilities/main.json');
+  const sidebar = await readJson('apps/desktop/src-tauri/capabilities/sidebar.json');
+  const vite = await readFile('apps/desktop-ui/vite.config.ts', 'utf8');
+  assert.equal(main.local, true);
+  assert.equal(sidebar.local, true);
+  assert.match(vite, /pk_live_/);
+});
+
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.102');
-  assert.match(cargo, /^version = "0\.1\.102"$/m);
+  assert.equal(production.version, '0.1.103');
+  assert.match(cargo, /^version = "0\.1\.103"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

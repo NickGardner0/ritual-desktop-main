@@ -156,6 +156,8 @@ jobs:
           SENTRY_DESKTOP_NATIVE_DSN: ${{ secrets.SENTRY_DESKTOP_NATIVE_DSN }}
           SENTRY_ENVIRONMENT: production
           SENTRY_RELEASE: ${{ github.sha }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_PYTHON_API_URL: ${{ vars.NEXT_PUBLIC_PYTHON_API_URL }}
         run: npm run desktop:release:mac
 
       - name: Upload local release artifacts to workflow run
