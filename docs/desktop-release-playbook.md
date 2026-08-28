@@ -12,8 +12,8 @@ Use this document when shipping:
 
 Ritual desktop ships as two layers:
 
-- Hosted app: the desktop shell loads the production web UI from `https://desktop.ritualdb.com`
-- Native shell: the Tauri/Rust app is updated through GitHub Releases and Tauri updater artifacts
+- Local UI: the Tauri shell loads a bundled Vite SPA from `apps/desktop-ui` (`frontendDist`). It does not `location.replace` to `https://desktop.ritualdb.com`.
+- Hosted services: auth, APIs, and chat fallback still use Vercel (`https://desktop.ritualdb.com`) and Railway. Native shell updates go through GitHub Releases and Tauri updater artifacts.
 
 The native shell has three isolated identities:
 
@@ -27,9 +27,10 @@ Production desktop releases currently support Apple Silicon (`arm64`) only. Inte
 
 That means:
 
-- web-only changes can ship without a new desktop binary
-- native changes require a new desktop release
-- mixed changes must be rolled out in the correct order
+- hosted Vercel/web-only changes can ship without a new desktop binary
+- changes that affect the bundled desktop SPA (`apps/desktop-ui`, or dashboard modules it aliases) require a new desktop release
+- native shell, sidecar, permission, and updater changes require a new desktop release
+- mixed hosted-API + native changes must be rolled out in the correct order
 
 ## Default Rule
 

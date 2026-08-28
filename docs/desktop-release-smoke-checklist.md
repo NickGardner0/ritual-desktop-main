@@ -8,7 +8,8 @@ Run this after building a signed desktop artifact and before sharing it with bet
 - Run this checklist on an Apple Silicon Mac; Intel is outside the current supported release scope.
 - Confirm `file` and `shasum -a 256` match the target entries in `binaries/sidecar-lock.json`.
 - Confirm diagnostics report the expected product name, bundle ID, callback scheme, target, executable path, backend base, and channel-specific app-data root.
-- Confirm the app opens the hosted production UI instead of a localhost URL.
+- Confirm the app paints from the bundled local Vite SPA (no navigation to `https://desktop.ritualdb.com`, and no `localhost:3000` / `localhost:1420` document URL).
+- Confirm auth, API, and hosted chat fallback still talk to production hosts, not loopback.
 - Confirm the normal browser is blocked from the hosted app and redirected to `/desktop-only`.
 
 ## Auth
@@ -53,4 +54,5 @@ node scripts/validate-updater-artifacts.mjs --latest https://github.com/NickGard
 - Load dashboard, analytics, chat, and settings once each.
 - Confirm watcher/device settings render.
 - Confirm desktop-only search/activity surfaces render without auth or API errors.
+- Confirm chat: local sidecar on `127.0.0.1:8787` when Node is on the machine; hosted `/api/chat/stream` when it is not. Local first paint must still succeed either way.
 - Quit and reopen the app one more time to confirm restart persistence.

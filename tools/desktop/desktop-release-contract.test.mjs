@@ -40,8 +40,8 @@ test('desktop patch version and generated identity source stay synchronized', as
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.101');
-  assert.match(cargo, /^version = "0\.1\.101"$/m);
+  assert.equal(production.version, '0.1.102');
+  assert.match(cargo, /^version = "0\.1\.102"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

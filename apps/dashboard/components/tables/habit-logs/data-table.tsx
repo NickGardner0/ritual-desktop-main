@@ -483,7 +483,6 @@ export function HabitLogsDataTable({
         tabIndex={0}
         onKeyDown={handleKeyboardSelection}
         onMouseDown={() => containerRef.current?.focus()}
-        onMouseLeave={() => setHoveredRowIndex(null)}
         ref={containerRef}
       >
         {isLoading && logs.length === 0 ? (
