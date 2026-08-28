@@ -1,0 +1,31 @@
+{
+  "name": "@ritual/desktop-ui",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 1420",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 1420",
+    "typecheck": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@clerk/clerk-react": "^5.31.4",
+    "@ritual/chat-runtime": "file:../../packages/chat-runtime",
+    "@ritual/shared-contracts": "file:../../packages/shared-contracts",
+    "@ritual/ui": "file:../../packages/ui",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.6.2"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.0",
+    "tailwindcss-animate": "^1.0.7",
+    "typescript": "5.8.2",
+    "vite": "^5.4.18"
+  }
+}

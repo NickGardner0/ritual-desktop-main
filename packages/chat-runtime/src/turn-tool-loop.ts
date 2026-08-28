@@ -10,11 +10,22 @@ import {
   type ModelEngineAdapter,
   type ModelEngineMessage,
   type ModelEngineTool,
-  type ModelEngineToolCall,
   type ModelEngineToolChoice,
 } from './model-engine/index.js';
 import { applyVoiceMode } from './turn-narrative.js';
 import { elapsed } from './chat-stream/shared.js';
+import { compactApiMessages, isDoomLoop, toolBatchSignature } from './session-drain.js';
+import {
+  alwaysScopesForToken,
+  deniedToolResult,
+  draftToolResult,
+  isActionProfile,
+  permissionScopeKey,
+  rememberAlways,
+  rememberDenied,
+  resolveToolPermission,
+  waitForPermission,
+} from './action-permission.js';
 
 export function appendEntityRef(toolResults: ChatToolResults, ref: ChatEntityRef): void {
   if (!ref.id || !ref.type) return;
@@ -60,6 +71,8 @@ export type ToolDispatchContext = {
   turn?: AssistantTurnRecord | null;
   kernel?: AssistantKernel;
   signal?: AbortSignal;
+  actionProfile?: 'observe' | 'draft' | 'organize' | 'act';
+  alwaysAllowed?: string[];
 };
 
 export function collectToolResult(toolResults: ChatToolResults, name: string, raw: string): void {
@@ -269,47 +282,114 @@ function overviewNarrativeSource(toolResults: ChatToolResults): { payload: Weekl
   return null;
 }
 
-async function executeAssistantToolCalls(
+async function* executeAssistantToolCalls(
   t0: number,
   apiMessages: ModelEngineMessage[],
   assistantMessage: ModelEngineMessage,
   toolResults: ChatToolResults,
   dispatchContext: ToolDispatchContext,
-): Promise<void> {
+): AsyncGenerator<ChatStreamEvent, void> {
   const toolCalls = assistantMessage.toolCalls;
   if (!toolCalls?.length) return;
 
   apiMessages.push(assistantMessage);
+  const profile = isActionProfile(dispatchContext.actionProfile) ? dispatchContext.actionProfile : 'act';
+  const alwaysAllowed = alwaysScopesForToken(dispatchContext.token, dispatchContext.alwaysAllowed || []);
   const tTools = performance.now();
-  const toolCallResults = await executeDeclaredToolCalls({
-    toolCalls: toolCalls.map((toolCall) => ({
-      id: toolCall.id,
-      name: toolCall.name,
-      arguments: toolCall.arguments || '{}',
-    })),
-    token: dispatchContext.token,
-    ctx: {
-      timezone: dispatchContext.timezone,
-      localOverviewActivity: dispatchContext.localOverviewActivity,
-      latestUserContent: dispatchContext.latestUserContent,
-      weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
-      strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
-      conversationId: dispatchContext.conversationId,
-      conversationIdPromise: dispatchContext.conversationIdPromise,
-    },
-    turn: dispatchContext.turn,
-    kernel: dispatchContext.kernel || defaultAssistantKernel,
-    signal: dispatchContext.signal,
-  });
-  console.log(`⏱️ [${elapsed(t0)}] tools_done (${(performance.now() - tTools).toFixed(0)}ms, ${toolCallResults.length} calls)`);
+  const executable: Array<{ id: string; name: string; arguments: string }> = [];
 
-  for (const { toolCall, result } of toolCallResults) {
-    collectToolResult(toolResults, toolCall.name, result);
-    apiMessages.push({
-      role: 'tool',
-      toolCallId: toolCall.id,
-      content: result,
+  for (const toolCall of toolCalls) {
+    const name = toolCall.name;
+    const args = toolCall.arguments || '{}';
+    const scope = permissionScopeKey(name);
+    const decision = resolveToolPermission({
+      toolName: name,
+      profile,
+      alwaysAllowed,
+      scope,
     });
+
+    if (decision === 'deny') {
+      const result = profile === 'draft'
+        ? draftToolResult(name, safeParseArgs(args))
+        : deniedToolResult(name, profile);
+      collectToolResult(toolResults, name, result);
+      apiMessages.push({
+        role: 'tool',
+        toolCallId: toolCall.id,
+        content: result,
+      });
+      yield { type: 'tool', event: 'result', id: toolCall.id, name, label: profile === 'draft' ? 'Drafted' : 'Denied' };
+      continue;
+    }
+
+    if (decision === 'ask') {
+      yield {
+        type: 'permission',
+        event: 'ask',
+        id: toolCall.id,
+        name,
+        scope,
+        profile,
+      };
+      const choice = await waitForPermission(toolCall.id);
+      if (choice === 'deny') {
+        rememberDenied(dispatchContext.token, scope);
+        const result = deniedToolResult(name, profile);
+        collectToolResult(toolResults, name, result);
+        apiMessages.push({
+          role: 'tool',
+          toolCallId: toolCall.id,
+          content: result,
+        });
+        yield { type: 'tool', event: 'error', id: toolCall.id, name, label: 'Denied' };
+        continue;
+      }
+      if (choice === 'always') {
+        rememberAlways(dispatchContext.token, scope);
+        alwaysAllowed.add(scope);
+      }
+    }
+
+    executable.push({ id: toolCall.id, name, arguments: args });
+  }
+
+  if (executable.length) {
+    const toolCallResults = await executeDeclaredToolCalls({
+      toolCalls: executable,
+      token: dispatchContext.token,
+      ctx: {
+        timezone: dispatchContext.timezone,
+        localOverviewActivity: dispatchContext.localOverviewActivity,
+        latestUserContent: dispatchContext.latestUserContent,
+        weeklyOverviewQueryParams: dispatchContext.weeklyOverviewQueryParams,
+        strictThisWeekForWeeklyOverview: dispatchContext.strictThisWeekForWeeklyOverview,
+        conversationId: dispatchContext.conversationId,
+        conversationIdPromise: dispatchContext.conversationIdPromise,
+      },
+      turn: dispatchContext.turn,
+      kernel: dispatchContext.kernel || defaultAssistantKernel,
+      signal: dispatchContext.signal,
+    });
+    console.log(`⏱️ [${elapsed(t0)}] tools_done (${(performance.now() - tTools).toFixed(0)}ms, ${toolCallResults.length} calls)`);
+
+    for (const { toolCall, result } of toolCallResults) {
+      collectToolResult(toolResults, toolCall.name, result);
+      apiMessages.push({
+        role: 'tool',
+        toolCallId: toolCall.id,
+        content: result,
+      });
+      yield { type: 'tool', event: 'result', id: toolCall.id, name: toolCall.name };
+    }
+  }
+}
+
+function safeParseArgs(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return {};
   }
 }
 
@@ -335,13 +415,19 @@ export async function* runStreamingToolLoop(
     }
   };
 
+  const signatures: string[] = [];
+
   for (let iterations = 1; iterations <= 6; iterations++) {
     assertNotAborted();
     const toolChoice = iterations === 1 ? initialToolChoice : 'auto';
     yield { type: 'phase', phase: iterations === 1 ? 'searching' : 'answering' };
     console.log(`⏱️ [${elapsed(t0)}] model_start iteration=${iterations} stream=true`);
 
+    const compacted = compactApiMessages(apiMessages);
+    apiMessages.splice(0, apiMessages.length, ...compacted);
+
     const toolCallsMap: ToolCallAccumulator = new Map();
+    const started = new Set<number>();
     let emittedText = false;
     let firstProviderEvent = false;
     let answeringPhaseEmitted = false;
@@ -371,16 +457,36 @@ export async function* runStreamingToolLoop(
         }
       } else if (event.type === 'tool_call_delta') {
         applyToolCallDelta(toolCallsMap, event);
+        const current = toolCallsMap.get(event.index);
+        if (current?.name && !started.has(event.index)) {
+          started.add(event.index);
+          yield {
+            type: 'tool',
+            event: 'start',
+            id: current.id || `tool-${event.index}`,
+            name: current.name,
+          };
+          yield { type: 'phase', phase: 'tool', label: `Using ${current.name}...` };
+        }
       }
     }
 
     if (toolCallsMap.size > 0) {
       assertNotAborted();
       const assistantMessage = assistantMessageFromToolCalls(toolCallsMap);
-      const toolNames = assistantMessage.toolCalls?.map((toolCall: ModelEngineToolCall) => toolCall.name).join(', ') || 'tool';
-      yield { type: 'phase', phase: 'tool', label: `Using ${toolNames}...` };
+      const batch = (assistantMessage.toolCalls || []).map((toolCall) => ({
+        name: toolCall.name,
+        arguments: toolCall.arguments || '{}',
+      }));
+      const signature = toolBatchSignature(batch);
+      if (isDoomLoop(signatures, signature)) {
+        yield { type: 'text', text: 'I stopped repeating the same tool calls. Try a more specific question.' };
+        return;
+      }
+      signatures.push(signature);
+      const toolNames = batch.map((item) => item.name).join(', ') || 'tool';
       console.log(`⏱️ [${elapsed(t0)}] 🔧 Tool loop iteration ${iterations}:`, toolNames);
-      await executeAssistantToolCalls(t0, apiMessages, assistantMessage, toolResults, dispatchContext);
+      yield* executeAssistantToolCalls(t0, apiMessages, assistantMessage, toolResults, dispatchContext);
 
       const narrative = !isVoiceMode ? overviewNarrativeSource(toolResults) : null;
       if (narrative) {

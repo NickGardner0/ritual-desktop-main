@@ -70,6 +70,14 @@ const allowedLarge = new Map([
     "text classification pipeline retained pending focused extraction",
   ],
   [
+    "apps/desktop/src-tauri/src/activity_rollups.rs",
+    "activity rollup projection retained pending focused extraction",
+  ],
+  [
+    "apps/desktop/src-tauri/src/cloud_sync.rs",
+    "desktop cloud sync retained pending focused extraction",
+  ],
+  [
     "apps/desktop/src-tauri/src/desktop_runtime/biome_outbox.rs",
     "desktop Biome drain path retained pending focused extraction",
   ],

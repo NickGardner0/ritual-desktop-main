@@ -13,6 +13,12 @@ import { mergeDailyBreakdowns, runStreamingToolLoop } from './turn-tool-loop.js'
 import { defaultAssistantKernel, type AssistantTurnRun } from './assistant-kernel.js';
 import { getAssistantTurnStore } from './assistant-turn-store.js';
 import type { ModelEngineMessage } from './model-engine/index.js';
+import {
+  isUserPermissionChoice,
+  rememberAlways,
+  rememberDenied,
+  submitPermissionDecision,
+} from './action-permission.js';
 
 export type ChatStreamRequestBody = {
   messages: Array<{ role: string; content: string }>;
@@ -23,6 +29,13 @@ export type ChatStreamRequestBody = {
   entityRefs?: Array<{ type: string; id: string; title?: string }>;
   turnId?: string | null;
   epoch?: number;
+  actionProfile?: 'observe' | 'draft' | 'organize' | 'act';
+  alwaysAllowed?: string[];
+  permission?: {
+    id: string;
+    decision: 'once' | 'always' | 'deny';
+    scope?: string;
+  };
 };
 
 export type ChatStreamRequestContext = {
@@ -59,6 +72,17 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
     if (!token?.trim()) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (body.permission && isUserPermissionChoice(body.permission.decision) && body.permission.id) {
+      const accepted = submitPermissionDecision(body.permission.id, body.permission.decision);
+      const scope = body.permission.scope || body.permission.id;
+      if (body.permission.decision === 'always') rememberAlways(token, scope);
+      if (body.permission.decision === 'deny') rememberDenied(token, scope);
+      return new Response(JSON.stringify({ ok: true, accepted }), {
+        status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -233,6 +257,8 @@ export async function handleChatStreamRequest(context: ChatStreamRequestContext)
             turn: activeTurn,
             kernel: defaultAssistantKernel,
             signal: context.signal,
+            actionProfile: body.actionProfile,
+            alwaysAllowed: body.alwaysAllowed,
           },
           isVoiceMode,
           initialToolChoice: route.forcedToolName

@@ -41,7 +41,9 @@ if (dashboardApiRoutes.length > budgets.dashboardApiRoutesMax) {
 }
 
 const dashboardSources = walkSourceFiles("apps/dashboard", new Set([".ts", ".tsx"]));
+const trackedFileMaxLines = budgets.trackedFileMaxLines || {};
 for (const file of dashboardSources) {
+  if (trackedFileMaxLines[file]) continue;
   const lines = lineCount(file);
   const isGenerated = file.startsWith("apps/dashboard/lib/api/generated/");
   const maxLines = isGenerated
@@ -71,6 +73,22 @@ for (const [file, maxLines] of Object.entries(budgets.trackedFileMaxLines || {})
   const lines = lineCount(file);
   if (lines > maxLines) {
     errors.push(`Tracked file grew beyond budget: ${file} ${lines}/${maxLines}`);
+  }
+}
+
+for (const [name, guard] of Object.entries(config.sourceGuards || {})) {
+  const file = guard.file;
+  const absolute = join(root, file);
+  if (!existsSync(absolute)) {
+    errors.push(`Performance source guard missing file (${name}): ${file}`);
+    continue;
+  }
+  const text = readFileSync(absolute, "utf8");
+  if (guard.forbidden && new RegExp(guard.forbidden).test(text)) {
+    errors.push(`Performance source guard failed (${name}): ${file} matched /${guard.forbidden}/`);
+  }
+  if (guard.required && !new RegExp(guard.required).test(text)) {
+    errors.push(`Performance source guard failed (${name}): ${file} missing /${guard.required}/`);
   }
 }
 

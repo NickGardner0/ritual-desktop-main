@@ -4,39 +4,39 @@
   "tokeiVersion": "14.0.0",
   "repository": {
     "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "80c82111f4c23f875b6432d39bd4281b46d30c08"
+    "headAtMeasurement": "2ce237896b7aa3b269edd5c08b7dce0d2066ac89"
   },
-  "sourceDigest": "1db7f9415426716c18d4fd12cc374cd6e9ab0a29c1730a9c0981d7635bf97fa8",
+  "sourceDigest": "95d1a9be97f8ac1e0a17e50ba7cc243d17723d7278d04359893c70b4f8dcfda3",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
-      "files": 514,
-      "code": 83676,
+      "files": 522,
+      "code": 85691,
       "languages": {
         "CSS": {
           "files": 3,
-          "code": 1868
+          "code": 1938
         },
         "JavaScript": {
           "files": 14,
           "code": 954
         },
         "TSX": {
-          "files": 267,
-          "code": 46722
+          "files": 270,
+          "code": 47990
         },
         "TypeScript": {
-          "files": 230,
-          "code": 34132
+          "files": 235,
+          "code": 34809
         }
       }
     },
     {
       "id": "shared_packages",
       "label": "Shared packages",
-      "files": 66,
-      "code": 9808,
+      "files": 69,
+      "code": 10327,
       "languages": {
         "CSS": {
           "files": 1,
@@ -47,32 +47,32 @@
           "code": 956
         },
         "TypeScript": {
-          "files": 52,
-          "code": 8671
+          "files": 55,
+          "code": 9190
         }
       }
     },
     {
       "id": "fastapi",
       "label": "FastAPI application",
-      "files": 239,
-      "code": 57950,
+      "files": 240,
+      "code": 58666,
       "languages": {
         "Python": {
-          "files": 239,
-          "code": 57950
+          "files": 240,
+          "code": 58666
         }
       }
     },
     {
       "id": "desktop_rust",
       "label": "Rust desktop, watcher, and ritual-db",
-      "files": 87,
-      "code": 36137,
+      "files": 90,
+      "code": 39456,
       "languages": {
         "Rust": {
-          "files": 87,
-          "code": 36137
+          "files": 90,
+          "code": 39456
         }
       }
     },
@@ -80,19 +80,35 @@
       "id": "desktop_shell",
       "label": "Desktop hosted-shell bootstrap",
       "files": 4,
-      "code": 331,
+      "code": 299,
       "languages": {
         "CSS": {
           "files": 1,
-          "code": 113
+          "code": 108
         },
         "JavaScript": {
           "files": 1,
-          "code": 19
+          "code": 15
         },
         "JSX": {
           "files": 2,
-          "code": 199
+          "code": 176
+        }
+      }
+    },
+    {
+      "id": "desktop_ui",
+      "label": "Desktop local Vite SPA",
+      "files": 17,
+      "code": 365,
+      "languages": {
+        "TSX": {
+          "files": 7,
+          "code": 194
+        },
+        "TypeScript": {
+          "files": 10,
+          "code": 171
         }
       }
     },
@@ -125,5 +141,5 @@
       }
     }
   ],
-  "total": 190952
+  "total": 197854
 }

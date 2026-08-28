@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 
-import { startTransition, useState, useRef, useCallback, useEffect } from "react";
+import { startTransition, useState, useEffect } from "react";
 import { MainMenu } from "./main-menu";
 import { SidebarAccountMenu } from "./sidebar-account-menu";
 import { useSidebarMode } from "@/contexts/SidebarModeContext";
@@ -47,29 +47,11 @@ export function Sidebar({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [isHovered, setIsHovered] = useState(false);
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
-  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleMouseEnter = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsHovered(true), 50);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    hoverTimerRef.current = setTimeout(() => setIsHovered(false), 100);
-  }, []);
-
-  const isExpanded =
-    mode === "expanded" ? true : mode === "hover" ? isHovered || isAccountMenuOpen : false;
-
-  const hoverProps =
-    mode === "hover"
-      ? { onMouseEnter: handleMouseEnter, onMouseLeave: handleMouseLeave }
-      : {};
-
-  const width = isExpanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
+  const isHoverMode = mode === "hover";
+  const isExpanded = mode === "expanded" || isHoverMode;
+  const width = mode === "expanded" ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
   const navTopPadding = isExpanded ? 74 : 112;
   const sidebarToggleLabel = isExpanded ? "Collapse sidebar" : "Expand sidebar";
 
@@ -79,12 +61,13 @@ export function Sidebar({
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    if (mode === "hover") return;
     document.documentElement.style.setProperty('--ritual-sidebar-current-width', `${width}px`);
 
     return () => {
       document.documentElement.style.setProperty('--ritual-sidebar-current-width', `${COLLAPSED_WIDTH}px`);
     };
-  }, [width]);
+  }, [mode, width]);
 
   useEffect(() => {
     const view = searchParams.get('openSettings');
@@ -93,7 +76,7 @@ export function Sidebar({
     void openDesktopSettingsWindow(view).catch((error) => {
       console.error('Failed to open native settings window:', error);
     });
-    startTransition(() => setIsHovered(false));
+    startTransition(() => setIsAccountMenuOpen(false));
 
     const params = new URLSearchParams(searchParams.toString());
     params.delete('openSettings');
@@ -102,7 +85,7 @@ export function Sidebar({
   }, [searchParams, pathname, router]);
 
   const handleSettingsClick = async () => {
-    setIsHovered(false);
+    setIsAccountMenuOpen(false);
     try {
       await openDesktopSettingsWindow('account');
     } catch (error) {
@@ -112,11 +95,16 @@ export function Sidebar({
 
   return (
     <SidebarShell
-      style={{
-        width,
-        transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
-      }}
-      {...hoverProps}
+      data-mode={mode}
+      data-account-open={isAccountMenuOpen ? "true" : undefined}
+      style={
+        isHoverMode
+          ? undefined
+          : {
+              width,
+              transition: "width 200ms cubic-bezier(0.4, 0, 0.2, 1)",
+            }
+      }
     >
       <div
         aria-hidden

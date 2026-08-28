@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo, useMemo, type RefObject } from 'react';
+import React, { memo, useEffect, useMemo, useState, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check } from 'lucide-react';
 import {
@@ -14,6 +14,8 @@ import { EntityCitationList } from '@/components/entities/entity-related-panel';
 import { EntityNoteText } from '@/components/entities/entity-note-text';
 import { canonicalEntityType } from '@ritual/shared-contracts';
 import { Button } from '@ritual/ui/button';
+import { ChatPermissionDock } from './chat-permission-dock';
+import { getChatSessionUi, subscribeChatSessionUi } from './chat-session-ui';
 
 type SendMessageOptions = { turnId?: string; retryExisting?: boolean };
 
@@ -172,14 +174,36 @@ function StreamingMessageRow({
       <Response className="text-[14px] leading-[1.55] text-[#535353]">
         {canvasData ? cleanContentForDisplay(streamingContent) : streamingContent}
       </Response>
+      <ChatPermissionDock />
     </div>
   );
 }
 
 function LoadingMessageRow({ toolStatus }: { toolStatus: ToolStatus }) {
+  const [toolParts, setToolParts] = useState(() => getChatSessionUi().toolParts);
+  useEffect(() => subscribeChatSessionUi(() => {
+    setToolParts(getChatSessionUi().toolParts);
+  }), []);
+
   return (
-    <div className="flex items-center gap-2 py-2">
-      {toolStatus ? (
+    <div className="flex flex-col gap-2 py-2">
+      {toolParts.length > 0 ? (
+        <div className="flex flex-col gap-1">
+          {toolParts.map((part) => (
+            <div key={part.id} className="flex items-center gap-2 text-sm text-neutral-500">
+              {part.status === 'done' ? (
+                <Check className="h-3.5 w-3.5 text-emerald-500" />
+              ) : (
+                <span className="h-1.5 w-1.5 rounded-full bg-neutral-400" />
+              )}
+              <span>
+                {part.status === 'running' ? `Using ${part.name}...` : part.name}
+                {part.status === 'error' ? ' failed' : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : toolStatus ? (
         toolStatus.done ? (
           <>
             <Check className="h-3.5 w-3.5 text-emerald-500" />
@@ -195,6 +219,7 @@ function LoadingMessageRow({ toolStatus }: { toolStatus: ToolStatus }) {
           {'Thinking...'}
         </TextShimmer>
       )}
+      <ChatPermissionDock />
     </div>
   );
 }

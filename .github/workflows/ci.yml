@@ -77,6 +77,9 @@ jobs:
       - name: Dashboard unit tests
         run: npm run test:dashboard
 
+      - name: Build desktop UI
+        run: npm run --workspace @ritual/desktop-ui build
+
   desktop-rust:
     runs-on: macos-latest
     timeout-minutes: 20

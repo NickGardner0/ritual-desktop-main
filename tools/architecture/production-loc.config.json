@@ -46,6 +46,13 @@
       "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
     },
     {
+      "id": "desktop_ui",
+      "label": "Desktop local Vite SPA",
+      "include": ["^apps/desktop-ui/src/"],
+      "exclude": [],
+      "extensions": [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css"]
+    },
+    {
       "id": "browser_extension",
       "label": "Browser extension",
       "include": ["^apps/browser-extension/"],

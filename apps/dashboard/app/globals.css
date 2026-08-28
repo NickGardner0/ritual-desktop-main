@@ -89,6 +89,41 @@ body[data-voice-hud-window="1"] {
   transition: none !important;
 }
 
+html:has(.ritual-sidebar-shell[data-mode="expanded"]) {
+  --ritual-sidebar-current-width: 256px;
+}
+
+html:has(.ritual-sidebar-shell[data-mode="hover"]:hover),
+html:has(.ritual-sidebar-shell[data-mode="hover"]:focus-within),
+html:has(.ritual-sidebar-shell[data-mode="hover"][data-account-open="true"]) {
+  --ritual-sidebar-current-width: 256px;
+}
+
+html:has(.ritual-sidebar-shell[data-mode="compact"]) {
+  --ritual-sidebar-current-width: 76px;
+}
+
+.ritual-sidebar-shell[data-mode="hover"] {
+  width: 76px;
+  transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.ritual-sidebar-shell[data-mode="hover"]:hover,
+.ritual-sidebar-shell[data-mode="hover"]:focus-within,
+.ritual-sidebar-shell[data-mode="hover"][data-account-open="true"] {
+  width: 256px;
+}
+
+.ritual-habit-log-row {
+  transition: none;
+}
+
+.ritual-habit-log-row:hover:not([data-selected="true"]),
+.ritual-habit-log-row:hover:not([data-selected="true"]) [role="cell"],
+.ritual-habit-log-row:hover:not([data-selected="true"]) .ritual-habit-log-row-fill {
+  background-color: #f7f7f6;
+}
+
 .ritual-nav-row-surface,
 .sidebar-nav-row,
 table tbody tr,
@@ -1705,7 +1740,7 @@ table tbody tr,
   a[class~="bg-background"],
   input[type="button"][class~="bg-background"]:not(:disabled),
   input[type="submit"][class~="bg-background"]:not(:disabled) {
-    transition: all 0.2s ease-out;
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
   }
 
   /* Unify black-button hover behavior across the app to match Home "Sign In". */
@@ -1721,7 +1756,7 @@ table tbody tr,
   a[class~="bg-[#111827]"],
   input[type="button"][class~="bg-[#111827]"]:not(:disabled),
   input[type="submit"][class~="bg-[#111827]"]:not(:disabled) {
-    transition: all 0.2s ease-out;
+    transition: color 0.2s ease-out, background-color 0.2s ease-out, opacity 0.2s ease-out, border-color 0.2s ease-out, box-shadow 0.2s ease-out;
   }
 
   button[class~="bg-black"]:not(:disabled):hover,

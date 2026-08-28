@@ -43,10 +43,33 @@ export * from './weekly-overview-utils.js';
 export {
   createChatStreamResponse,
   formatPhaseLine,
+  formatPermissionLine,
+  formatToolLine,
   labelForChatPhase,
   parsePhaseLine,
+  parsePermissionLine,
+  parseToolLine,
   PHASE_LABELS,
 } from './stream-response.js';
+export {
+  compactApiMessages,
+  isDoomLoop,
+  pruneBulkyToolResult,
+  toolBatchSignature,
+} from './session-drain.js';
+export {
+  ACTION_PROFILES,
+  draftToolResult,
+  isActionProfile,
+  isUserPermissionChoice,
+  permissionScopeKey,
+  rememberAlways,
+  resetPermissionStateForTests,
+  resolveToolPermission,
+  submitPermissionDecision,
+  waitForPermission,
+} from './action-permission.js';
+export { startChatRuntimeSidecar } from './sidecar.js';
 export {
   classifyModelEngineError,
   collectModelEngineResponse,

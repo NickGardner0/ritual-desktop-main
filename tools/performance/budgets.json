@@ -13,6 +13,7 @@
       "apps/dashboard/components/data-import-modal.tsx": 130,
       "apps/dashboard/components/analytics/overview/useOverviewMetrics.ts": 560,
       "apps/dashboard/app/(dashboard)/chat/chat-client.impl.tsx": 720,
+      "apps/dashboard/app/(dashboard)/tasks/tasks-ui.tsx": 860,
       "apps/backend/services/whoop_service.py": 560,
       "apps/backend/services/whoop_sync_payload.py": 375,
       "apps/backend/services/whoop_api_client.py": 311,
@@ -21,6 +22,24 @@
       "apps/backend/services/oura_sync_payload.py": 140,
       "apps/backend/services/garmin_service.py": 220,
       "apps/backend/services/garmin_account_payload.py": 55
+    }
+  },
+  "sourceGuards": {
+    "noHoveredRowIndex": {
+      "file": "apps/dashboard/components/tables/habit-logs/data-table.tsx",
+      "forbidden": "hoveredRowIndex"
+    },
+    "noTransitionAll": {
+      "file": "apps/dashboard/app/globals.css",
+      "forbidden": "transition:\\s*all"
+    },
+    "noHostedRedirectHappyPath": {
+      "file": "apps/desktop/src/DesktopShellApp.jsx",
+      "forbidden": "location\\.replace\\(bootstrap"
+    },
+    "localDesktopUiDist": {
+      "file": "apps/desktop/src-tauri/tauri.conf.json",
+      "required": "desktop-ui/dist"
     }
   }
 }

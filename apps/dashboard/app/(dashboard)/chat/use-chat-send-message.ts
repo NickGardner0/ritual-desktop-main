@@ -25,10 +25,18 @@ import {
 import type { Message } from './chat-client.shared';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { perfInfo } from '@/lib/perf-debug';
-import { parsePhaseLine, labelForChatPhase } from '@ritual/chat-runtime/stream-response';
+import { parsePhaseLine, parsePermissionLine, parseToolLine, labelForChatPhase } from '@ritual/chat-runtime/stream-response';
 import { canonicalEntityType, parseEntityMentionTokens } from '@ritual/shared-contracts';
 import { enqueueAssistantTurnOutbox, removeAssistantTurnOutbox } from '@/lib/chat/assistant-turn-outbox';
 import { syncEntityMentions } from '@/lib/entities/sync-mentions';
+import { getChatStreamUrl } from '@/lib/chat-stream-url';
+import { readAlwaysToolScopes } from '@/lib/chat-permission-memory';
+import {
+  resetChatSessionUi,
+  setChatAuthToken,
+  setChatPermissionAsk,
+  upsertChatToolPart,
+} from './chat-session-ui';
 
 const HABIT_LOG_LOCATION_PREFLIGHT_PATTERN =
   /\b(log|logged|logging|track|tracked|record|recorded|completed|finished|walked|ran|meditated|workout|worked out|read|drank|consumed|slept)\b/i;
@@ -102,6 +110,7 @@ export function useChatSendMessage({
     setStreamingContent('');
     setCurrentQuestion(text);
     setToolStatus({ label: getToolLabel(text), done: false });
+    resetChatSessionUi();
     const clickAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
     perfInfo('chat', 'send_click');
     const tokenPromise = getToken();
@@ -194,6 +203,8 @@ export function useChatSendMessage({
         entityRefs: attachedRefs.length ? attachedRefs : undefined,
         turnId,
         epoch: turnSession.epoch,
+        actionProfile: 'act',
+        alwaysAllowed: readAlwaysToolScopes(),
       };
       queuedOutbox = {
         turnId,
@@ -204,7 +215,8 @@ export function useChatSendMessage({
         status: 'queued_local',
         attempts: 0,
       };
-      const response = await fetch('/api/chat/stream', {
+      setChatAuthToken(token);
+      const response = await fetch(getChatStreamUrl(), {
         method: 'POST',
         signal: turnSession.signal,
         headers: {
@@ -326,6 +338,31 @@ export function useChatSendMessage({
               done: false,
             });
           }
+          return;
+        }
+
+        const toolEvent = parseToolLine(line);
+        if (toolEvent) {
+          upsertChatToolPart({
+            id: toolEvent.id,
+            name: toolEvent.name,
+            status: toolEvent.event === 'start' ? 'running' : toolEvent.event === 'error' ? 'error' : 'done',
+            label: toolEvent.label,
+          });
+          if (toolEvent.event === 'start') {
+            setToolStatus({ label: `Using ${toolEvent.name}...`, done: false });
+          }
+          return;
+        }
+
+        const permissionEvent = parsePermissionLine(line);
+        if (permissionEvent) {
+          setChatPermissionAsk({
+            id: permissionEvent.id,
+            name: permissionEvent.name,
+            scope: permissionEvent.scope || permissionEvent.name,
+            profile: permissionEvent.profile || 'act',
+          });
           return;
         }
 

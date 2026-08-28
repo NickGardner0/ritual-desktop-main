@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 const budget = Number(process.env.RITUAL_DASHBOARD_FILE_LINE_BUDGET || 800);
 const generatedBudget = Number(process.env.RITUAL_DASHBOARD_GENERATED_FILE_LINE_BUDGET || 5000);
 const generatedPrefix = "apps/dashboard/lib/api/generated/";
+const trackedFileMaxLines = JSON.parse(readFileSync("tools/performance/budgets.json", "utf8")).budgets?.trackedFileMaxLines || {};
 const files = execFileSync("find", [
   "apps/dashboard",
   "-path",
@@ -30,8 +31,9 @@ const offenders = files
   .map((file) => ({
     file,
     lines: readFileSync(file, "utf8").split("\n").length,
+    maxLines: Number(trackedFileMaxLines[file] || budget),
   }))
-  .filter((item) => item.lines > budget)
+  .filter((item) => item.lines > item.maxLines)
   .sort((a, b) => b.lines - a.lines);
 
 if (offenders.length) {

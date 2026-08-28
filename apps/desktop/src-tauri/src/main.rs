@@ -4,6 +4,7 @@
 
 mod activity_rollups;
 mod app_paths;
+mod chat_runtime;
 mod cloud_sync;
 mod desktop_observability;
 mod desktop_runtime;
@@ -407,6 +408,7 @@ fn join_url_path(base: &str, path: &str) -> String {
 }
 
 fn shutdown_background_helpers() {
+    chat_runtime::stop_chat_runtime_sidecar();
     if let Err(err) = tauri::async_runtime::block_on(watcher::lifecycle::stop_watcher()) {
         eprintln!(
             "⚠️ Failed to stop Ritual Watcher during app shutdown: {}",
@@ -2021,6 +2023,7 @@ fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
     }
     app.state::<VoiceHudRuntimeState>().set_active(false);
     hide_native_voice_hud(&app);
+    sync_macos_dock_icon_to_window_visibility(&app);
     Ok(())
 }
 
@@ -2106,6 +2109,7 @@ fn center_settings_window_over_main(
 
 #[tauri::command]
 fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> Result<(), String> {
+    show_ritual_with_dock_icon(&app)?;
     let initial_view = normalize_settings_view(initial_view);
     let payload = SettingsWindowPayload {
         initial_view: initial_view.clone(),
@@ -2189,6 +2193,44 @@ fn sidebar_get_main_state(
     Ok(SidebarMainState { path, width })
 }
 
+fn show_ritual_with_dock_icon<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        app.set_activation_policy(tauri::ActivationPolicy::Regular)
+            .map_err(|error| format!("Failed to show Ritual in the Dock: {error}"))?;
+        app.show()
+            .map_err(|error| format!("Failed to show Ritual application: {error}"))?;
+    }
+    Ok(())
+}
+
+fn keep_ritual_resident_without_dock_icon<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory)
+        .map_err(|error| format!("Failed to hide Ritual from the Dock: {error}"))?;
+    Ok(())
+}
+
+fn sync_macos_dock_icon_to_window_visibility<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    {
+        let has_visible_window = ["main", "settings", "sidebar", "voice-hud"]
+            .iter()
+            .filter_map(|label| app.get_webview_window(label))
+            .any(|window| window.is_visible().unwrap_or(false));
+        let result = if has_visible_window {
+            show_ritual_with_dock_icon(app)
+        } else {
+            keep_ritual_resident_without_dock_icon(app)
+        };
+        if let Err(error) = result {
+            warn!(error = %error, "Failed synchronizing Ritual Dock visibility");
+        }
+    }
+}
+
 /// Show the main window (called from frontend when React is ready)
 #[tauri::command]
 #[instrument(skip(window, resident))]
@@ -2201,6 +2243,7 @@ fn show_main_window(
     if resident.background_launch {
         return Ok(());
     }
+    show_ritual_with_dock_icon(window.app_handle())?;
     window
         .show()
         .map_err(|e| format!("Failed to show window: {}", e))?;
@@ -2211,9 +2254,7 @@ fn show_main_window(
 }
 
 fn show_main_window_for_app<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    app.show()
-        .map_err(|error| format!("Failed to show Ritual application: {error}"))?;
+    show_ritual_with_dock_icon(app)?;
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Main Ritual window is unavailable".to_string())?;
@@ -2455,8 +2496,12 @@ fn main() {
         ])
         .setup(move |app| {
             let setup_started_at = Instant::now();
-            #[cfg(target_os = "macos")]
-            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            chat_runtime::start_chat_runtime_sidecar(app.path().resource_dir().ok());
+            if background_launch {
+                keep_ritual_resident_without_dock_icon(app.handle())?;
+            } else {
+                show_ritual_with_dock_icon(app.handle())?;
+            }
             desktop_runtime::register_runtime_signal_monitor(app.handle().clone());
             desktop_runtime::register_location_outbox_drain_worker(app.handle().clone());
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
@@ -2730,9 +2775,14 @@ fn main() {
                     if let Some(sidebar) = app_handle.get_webview_window("sidebar") {
                         let _ = sidebar.hide();
                     }
+                    sync_macos_dock_icon_to_window_visibility(app_handle);
                     desktop_runtime::emit_runtime_state_changed(app_handle.clone());
                 }
             }
+            RunEvent::WindowEvent {
+                event: tauri::WindowEvent::Destroyed,
+                ..
+            } => sync_macos_dock_icon_to_window_visibility(app_handle),
             #[cfg(target_os = "macos")]
             RunEvent::Reopen { .. } => {
                 let _ = show_main_window_for_app(app_handle);

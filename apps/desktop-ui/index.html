@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en" class="desktop">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ritual</title>
+    <script>
+      (function () {
+        document.documentElement.classList.add('desktop');
+        document.documentElement.style.background = '#fefefe';
+        document.documentElement.dataset.theme = 'light';
+        try {
+          var stored = localStorage.getItem('theme');
+          if (stored === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.background = '#111111';
+          }
+        } catch (error) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

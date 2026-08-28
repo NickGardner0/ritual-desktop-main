@@ -16,6 +16,14 @@ function normalizeApiPath(path: string): string {
   return `/api/${trimmed}`;
 }
 
+function resolveApiUrl(path: string): string {
+  const normalized = normalizeApiPath(path);
+  if (typeof window === 'undefined') return normalized;
+  const origin = (window as Window & { __RITUAL_API_ORIGIN__?: string }).__RITUAL_API_ORIGIN__;
+  if (origin) return `${origin.replace(/\/$/, '')}${normalized}`;
+  return normalized;
+}
+
 export type ApiFetchOptions = RequestInit & {
   userId?: string | null;
 };
@@ -25,7 +33,7 @@ export async function apiFetchWithAuth(
   getToken: (opts?: { skipCache?: boolean }) => Promise<string | null>,
   options: ApiFetchOptions = {},
 ): Promise<Response> {
-  const url = normalizeApiPath(path);
+  const url = resolveApiUrl(path);
   const token = await getToken();
   if (!token) throw new Error('No auth token available');
 
@@ -53,7 +61,11 @@ export async function apiFetchWithAuth(
 }
 
 function dashboardBaseUrl(): string {
-  if (typeof window !== 'undefined') return window.location.origin;
+  if (typeof window !== 'undefined') {
+    const origin = (window as Window & { __RITUAL_API_ORIGIN__?: string }).__RITUAL_API_ORIGIN__;
+    if (origin) return origin.replace(/\/$/, '');
+    return window.location.origin;
+  }
   return process.env.NEXT_PUBLIC_APP_URL || 'http://localhost';
 }
 

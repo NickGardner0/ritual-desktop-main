@@ -8,7 +8,7 @@
     "beforeBuildCommand": "npm run shell:build",
     "beforeDevCommand": "npm run shell:dev",
     "devUrl": "http://127.0.0.1:1420",
-    "frontendDist": "../dist"
+    "frontendDist": "../../desktop-ui/dist"
   },
   "app": {
     "macOSPrivateApi": true,
@@ -27,7 +27,7 @@
           "$HOME/.ritual/video/**"
         ]
       },
-      "csp": "default-src 'self' https: asset:; connect-src 'self' ipc: http://ipc.localhost https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:8000 http://127.0.0.1:8000 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
+      "csp": "default-src 'self' https: asset:; connect-src 'self' ipc: http://ipc.localhost https://desktop.ritualdb.com https://backend-api-production-a37e.up.railway.app https://api.us-east.aws.tinybird.co https://api.ritual.app https://api.clerk.com https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com https://api.deepgram.com wss://api.deepgram.com http://localhost:3000 http://127.0.0.1:3000 http://localhost:8000 http://127.0.0.1:8000 http://127.0.0.1:8787 http://localhost:8787 ws://localhost:3000 ws://127.0.0.1:3000; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost data: blob: https:; font-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; frame-src 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com; object-src 'none'; base-uri 'self'; form-action 'self' https://clerk.ritualdb.com https://*.clerk.accounts.dev https://accounts.google.com https://appleid.apple.com;"
     },
     "windows": []
   },
@@ -61,7 +61,9 @@
       "providerShortName": null,
       "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
     },
-    "resources": [],
+    "resources": [
+      "resources/chat-runtime"
+    ],
     "shortDescription": "",
     "targets": "all",
     "windows": {

@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { drainAssistantTurnOutbox } from '@/lib/chat/assistant-turn-outbox';
 import { privacySettingsHeaders } from '@/lib/privacy/privacy-settings';
+import { getChatStreamUrl } from '@/lib/chat-stream-url';
 
 export function useAssistantTurnOutboxDrain(
   userId: string | undefined,
@@ -14,7 +15,7 @@ export function useAssistantTurnOutboxDrain(
     const drain = () => {
       void drainAssistantTurnOutbox(userId, async (item) => {
         const token = await getToken();
-        const response = await fetch('/api/chat/stream', {
+        const response = await fetch(getChatStreamUrl(), {
           method: 'POST',
           headers: {
             Authorization: token ? `Bearer ${token}` : '',

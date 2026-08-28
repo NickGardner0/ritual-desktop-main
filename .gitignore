@@ -40,6 +40,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # Tauri
+apps/desktop/src-tauri/resources/chat-runtime/**
+!apps/desktop/src-tauri/resources/chat-runtime/.gitkeep
 apps/desktop/src-tauri/target/
 apps/desktop/.tauri-helper/
 apps/desktop/src-tauri/Cargo.lock

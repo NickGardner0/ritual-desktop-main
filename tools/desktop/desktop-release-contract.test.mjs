@@ -93,11 +93,23 @@ test('desktop ships a single resident host with quiet login startup', async () =
   assert.match(cargo, /tauri-plugin-single-instance/);
   assert.match(main, /MacosLauncher::LaunchAgent/);
   assert.match(main, /ActivationPolicy::Accessory/);
+  assert.match(main, /ActivationPolicy::Regular/);
+  assert.match(main, /show_ritual_with_dock_icon/);
+  assert.match(main, /keep_ritual_resident_without_dock_icon/);
+  assert.match(main, /sync_macos_dock_icon_to_window_visibility/);
   assert.match(infoPlist, /<key>LSUIElement<\/key>\s*<true\/>/);
   assert.match(main, /argument == "--background"/);
   assert.match(main, /api\.prevent_close\(\)/);
   assert.match(resident, /desktop_set_computer_tracking/);
   assert.match(resident, /show_menu_bar:\s*false/);
+});
+
+test('desktop shell keeps failed launches inside the Tauri app', async () => {
+  const shell = await readFile('apps/desktop/src/DesktopShellApp.jsx', 'utf8');
+  const bridge = await readFile('apps/desktop/src/desktop-shell-bridge.js', 'utf8');
+  assert.doesNotMatch(shell, /Open in browser|Hosted UI|window\.open|location\.replace/);
+  assert.doesNotMatch(bridge, /plugin-shell|openDesktopShellExternalUrl/);
+  assert.match(shell, /Check your connection and try again/);
 });
 
 test('new desktop sync never projects rollups into habit logs', async () => {

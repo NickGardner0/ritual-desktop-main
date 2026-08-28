@@ -11,7 +11,9 @@
     "apps/dashboard/app/api/wearables/apple/export/route.ts",
     "apps/desktop/src-tauri/src/main.rs",
     "apps/desktop/src-tauri/bin/ritual-watcher/src/main.rs",
-    "packages/chat-runtime/src/index.ts"
+    "apps/desktop-ui/src/main.tsx",
+    "packages/chat-runtime/src/index.ts",
+    "packages/chat-runtime/src/sidecar.ts"
   ],
   "removedPaths": [
     "apps/dashboard/components/screen-recorder",

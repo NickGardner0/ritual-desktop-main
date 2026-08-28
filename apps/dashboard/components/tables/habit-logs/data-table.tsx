@@ -65,7 +65,6 @@ export function HabitLogsDataTable({
 }: DataTableProps) {
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [activeRowIndex, setActiveRowIndex] = useState<number>(-1);
-  const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(readStoredColumnWidths);
   const [columnOrder, setColumnOrder] = useState<string[]>(() => {
     const stored = readStoredColumnOrder();
@@ -599,11 +598,10 @@ export function HabitLogsDataTable({
                 const log = row.original;
                 const isSelected = rowSelection[log.id] || false;
                 const isActiveRow = virtualRow.index === activeRowIndex;
-                const isHoveredRow = hoveredRowIndex === virtualRow.index;
 
                 const rowBgClass = isSelected
                   ? 'bg-neutral-50'
-                  : isHoveredRow || isActiveRow
+                  : isActiveRow
                     ? 'bg-[#f7f7f6]'
                     : 'bg-white';
 
@@ -612,8 +610,10 @@ export function HabitLogsDataTable({
                     key={log.id}
                     role="row"
                     data-index={virtualRow.index}
+                    data-selected={isSelected ? 'true' : undefined}
+                    data-active={isActiveRow ? 'true' : undefined}
                     className={cn(
-                      'group cursor-default select-text',
+                      'ritual-habit-log-row group cursor-default select-text',
                       'absolute left-0 w-full min-w-full flex items-center',
                       rowBgClass,
                     )}
@@ -636,7 +636,6 @@ export function HabitLogsDataTable({
                         onRowClick(log);
                       }
                     }}
-                    onMouseEnter={() => setHoveredRowIndex(virtualRow.index)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       const columnId = cell.column.id;
@@ -677,7 +676,7 @@ export function HabitLogsDataTable({
                       );
                     })}
                     {/* Filler to extend row border to full width */}
-                    <div className={cn('flex-1 h-full border-b border-border', rowBgClass)} />
+                    <div className={cn('ritual-habit-log-row-fill flex-1 h-full border-b border-border', rowBgClass)} />
                   </div>
                 );
               })}
