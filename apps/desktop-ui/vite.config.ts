@@ -42,9 +42,16 @@ const PRODUCTION_PUBLIC_ENV: Record<string, string> = {
   VITE_HOSTED_ORIGIN: 'https://desktop.ritualdb.com',
 };
 
+function firstNonEmpty(...values: Array<string | undefined>) {
+  return values.find((value) => Boolean(value && value.trim()))?.trim();
+}
+
+function firstClerkPublishableKey(...values: Array<string | undefined>) {
+  return values.find((value) => /^pk_(live|test)_/.test(value?.trim() || ''))?.trim();
+}
+
 export default defineConfig(({ mode }) => {
-  const env = {
-    ...(mode === 'production' ? PRODUCTION_PUBLIC_ENV : {}),
+  const fileEnv = {
     ...loadEnv(mode, dashboard, ''),
     ...loadEnv(mode, root, ''),
   };
@@ -52,17 +59,29 @@ export default defineConfig(({ mode }) => {
   const processEnv: Record<string, string> = {
     NODE_ENV: mode === 'production' ? 'production' : 'development',
   };
-  for (const [key, value] of Object.entries(env)) {
+  for (const [key, value] of Object.entries(fileEnv)) {
     if (key.startsWith('NEXT_PUBLIC_') || key.startsWith('VITE_') || key === 'PYTHON_API_URL') {
       processEnv[key] = value;
     }
   }
-  for (const key of ['NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY', 'NEXT_PUBLIC_PYTHON_API_URL', 'VITE_HOSTED_ORIGIN']) {
-    const fromProcess = process.env[key];
-    if (fromProcess) processEnv[key] = fromProcess;
-  }
 
-  if (mode === 'production' && !/^pk_(live|test)_/.test(processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || '')) {
+  processEnv.NEXT_PUBLIC_PYTHON_API_URL = firstNonEmpty(
+    process.env.NEXT_PUBLIC_PYTHON_API_URL,
+    fileEnv.NEXT_PUBLIC_PYTHON_API_URL,
+    PRODUCTION_PUBLIC_ENV.NEXT_PUBLIC_PYTHON_API_URL,
+  ) || '';
+  processEnv.VITE_HOSTED_ORIGIN = firstNonEmpty(
+    process.env.VITE_HOSTED_ORIGIN,
+    fileEnv.VITE_HOSTED_ORIGIN,
+    PRODUCTION_PUBLIC_ENV.VITE_HOSTED_ORIGIN,
+  ) || '';
+  processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = firstClerkPublishableKey(
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    fileEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+    PRODUCTION_PUBLIC_ENV.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  ) || '';
+
+  if (mode === 'production' && !processEnv.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
     throw new Error(
       'desktop-ui production build requires NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY (pk_live_ or pk_test_).',
     );
@@ -117,11 +136,11 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api/chat': {
-          target: env.VITE_CHAT_ORIGIN || 'http://127.0.0.1:8787',
+          target: fileEnv.VITE_CHAT_ORIGIN || 'http://127.0.0.1:8787',
           changeOrigin: true,
         },
         '/api': {
-          target: env.VITE_PYTHON_API_URL || env.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000',
+          target: fileEnv.VITE_PYTHON_API_URL || processEnv.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
         },
       },
