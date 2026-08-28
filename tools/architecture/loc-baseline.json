@@ -4,15 +4,15 @@
   "tokeiVersion": "14.0.0",
   "repository": {
     "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "4bc850cea7145443279a0fe235cf73f5d77ab0a1"
+    "headAtMeasurement": "22e7c59af02ca0a5e40aeea9bfbdbd4e9904e099"
   },
-  "sourceDigest": "cb4faae86a5806f9cfef001d7ac31fda216ec82078b091241fed79e0bc2e63e6",
+  "sourceDigest": "264c9dba06e8beb01cf9890bc9625e07828998101f72a151eed25bf2ce59acb1",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
-      "files": 522,
-      "code": 85690,
+      "files": 523,
+      "code": 85743,
       "languages": {
         "CSS": {
           "files": 3,
@@ -24,11 +24,11 @@
         },
         "TSX": {
           "files": 270,
-          "code": 47989
+          "code": 47980
         },
         "TypeScript": {
-          "files": 235,
-          "code": 34809
+          "files": 236,
+          "code": 34871
         }
       }
     },
@@ -99,12 +99,12 @@
     {
       "id": "desktop_ui",
       "label": "Desktop local Vite SPA",
-      "files": 17,
-      "code": 405,
+      "files": 18,
+      "code": 542,
       "languages": {
         "TSX": {
-          "files": 7,
-          "code": 234
+          "files": 8,
+          "code": 371
         },
         "TypeScript": {
           "files": 10,
@@ -141,5 +141,5 @@
       }
     }
   ],
-  "total": 197893
+  "total": 198083
 }
