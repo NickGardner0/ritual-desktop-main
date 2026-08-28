@@ -43,3 +43,22 @@ test('Clerk ticket is minted only after the durable one-time consume succeeds', 
   );
   assert.doesNotMatch(postHandler, /createSignInToken/);
 });
+
+test('local SPA consumes the hosted handoff API, never a relative Next route', async () => {
+  const origin = await readFile('apps/dashboard/lib/desktop-auth-origin.ts', 'utf8');
+  const handoff = await readFile('apps/dashboard/lib/desktop-auth-handoff.ts', 'utf8');
+  const native = await readFile(
+    'apps/desktop/src-tauri/src/desktop_runtime/auth_handoff.rs',
+    'utf8',
+  );
+  const nextConfig = await readFile('apps/dashboard/next.config.mjs', 'utf8');
+  assert.match(origin, /export function getDesktopAuthHandoffApiUrl/);
+  assert.match(handoff, /desktop_consume_auth_handoff/);
+  assert.match(handoff, /getDesktopAuthHandoffApiUrl\(\)/);
+  assert.doesNotMatch(handoff, /fetch\('\/api\/auth\/desktop-sign-in-token'/);
+  assert.match(native, /fn desktop_consume_auth_handoff/);
+  assert.match(native, /reqwest::Method::PATCH/);
+  assert.match(native, /\/api\/auth\/desktop-sign-in-token/);
+  assert.match(nextConfig, /PATCH/);
+  assert.match(nextConfig, /https:\/\/tauri\.localhost/);
+});

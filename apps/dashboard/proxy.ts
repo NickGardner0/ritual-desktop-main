@@ -1,6 +1,8 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 
+import { desktopWebviewCorsHeaders } from '@/lib/server/desktop-webview-cors';
+
 const DESKTOP_USER_AGENT_FRAGMENT = 'RitualDesktop/';
 
 const isPublicRoute = createRouteMatcher([
@@ -29,6 +31,11 @@ const isPublicRoute = createRouteMatcher([
 ]);
 
 export const proxy = clerkMiddleware(async (auth, req) => {
+  if (req.nextUrl.pathname.startsWith('/api/auth/desktop-sign-in-token') && req.method === 'OPTIONS') {
+    const cors = desktopWebviewCorsHeaders(req.headers.get('origin')) ?? {};
+    return new NextResponse(null, { status: 204, headers: cors });
+  }
+
   const isProduction = process.env.NODE_ENV === 'production';
   const userAgent = req.headers.get('user-agent') || '';
   const isDesktopRequest = userAgent.includes(DESKTOP_USER_AGENT_FRAGMENT);

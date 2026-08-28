@@ -1,4 +1,7 @@
-import type { DesktopRuntimeInfo } from '@/lib/native-gateway';
+import { getDesktopAuthHandoffApiUrl } from '@/lib/desktop-auth-origin';
+import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
+import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import type { DesktopRuntimeInfo } from '@/lib/desktop-bridge/runtime';
 
 const DESKTOP_AUTH_HANDOFF_STORAGE_KEY = 'ritual:desktop-auth-handoff:v2';
 
@@ -42,14 +45,22 @@ function nativeMetadata(runtimeInfo: DesktopRuntimeInfo) {
   };
 }
 
-export async function consumeDesktopAuthHandoff(input: {
+function isMissingNativeConsumeCommand(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes('not allowed')
+    || message.includes('unknown command')
+    || message.includes('command not found')
+    || message.includes('does not exist');
+}
+
+async function consumeDesktopAuthHandoffViaHostedApi(input: {
   handoffId: string;
   nonce: string;
   channel: DesktopRuntimeInfo['channel'];
   protocol: '2';
   runtimeInfo: DesktopRuntimeInfo;
 }): Promise<string> {
-  const response = await fetch('/api/auth/desktop-sign-in-token', {
+  const response = await fetch(getDesktopAuthHandoffApiUrl(), {
     method: 'PATCH',
     cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
@@ -72,6 +83,35 @@ export async function consumeDesktopAuthHandoff(input: {
   return payload.ticket;
 }
 
+export async function consumeDesktopAuthHandoff(input: {
+  handoffId: string;
+  nonce: string;
+  channel: DesktopRuntimeInfo['channel'];
+  protocol: '2';
+  runtimeInfo: DesktopRuntimeInfo;
+}): Promise<string> {
+  if (isDesktopTauriRuntime()) {
+    try {
+      const ticket = await invokeDesktopCommand('desktop_consume_auth_handoff', {
+        handoffId: input.handoffId,
+        nonce: input.nonce,
+        channel: input.channel,
+        protocol: input.protocol,
+        nativeMetadata: nativeMetadata(input.runtimeInfo),
+      });
+      if (typeof ticket === 'string' && ticket.trim()) {
+        return ticket;
+      }
+      throw new Error('Desktop authentication handoff did not return a ticket.');
+    } catch (error) {
+      if (!isMissingNativeConsumeCommand(error)) {
+        throw error;
+      }
+    }
+  }
+  return consumeDesktopAuthHandoffViaHostedApi(input);
+}
+
 export async function acknowledgeDesktopAuthHandoff(
   runtimeInfo: DesktopRuntimeInfo,
   outcome: 'acknowledged' | 'failed' = 'acknowledged',
@@ -79,7 +119,7 @@ export async function acknowledgeDesktopAuthHandoff(
 ): Promise<boolean> {
   const pending = readPendingDesktopAuthAcknowledgement();
   if (!pending) return false;
-  const response = await fetch('/api/auth/desktop-sign-in-token', {
+  const response = await fetch(getDesktopAuthHandoffApiUrl(), {
     method: 'PUT',
     credentials: 'include',
     cache: 'no-store',

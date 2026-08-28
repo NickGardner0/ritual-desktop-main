@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth, clerkClient } from '@clerk/nextjs/server';
 
 import { getBackendBaseUrl } from '@/lib/api/backend-url';
+import { desktopWebviewCorsHeaders } from '@/lib/server/desktop-webview-cors';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
 
 type DesktopChannel = 'production' | 'qa' | 'development';
@@ -35,11 +36,23 @@ type HandoffActionBody = {
   nativeMetadata?: Record<string, string | null | undefined>;
 };
 
-function noStoreJson(payload: unknown, status = 200) {
-  return NextResponse.json(payload, {
+function noStoreJson(payload: unknown, status = 200, request?: NextRequest) {
+  const response = NextResponse.json(payload, {
     status,
     headers: { 'Cache-Control': 'no-store' },
   });
+  const cors = desktopWebviewCorsHeaders(request?.headers.get('origin'));
+  if (cors) {
+    for (const [key, value] of Object.entries(cors)) {
+      response.headers.set(key, value);
+    }
+  }
+  return response;
+}
+
+export async function OPTIONS(request: NextRequest) {
+  const cors = desktopWebviewCorsHeaders(request.headers.get('origin')) ?? {};
+  return new NextResponse(null, { status: 204, headers: cors });
 }
 
 async function backendJson(
@@ -130,9 +143,10 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const json = (payload: unknown, status = 200) => noStoreJson(payload, status, request);
   const body = await request.json() as HandoffActionBody;
   if (!body.handoffId || !body.nonce || !body.channel || body.protocol !== '2') {
-    return noStoreJson({ error: 'Complete v2 handoff identity is required' }, 400);
+    return json({ error: 'Complete v2 handoff identity is required' }, 400);
   }
   const result = await backendJson(
     `/api/desktop-auth/handoffs/${encodeURIComponent(body.handoffId)}/consume`,
@@ -147,9 +161,9 @@ export async function PATCH(request: NextRequest) {
       }),
     },
   );
-  if (!result.ok) return noStoreJson(result.payload, result.status);
+  if (!result.ok) return json(result.payload, result.status);
   const subject = typeof result.payload.user_id === 'string' ? result.payload.user_id : '';
-  if (!subject) return noStoreJson({ error: 'Desktop handoff subject is unavailable' }, 502);
+  if (!subject) return json({ error: 'Desktop handoff subject is unavailable' }, 502);
   try {
     const client = await clerkClient();
     const signInToken = await client.signInTokens.createSignInToken({
@@ -158,7 +172,7 @@ export async function PATCH(request: NextRequest) {
     });
     const handoff = { ...result.payload };
     delete handoff.user_id;
-    return noStoreJson({ ticket: signInToken.token, handoff });
+    return json({ ticket: signInToken.token, handoff });
   } catch (error) {
     await backendJson(
       `/api/desktop-auth/handoffs/${encodeURIComponent(body.handoffId)}/claim-failed`,
@@ -175,16 +189,17 @@ export async function PATCH(request: NextRequest) {
       },
     ).catch(() => null);
     console.error('Desktop handoff was claimed but ticket creation failed:', error);
-    return noStoreJson({ error: 'Desktop sign-in ticket creation failed' }, 502);
+    return json({ error: 'Desktop sign-in ticket creation failed' }, 502);
   }
 }
 
 export async function PUT(request: NextRequest) {
+  const json = (payload: unknown, status = 200) => noStoreJson(payload, status, request);
   const { userId, getToken } = await auth();
-  if (!userId) return noStoreJson({ error: 'Unauthorized' }, 401);
+  if (!userId) return json({ error: 'Unauthorized' }, 401);
   const body = await request.json() as HandoffActionBody;
   if (!body.handoffId || !body.outcome) {
-    return noStoreJson({ error: 'handoffId and outcome are required' }, 400);
+    return json({ error: 'handoffId and outcome are required' }, 400);
   }
   const token = await getToken();
   const result = await backendJson(
@@ -199,5 +214,5 @@ export async function PUT(request: NextRequest) {
       }),
     },
   );
-  return noStoreJson(result.payload, result.status);
+  return json(result.payload, result.status);
 }

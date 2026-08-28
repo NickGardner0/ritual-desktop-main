@@ -10,11 +10,13 @@ use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 use tracing::{info, instrument, warn};
 
 pub const DESKTOP_AUTH_HANDOFF_PROTOCOL: &str = "2";
 const DESKTOP_AUTH_HANDOFF_TTL_MS: i64 = 5 * 60 * 1000;
 const PENDING_HANDOFF_FILE: &str = "desktop_auth_handoff_v2.json";
+const DEFAULT_HOSTED_AUTH_ORIGIN: &str = "https://desktop.ritualdb.com";
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +46,65 @@ struct PendingDesktopAuthHandoff {
 
 fn pending_handoff_path() -> PathBuf {
     crate::app_paths::data_dir().join(PENDING_HANDOFF_FILE)
+}
+
+fn is_trusted_hosted_origin(origin: &str) -> bool {
+    let Ok(parsed) = tauri::Url::parse(origin) else {
+        return false;
+    };
+    if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    host == "desktop.ritualdb.com" || host == "ritualdb.com" || host.ends_with(".ritualdb.com")
+}
+
+fn resolve_hosted_auth_origin() -> String {
+    let candidate = std::env::var("RITUAL_HOSTED_ORIGIN")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_HOSTED_AUTH_ORIGIN.to_string());
+    if is_trusted_hosted_origin(&candidate) {
+        candidate
+    } else {
+        DEFAULT_HOSTED_AUTH_ORIGIN.to_string()
+    }
+}
+
+pub(crate) fn desktop_auth_handoff_consume_url(origin: &str) -> String {
+    format!(
+        "{}/api/auth/desktop-sign-in-token",
+        origin.trim_end_matches('/')
+    )
+}
+
+fn pending_handoff_matches(
+    handoff_id: &str,
+    nonce: &str,
+    channel: &str,
+    protocol: &str,
+) -> Result<(), String> {
+    let pending_path = pending_handoff_path();
+    let pending: PendingDesktopAuthHandoff =
+        serde_json::from_slice(&fs::read(&pending_path).map_err(|_| {
+            "No pending desktop authentication request exists for this channel".to_string()
+        })?)
+        .map_err(|error| format!("Pending desktop authentication request is invalid: {error}"))?;
+    if pending.expires_at_ms <= Utc::now().timestamp_millis() {
+        let _ = fs::remove_file(&pending_path);
+        return Err("Pending desktop authentication request expired".to_string());
+    }
+    if pending.handoff_id != handoff_id
+        || pending.nonce != nonce
+        || pending.channel != channel
+        || pending.protocol != protocol
+    {
+        return Err(
+            "Desktop authentication callback does not match the pending request".to_string(),
+        );
+    }
+    Ok(())
 }
 
 fn allow_legacy_v1() -> bool {
@@ -201,6 +262,76 @@ pub fn desktop_complete_auth_handoff(handoff_id: String) -> Result<(), String> {
         .map_err(|error| format!("Failed clearing desktop authentication request: {error}"))
 }
 
+#[tauri::command]
+#[instrument(skip(app, nonce, native_metadata))]
+pub fn desktop_consume_auth_handoff<R: Runtime>(
+    app: AppHandle<R>,
+    handoff_id: String,
+    nonce: String,
+    channel: String,
+    protocol: String,
+    native_metadata: Option<serde_json::Value>,
+) -> Result<String, String> {
+    let handoff_id = handoff_id.trim().to_string();
+    let nonce = nonce.trim().to_string();
+    let channel = channel.trim().to_string();
+    let protocol = protocol.trim().to_string();
+    if handoff_id.is_empty()
+        || nonce.is_empty()
+        || channel.is_empty()
+        || protocol != DESKTOP_AUTH_HANDOFF_PROTOCOL
+    {
+        return Err("Complete v2 handoff identity is required".to_string());
+    }
+    pending_handoff_matches(&handoff_id, &nonce, &channel, &protocol)?;
+
+    let url = desktop_auth_handoff_consume_url(&resolve_hosted_auth_origin());
+    let body = serde_json::json!({
+        "handoffId": handoff_id,
+        "nonce": nonce,
+        "channel": channel,
+        "protocol": protocol,
+        "nativeMetadata": native_metadata.unwrap_or_else(|| serde_json::json!({})),
+    });
+    let encoded = serde_json::to_string(&body)
+        .map_err(|error| format!("Failed encoding desktop auth consume request: {error}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| format!("Failed creating desktop auth consume client: {error}"))?;
+    let response = client
+        .request(reqwest::Method::PATCH, &url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(
+            reqwest::header::USER_AGENT,
+            format!("RitualDesktop/{}", app.package_info().version),
+        )
+        .body(encoded)
+        .send()
+        .map_err(|error| format!("Desktop authentication handoff request failed: {error}"))?;
+    let status = response.status();
+    let text = response
+        .text()
+        .map_err(|error| format!("Failed reading desktop authentication handoff response: {error}"))?;
+    let payload: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({}));
+    let ticket = payload
+        .get("ticket")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if !status.is_success() || ticket.is_none() {
+        let detail = payload
+            .get("detail")
+            .and_then(|value| value.as_str())
+            .or_else(|| payload.get("error").and_then(|value| value.as_str()))
+            .unwrap_or("Desktop authentication handoff was rejected.");
+        warn!(status = %status, detail, "Desktop auth consume was rejected");
+        return Err(detail.to_string());
+    }
+    Ok(ticket.expect("ticket presence checked above"))
+}
+
 fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
     let trimmed_user_id = user_id.trim();
     if trimmed_user_id.is_empty() {
@@ -337,4 +468,29 @@ pub async fn desktop_clear_auth_state<R: Runtime + 'static>(
     let runtime_state = build_runtime_state(&app).await?;
     let _ = app.emit(RUNTIME_STATE_CHANGED_EVENT, runtime_state.clone());
     Ok(runtime_state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn consume_url_stays_on_hosted_next_origin() {
+        assert_eq!(
+            desktop_auth_handoff_consume_url("https://desktop.ritualdb.com"),
+            "https://desktop.ritualdb.com/api/auth/desktop-sign-in-token"
+        );
+        assert_eq!(
+            desktop_auth_handoff_consume_url("https://desktop.ritualdb.com/"),
+            "https://desktop.ritualdb.com/api/auth/desktop-sign-in-token"
+        );
+    }
+
+    #[test]
+    fn hosted_origin_rejects_local_spa_origins() {
+        assert!(is_trusted_hosted_origin("https://desktop.ritualdb.com"));
+        assert!(!is_trusted_hosted_origin("https://tauri.localhost"));
+        assert!(!is_trusted_hosted_origin("http://127.0.0.1:1420"));
+        assert!(!is_trusted_hosted_origin("tauri://localhost"));
+    }
 }

@@ -4,15 +4,15 @@
   "tokeiVersion": "14.0.0",
   "repository": {
     "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "22e7c59af02ca0a5e40aeea9bfbdbd4e9904e099"
+    "headAtMeasurement": "8d95b18e589073f348c05359e7ff8b3b3f0a5211"
   },
-  "sourceDigest": "264c9dba06e8beb01cf9890bc9625e07828998101f72a151eed25bf2ce59acb1",
+  "sourceDigest": "2c59f6d471c255370bef2f8cab8328bb96a5eea5dfd89a181df0c30e6c39fdfa",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
-      "files": 523,
-      "code": 85743,
+      "files": 524,
+      "code": 85847,
       "languages": {
         "CSS": {
           "files": 3,
@@ -20,15 +20,15 @@
         },
         "JavaScript": {
           "files": 14,
-          "code": 954
+          "code": 960
         },
         "TSX": {
           "files": 270,
           "code": 47980
         },
         "TypeScript": {
-          "files": 236,
-          "code": 34871
+          "files": 237,
+          "code": 34969
         }
       }
     },
@@ -68,11 +68,11 @@
       "id": "desktop_rust",
       "label": "Rust desktop, watcher, and ritual-db",
       "files": 90,
-      "code": 39456,
+      "code": 39604,
       "languages": {
         "Rust": {
           "files": 90,
-          "code": 39456
+          "code": 39604
         }
       }
     },
@@ -141,5 +141,5 @@
       }
     }
   ],
-  "total": 198083
+  "total": 198335
 }

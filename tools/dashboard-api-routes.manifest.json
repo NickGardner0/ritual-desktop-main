@@ -38,7 +38,7 @@
       "category": "auth-boundary",
       "owner": "desktop-auth-browser-bridge",
       "contentClass": "json",
-      "callers": ["desktop sign-in browser page", "native desktop auth bridge"],
+      "callers": ["desktop sign-in browser page", "native desktop auth consume", "native desktop auth bridge"],
       "reason": "Desktop auth ticket, durable status, one-time native consumption, and acknowledgement boundary that depends on Clerk browser session context."
     },
     "apps/dashboard/app/api/calendar/summary/route.ts": {

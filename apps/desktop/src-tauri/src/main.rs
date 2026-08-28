@@ -2470,6 +2470,7 @@ fn main() {
             resident_runtime::desktop_quit_completely,
             desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
             desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
+            desktop_runtime::auth_handoff::desktop_consume_auth_handoff,
             desktop_runtime::auth_handoff::desktop_clear_auth_state,
             desktop_runtime::updater::desktop_frontend_ready,
             desktop_runtime::updater::desktop_manual_update_check,

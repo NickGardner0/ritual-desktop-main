@@ -58,6 +58,7 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
   assert.match(signIn, /Continue with Google/);
   assert.match(signIn, /buildDesktopOAuthStartUrl/);
   assert.match(origin, /desktop\.ritualdb\.com/);
+  assert.match(origin, /getDesktopAuthHandoffApiUrl/);
   assert.match(handler, /buildDesktopOAuthStartUrl/);
   assert.doesNotMatch(handler, /window\.location\.origin/);
   assert.match(csp, /worker-src 'self' blob:/);
@@ -70,8 +71,8 @@ test('desktop patch version and generated identity source stay synchronized', as
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.105');
-  assert.match(cargo, /^version = "0\.1\.105"$/m);
+  assert.equal(production.version, '0.1.106');
+  assert.match(cargo, /^version = "0\.1\.106"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

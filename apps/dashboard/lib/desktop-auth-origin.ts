@@ -45,6 +45,24 @@ export function getDesktopHostedOrigin(
   return DEFAULT_DESKTOP_HOSTED_ORIGIN;
 }
 
+export const DESKTOP_AUTH_HANDOFF_API_PATH = '/api/auth/desktop-sign-in-token';
+
+type DesktopAuthHandoffWindow = Pick<RitualWindow, '__RITUAL_HOSTED_ORIGIN__'> & {
+  location?: { origin: string };
+};
+
+export function getDesktopAuthHandoffApiUrl(
+  windowLike?: DesktopAuthHandoffWindow | null,
+): string {
+  const hosted = getDesktopHostedOrigin(windowLike);
+  const pageOrigin = windowLike?.location?.origin
+    ?? (typeof window === 'undefined' ? undefined : window.location.origin);
+  if (pageOrigin && pageOrigin.replace(/\/$/, '') === hosted) {
+    return DESKTOP_AUTH_HANDOFF_API_PATH;
+  }
+  return `${hosted}${DESKTOP_AUTH_HANDOFF_API_PATH}`;
+}
+
 export function buildDesktopOAuthStartUrl(
   mode: DesktopOAuthMode,
   strategy: DesktopOAuthStrategy,

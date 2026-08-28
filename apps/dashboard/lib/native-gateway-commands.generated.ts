@@ -12,6 +12,7 @@ export const NATIVE_COMMANDS = [
   "desktop_capture_sentry_smoke",
   "desktop_clear_auth_state",
   "desktop_complete_auth_handoff",
+  "desktop_consume_auth_handoff",
   "desktop_frontend_ready",
   "desktop_get_resident_runtime_state",
   "desktop_install_update",
@@ -96,6 +97,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "desktop_capture_sentry_smoke": "desktop-observability",
   "desktop_clear_auth_state": "desktop-runtime",
   "desktop_complete_auth_handoff": "desktop-runtime",
+  "desktop_consume_auth_handoff": "desktop-runtime",
   "desktop_frontend_ready": "desktop-runtime",
   "desktop_get_resident_runtime_state": "desktop-runtime",
   "desktop_install_update": "desktop-runtime",
@@ -180,6 +182,7 @@ export type NativeCommandInputs = {
   desktop_capture_sentry_smoke: Record<string, never>;
   desktop_clear_auth_state: Record<string, never>;
   desktop_complete_auth_handoff: { handoffId: string };
+  desktop_consume_auth_handoff: { handoffId: string; nonce: string; channel: string; protocol: string; nativeMetadata?: unknown | null };
   desktop_frontend_ready: Record<string, never>;
   desktop_get_resident_runtime_state: Record<string, never>;
   desktop_install_update: Record<string, never>;
@@ -262,6 +265,7 @@ export type NativeCommandOutputs = {
   desktop_capture_sentry_smoke: void;
   desktop_clear_auth_state: unknown;
   desktop_complete_auth_handoff: void;
+  desktop_consume_auth_handoff: string;
   desktop_frontend_ready: unknown;
   desktop_get_resident_runtime_state: unknown;
   desktop_install_update: void;

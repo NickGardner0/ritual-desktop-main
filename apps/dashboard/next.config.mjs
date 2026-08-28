@@ -9,10 +9,16 @@ const withBundleAnalyzer = bundleAnalyzer({
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(configDir, '../..');
 
-const corsAllowOrigin =
-  process.env.CORS_ALLOW_ORIGIN ||
-  process.env.NEXT_PUBLIC_APP_ORIGIN ||
-  'tauri://localhost';
+const corsAllowOrigin = (() => {
+  const raw =
+    process.env.CORS_ALLOW_ORIGIN ||
+    process.env.NEXT_PUBLIC_APP_ORIGIN ||
+    'https://tauri.localhost';
+  if (raw === 'tauri://localhost' || raw === 'http://tauri.localhost') {
+    return 'https://tauri.localhost';
+  }
+  return raw;
+})();
 
 const primarySentryProject =
   process.env.SENTRY_SOURCEMAP_PROJECT ||
@@ -109,7 +115,7 @@ const nextConfig = {
           },
           {
             key: 'Access-Control-Allow-Methods',
-            value: 'GET, POST, PUT, DELETE, OPTIONS',
+            value: 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
           },
           {
             key: 'Access-Control-Allow-Headers',
