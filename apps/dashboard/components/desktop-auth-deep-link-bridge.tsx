@@ -13,6 +13,10 @@ import {
   consumeDesktopAuthHandoff,
   storePendingDesktopAuthAcknowledgement,
 } from '@/lib/desktop-auth-handoff';
+import {
+  buildDesktopHostedAuthCallbackUrl,
+  shouldCompleteDesktopAuthOnHostedOrigin,
+} from '@/lib/desktop-auth-origin';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
 
@@ -94,6 +98,14 @@ export function DesktopAuthDeepLinkBridge() {
         void recordDesktopShellEvent('desktop.auth_deep_link.received', 'info', {
           nextPath,
         });
+        if (shouldCompleteDesktopAuthOnHostedOrigin()) {
+          const hostedCallbackUrl = buildDesktopHostedAuthCallbackUrl(nextPath);
+          void recordDesktopShellEvent('desktop.auth_ticket.hosted_handoff', 'info', {
+            hostedCallbackUrl,
+          });
+          window.location.replace(hostedCallbackUrl);
+          return;
+        }
         router.replace(nextPath);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

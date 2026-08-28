@@ -344,15 +344,29 @@ fn should_use_local_shell_window() -> bool {
     !matches!(configured_ritual_env().as_str(), "development" | "dev")
 }
 
-fn desktop_shell_window_url() -> Result<tauri::WebviewUrl, std::io::Error> {
-    if should_use_local_shell_window() {
-        Ok(tauri::WebviewUrl::App("index.html".into()))
-    } else {
+fn desktop_shell_window_url(hosted_app_url: &str) -> Result<tauri::WebviewUrl, std::io::Error> {
+    if !should_use_local_shell_window() {
         let shell_external_url = DESKTOP_SHELL_DEV_URL.parse().map_err(|error| {
             std::io::Error::other(format!("Invalid desktop shell dev URL: {error}"))
         })?;
-        Ok(tauri::WebviewUrl::External(shell_external_url))
+        return Ok(tauri::WebviewUrl::External(shell_external_url));
     }
+
+    // Clerk sessions live on desktop.ritualdb.com. After a successful browser
+    // handoff the local SPA cannot activate that session on tauri.localhost, so
+    // a signed-in relaunch must load the hosted dashboard.
+    if native_widget::has_persisted_auth_token() {
+        info!(
+            hosted_app_url,
+            "Persisted desktop auth token found; loading hosted dashboard"
+        );
+        let hosted = hosted_app_url.parse().map_err(|error| {
+            std::io::Error::other(format!("Invalid hosted desktop URL: {error}"))
+        })?;
+        return Ok(tauri::WebviewUrl::External(hosted));
+    }
+
+    Ok(tauri::WebviewUrl::App("index.html".into()))
 }
 
 fn env_flag_enabled(name: &str) -> bool {
@@ -2618,7 +2632,7 @@ fn main() {
                 window
             } else {
                 let mut builder =
-                    tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url()?)
+                    tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url(&app_url)?)
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
                         .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)

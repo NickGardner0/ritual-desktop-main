@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { ClerkLoaded, ClerkLoading, SignIn, SignUp } from '@clerk/clerk-react';
+import { useState, type CSSProperties } from 'react';
 import { Button } from '@ritual/ui/button';
 import { AuthFlowIntent } from '@/components/auth-flow-intent';
 import { ClerkOAuthHandler } from '@/components/clerk-oauth-handler';
 import {
+  getDesktopHostedOrigin,
   buildDesktopOAuthStartUrl,
   type DesktopOAuthMode,
   type DesktopOAuthStrategy,
@@ -14,20 +14,13 @@ import {
   recordDesktopShellEvent,
 } from '@/lib/native-gateway';
 
-const clerkAppearance = {
-  variables: {
-    borderRadius: '0.125rem',
-    fontFamily: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-    fontFamilyButtons: "ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  },
-  elements: {
-    rootBox: 'mx-auto',
-    card: 'shadow-sm rounded-sm',
-    formButtonPrimary: 'rounded-sm',
-    socialButtonsBlockButton: 'rounded-sm',
-    formFieldInput: 'rounded-sm',
-  },
-} as const;
+const welcomeHeadingStyle: CSSProperties = {
+  fontSize: '28px',
+  lineHeight: '1.2',
+  WebkitFontSmoothing: 'antialiased',
+  letterSpacing: '-0.01em',
+  fontWeight: 500,
+};
 
 async function startDesktopOAuth(mode: DesktopOAuthMode, strategy: DesktopOAuthStrategy) {
   const handoff = await desktopBeginAuthHandoff();
@@ -48,6 +41,7 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
   const [busyStrategy, setBusyStrategy] = useState<DesktopOAuthStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const isSignIn = mode === 'sign_in';
+  const hostedOrigin = getDesktopHostedOrigin();
 
   const launch = async (strategy: DesktopOAuthStrategy) => {
     setError(null);
@@ -68,20 +62,30 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#fcfcfa] px-4 py-12">
-      <div className="w-full max-w-md">
-        <AuthFlowIntent mode={mode} />
-        <ClerkOAuthHandler mode={mode} desktopMode />
-        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#7a7a7a]">
-          Ritual
-        </p>
-        <h1 className="mt-3 text-[22px] font-medium tracking-[-0.02em] text-[#111111]">
-          {isSignIn ? 'Sign in to Ritual' : 'Create your Ritual account'}
+    <div
+      className="relative flex min-h-screen flex-col bg-white"
+      style={{ fontFamily: 'var(--ritual-selected-font-family)' }}
+    >
+      <div data-tauri-drag-region className="fixed top-0 left-0 z-50 h-16 w-full" />
+      <AuthFlowIntent mode={mode} />
+      <ClerkOAuthHandler mode={mode} desktopMode />
+      <main className="flex flex-1 flex-col items-center justify-center px-6">
+        <img
+          src="/images/eclipse.svg"
+          alt="Ritual Logo"
+          width={36}
+          height={36}
+          className="mb-5"
+        />
+        <h1 className="mb-3 text-gray-900" style={welcomeHeadingStyle}>
+          Welcome to Ritual
         </h1>
-        <p className="mt-2 text-sm leading-6 text-[#666666]">
-          Continue in your browser. This window stays local; Google and Apple never run inside the desktop webview.
+        <p className="mb-8 max-w-sm text-center text-sm leading-6 text-[#737373]">
+          {isSignIn
+            ? 'Continue in your browser. Google and Apple never run inside this window.'
+            : 'Create your account in your browser. Google and Apple never run inside this window.'}
         </p>
-        <div className="mt-6 flex flex-col gap-2">
+        <div className="flex w-full max-w-xs flex-col gap-2">
           <Button
             type="button"
             variant="default"
@@ -102,37 +106,29 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
           </Button>
         </div>
         {error ? (
-          <p className="mt-4 text-sm text-[#8b2e2e]" role="alert">
+          <p className="mt-4 max-w-sm text-center text-sm text-[#8b2e2e]" role="alert">
             {error}
           </p>
         ) : null}
-        <div className="mt-8 flex justify-center">
-          <ClerkLoading>
-            <p className="text-sm text-[#7a7a7a]">Loading email sign-in…</p>
-          </ClerkLoading>
-          <ClerkLoaded>
-            {isSignIn ? (
-              <SignIn
-                appearance={clerkAppearance}
-                routing="path"
-                path="/sign-in"
-                signUpUrl="/sign-up"
-                forceRedirectUrl="/auth/sso-callback"
-                fallbackRedirectUrl="/auth/sso-callback"
-              />
-            ) : (
-              <SignUp
-                appearance={clerkAppearance}
-                routing="path"
-                path="/sign-up"
-                signInUrl="/sign-in"
-                forceRedirectUrl="/auth/sso-callback"
-                fallbackRedirectUrl="/auth/sso-callback"
-              />
-            )}
-          </ClerkLoaded>
-        </div>
-      </div>
-    </main>
+      </main>
+      <footer className="py-8 text-center">
+        <p className="text-sm text-[#737373]">
+          By signing in you agree to our{' '}
+          <a
+            href={`${hostedOrigin}/terms`}
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
+          >
+            Terms of service
+          </a>
+          {' '}&{' '}
+          <a
+            href={`${hostedOrigin}/privacy`}
+            className="underline text-[#737373] hover:text-[#525252] transition-colors duration-200"
+          >
+            Privacy policy
+          </a>
+        </p>
+      </footer>
+    </div>
   );
 }

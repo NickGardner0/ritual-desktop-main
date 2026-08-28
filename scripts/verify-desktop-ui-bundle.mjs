@@ -14,7 +14,7 @@ const files = (await readdir(assets)).filter((name) => name.endsWith('.js'));
 const blobs = await Promise.all(files.map((name) => readFile(join(assets, name), 'utf8')));
 const hasClerkKey = blobs.some((source) => /pk_(live|test)_[A-Za-z0-9]+/.test(source));
 assert.equal(hasClerkKey, true, 'desktop-ui dist must embed a Clerk publishable key');
-const hasSignInChrome = blobs.some((source) => source.includes('Continue with Google') && source.includes('Sign in to Ritual'));
+const hasSignInChrome = blobs.some((source) => source.includes('Continue with Google') && source.includes('Welcome to Ritual'));
 assert.equal(hasSignInChrome, true, 'desktop-ui dist must include visible desktop sign-in chrome');
 
 console.log('desktop-ui bundle check passed.');

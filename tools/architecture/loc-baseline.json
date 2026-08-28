@@ -4,15 +4,15 @@
   "tokeiVersion": "14.0.0",
   "repository": {
     "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "8d95b18e589073f348c05359e7ff8b3b3f0a5211"
+    "headAtMeasurement": "31028d1f8881e2e5c7cf4ec7f3e61c12f56eaacb"
   },
-  "sourceDigest": "2c59f6d471c255370bef2f8cab8328bb96a5eea5dfd89a181df0c30e6c39fdfa",
+  "sourceDigest": "db1e72e3dbaee5c2dc22ba343cf08a56ac333522e9b674bd644a4fb8a059f4fc",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
       "files": 524,
-      "code": 85847,
+      "code": 85886,
       "languages": {
         "CSS": {
           "files": 3,
@@ -24,11 +24,11 @@
         },
         "TSX": {
           "files": 270,
-          "code": 47980
+          "code": 48004
         },
         "TypeScript": {
           "files": 237,
-          "code": 34969
+          "code": 34984
         }
       }
     },
@@ -68,11 +68,11 @@
       "id": "desktop_rust",
       "label": "Rust desktop, watcher, and ritual-db",
       "files": 90,
-      "code": 39604,
+      "code": 39619,
       "languages": {
         "Rust": {
           "files": 90,
-          "code": 39604
+          "code": 39619
         }
       }
     },
@@ -100,11 +100,11 @@
       "id": "desktop_ui",
       "label": "Desktop local Vite SPA",
       "files": 18,
-      "code": 542,
+      "code": 566,
       "languages": {
         "TSX": {
           "files": 8,
-          "code": 371
+          "code": 395
         },
         "TypeScript": {
           "files": 10,
@@ -141,5 +141,5 @@
       }
     }
   ],
-  "total": 198335
+  "total": 198413
 }

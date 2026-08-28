@@ -56,23 +56,28 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
   assert.match(app, /path="\/auth\/callback"/);
   assert.match(app, /path="\/auth\/sso-callback"/);
   assert.match(signIn, /Continue with Google/);
+  assert.match(signIn, /Welcome to Ritual/);
   assert.match(signIn, /buildDesktopOAuthStartUrl/);
+  assert.match(app, /RequireDesktopSession/);
   assert.match(origin, /desktop\.ritualdb\.com/);
   assert.match(origin, /getDesktopAuthHandoffApiUrl/);
+  assert.match(origin, /buildDesktopHostedAuthCallbackUrl/);
   assert.match(handler, /buildDesktopOAuthStartUrl/);
   assert.doesNotMatch(handler, /window\.location\.origin/);
   assert.match(csp, /worker-src 'self' blob:/);
   assert.match(csp, /challenges\.cloudflare\.com/);
   assert.match(callback, /router\.replace\('\/auth\/sso-callback'\)/);
   assert.doesNotMatch(callback, /window\.location\.replace\('\/auth\/sso-callback'\)/);
+  assert.match(callback, /shouldCompleteDesktopAuthOnHostedOrigin/);
+  assert.match(callback, /buildDesktopHostedAuthCallbackUrl/);
 });
 
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.106');
-  assert.match(cargo, /^version = "0\.1\.106"$/m);
+  assert.equal(production.version, '0.1.107');
+  assert.match(cargo, /^version = "0\.1\.107"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

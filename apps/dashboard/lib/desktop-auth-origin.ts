@@ -63,6 +63,23 @@ export function getDesktopAuthHandoffApiUrl(
   return `${hosted}${DESKTOP_AUTH_HANDOFF_API_PATH}`;
 }
 
+export function shouldCompleteDesktopAuthOnHostedOrigin(
+  pageOrigin?: string,
+  hostedOrigin = getDesktopHostedOrigin(),
+): boolean {
+  const origin = (pageOrigin
+    ?? (typeof window === 'undefined' ? '' : window.location.origin)).replace(/\/$/, '');
+  return Boolean(origin) && origin !== hostedOrigin;
+}
+
+export function buildDesktopHostedAuthCallbackUrl(
+  pathAndQuery: string,
+  hostedOrigin = getDesktopHostedOrigin(),
+): string {
+  const path = pathAndQuery.startsWith('/') ? pathAndQuery : `/${pathAndQuery}`;
+  return `${hostedOrigin}${path}`;
+}
+
 export function buildDesktopOAuthStartUrl(
   mode: DesktopOAuthMode,
   strategy: DesktopOAuthStrategy,

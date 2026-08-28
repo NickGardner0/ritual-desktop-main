@@ -6,6 +6,10 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { AuthenticateWithRedirectCallback, useUser, useSignIn } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
+import {
+  buildDesktopHostedAuthCallbackUrl,
+  shouldCompleteDesktopAuthOnHostedOrigin,
+} from '@/lib/desktop-auth-origin';
 
 type CallbackState =
   | { status: 'preparing'; message: string }
@@ -140,6 +144,15 @@ function TicketCallback({ ticket }: { ticket: string }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (shouldCompleteDesktopAuthOnHostedOrigin()) {
+      window.location.replace(
+        buildDesktopHostedAuthCallbackUrl(
+          `/auth/callback?${new URLSearchParams({ ticket }).toString()}`,
+        ),
+      );
+      return;
+    }
+
     if (!isLoaded || !userLoaded || startedRef.current) {
       return;
     }

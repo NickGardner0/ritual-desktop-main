@@ -62,3 +62,26 @@ test('local SPA consumes the hosted handoff API, never a relative Next route', a
   assert.match(nextConfig, /PATCH/);
   assert.match(nextConfig, /https:\/\/tauri\.localhost/);
 });
+
+test('local SPA hands Clerk ticket activation to the hosted origin', async () => {
+  const origin = await readFile('apps/dashboard/lib/desktop-auth-origin.ts', 'utf8');
+  const bridge = await readFile(
+    'apps/dashboard/components/desktop-auth-deep-link-bridge.tsx',
+    'utf8',
+  );
+  const callback = await readFile('apps/dashboard/app/auth/callback/page.tsx', 'utf8');
+  const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
+  const nativeWidget = await readFile(
+    'apps/desktop/src-tauri/src/native_widget.rs',
+    'utf8',
+  );
+  assert.match(origin, /export function shouldCompleteDesktopAuthOnHostedOrigin/);
+  assert.match(origin, /export function buildDesktopHostedAuthCallbackUrl/);
+  assert.match(bridge, /desktop\.auth_ticket\.hosted_handoff/);
+  assert.match(bridge, /window\.location\.replace\(hostedCallbackUrl\)/);
+  assert.match(callback, /shouldCompleteDesktopAuthOnHostedOrigin\(\)/);
+  assert.match(callback, /buildDesktopHostedAuthCallbackUrl/);
+  assert.match(nativeWidget, /fn has_persisted_auth_token/);
+  assert.match(main, /has_persisted_auth_token\(\)/);
+  assert.match(main, /WebviewUrl::External\(hosted\)/);
+});

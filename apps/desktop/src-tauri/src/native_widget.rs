@@ -302,6 +302,13 @@ pub(crate) async fn apply_turso_sync_config_internal(
     Ok(config_file)
 }
 
+pub(crate) fn has_persisted_auth_token() -> bool {
+    let token_file = crate::app_paths::data_dir().join("auth_token.txt");
+    std::fs::read_to_string(token_file)
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+}
+
 pub(crate) fn write_auth_token_to_disk(token: &str) -> Result<std::path::PathBuf, String> {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
