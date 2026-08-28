@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { AuthenticateWithRedirectCallback, useUser, useSignIn } from '@clerk/nextjs';
 
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
@@ -133,6 +133,7 @@ function isAlreadySignedInError(error: unknown): boolean {
 }
 
 function TicketCallback({ ticket }: { ticket: string }) {
+  const router = useRouter();
   const { isLoaded, signIn, setActive } = useSignIn();
   const { isLoaded: userLoaded, isSignedIn } = useUser();
   const startedRef = useRef(false);
@@ -145,7 +146,7 @@ function TicketCallback({ ticket }: { ticket: string }) {
 
     if (isSignedIn) {
       startedRef.current = true;
-      window.location.replace('/auth/sso-callback');
+      router.replace('/auth/sso-callback');
       return;
     }
 
@@ -166,10 +167,10 @@ function TicketCallback({ ticket }: { ticket: string }) {
           session: attempt.createdSessionId,
         });
 
-        window.location.replace('/auth/sso-callback');
+        router.replace('/auth/sso-callback');
       } catch (ticketError) {
         if (isAlreadySignedInError(ticketError)) {
-          window.location.replace('/auth/sso-callback');
+          router.replace('/auth/sso-callback');
           return;
         }
 
@@ -179,7 +180,7 @@ function TicketCallback({ ticket }: { ticket: string }) {
     };
 
     void run();
-  }, [isLoaded, isSignedIn, setActive, signIn, ticket, userLoaded]);
+  }, [isLoaded, isSignedIn, router, setActive, signIn, ticket, userLoaded]);
 
   if (error) {
     return <AuthCallbackError message={error} />;

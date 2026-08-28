@@ -45,12 +45,33 @@ test('production local SPA capabilities apply to the bundled webview', async () 
   assert.match(vite, /pk_live_/);
 });
 
+test('local SPA sign-in has visible chrome and hosted OAuth start', async () => {
+  const app = await readFile('apps/desktop-ui/src/App.tsx', 'utf8');
+  const signIn = await readFile('apps/desktop-ui/src/pages/desktop-auth-page.tsx', 'utf8');
+  const origin = await readFile('apps/dashboard/lib/desktop-auth-origin.ts', 'utf8');
+  const handler = await readFile('apps/dashboard/components/clerk-oauth-handler.tsx', 'utf8');
+  const csp = (await readJson('apps/desktop/src-tauri/tauri.conf.json')).app.security.csp;
+  const callback = await readFile('apps/dashboard/app/auth/callback/page.tsx', 'utf8');
+  assert.match(app, /path="\/sign-in\/\*"/);
+  assert.match(app, /path="\/auth\/callback"/);
+  assert.match(app, /path="\/auth\/sso-callback"/);
+  assert.match(signIn, /Continue with Google/);
+  assert.match(signIn, /buildDesktopOAuthStartUrl/);
+  assert.match(origin, /desktop\.ritualdb\.com/);
+  assert.match(handler, /buildDesktopOAuthStartUrl/);
+  assert.doesNotMatch(handler, /window\.location\.origin/);
+  assert.match(csp, /worker-src 'self' blob:/);
+  assert.match(csp, /challenges\.cloudflare\.com/);
+  assert.match(callback, /router\.replace\('\/auth\/sso-callback'\)/);
+  assert.doesNotMatch(callback, /window\.location\.replace\('\/auth\/sso-callback'\)/);
+});
+
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.104');
-  assert.match(cargo, /^version = "0\.1\.104"$/m);
+  assert.equal(production.version, '0.1.105');
+  assert.match(cargo, /^version = "0\.1\.105"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

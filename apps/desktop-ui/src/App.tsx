@@ -2,7 +2,6 @@
 import './dashboard-css';
 import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { SignIn, SignUp } from '@clerk/clerk-react';
 import { RootProviders } from '@/components/root-providers';
 import { DashboardLayoutClient } from '@/app/(dashboard)/dashboard-layout-client';
 import { LogsClient } from '@/app/(dashboard)/activity/logs-client';
@@ -14,6 +13,9 @@ import { TasksClient } from '@/app/(dashboard)/tasks/tasks-client';
 import { RoutinesClient } from '@/app/(dashboard)/routines/routines-client';
 import { ExperimentsClient } from '@/app/(dashboard)/experiments/experiments-client';
 import { ClientDashboard } from '@/app/(dashboard)/dashboard/client-dashboard';
+import AuthCallbackPage from '@/app/auth/callback/page';
+import SsoCallbackPage from '@/app/auth/sso-callback/page';
+import { DesktopAuthPage } from './pages/desktop-auth-page';
 
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -28,8 +30,10 @@ export function App() {
     <BrowserRouter>
       <RootProviders>
         <Routes>
-          <Route path="/sign-in/*" element={<div className="flex min-h-screen items-center justify-center"><SignIn routing="path" path="/sign-in" /></div>} />
-          <Route path="/sign-up/*" element={<div className="flex min-h-screen items-center justify-center"><SignUp routing="path" path="/sign-up" /></div>} />
+          <Route path="/sign-in/*" element={<DesktopAuthPage mode="sign_in" />} />
+          <Route path="/sign-up/*" element={<DesktopAuthPage mode="sign_up" />} />
+          <Route path="/auth/callback" element={<AuthCallbackPage />} />
+          <Route path="/auth/sso-callback" element={<SsoCallbackPage />} />
           <Route
             path="/*"
             element={(

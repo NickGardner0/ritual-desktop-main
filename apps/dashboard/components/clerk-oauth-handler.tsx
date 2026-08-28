@@ -6,11 +6,12 @@ import {
   desktopBeginAuthHandoff,
   recordDesktopShellEvent,
   openInBrowserFromDesktopAuth,
-  type DesktopAuthHandoffStart,
 } from '@/lib/native-gateway';
-
-type DesktopOAuthMode = 'sign_in' | 'sign_up';
-type DesktopOAuthStrategy = 'oauth_google' | 'oauth_apple';
+import {
+  buildDesktopOAuthStartUrl,
+  type DesktopOAuthMode,
+  type DesktopOAuthStrategy,
+} from '@/lib/desktop-auth-origin';
 
 interface ClerkOAuthHandlerProps {
   mode?: DesktopOAuthMode;
@@ -36,27 +37,6 @@ function getOAuthStrategyFromElement(element: HTMLElement | null): DesktopOAuthS
   }
 
   return null;
-}
-
-function buildDesktopOAuthStartUrl(
-  mode: DesktopOAuthMode,
-  strategy: DesktopOAuthStrategy,
-  handoff: DesktopAuthHandoffStart,
-): string {
-  const url = new URL('/auth/desktop-start-oauth', window.location.origin);
-  url.searchParams.set('mode', mode);
-  url.searchParams.set('strategy', strategy);
-  url.searchParams.set('handoff_id', handoff.handoffId);
-  url.searchParams.set('nonce_challenge', handoff.nonceChallenge);
-  url.searchParams.set('channel', handoff.channel);
-  url.searchParams.set('protocol', handoff.protocol);
-  url.searchParams.set('expires_at_ms', String(handoff.expiresAtMs));
-  url.searchParams.set('app_version', handoff.appVersion);
-  url.searchParams.set('build_sha', handoff.buildSha);
-  url.searchParams.set('bundle_id', handoff.bundleId);
-  url.searchParams.set('callback_scheme', handoff.callbackScheme);
-  if (handoff.target) url.searchParams.set('target', handoff.target);
-  return url.toString();
 }
 
 export function ClerkOAuthHandler({

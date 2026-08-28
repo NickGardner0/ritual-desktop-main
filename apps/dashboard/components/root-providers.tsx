@@ -297,6 +297,14 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
           signInForceRedirectUrl="/auth/sso-callback"
           signUpForceRedirectUrl="/auth/sso-callback"
           afterSignOutUrl="/"
+          allowedRedirectOrigins={[
+            'https://desktop.ritualdb.com',
+            'https://ritualdb.com',
+            'https://tauri.localhost',
+            'http://tauri.localhost',
+            'http://127.0.0.1:1420',
+            'http://localhost:1420',
+          ]}
           localization={{
             formFieldHintText__optional: '',
           }}
