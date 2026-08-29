@@ -19,8 +19,23 @@ export type DesktopAuthSessionPayload = {
   profile: DesktopAuthProfile;
 };
 
+export type ClerkSessionRecord = {
+  id?: string | null;
+  userId?: string | null;
+  status?: string | null;
+  createdAt?: number | Date | null;
+};
+
+type ClerkSessionListResult =
+  | ClerkSessionRecord[]
+  | { data?: ClerkSessionRecord[] | null };
+
 type ClerkSessionApi = {
-  createSession?: (params: { userId: string }) => Promise<{ id?: string | null }>;
+  getSessionList?: (params: {
+    userId: string;
+    status?: string;
+    limit?: number;
+  }) => Promise<ClerkSessionListResult>;
   getSession?: (sessionId: string) => Promise<{ id?: string | null; userId?: string | null }>;
   getToken: (sessionId: string, template?: string, expiresInSeconds?: number) => Promise<unknown>;
 };
@@ -89,6 +104,50 @@ function extractJwt(resource: unknown): string {
   throw new Error('Clerk session token was empty');
 }
 
+export function unwrapClerkSessionList(listed: unknown): ClerkSessionRecord[] {
+  if (Array.isArray(listed)) return listed;
+  if (listed && typeof listed === 'object') {
+    const data = (listed as { data?: unknown }).data;
+    if (Array.isArray(data)) return data;
+  }
+  return [];
+}
+
+function sessionCreatedAtMs(session: ClerkSessionRecord): number {
+  const value = session.createdAt;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.getTime();
+  return 0;
+}
+
+export function selectActiveClerkSessionId(sessions: ClerkSessionRecord[]): string {
+  const usable = sessions.filter((session) => {
+    if (!session.id?.trim()) return false;
+    const status = (session.status || 'active').toLowerCase();
+    return status === 'active';
+  });
+  usable.sort((left, right) => sessionCreatedAtMs(right) - sessionCreatedAtMs(left));
+  return usable[0]?.id?.trim() || '';
+}
+
+function describeClerkError(error: unknown): string {
+  if (error && typeof error === 'object') {
+    const candidate = error as {
+      message?: string;
+      status?: number;
+      errors?: Array<{ code?: string; message?: string }>;
+    };
+    const details = (candidate.errors || [])
+      .map((item) => item.code || item.message)
+      .filter(Boolean)
+      .join('; ');
+    return [candidate.status ? `status ${candidate.status}` : '', candidate.message, details]
+      .filter(Boolean)
+      .join(' — ') || 'unknown Clerk error';
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
 function mapDesktopAuthProfile(user: ClerkUserRecord): DesktopAuthProfile {
   const email = user.emailAddresses?.find((item) => item.id === user.primaryEmailAddressId)
     ?? user.emailAddresses?.find((item) => item.emailAddress);
@@ -113,9 +172,30 @@ function mapDesktopAuthProfile(user: ClerkUserRecord): DesktopAuthProfile {
 }
 
 function assertClerkCanMintSessions(sessions: ClerkSessionApi): void {
-  if (typeof sessions.createSession !== 'function' || typeof sessions.getToken !== 'function') {
-    throw new Error('Clerk Backend createSession is unavailable');
+  if (typeof sessions.getSessionList !== 'function' || typeof sessions.getToken !== 'function') {
+    throw new Error('Clerk Backend getSessionList/getToken is unavailable');
   }
+}
+
+async function existingDesktopSessionId(
+  sessions: ClerkSessionApi,
+  userId: string,
+): Promise<string> {
+  const active = unwrapClerkSessionList(
+    await sessions.getSessionList!({ userId, status: 'active', limit: 20 }),
+  );
+  const activeId = selectActiveClerkSessionId(active);
+  if (activeId) return activeId;
+
+  const recent = unwrapClerkSessionList(
+    await sessions.getSessionList!({ userId, limit: 20 }),
+  );
+  const recentId = selectActiveClerkSessionId(recent);
+  if (recentId) return recentId;
+
+  throw new Error(
+    'No active Clerk session exists for this user. Production Clerk instances cannot createSession; the browser OAuth session must still be active.',
+  );
 }
 
 async function clerkSessionApi(): Promise<{ sessions: ClerkSessionApi; users: { getUser: (userId: string) => Promise<ClerkUserRecord> } }> {
@@ -146,10 +226,12 @@ async function sessionPayload(
 export async function mintDesktopClerkSession(userId: string): Promise<DesktopAuthSessionPayload> {
   const { sessions, users } = await clerkSessionApi();
   assertClerkCanMintSessions(sessions);
-  const session = await sessions.createSession!({ userId });
-  const sessionId = session.id?.trim() || '';
-  if (!sessionId) throw new Error('Clerk createSession did not return a session id');
-  return sessionPayload(sessions, users, sessionId, userId);
+  try {
+    const sessionId = await existingDesktopSessionId(sessions, userId);
+    return await sessionPayload(sessions, users, sessionId, userId);
+  } catch (error) {
+    throw new Error(`Desktop Clerk session mint failed: ${describeClerkError(error)}`);
+  }
 }
 
 export async function refreshDesktopClerkSession(sessionId: string): Promise<DesktopAuthSessionPayload> {

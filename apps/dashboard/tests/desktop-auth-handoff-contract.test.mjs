@@ -44,7 +44,8 @@ test('Clerk session JWT is minted only after the durable one-time consume succee
   assert.match(patchHandler, /accessToken|mintDesktopClerkSession/);
   assert.doesNotMatch(patchHandler, /createSignInToken/);
   assert.doesNotMatch(patchHandler, /ticket:/);
-  assert.match(session, /sessions\.createSession/);
+  assert.doesNotMatch(session, /sessions\.createSession/);
+  assert.match(session, /sessions\.getSessionList/);
   assert.match(session, /sessions\.getToken/);
   const postHandler = route.slice(
     route.indexOf('export async function POST'),
