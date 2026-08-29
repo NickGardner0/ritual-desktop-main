@@ -22,6 +22,7 @@ import {
 } from '@/components/desktop-runtime-bridge.lifecycle';
 
 function RuntimeSyncBridge() {
+  // Desktop-ui's Clerk adapter getToken() reads and refreshes the native JWT.
   const { getToken } = useAuth();
   const { user } = useUser();
   const { isDesktop } = useDesktopCapabilities();

@@ -28,19 +28,29 @@ test('native verifier is represented in the browser only by its SHA-256 challeng
   assert.match(native, /append_pair\("nonce", &pending\.nonce\)/);
 });
 
-test('Clerk ticket is minted only after the durable one-time consume succeeds', async () => {
+test('Clerk session JWT is minted only after the durable one-time consume succeeds', async () => {
   const route = await readFile(
     'apps/dashboard/app/api/auth/desktop-sign-in-token/route.ts',
     'utf8',
   );
+  const session = await readFile(
+    'apps/dashboard/lib/server/desktop-clerk-session.ts',
+    'utf8',
+  );
   const patchHandler = route.slice(route.indexOf('export async function PATCH'));
   const consumeAt = patchHandler.indexOf('/consume');
-  const ticketAt = patchHandler.indexOf('createSignInToken');
-  assert.ok(consumeAt >= 0 && ticketAt > consumeAt);
+  const mintAt = patchHandler.indexOf('mintDesktopClerkSession');
+  assert.ok(consumeAt >= 0 && mintAt > consumeAt);
+  assert.match(patchHandler, /accessToken|mintDesktopClerkSession/);
+  assert.doesNotMatch(patchHandler, /createSignInToken/);
+  assert.doesNotMatch(patchHandler, /ticket:/);
+  assert.match(session, /sessions\.createSession/);
+  assert.match(session, /sessions\.getToken/);
   const postHandler = route.slice(
     route.indexOf('export async function POST'),
     route.indexOf('export async function GET'),
   );
+  assert.match(postHandler, /isDesktopSessionRefreshBody/);
   assert.doesNotMatch(postHandler, /createSignInToken/);
 });
 
@@ -55,6 +65,9 @@ test('local SPA consumes the hosted handoff API, never a relative Next route', a
   assert.match(origin, /export function getDesktopAuthHandoffApiUrl/);
   assert.match(handoff, /desktop_consume_auth_handoff/);
   assert.match(handoff, /getDesktopAuthHandoffApiUrl\(\)/);
+  assert.match(handoff, /accessToken/);
+  assert.match(handoff, /ticket instead of a session JWT/);
+  assert.doesNotMatch(handoff, /return payload\.ticket/);
   assert.doesNotMatch(handoff, /fetch\('\/api\/auth\/desktop-sign-in-token'/);
   assert.match(native, /fn desktop_consume_auth_handoff/);
   assert.match(native, /reqwest::Method::PATCH/);
@@ -63,7 +76,7 @@ test('local SPA consumes the hosted handoff API, never a relative Next route', a
   assert.match(nextConfig, /https:\/\/tauri\.localhost/);
 });
 
-test('local SPA hands Clerk ticket activation to the hosted origin', async () => {
+test('signed-in desktop stays on the local SPA and never hops to hosted ticket activation', async () => {
   const origin = await readFile('apps/dashboard/lib/desktop-auth-origin.ts', 'utf8');
   const bridge = await readFile(
     'apps/dashboard/components/desktop-auth-deep-link-bridge.tsx',
@@ -71,17 +84,25 @@ test('local SPA hands Clerk ticket activation to the hosted origin', async () =>
   );
   const callback = await readFile('apps/dashboard/app/auth/callback/page.tsx', 'utf8');
   const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
-  const nativeWidget = await readFile(
-    'apps/desktop/src-tauri/src/native_widget.rs',
-    'utf8',
+  const adapter = await readFile('apps/desktop-ui/src/adapters/clerk.tsx', 'utf8');
+  const shellFn = main.slice(
+    main.indexOf('fn desktop_shell_window_url'),
+    main.indexOf('fn env_flag_enabled'),
   );
-  assert.match(origin, /export function shouldCompleteDesktopAuthOnHostedOrigin/);
-  assert.match(origin, /export function buildDesktopHostedAuthCallbackUrl/);
-  assert.match(bridge, /desktop\.auth_ticket\.hosted_handoff/);
-  assert.match(bridge, /window\.location\.replace\(hostedCallbackUrl\)/);
-  assert.match(callback, /shouldCompleteDesktopAuthOnHostedOrigin\(\)/);
-  assert.match(callback, /buildDesktopHostedAuthCallbackUrl/);
-  assert.match(nativeWidget, /fn has_persisted_auth_token/);
-  assert.match(main, /has_persisted_auth_token\(\)/);
-  assert.match(main, /WebviewUrl::External\(hosted\)/);
+  assert.doesNotMatch(origin, /shouldCompleteDesktopAuthOnHostedOrigin/);
+  assert.doesNotMatch(origin, /buildDesktopHostedAuthCallbackUrl/);
+  assert.doesNotMatch(bridge, /desktop\.auth_ticket\.hosted_handoff/);
+  assert.doesNotMatch(bridge, /window\.location\.replace/);
+  assert.match(bridge, /router\.replace\(nextPath\)/);
+  assert.match(bridge, /\/auth\/sso-callback/);
+  assert.doesNotMatch(callback, /shouldCompleteDesktopAuthOnHostedOrigin/);
+  assert.doesNotMatch(callback, /buildDesktopHostedAuthCallbackUrl/);
+  assert.match(callback, /getDesktopCapabilities\(\)\.isDesktop/);
+  assert.match(callback, /router\.replace\('\/auth\/sso-callback'\)/);
+  assert.match(shellFn, /WebviewUrl::App\("index.html"/);
+  assert.doesNotMatch(shellFn, /has_persisted_auth_token/);
+  assert.doesNotMatch(shellFn, /WebviewUrl::External\(hosted\)/);
+  assert.doesNotMatch(adapter, /@clerk\/clerk-react/);
+  assert.match(adapter, /DesktopAuthProvider/);
+  assert.match(adapter, /desktopGetAuthToken/);
 });

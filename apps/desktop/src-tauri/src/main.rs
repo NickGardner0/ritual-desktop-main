@@ -344,26 +344,12 @@ fn should_use_local_shell_window() -> bool {
     !matches!(configured_ritual_env().as_str(), "development" | "dev")
 }
 
-fn desktop_shell_window_url(hosted_app_url: &str) -> Result<tauri::WebviewUrl, std::io::Error> {
+fn desktop_shell_window_url(_hosted_app_url: &str) -> Result<tauri::WebviewUrl, std::io::Error> {
     if !should_use_local_shell_window() {
         let shell_external_url = DESKTOP_SHELL_DEV_URL.parse().map_err(|error| {
             std::io::Error::other(format!("Invalid desktop shell dev URL: {error}"))
         })?;
         return Ok(tauri::WebviewUrl::External(shell_external_url));
-    }
-
-    // Clerk sessions live on desktop.ritualdb.com. After a successful browser
-    // handoff the local SPA cannot activate that session on tauri.localhost, so
-    // a signed-in relaunch must load the hosted dashboard.
-    if native_widget::has_persisted_auth_token() {
-        info!(
-            hosted_app_url,
-            "Persisted desktop auth token found; loading hosted dashboard"
-        );
-        let hosted = hosted_app_url.parse().map_err(|error| {
-            std::io::Error::other(format!("Invalid hosted desktop URL: {error}"))
-        })?;
-        return Ok(tauri::WebviewUrl::External(hosted));
     }
 
     Ok(tauri::WebviewUrl::App("index.html".into()))
@@ -2485,6 +2471,7 @@ fn main() {
             desktop_runtime::auth_handoff::desktop_begin_auth_handoff,
             desktop_runtime::auth_handoff::desktop_complete_auth_handoff,
             desktop_runtime::auth_handoff::desktop_consume_auth_handoff,
+            desktop_runtime::auth_session::desktop_get_auth_token,
             desktop_runtime::auth_handoff::desktop_clear_auth_state,
             desktop_runtime::updater::desktop_frontend_ready,
             desktop_runtime::updater::desktop_manual_update_check,

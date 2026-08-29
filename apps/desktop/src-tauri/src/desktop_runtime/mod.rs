@@ -855,6 +855,7 @@ pub fn register_runtime_signal_monitor<R: Runtime + 'static>(app: AppHandle<R>) 
 }
 
 pub mod auth_handoff;
+pub mod auth_session;
 pub mod biome_outbox;
 pub mod location_outbox;
 pub mod turso_sync;

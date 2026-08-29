@@ -9,7 +9,6 @@
     "typecheck": "tsc --noEmit --pretty false"
   },
   "dependencies": {
-    "@clerk/clerk-react": "^5.31.4",
     "@ritual/chat-runtime": "file:../../packages/chat-runtime",
     "@ritual/shared-contracts": "file:../../packages/shared-contracts",
     "@ritual/ui": "file:../../packages/ui",

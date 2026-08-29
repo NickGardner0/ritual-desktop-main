@@ -1,12 +1,18 @@
 import { getDesktopAuthHandoffApiUrl } from '@/lib/desktop-auth-origin';
 import { invokeDesktopCommand } from '@/lib/desktop-bridge/commands';
 import { isDesktopTauriRuntime } from '@/lib/desktop-bridge/environment';
+import { desktopSetAuthToken } from '@/lib/desktop-bridge/runtime';
 import type { DesktopRuntimeInfo } from '@/lib/desktop-bridge/runtime';
 
 const DESKTOP_AUTH_HANDOFF_STORAGE_KEY = 'ritual:desktop-auth-handoff:v2';
 
 export type PendingDesktopAuthAcknowledgement = {
   handoffId: string;
+};
+
+export type DesktopAuthHandoffConsumeResult = {
+  sessionId: string;
+  userId: string;
 };
 
 export function storePendingDesktopAuthAcknowledgement(handoffId: string): void {
@@ -53,13 +59,29 @@ function isMissingNativeConsumeCommand(error: unknown): boolean {
     || message.includes('does not exist');
 }
 
+function sessionFromPayload(payload: {
+  accessToken?: string;
+  sessionId?: string;
+  userId?: string;
+  profile?: unknown;
+  ticket?: string;
+}): DesktopAuthHandoffConsumeResult {
+  if (payload.ticket && !payload.accessToken) {
+    throw new Error('Desktop authentication handoff returned a ticket instead of a session JWT.');
+  }
+  if (!payload.accessToken || !payload.sessionId || !payload.userId) {
+    throw new Error('Desktop authentication handoff did not return a session JWT.');
+  }
+  return { sessionId: payload.sessionId, userId: payload.userId };
+}
+
 async function consumeDesktopAuthHandoffViaHostedApi(input: {
   handoffId: string;
   nonce: string;
   channel: DesktopRuntimeInfo['channel'];
   protocol: '2';
   runtimeInfo: DesktopRuntimeInfo;
-}): Promise<string> {
+}): Promise<DesktopAuthHandoffConsumeResult> {
   const response = await fetch(getDesktopAuthHandoffApiUrl(), {
     method: 'PATCH',
     cache: 'no-store',
@@ -73,14 +95,25 @@ async function consumeDesktopAuthHandoffViaHostedApi(input: {
     }),
   });
   const payload = await response.json().catch(() => ({})) as {
+    accessToken?: string;
+    sessionId?: string;
+    userId?: string;
+    profile?: unknown;
     ticket?: string;
     detail?: string;
     error?: string;
   };
-  if (!response.ok || !payload.ticket) {
+  if (!response.ok) {
     throw new Error(payload.detail || payload.error || 'Desktop authentication handoff was rejected.');
   }
-  return payload.ticket;
+  const session = sessionFromPayload(payload);
+  await desktopSetAuthToken({
+    token: payload.accessToken!,
+    userId: payload.userId,
+    sessionId: payload.sessionId,
+    profile: payload.profile ?? null,
+  });
+  return session;
 }
 
 export async function consumeDesktopAuthHandoff(input: {
@@ -89,20 +122,20 @@ export async function consumeDesktopAuthHandoff(input: {
   channel: DesktopRuntimeInfo['channel'];
   protocol: '2';
   runtimeInfo: DesktopRuntimeInfo;
-}): Promise<string> {
+}): Promise<DesktopAuthHandoffConsumeResult> {
   if (isDesktopTauriRuntime()) {
     try {
-      const ticket = await invokeDesktopCommand('desktop_consume_auth_handoff', {
+      const result = await invokeDesktopCommand('desktop_consume_auth_handoff', {
         handoffId: input.handoffId,
         nonce: input.nonce,
         channel: input.channel,
         protocol: input.protocol,
         nativeMetadata: nativeMetadata(input.runtimeInfo),
-      });
-      if (typeof ticket === 'string' && ticket.trim()) {
-        return ticket;
+      }) as { sessionId?: string; userId?: string; token?: string; ticket?: string };
+      if (result && typeof result === 'object' && result.sessionId && result.userId) {
+        return { sessionId: result.sessionId, userId: result.userId };
       }
-      throw new Error('Desktop authentication handoff did not return a ticket.');
+      throw new Error('Desktop authentication handoff did not return a session JWT.');
     } catch (error) {
       if (!isMissingNativeConsumeCommand(error)) {
         throw error;

@@ -61,23 +61,44 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
   assert.match(app, /RequireDesktopSession/);
   assert.match(origin, /desktop\.ritualdb\.com/);
   assert.match(origin, /getDesktopAuthHandoffApiUrl/);
-  assert.match(origin, /buildDesktopHostedAuthCallbackUrl/);
+  assert.doesNotMatch(origin, /buildDesktopHostedAuthCallbackUrl/);
   assert.match(handler, /buildDesktopOAuthStartUrl/);
   assert.doesNotMatch(handler, /window\.location\.origin/);
   assert.match(csp, /worker-src 'self' blob:/);
   assert.match(csp, /challenges\.cloudflare\.com/);
   assert.match(callback, /router\.replace\('\/auth\/sso-callback'\)/);
   assert.doesNotMatch(callback, /window\.location\.replace\('\/auth\/sso-callback'\)/);
-  assert.match(callback, /shouldCompleteDesktopAuthOnHostedOrigin/);
-  assert.match(callback, /buildDesktopHostedAuthCallbackUrl/);
+  assert.doesNotMatch(callback, /shouldCompleteDesktopAuthOnHostedOrigin/);
+  assert.doesNotMatch(callback, /buildDesktopHostedAuthCallbackUrl/);
+});
+
+test('signed-in desktop uses native session and a local shell URL', async () => {
+  const app = await readFile('apps/desktop-ui/src/App.tsx', 'utf8');
+  const adapter = await readFile('apps/desktop-ui/src/adapters/clerk.tsx', 'utf8');
+  const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
+  const sso = await readFile('apps/dashboard/app/auth/sso-callback/page.tsx', 'utf8');
+  const shellFn = main.slice(
+    main.indexOf('fn desktop_shell_window_url'),
+    main.indexOf('fn env_flag_enabled'),
+  );
+  assert.match(app, /function RequireDesktopSession/);
+  assert.match(app, /isSignedIn/);
+  assert.doesNotMatch(app, /CLERK_LOAD_GRACE_MS/);
+  assert.match(adapter, /DesktopAuthProvider/);
+  assert.match(adapter, /desktopGetAuthToken/);
+  assert.doesNotMatch(adapter, /@clerk\/clerk-react/);
+  assert.match(sso, /desktopGetAuthToken/);
+  assert.match(shellFn, /WebviewUrl::App\("index.html"/);
+  assert.doesNotMatch(shellFn, /has_persisted_auth_token/);
+  assert.doesNotMatch(shellFn, /WebviewUrl::External\(hosted\)/);
 });
 
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.107');
-  assert.match(cargo, /^version = "0\.1\.107"$/m);
+  assert.equal(production.version, '0.1.108');
+  assert.match(cargo, /^version = "0\.1\.108"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 

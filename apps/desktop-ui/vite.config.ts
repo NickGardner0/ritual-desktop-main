@@ -124,8 +124,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-router-dom', '@clerk/clerk-react'],
-      exclude: ['next'],
+      include: ['react', 'react-dom', 'react-router-dom'],
+      exclude: ['next', '@clerk/clerk-react', '@clerk/nextjs'],
     },
     server: {
       host: '127.0.0.1',

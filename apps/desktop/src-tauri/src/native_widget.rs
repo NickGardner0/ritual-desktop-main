@@ -302,6 +302,7 @@ pub(crate) async fn apply_turso_sync_config_internal(
     Ok(config_file)
 }
 
+#[allow(dead_code)]
 pub(crate) fn has_persisted_auth_token() -> bool {
     let token_file = crate::app_paths::data_dir().join("auth_token.txt");
     std::fs::read_to_string(token_file)

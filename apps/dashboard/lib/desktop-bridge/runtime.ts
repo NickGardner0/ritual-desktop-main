@@ -402,10 +402,42 @@ export async function getDesktopDiagnostics(): Promise<DesktopDiagnostics | null
   }
 }
 
+export type DesktopNativeAuthSession = {
+  token: string;
+  userId: string;
+  sessionId: string;
+  profile: unknown;
+};
+
+export async function desktopGetAuthToken(input?: {
+  refresh?: boolean | null;
+}): Promise<DesktopNativeAuthSession | null> {
+  if (!isDesktopTauriRuntime()) return null;
+
+  try {
+    const result = await invokeDesktopCommand('desktop_get_auth_token', {
+      refresh: input?.refresh ?? null,
+    });
+    const session = result as DesktopNativeAuthSession | null;
+    if (!session || typeof session !== 'object') return null;
+    return {
+      token: typeof session.token === 'string' ? session.token : '',
+      userId: typeof session.userId === 'string' ? session.userId : '',
+      sessionId: typeof session.sessionId === 'string' ? session.sessionId : '',
+      profile: session.profile ?? null,
+    };
+  } catch (error) {
+    console.warn('Desktop native auth session unavailable:', error);
+    throw error;
+  }
+}
+
 export async function desktopSetAuthToken(input: {
   token: string;
   userId?: string | null;
   backendBase?: string | null;
+  sessionId?: string | null;
+  profile?: unknown | null;
 }): Promise<DesktopRuntimeState | null> {
   if (!isDesktopTauriRuntime()) return null;
 
@@ -414,6 +446,8 @@ export async function desktopSetAuthToken(input: {
       token: input.token,
       userId: input.userId ?? null,
       backendBase: input.backendBase ?? null,
+      sessionId: input.sessionId ?? null,
+      profile: input.profile ?? null,
     });
     void recordDesktopShellEvent('desktop.auth_handoff.succeeded', 'info', {
       hasUserId: Boolean(input.userId),

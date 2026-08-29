@@ -33,10 +33,10 @@
     ]
   },
   "nativeGateway": {
-    "registered": 80,
-    "allowed": 80,
-    "frontendInvoked": 80,
-    "typedSignatures": 81,
+    "registered": 81,
+    "allowed": 81,
+    "frontendInvoked": 81,
+    "typedSignatures": 82,
     "unregisteredTypedSignature": {
       "name": "check_recording_source_readiness",
       "path": "apps/desktop/src-tauri/src/system_audio.rs",

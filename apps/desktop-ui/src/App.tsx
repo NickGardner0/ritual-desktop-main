@@ -1,7 +1,6 @@
 // @ts-nocheck
 import './dashboard-css';
 import type { ReactNode } from 'react';
-import { useEffect, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { useUser } from '@clerk/nextjs';
 import { RootProviders } from '@/components/root-providers';
@@ -19,8 +18,6 @@ import AuthCallbackPage from '@/app/auth/callback/page';
 import SsoCallbackPage from '@/app/auth/sso-callback/page';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { DesktopAuthPage } from './pages/desktop-auth-page';
-
-const CLERK_LOAD_GRACE_MS = 1_500;
 
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -40,22 +37,16 @@ function StartingRitual() {
 
 function RequireDesktopSession({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
-  const [giveUpWaiting, setGiveUpWaiting] = useState(false);
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setGiveUpWaiting(true), CLERK_LOAD_GRACE_MS);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  if (isSignedIn) {
-    return children;
-  }
-
-  if (!isLoaded && !giveUpWaiting) {
+  if (!isLoaded) {
     return <StartingRitual />;
   }
 
-  return <Navigate to="/sign-in" replace />;
+  if (!isSignedIn) {
+    return <Navigate to="/sign-in" replace />;
+  }
+
+  return children;
 }
 
 export function App() {

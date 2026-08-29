@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth, useClerk, useUser } from '@clerk/nextjs'
+import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
+import { desktopGetAuthToken } from '@/lib/native-gateway'
 import { Button } from '@ritual/ui/button'
 
 import { clearSetupSubstep } from '@/components/onboarding/setup-wizard'
@@ -21,7 +23,7 @@ import {
 import { storeBootstrapHandoff } from '@/lib/bootstrap-handoff'
 import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
 import { initializeDesktopVault } from '@/lib/privacy/vault-client'
-import { restoreDashboardWindowSize } from '@/lib/native-gateway'
+import { desktopGetAuthToken, restoreDashboardWindowSize } from '@/lib/native-gateway'
 import { apiOperationWithAuth } from '@/lib/api/client'
 import { BackendClientError } from '@/lib/api/generated/backend-client'
 
@@ -159,20 +161,52 @@ export default function SSOCallback() {
   const [status, setStatus] = useState('Completing sign-in...')
   const [failure, setFailure] = useState<BootstrapFailure | null>(null)
   const [retryNonce, setRetryNonce] = useState(0)
+  const bootstrappedUserIdRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (!isLoaded) {
+    bootstrappedUserIdRef.current = null
+  }, [retryNonce])
+
+  useEffect(() => {
+    const desktop = getDesktopCapabilities().isDesktop
+    if (!desktop && !isLoaded) {
       return
     }
 
-    if (!user) {
+    if (!desktop && !user) {
       router.replace('/sign-in')
       return
     }
 
+    let cancelled = false
     const bootstrapAndRedirect = async () => {
       try {
         setFailure(null)
+        let resolvedUserId = user?.id ?? null
+        let resolvedGetToken = getToken
+        if (desktop) {
+          const token = await getToken({ skipCache: true })
+          const session = await desktopGetAuthToken({ refresh: false })
+          if (!token || !session?.sessionId || !session.userId) {
+            if (!cancelled) router.replace('/sign-in')
+            return
+          }
+          resolvedUserId = session.userId
+          resolvedGetToken = async (opts?: { skipCache?: boolean }) => {
+            const next = await getToken(opts)
+            return next ?? session.token
+          }
+        }
+        if (!resolvedUserId) {
+          if (!cancelled) router.replace('/sign-in')
+          return
+        }
+        if (bootstrappedUserIdRef.current === resolvedUserId) {
+          return
+        }
+        bootstrappedUserIdRef.current = resolvedUserId
+        if (cancelled) return
+
         const shouldRestoreDashboardWindowSize = hasPendingSignUpIntent()
         markDeviceAuthenticated()
         clearFromWelcomeFlow()
@@ -182,7 +216,7 @@ export default function SSOCallback() {
         const bootstrapStartedAt = window.performance.now()
         let bootstrap
         try {
-          bootstrap = await fetchBootstrap(getToken, user.id)
+          bootstrap = await fetchBootstrap(resolvedGetToken, resolvedUserId)
         } catch (error) {
           const bootstrapDurationMs = window.performance.now() - bootstrapStartedAt
           const status = error instanceof BackendClientError ? error.status : null
@@ -207,9 +241,9 @@ export default function SSOCallback() {
           duration_ms: Math.round(bootstrapDurationMs),
           status: 200,
         })
-        if (getDesktopCapabilities().isDesktop) {
+        if (desktop) {
           setStatus('Creating your private local vault...')
-          const vaultStatus = await initializeDesktopVault(user.id)
+          const vaultStatus = await initializeDesktopVault(resolvedUserId)
           if (!vaultStatus?.initialized) {
             throw new BootstrapError({
               code: 'local_vault_unavailable',
@@ -249,6 +283,9 @@ export default function SSOCallback() {
     }
 
     void bootstrapAndRedirect()
+    return () => {
+      cancelled = true
+    }
   }, [getToken, isLoaded, retryNonce, router, user])
 
   return (

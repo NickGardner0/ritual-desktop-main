@@ -14,6 +14,7 @@ export const NATIVE_COMMANDS = [
   "desktop_complete_auth_handoff",
   "desktop_consume_auth_handoff",
   "desktop_frontend_ready",
+  "desktop_get_auth_token",
   "desktop_get_resident_runtime_state",
   "desktop_install_update",
   "desktop_manual_update_check",
@@ -99,6 +100,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "desktop_complete_auth_handoff": "desktop-runtime",
   "desktop_consume_auth_handoff": "desktop-runtime",
   "desktop_frontend_ready": "desktop-runtime",
+  "desktop_get_auth_token": "desktop-runtime",
   "desktop_get_resident_runtime_state": "desktop-runtime",
   "desktop_install_update": "desktop-runtime",
   "desktop_manual_update_check": "desktop-runtime",
@@ -184,12 +186,13 @@ export type NativeCommandInputs = {
   desktop_complete_auth_handoff: { handoffId: string };
   desktop_consume_auth_handoff: { handoffId: string; nonce: string; channel: string; protocol: string; nativeMetadata?: unknown | null };
   desktop_frontend_ready: Record<string, never>;
+  desktop_get_auth_token: { refresh?: boolean | null };
   desktop_get_resident_runtime_state: Record<string, never>;
   desktop_install_update: Record<string, never>;
   desktop_manual_update_check: Record<string, never>;
   desktop_quit_completely: Record<string, never>;
   desktop_record_shell_event: { name: string; level?: string | null; data?: unknown | null };
-  desktop_set_auth_token: { token: string; userId?: string | null; backendBase?: string | null };
+  desktop_set_auth_token: { token: string; userId?: string | null; backendBase?: string | null; sessionId?: string | null; profile?: unknown | null };
   desktop_set_computer_tracking: { input: unknown };
   desktop_set_launch_at_login: { enabled: boolean };
   desktop_set_menu_bar_visibility: { visible: boolean };
@@ -265,8 +268,9 @@ export type NativeCommandOutputs = {
   desktop_capture_sentry_smoke: void;
   desktop_clear_auth_state: unknown;
   desktop_complete_auth_handoff: void;
-  desktop_consume_auth_handoff: string;
+  desktop_consume_auth_handoff: unknown;
   desktop_frontend_ready: unknown;
+  desktop_get_auth_token: unknown;
   desktop_get_resident_runtime_state: unknown;
   desktop_install_update: void;
   desktop_manual_update_check: unknown;

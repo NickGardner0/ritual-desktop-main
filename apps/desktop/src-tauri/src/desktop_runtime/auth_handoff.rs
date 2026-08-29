@@ -59,7 +59,7 @@ fn is_trusted_hosted_origin(origin: &str) -> bool {
     host == "desktop.ritualdb.com" || host == "ritualdb.com" || host.ends_with(".ritualdb.com")
 }
 
-fn resolve_hosted_auth_origin() -> String {
+pub(crate) fn resolve_hosted_auth_origin() -> String {
     let candidate = std::env::var("RITUAL_HOSTED_ORIGIN")
         .ok()
         .map(|value| value.trim().trim_end_matches('/').to_string())
@@ -271,7 +271,7 @@ pub fn desktop_consume_auth_handoff<R: Runtime>(
     channel: String,
     protocol: String,
     native_metadata: Option<serde_json::Value>,
-) -> Result<String, String> {
+) -> Result<super::auth_session::DesktopNativeAuthSession, String> {
     let handoff_id = handoff_id.trim().to_string();
     let nonce = nonce.trim().to_string();
     let channel = channel.trim().to_string();
@@ -314,13 +314,7 @@ pub fn desktop_consume_auth_handoff<R: Runtime>(
         .text()
         .map_err(|error| format!("Failed reading desktop authentication handoff response: {error}"))?;
     let payload: serde_json::Value = serde_json::from_str(&text).unwrap_or_else(|_| serde_json::json!({}));
-    let ticket = payload
-        .get("ticket")
-        .and_then(|value| value.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    if !status.is_success() || ticket.is_none() {
+    if !status.is_success() {
         let detail = payload
             .get("detail")
             .and_then(|value| value.as_str())
@@ -329,7 +323,13 @@ pub fn desktop_consume_auth_handoff<R: Runtime>(
         warn!(status = %status, detail, "Desktop auth consume was rejected");
         return Err(detail.to_string());
     }
-    Ok(ticket.expect("ticket presence checked above"))
+    let session = super::auth_session::parse_hosted_session_payload(&payload, status)?;
+    super::auth_session::persist_native_auth_session(&session)?;
+    super::auth_session::hydrate_auth_memory(&app, &session.token, &session.user_id);
+    reconcile_native_user_configs(&session.user_id)?;
+    let mut returned = session;
+    returned.token.clear();
+    Ok(returned)
 }
 
 fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
@@ -355,12 +355,14 @@ fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
 }
 
 #[tauri::command]
-#[instrument(skip(app, token), fields(user_id = user_id.as_deref().unwrap_or(""), backend_base = backend_base.as_deref().unwrap_or("")))]
+#[instrument(skip(app, token, profile), fields(user_id = user_id.as_deref().unwrap_or(""), backend_base = backend_base.as_deref().unwrap_or("")))]
 pub async fn desktop_set_auth_token<R: Runtime + 'static>(
     app: AppHandle<R>,
     token: String,
     user_id: Option<String>,
     backend_base: Option<String>,
+    session_id: Option<String>,
+    profile: Option<serde_json::Value>,
 ) -> Result<DesktopRuntimeState, String> {
     let trimmed_token = token.trim().to_string();
     if trimmed_token.is_empty() {
@@ -378,6 +380,19 @@ pub async fn desktop_set_auth_token<R: Runtime + 'static>(
         + 1;
 
     crate::native_widget::write_auth_token_to_disk(&trimmed_token)?;
+    if let (Some(session_id), Some(user_id)) = (
+        session_id
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        normalized_user_id.as_ref(),
+    ) {
+        super::auth_session::persist_desktop_auth_session(
+            &session_id,
+            user_id,
+            profile.as_ref().unwrap_or(&serde_json::Value::Null),
+        )?;
+    }
 
     update_auth_state(&app, |state| {
         state.token = Some(trimmed_token.clone());
@@ -449,6 +464,7 @@ pub async fn desktop_clear_auth_state<R: Runtime + 'static>(
     }
 
     crate::native_widget::clear_auth_token_on_disk()?;
+    super::auth_session::clear_desktop_auth_session()?;
     crate::native_widget::clear_turso_sync_config()?;
     super::clear_pending_auth_deep_link(&app);
 

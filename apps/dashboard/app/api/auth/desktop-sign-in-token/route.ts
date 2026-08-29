@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 
 import { getBackendBaseUrl } from '@/lib/api/backend-url';
 import { desktopWebviewCorsHeaders } from '@/lib/server/desktop-webview-cors';
 import { buildBackendAuthHeaders } from '@/lib/server/backend-auth';
+import {
+  mintDesktopClerkSession,
+  refreshDesktopClerkSession,
+} from '@/lib/server/desktop-clerk-session';
 
 type DesktopChannel = 'production' | 'qa' | 'development';
 
@@ -27,14 +31,33 @@ const CHANNEL_IDENTITIES: Record<DesktopChannel, { bundleId: string; callbackSch
 };
 
 type HandoffActionBody = {
-  handoffId: string;
+  handoffId?: string;
   nonce?: string;
   channel?: DesktopChannel;
   protocol?: '2';
+  sessionId?: string;
+  action?: 'refresh';
   outcome?: 'acknowledged' | 'failed';
   failureCode?: string | null;
   nativeMetadata?: Record<string, string | null | undefined>;
 };
+
+function isDesktopSessionRefreshBody(body: unknown): body is { sessionId: string } {
+  if (!body || typeof body !== 'object') return false;
+  const candidate = body as HandoffActionBody;
+  const sessionId = typeof candidate.sessionId === 'string' ? candidate.sessionId.trim() : '';
+  const handoffId = typeof candidate.handoffId === 'string' ? candidate.handoffId.trim() : '';
+  return Boolean(sessionId) && !handoffId;
+}
+
+async function desktopSessionRefreshResponse(sessionId: string, request?: NextRequest) {
+  try {
+    return noStoreJson(await refreshDesktopClerkSession(sessionId), 200, request);
+  } catch (error) {
+    console.error('Desktop session JWT refresh failed:', error);
+    return noStoreJson({ error: 'Desktop session refresh failed' }, 401, request);
+  }
+}
 
 function noStoreJson(payload: unknown, status = 200, request?: NextRequest) {
   const response = NextResponse.json(payload, {
@@ -89,10 +112,14 @@ function nativeMetadata(body: HandoffCreateBody | HandoffActionBody) {
 
 export async function POST(request: NextRequest) {
   try {
+    const body = await request.json() as HandoffCreateBody & HandoffActionBody;
+    if (isDesktopSessionRefreshBody(body)) {
+      return desktopSessionRefreshResponse(body.sessionId, request);
+    }
+
     const { userId, getToken } = await auth();
     if (!userId) return noStoreJson({ error: 'Unauthorized' }, 401);
 
-    const body = await request.json() as HandoffCreateBody;
     const expectedIdentity = CHANNEL_IDENTITIES[body.channel];
     const remainingSeconds = Math.ceil((Number(body.expiresAtMs) - Date.now()) / 1000);
     if (
@@ -145,6 +172,9 @@ export async function GET(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const json = (payload: unknown, status = 200) => noStoreJson(payload, status, request);
   const body = await request.json() as HandoffActionBody;
+  if (isDesktopSessionRefreshBody(body)) {
+    return desktopSessionRefreshResponse(body.sessionId, request);
+  }
   if (!body.handoffId || !body.nonce || !body.channel || body.protocol !== '2') {
     return json({ error: 'Complete v2 handoff identity is required' }, 400);
   }
@@ -165,14 +195,10 @@ export async function PATCH(request: NextRequest) {
   const subject = typeof result.payload.user_id === 'string' ? result.payload.user_id : '';
   if (!subject) return json({ error: 'Desktop handoff subject is unavailable' }, 502);
   try {
-    const client = await clerkClient();
-    const signInToken = await client.signInTokens.createSignInToken({
-      userId: subject,
-      expiresInSeconds: 5 * 60,
-    });
+    const minted = await mintDesktopClerkSession(subject);
     const handoff = { ...result.payload };
     delete handoff.user_id;
-    return json({ ticket: signInToken.token, handoff });
+    return json({ ...minted, handoff });
   } catch (error) {
     await backendJson(
       `/api/desktop-auth/handoffs/${encodeURIComponent(body.handoffId)}/claim-failed`,
@@ -183,13 +209,13 @@ export async function PATCH(request: NextRequest) {
           nonce: body.nonce,
           channel: body.channel,
           protocol: body.protocol,
-          failure_code: 'clerk_ticket_creation_failed',
+          failure_code: 'clerk_session_creation_failed',
           native_metadata: nativeMetadata(body),
         }),
       },
     ).catch(() => null);
-    console.error('Desktop handoff was claimed but ticket creation failed:', error);
-    return json({ error: 'Desktop sign-in ticket creation failed' }, 502);
+    console.error('Desktop handoff was claimed but session JWT creation failed:', error);
+    return json({ error: 'Desktop sign-in session creation failed' }, 502);
   }
 }
 
