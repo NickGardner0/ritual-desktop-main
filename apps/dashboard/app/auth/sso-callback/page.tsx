@@ -3,8 +3,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth, useClerk, useUser } from '@clerk/nextjs'
-import { getDesktopCapabilities } from '@/lib/desktop-capabilities'
-import { desktopGetAuthToken } from '@/lib/native-gateway'
 import { Button } from '@ritual/ui/button'
 
 import { clearSetupSubstep } from '@/components/onboarding/setup-wizard'
