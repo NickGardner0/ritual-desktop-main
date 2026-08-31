@@ -150,7 +150,7 @@ export default defineConfig(({ mode }) => {
       outDir: 'dist',
       sourcemap: false,
       emptyOutDir: true,
-      chunkSizeWarningLimit: 4000,
+      chunkSizeWarningLimit: 800,
     },
   };
 });

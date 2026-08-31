@@ -475,9 +475,12 @@ export function useOverviewMetrics({
   const hasRenderableCachedHabits = habits.length > 0;
 
   const shouldShowLoadingSpinner =
-    (isLoading && !hasRenderableCachedHabits)
-    || (!isLoaded && !hasRenderableCachedHabits)
-    || (isLoaded && !user && !hasRenderableCachedHabits);
+    !hasRenderableCachedHabits
+    && (
+      isLoading
+      || (!isLoaded)
+      || (isLoaded && !user)
+    );
 
   return {
     router,

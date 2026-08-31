@@ -60,6 +60,9 @@ fn package_dir_for_script(script: &Path) -> PathBuf {
         .to_path_buf()
 }
 
+/// Chat lives in a Node sidecar, not in the webview. Spawn is non-blocking so
+/// first paint never waits on `/health`. The SPA probes `127.0.0.1:8787` after
+/// `createRoot` and falls back to hosted chat if Node is missing.
 pub fn start_chat_runtime_sidecar(resource_dir: Option<PathBuf>) {
     let Some(node) = find_node() else {
         warn!("Node.js not found; chat will fall back to the hosted stream");

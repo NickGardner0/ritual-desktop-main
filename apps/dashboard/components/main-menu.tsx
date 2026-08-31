@@ -102,7 +102,7 @@ const ChildItem = ({
           className={cn(
             "h-[var(--sidebar-row-height)] flex items-center",
             "border-l border-[var(--border-muted)] pl-3",
-            "transition-all duration-200 ease-standard",
+            "transition-[opacity,transform] duration-200 ease-standard",
             showChild
               ? "opacity-100 translate-x-0"
               : "opacity-0 -translate-x-2",
@@ -214,7 +214,7 @@ const Item = ({
                   type="button"
                   onClick={handleChevronClick}
                   className={cn(
-                    "w-8 h-8 flex items-center justify-center transition-all duration-90 ml-auto mr-3",
+                    "w-8 h-8 flex items-center justify-center transition-transform duration-90 ml-auto mr-3",
                     "text-[var(--icon-muted)] hover:text-[var(--text-primary)] pointer-events-auto",
                     isActive && "text-[var(--text-primary)]",
                     shouldShowChildren && "rotate-180",
@@ -232,7 +232,7 @@ const Item = ({
       {hasChildren && (
         <div
           className={cn(
-            "transition-all duration-300 ease-standard overflow-hidden",
+            "transition-[max-height,margin] duration-300 ease-standard overflow-hidden",
             shouldShowChildren ? "max-h-96 mt-1" : "max-h-0",
           )}
         >

@@ -44,6 +44,7 @@ export function trialsFromLaunchEvents(events) {
       providers_mounted: milestones.providers_mounted?.last_ms ?? null,
       native_ready: milestones.native_ready?.last_ms ?? extra.elapsed_ms ?? null,
       shell_bootstrap: milestones.shell_bootstrap?.last_ms ?? null,
+      shell_paint: milestones.shell_paint?.last_ms ?? null,
       webview_rss_bytes: extra.webview_rss_bytes ?? null,
       watcher_readiness_time_ms: watcherReady?.data?.readinessTimeMs ?? null,
       watcher_pid: watcherRss?.data?.pid ?? watcherReady?.data?.pid ?? extra.watcher_pid ?? null,

@@ -28,6 +28,7 @@ test("five-trial cold and warm medians stay inside launch/RSS budgets", () => {
         providers_mounted_ms: timing.providers_mounted,
         native_ready_ms: timing.native_ready,
         shell_bootstrap_ms: timing.shell_bootstrap,
+        shell_paint_ms: timing.shell_paint,
       },
       config.budgets[kind],
     );

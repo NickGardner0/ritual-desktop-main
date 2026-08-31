@@ -162,8 +162,8 @@ export function HabitsProvider({ children }: { children: React.ReactNode }) {
   // Extract data from React Query
   const habits = habitsQuery.data || [];
   const habitLogs = logsQuery.data || [];
-  const isLoading = habitsQuery.isLoading;
-  const isLoadingLogs = logsQuery.isLoading;
+  const isLoading = habitsQuery.isLoading && habits.length === 0;
+  const isLoadingLogs = logsQuery.isLoading && habitLogs.length === 0;
   const error = habitsQuery.error as Error | null;
   const habitsById = React.useMemo(() => {
     const next = new Map<string, Habit>();

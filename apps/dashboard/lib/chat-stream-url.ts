@@ -7,7 +7,8 @@ type RitualWindow = Window & {
 export function getChatStreamUrl(): string {
   if (typeof window === 'undefined') return '/api/chat/stream';
   const w = window as RitualWindow;
-  if (w.__RITUAL_CHAT_ORIGIN__) return `${w.__RITUAL_CHAT_ORIGIN__.replace(/\/$/, '')}/chat/stream`;
+  const sidecarOrigin = w.__RITUAL_CHAT_ORIGIN__?.replace(/\/$/, '');
+  if (sidecarOrigin) return `${sidecarOrigin}/chat/stream`;
   if (w.__RITUAL_HOSTED_ORIGIN__) return `${w.__RITUAL_HOSTED_ORIGIN__.replace(/\/$/, '')}/api/chat/stream`;
   return '/api/chat/stream';
 }

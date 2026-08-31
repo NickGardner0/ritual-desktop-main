@@ -16,6 +16,7 @@ import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabili
 import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, recordLaunchMilestone, showMainWindow, summarizeLaunchMilestones } from '@/lib/native-gateway';
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
 import { InteractionSounds } from '@/components/interaction-sounds';
+import { DeferredFonts } from '@/components/deferred-fonts';
 
 /**
  * Root Providers Wrapper
@@ -87,8 +88,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     return false;
   });
 
-  // Show the Tauri window once React has mounted and content is ready
-  // This prevents the "tiny window flash" issue on macOS
+  // Show the Tauri window once shell chrome can paint. Do not wait on dashboard queries.
   useEffect(() => {
     if (!isDesktopShell) {
       return;
@@ -102,12 +102,21 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Small delay to ensure DOM is painted
-    const timer = setTimeout(() => {
-      showMainWindow();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, [isDesktopShell, isDesktopBootstrap, pathname]);
+    let cancelled = false;
+    let secondFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        if (cancelled) return;
+        recordLaunchMilestone('shell_paint', { desktop: true });
+        showMainWindow();
+      });
+    });
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(firstFrame);
+      if (secondFrame) window.cancelAnimationFrame(secondFrame);
+    };
+  }, [isDesktopShell, isDesktopBootstrap]);
 
   useEffect(() => {
     if (!isDesktopShell || isDesktopBootstrap) {
@@ -285,6 +294,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     >
       {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
       <PlatformDetector />
+      <DeferredFonts />
       <InteractionSounds />
       {isTransparencyProbe ? (
         <TransparencyProbe />

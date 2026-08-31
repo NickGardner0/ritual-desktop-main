@@ -55,10 +55,12 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
   assert.match(app, /path="\/sign-in\/\*"/);
   assert.match(app, /path="\/auth\/callback"/);
   assert.match(app, /path="\/auth\/sso-callback"/);
-  assert.match(signIn, /Get Started/);
-  assert.match(signIn, /Sign In/);
   assert.match(signIn, /Continue with Google/);
+  assert.match(signIn, /Continue with Apple/);
   assert.match(signIn, /Welcome to Ritual/);
+  assert.match(signIn, /Continue in your browser/);
+  assert.doesNotMatch(signIn, /Get Started/);
+  assert.doesNotMatch(signIn, />Sign In</);
   assert.match(signIn, /buildDesktopOAuthStartUrl/);
   assert.match(app, /RequireDesktopSession/);
   assert.match(origin, /desktop\.ritualdb\.com/);

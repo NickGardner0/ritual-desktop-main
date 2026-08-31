@@ -371,7 +371,7 @@ function UnifiedAnalyticsContent() {
           role="tabpanel"
           id="overview-panel"
           aria-labelledby="overview-tab"
-          className={`transition-all duration-200 ease-out ${
+          className={`transition-[opacity,transform] duration-200 ease-out ${
             viewMode === 'overview' 
               ? 'opacity-100 translate-y-0' 
               : 'opacity-0 translate-y-2 absolute inset-0 pointer-events-none'
@@ -391,7 +391,7 @@ function UnifiedAnalyticsContent() {
           role="tabpanel"
           id="metrics-panel"
           aria-labelledby="metrics-tab"
-          className={`transition-all duration-200 ease-out ${
+          className={`transition-[opacity,transform] duration-200 ease-out ${
             viewMode === 'metrics' 
               ? 'opacity-100 translate-y-0' 
               : 'opacity-0 translate-y-2 absolute inset-0 pointer-events-none'

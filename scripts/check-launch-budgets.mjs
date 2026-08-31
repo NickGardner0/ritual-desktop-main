@@ -67,6 +67,9 @@ if (!providers.includes("providers_mounted") || !providers.includes("native_read
 if (!providers.includes("shell_bootstrap")) {
   errors.push("root-providers.tsx is missing the shell_bootstrap launch milestone");
 }
+if (!providers.includes("shell_paint")) {
+  errors.push("root-providers.tsx is missing the shell_paint launch milestone");
+}
 if (!providers.includes("webview_rss_bytes") || !providers.includes("watcher_rss_bytes")) {
   errors.push("native_ready telemetry is missing RSS fields");
 }

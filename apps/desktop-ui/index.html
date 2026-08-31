@@ -4,6 +4,35 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ritual</title>
+    <style>
+      html, body, #root {
+        height: 100%;
+        margin: 0;
+        background: #fefefe;
+      }
+      html.dark, html.dark body, html.dark #root {
+        background: #111111;
+      }
+      /* Chrome that remains visible if the JS bundle is delayed. */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 76px;
+        background: #f7f8f5;
+        pointer-events: none;
+        z-index: 0;
+      }
+      html.dark body::before {
+        background: #101011;
+      }
+      #root {
+        position: relative;
+        z-index: 1;
+      }
+    </style>
     <script>
       (function () {
         document.documentElement.classList.add('desktop');

@@ -15,17 +15,12 @@ import {
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
+import { SortableHabitList, type SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
 import type { Habit } from '@/contexts/HabitsContext';
-import type { SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
 import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
-  { ssr: false },
-);
-
-const SortableHabitList = dynamic(
-  () => import('@/components/analytics/sortable-habit-list').then((m) => ({ default: m.SortableHabitList })),
   { ssr: false },
 );
 

@@ -92,12 +92,22 @@ export function DesktopAuthProvider({ children }: { children?: ReactNode }) {
     let cancelled = false;
     void (async () => {
       try {
-        const next = await desktopGetAuthToken({ refresh: true });
-        if (!cancelled) applySession(next);
+        const disk = await desktopGetAuthToken({ refresh: false });
+        if (cancelled) return;
+        applySession(disk);
+        setIsLoaded(true);
+        if (!hasNativeSession(disk)) return;
+        try {
+          const refreshed = await desktopGetAuthToken({ refresh: true });
+          if (!cancelled && hasNativeSession(refreshed)) applySession(refreshed);
+        } catch {
+          // Keep the disk session while a background refresh fails.
+        }
       } catch {
-        if (!cancelled) applySession(null);
-      } finally {
-        if (!cancelled) setIsLoaded(true);
+        if (!cancelled) {
+          applySession(null);
+          setIsLoaded(true);
+        }
       }
     })();
     return () => {

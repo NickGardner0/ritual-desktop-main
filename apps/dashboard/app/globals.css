@@ -45,14 +45,6 @@ body[data-voice-hud-window="1"] {
     0 1px 1px rgba(0, 0, 0, 0.04);
 }
 
-@font-face {
-  font-family: 'Material Symbols Rounded';
-  src: url('/fonts/material-symbols/MaterialSymbolsRounded-400.ttf') format('truetype');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 .material-symbols-rounded {
   font-family: "Material Symbols Rounded";
   font-weight: normal;
@@ -105,7 +97,6 @@ html:has(.ritual-sidebar-shell[data-mode="compact"]) {
 
 .ritual-sidebar-shell[data-mode="hover"] {
   width: 76px;
-  transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .ritual-sidebar-shell[data-mode="hover"]:hover,
@@ -331,23 +322,7 @@ table tbody tr,
 }
 
 @layer base {
-  /* FK Grotesk Neue font family */
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Thin-BF6576818c2a14c.otf') format('opentype');
-    font-weight: 100;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Light-BF6576818c0f3e8.otf') format('opentype');
-    font-weight: 300;
-    font-style: normal;
-    font-display: swap;
-  }
-
+  /* FK Grotesk Neue — Regular and Medium only on first paint. Extra weights load after idle. */
   @font-face {
     font-family: 'FK Grotesk Neue';
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Regular-BF6576818c3af74.otf') format('opentype');
@@ -361,30 +336,6 @@ table tbody tr,
     src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Medium-BF6576818c3a00a.otf') format('opentype');
     font-weight: 500;
     font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
-    font-weight: 700;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Black-BF6576818b4c472.otf') format('opentype');
-    font-weight: 900;
-    font-style: normal;
-    font-display: swap;
-  }
-
-  @font-face {
-    font-family: 'FK Grotesk Neue';
-    src: url('/fonts/fk-grotesk-neue-font-family/FKGroteskNeueTrial-Italic-BF6576818c041e2.otf') format('opentype');
-    font-weight: 400;
-    font-style: italic;
     font-display: swap;
   }
 

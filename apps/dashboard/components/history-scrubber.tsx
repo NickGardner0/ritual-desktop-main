@@ -26,7 +26,7 @@ interface HistoryScrubberProps {
   habitLogs: HabitLog[]
   habits: Array<{ id?: string; name: string; unit_type?: string }>
   daysToShow?: number
-  onHoverDate: (date: string | null, values: Record<string, number> | null) => void
+  onHoverDate?: (date: string | null, values: Record<string, number> | null) => void
   onSelectDate: (date: string | null) => void
   selectedDate: string | null
   className?: string
@@ -95,7 +95,6 @@ export function HistoryScrubber({
   habitLogs,
   habits,
   daysToShow = 90,
-  onHoverDate,
   onSelectDate,
   selectedDate,
   className,
@@ -150,14 +149,9 @@ export function HistoryScrubber({
       
       if (clampedTick !== hoveredIndex) {
         setHoveredIndex(clampedTick)
-        const dayIndex = tickToDayIndex(clampedTick)
-        const day = dailySeries[dayIndex]
-        if (day) {
-          onHoverDate(day.date, day.habitValues)
-        }
       }
     })
-  }, [numTicks, hoveredIndex, tickToDayIndex, dailySeries, onHoverDate])
+  }, [numTicks, hoveredIndex])
   
   const handlePointerEnter = useCallback(() => {
     setIsHovering(true)
@@ -170,8 +164,7 @@ export function HistoryScrubber({
       cancelAnimationFrame(rafRef.current)
       rafRef.current = null
     }
-    onHoverDate(null, null)
-  }, [onHoverDate])
+  }, [])
   
   const handleClick = useCallback((e: React.MouseEvent) => {
     if (!containerRef.current) return

@@ -197,6 +197,9 @@ export function useHabitsQuery() {
     },
     initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
     initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
+    placeholderData: bypassPersistedSnapshot
+      ? undefined
+      : (previous) => previous ?? fallbackSnapshot?.data,
     enabled: isLoaded && !!user?.id,
     staleTime: QUERY_POLICY.optimisticEntity.staleTime,
     gcTime: QUERY_POLICY.optimisticEntity.gcTime,
@@ -274,6 +277,9 @@ export function useHabitLogsQuery({
     },
     initialData: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.data,
     initialDataUpdatedAt: bypassPersistedSnapshot ? undefined : fallbackSnapshot?.updatedAt,
+    placeholderData: bypassPersistedSnapshot
+      ? undefined
+      : (previous) => previous ?? fallbackSnapshot?.data,
     enabled: enabled && isLoaded && !!user?.id,
     // Habit logs can grow very large, so keep them warm for longer and rely on
     // explicit invalidation after mutations instead of constant background
