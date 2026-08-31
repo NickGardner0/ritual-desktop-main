@@ -66,3 +66,40 @@ test('chat sidecar is a separate process and the SPA is only a client', () => {
   assert.match(origins, /LOCAL_CHAT_SIDECAR_ORIGIN/);
   assert.match(origins, /probeLocalChatSidecar/);
 });
+
+test('Index chrome drops Pinned and docks a resizable chat panel instead of Context stats', () => {
+  const layout = read('apps/dashboard/components/dashboard-layout.tsx');
+  const overview = read('apps/dashboard/components/analytics/overview/OverviewView.tsx');
+  const panel = read('apps/dashboard/components/chat/index-chat-panel.tsx');
+  const form = read('apps/dashboard/components/ai-habit-chat/ai-habit-chat-form.tsx');
+  const css = read('apps/dashboard/app/globals.css');
+  const metrics = read('apps/dashboard/components/analytics/overview/useOverviewMetrics.ts');
+  const analytics = read('apps/dashboard/components/analytics/unified-analytics-client.tsx');
+
+  assert.doesNotMatch(layout, /PinnedSummaryPopover/);
+  assert.doesNotMatch(overview, /MetricContextPanel/);
+  assert.match(overview, /IndexChatPanel/);
+  assert.doesNotMatch(metrics, /useOverviewMetricContext/);
+  assert.match(panel, /--ritual-right-dock-width/);
+  assert.match(analytics, /--ritual-right-dock-width/);
+  assert.match(panel, /Ask anything/);
+  assert.match(form, /color-mix\(in_srgb,var\(--text-primary\)_14%,transparent\)/);
+  assert.match(css, /\.app-toolbar-pill-button:hover[\s\S]*background: var\(--row-hover\)/);
+});
+
+test('Index composer Chat stays on Index and sends into the right dock', () => {
+  const chat = read('apps/dashboard/components/ai-habit-chat.tsx');
+  const overview = read('apps/dashboard/components/analytics/overview/OverviewView.tsx');
+  const panel = read('apps/dashboard/components/chat/index-chat-panel.tsx');
+  const ai = read('apps/dashboard/contexts/AIContext.tsx');
+
+  assert.doesNotMatch(chat, /router\.push\(`\/chat\?q=/);
+  assert.doesNotMatch(chat, /router\.prefetch\('\/chat'\)/);
+  assert.match(chat, /openIndexChat\(\{ text, focus: false \}\)/);
+  assert.match(chat, /openIndexChat\(\{ focus: false \}\)/);
+  assert.match(overview, /indexChatOpen/);
+  assert.match(overview, /openIndexChat\(\{ focus: true \}\)/);
+  assert.match(ai, /takePendingIndexChatTexts/);
+  assert.match(panel, /takePendingIndexChatTexts/);
+  assert.match(panel, /indexChatEpoch/);
+});

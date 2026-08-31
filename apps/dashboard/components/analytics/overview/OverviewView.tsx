@@ -8,11 +8,11 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { OverviewInitialSection } from '@/components/analytics/overview-initial-section';
-import { MetricContextPanel } from '@/components/analytics/metric-context-panel';
 import { OverviewBackendUnavailable } from './OverviewBackendUnavailable';
 import { OverviewDeleteModal } from './OverviewDeleteModal';
 import { OverviewEmptyState } from './OverviewEmptyState';
 import { useOverviewMetrics } from './useOverviewMetrics';
+import { useAI } from '@/contexts/AIContext';
 import type { OverviewViewProps } from './types';
 
 const HabitSelectionModal = dynamic(
@@ -25,8 +25,14 @@ const DataImportModal = dynamic(
   { ssr: false },
 );
 
+const IndexChatPanel = dynamic(
+  () => import('@/components/chat/index-chat-panel').then((m) => ({ default: m.IndexChatPanel })),
+  { ssr: false },
+);
+
 export function OverviewView(props: OverviewViewProps) {
   const metrics = useOverviewMetrics(props);
+  const { indexChatOpen, openIndexChat, closeIndexChat } = useAI();
 
   if (metrics.shouldShowLoadingSpinner) {
     return (
@@ -39,11 +45,28 @@ export function OverviewView(props: OverviewViewProps) {
   const shouldShowEmptyState =
     !metrics.isBackendUnavailable && metrics.habits.length === 0 && !metrics.isLoading;
 
+  const selectedChatHabit =
+    metrics.orderedHabits.find((habit) => habit.id === metrics.selectedContextHabitId)
+    || metrics.habits.find((habit) => habit.id === metrics.selectedContextHabitId);
+
+  const handleOpenChat = (habitId: string) => {
+    metrics.handleOpenContext(habitId);
+    openIndexChat({ focus: true });
+  };
+
+  const handleCloseChat = () => {
+    metrics.handleCloseContext();
+    closeIndexChat();
+  };
+
   return (
     <div
-      className="relative h-[calc(100vh-160px)] overflow-hidden transition-[padding-right] duration-150 ease-out sm:pr-[var(--overview-context-pane-width)]"
-      style={metrics.overviewContextStyle}
-      onClick={metrics.selectedContextHabitId ? metrics.handleCloseContext : undefined}
+      className="relative h-[calc(100vh-160px)] overflow-hidden"
+      onClick={(event) => {
+        if (!indexChatOpen) return;
+        if ((event.target as HTMLElement | null)?.closest('#ritual-right-dock')) return;
+        handleCloseChat();
+      }}
     >
       <div className="h-full min-w-0 overflow-hidden">
         {!shouldShowEmptyState && (
@@ -77,7 +100,7 @@ export function OverviewView(props: OverviewViewProps) {
             confirmDelete={metrics.confirmDelete}
             deletingHabit={metrics.deletingHabit}
             selectedContextHabitId={metrics.selectedContextHabitId}
-            onOpenContext={metrics.handleOpenContext}
+            onOpenContext={handleOpenChat}
           />
         )}
 
@@ -101,11 +124,14 @@ export function OverviewView(props: OverviewViewProps) {
         )}
       </div>
 
-      <MetricContextPanel
-        model={metrics.metricContextModel}
-        isLoading={metrics.isMetricContextLoading}
-        onClose={metrics.handleCloseContext}
-      />
+      {indexChatOpen ? (
+        <IndexChatPanel
+          open
+          title={selectedChatHabit?.name || 'Chat'}
+          habitId={metrics.selectedContextHabitId}
+          onClose={handleCloseChat}
+        />
+      ) : null}
 
       {metrics.showSelectionModal && (
         <HabitSelectionModal

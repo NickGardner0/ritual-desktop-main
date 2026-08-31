@@ -195,7 +195,7 @@ const SortableHabitItem = React.memo(function SortableHabitItem({
           className="relative z-[1] min-w-0 flex items-center rounded-[4px] cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-neutral-300"
           role="button"
           tabIndex={0}
-          aria-label={`Open Context for ${displayName}`}
+          aria-label={`Open chat for ${displayName}`}
           onClick={handleOpenContext}
           onKeyDown={handleOpenContextKeyDown}
         >

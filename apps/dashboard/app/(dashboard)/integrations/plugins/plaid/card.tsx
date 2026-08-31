@@ -45,7 +45,7 @@ export function buildCard(ctx: IntegrationCardRuntimeContext): IntegrationCardIt
             <button
               onClick={handlePlaidReconnect as () => void}
               disabled={Boolean(plaidConnecting)}
-              className="inline-flex h-7 items-center justify-center rounded-sm border border-gray-300 px-2.5 text-[12px] leading-none text-gray-900 hover:bg-[#F3F3F3] disabled:opacity-50"
+              className="inline-flex h-7 items-center rounded-[8px] px-2 text-[13px] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] disabled:opacity-50"
             >
               {plaidConnecting ? 'Reconnecting...' : 'Reconnect'}
             </button>

@@ -1,13 +1,47 @@
 'use client';
 
-import { memo } from 'react';
+import { memo, isValidElement, type ReactElement, type ReactNode } from 'react';
+import { MoreHorizontal } from 'lucide-react';
+import { Button } from '@ritual/ui/button';
+import { cn } from '@ritual/ui/cn';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@ritual/ui/dropdown-menu';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
-import { cn } from '@/lib/utils';
 
-const compactActionClassName =
-  'inline-flex h-7 items-center justify-center rounded-sm px-2.5 text-[12px] leading-none';
+export type IntegrationCardProps = {
+  logo: ReactNode;
+  title: string;
+  description: string;
+  /** Kept for callers; marketplace rows always clamp to one supporting line. */
+  descriptionLineClamp?: 2 | 3 | 4;
+  comingSoon?: boolean;
+  isStatusLoading?: boolean;
+  isConnected?: boolean;
+  isConnecting?: boolean;
+  isSyncing?: boolean;
+  connectVariant?: 'primary' | 'outline';
+  connectLabel?: string;
+  syncLabel?: string;
+  details?: ReactNode;
+  onConnect?: () => void;
+  onSync?: () => void;
+  onDisconnect?: () => void;
+  onDetails?: () => void;
+  extraActions?: ReactNode;
+};
 
-export const IntegrationCard = memo(({
+const quietActionClassName =
+  'h-7 px-2 text-[13px] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]';
+
+const iconWellClassName =
+  'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-[var(--surface-panel)] [&>*]:max-h-6 [&>*]:max-w-6 [&_img]:max-h-6 [&_img]:max-w-6 [&_img]:object-contain';
+
+export const IntegrationCard = memo(function IntegrationCard({
   logo,
   title,
   description,
@@ -16,7 +50,6 @@ export const IntegrationCard = memo(({
   isConnected,
   isConnecting,
   isSyncing,
-  connectVariant = 'primary',
   connectLabel = 'Connect',
   syncLabel = 'Sync Now',
   details,
@@ -25,181 +58,124 @@ export const IntegrationCard = memo(({
   onDisconnect,
   onDetails,
   extraActions,
-  descriptionLineClamp = 2
-}: {
-  logo: React.ReactNode
-  title: string
-  description: string
-  /** Card copy uses line-clamp; higher values avoid ellipsis on longer Plaid descriptions. */
-  descriptionLineClamp?: 2 | 3 | 4
-  comingSoon?: boolean
-  isStatusLoading?: boolean
-  isConnected?: boolean
-  isConnecting?: boolean
-  isSyncing?: boolean
-  connectVariant?: 'primary' | 'outline'
-  connectLabel?: string
-  syncLabel?: string
-  details?: React.ReactNode
-  onConnect?: () => void
-  onSync?: () => void
-  onDisconnect?: () => void
-  onDetails?: () => void
-  extraActions?: React.ReactNode
-}) => (
-  <div className="flex h-[168px] flex-col rounded-md border border-gray-300 bg-white px-3 py-2">
-    <div className="mb-0.5 flex h-6 items-center [&>*]:max-h-6 [&>*]:w-auto [&_img]:max-h-6 [&_img]:w-auto">
-      {logo}
+}: IntegrationCardProps) {
+  const supporting = (
+    <div className="line-clamp-1 text-[13px] leading-[1.45] text-[var(--text-muted)] [&>*]:line-clamp-1">
+      {details ?? description}
     </div>
-    <div className="mb-0.5 flex items-center">
-      <h3 className="text-[14px] font-medium leading-5">{title}</h3>
-      {comingSoon && (
-        <span className="ml-2 text-[9px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">Coming soon</span>
-      )}
-    </div>
-    <p
+  );
+
+  const hasConnectedMenu = Boolean(onDetails || onSync || onDisconnect);
+
+  return (
+    <div
       className={cn(
-        'mb-1.5 flex-grow text-[12px] leading-[1.35] text-gray-500',
-        descriptionLineClamp === 4 && 'line-clamp-4',
-        descriptionLineClamp === 3 && 'line-clamp-3',
-        descriptionLineClamp === 2 && 'line-clamp-2'
+        'flex min-h-[64px] items-center gap-3 rounded-[8px] px-2 py-2 hover:bg-[var(--row-hover)]',
+        onDetails ? 'cursor-pointer' : 'cursor-default',
       )}
+      onClick={onDetails}
     >
-      {description}
-    </p>
+      <div className={iconWellClassName}>{logo}</div>
 
-    {details ? (
-      <div className="mb-1.5">
-        {details}
+      <div className="min-w-0 flex-1">
+        <h3 className="truncate text-[14px] font-medium leading-[1.35] text-[var(--text-primary)]">
+          {title}
+        </h3>
+        <div className="mt-0.5 min-w-0">{supporting}</div>
       </div>
-    ) : null}
 
-    <div className="mt-auto flex items-center gap-1">
-      {isStatusLoading ? (
-        <>
-          <button
-            type="button"
-            disabled
-            className={cn(
-              compactActionClassName,
-              'cursor-default border border-gray-300 bg-[#F8F8F8] text-gray-500',
-            )}
-          >
+      <div
+        className="ml-1 flex shrink-0 items-center gap-1"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {isStatusLoading ? (
+          <span className="inline-flex h-7 items-center px-2 text-[13px] text-[var(--text-muted)]">
             Checking...
-          </button>
-          {onDetails && (
-            <button
-              onClick={onDetails}
-              className={cn(
-                compactActionClassName,
-                'border border-gray-300 hover:bg-[#EBEAE8]',
-              )}
-            >
-              Details
-            </button>
-          )}
-        </>
-      ) : isConnected ? (
-        <>
-          <button
-            onClick={onDisconnect}
-            className="relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer items-center rounded-full bg-[#73bf1d] transition-colors focus:outline-none focus:ring-2 focus:ring-[#73bf1d] focus:ring-offset-2"
-            role="switch"
-            aria-checked="true"
-          >
-            <span className="pointer-events-none inline-block h-4 w-4 translate-x-4 transform rounded-full bg-white shadow-sm transition-transform" />
-          </button>
-          {onSync && (
-            <button
-              onClick={onSync}
-              disabled={isSyncing}
-              className={cn(
-                compactActionClassName,
-                'whitespace-nowrap border border-gray-300 text-gray-900 hover:bg-[#F3F3F3] disabled:opacity-50',
-              )}
-            >
-              {isSyncing ? (
-                <>
-                  <BrailleSpinner className="mr-1.5 inline-block text-sm" />
-                  Syncing...
-                </>
-              ) : (
-                syncLabel
-              )}
-            </button>
-          )}
-          {onDetails && (
-            <button
-              onClick={onDetails}
-              className={cn(
-                compactActionClassName,
-                'border border-gray-300 text-gray-900 hover:bg-[#F3F3F3]',
-              )}
-            >
-              Details
-            </button>
-          )}
-          {extraActions}
-        </>
-      ) : comingSoon ? (
-        <>
-          <button
+          </span>
+        ) : comingSoon ? (
+          <span className="inline-flex h-7 items-center px-2 text-[13px] text-[var(--text-muted)]">
+            Coming soon
+          </span>
+        ) : isConnected ? (
+          <>
+            {extraActions}
+            {hasConnectedMenu ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-compact"
+                    aria-label={`${title} actions`}
+                    className="text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                  >
+                    <MoreHorizontal />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  {onDetails ? (
+                    <DropdownMenuItem onSelect={() => onDetails()}>Details</DropdownMenuItem>
+                  ) : null}
+                  {onSync ? (
+                    <DropdownMenuItem disabled={isSyncing} onSelect={() => onSync()}>
+                      {isSyncing ? (
+                        <span className="inline-flex items-center gap-2">
+                          <BrailleSpinner className="text-sm" />
+                          Syncing...
+                        </span>
+                      ) : (
+                        syncLabel
+                      )}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {onDisconnect ? (
+                    <>
+                      {onDetails || onSync ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem
+                        className="text-[var(--ritual-status-danger)]"
+                        onSelect={() => onDisconnect()}
+                      >
+                        Disconnect
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </>
+        ) : (
+          <Button
             type="button"
-            className={cn(compactActionClassName, 'bg-black text-white')}
-          >
-            Connect
-          </button>
-          {onDetails && (
-            <button
-              onClick={onDetails}
-              className={cn(
-                compactActionClassName,
-                'border border-gray-300 hover:bg-[#EBEAE8]',
-              )}
-            >
-              Details
-            </button>
-          )}
-        </>
-      ) : (
-        <>
-          <button
+            variant="ghost"
+            size="compact"
             onClick={onConnect}
             disabled={isConnecting}
-            className={cn(
-              compactActionClassName,
-              connectVariant === 'outline'
-                ? 'border border-gray-300 text-gray-900 hover:bg-[#EBEAE8] disabled:opacity-50'
-                : 'bg-black text-white disabled:opacity-50',
-            )}
+            className={quietActionClassName}
           >
             {isConnecting ? (
-              <>
-                <BrailleSpinner className="mr-1.5 inline-block text-sm" />
+              <span className="inline-flex items-center gap-1.5">
+                <BrailleSpinner className="text-sm" />
                 Connecting...
-              </>
+              </span>
             ) : (
               connectLabel
             )}
-          </button>
-          {onDetails && (
-            <button
-              onClick={onDetails}
-              className={cn(
-                compactActionClassName,
-                'border border-gray-300 hover:bg-[#EBEAE8]',
-              )}
-            >
-              Details
-            </button>
-          )}
-        </>
-      )}
+          </Button>
+        )}
+      </div>
     </div>
-  </div>
-));
+  );
+});
 
-IntegrationCard.displayName = 'IntegrationCard';
+export function getIntegrationCardProps(node: ReactNode): IntegrationCardProps | null {
+  if (!isValidElement(node)) {
+    return null;
+  }
 
-// ================================
-// MAIN CLIENT COMPONENT
+  const type = node.type as { displayName?: string };
+  if (node.type !== IntegrationCard && type.displayName !== 'IntegrationCard') {
+    return null;
+  }
+
+  return (node as ReactElement<IntegrationCardProps>).props;
+}

@@ -182,7 +182,7 @@ test("integrations orchestrator stays under 400 lines", () => {
   assert.ok(lineCount < 400, `integrations-client.impl.tsx is ${lineCount} lines (expected <400)`);
 });
 
-test("integration cards use the compact rounded-md surface contract", () => {
+test("integration cards use the marketplace row contract", () => {
   const cardSource = readFileSync(
     join(
       process.cwd(),
@@ -190,13 +190,21 @@ test("integration cards use the compact rounded-md surface contract", () => {
     ),
     "utf8",
   );
+  const cardsSource = readFileSync(
+    join(
+      process.cwd(),
+      "apps/dashboard/app/(dashboard)/integrations/integrations-client.cards.tsx",
+    ),
+    "utf8",
+  );
 
-  assert.match(
-    cardSource,
-    /h-\[168px\][^"]*rounded-md[^"]*border border-gray-300/,
-  );
-  assert.match(
-    cardSource,
-    /inline-flex h-7 items-center justify-center[^']*text-\[12px\]/,
-  );
+  assert.match(cardSource, /min-h-\[64px\]/);
+  assert.match(cardSource, /rounded-\[12px\] bg-\[var\(--surface-panel\)\]/);
+  assert.match(cardSource, /MoreHorizontal/);
+  assert.doesNotMatch(cardSource, /h-\[168px\]/);
+  assert.doesNotMatch(cardSource, /border border-gray-300/);
+  assert.match(cardsSource, /Search integrations/);
+  assert.match(cardsSource, /Connect Ritual to the tools you already use/);
+  assert.match(cardsSource, /md:grid-cols-2/);
+  assert.doesNotMatch(cardsSource, /lg:grid-cols-3/);
 });

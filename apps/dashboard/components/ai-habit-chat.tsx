@@ -25,6 +25,7 @@ import type {
 import { useAiHabitVoice } from './ai-habit-chat/use-ai-habit-voice';
 import { useAiHabitScreenshot } from './ai-habit-chat/use-ai-habit-screenshot';
 import { AiHabitChatForm } from './ai-habit-chat/ai-habit-chat-form';
+import { useAI } from '@/contexts/AIContext';
 
 const MAX_VISIBLE_INLINE_SUGGESTIONS = 2;
 
@@ -48,6 +49,7 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { trackAIChatMessageSent, trackHabitLogged } = useAnalytics();
+  const { openIndexChat } = useAI();
   const deferredInput = useDeferredValue(input.trim());
 
   const {
@@ -80,9 +82,25 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
     setInput,
   });
 
-  useEffect(() => {
-    router.prefetch('/chat');
-  }, [router]);
+  const sendChatToDock = useCallback((question: string) => {
+    const text = question.trim();
+    if (!text) return;
+    setInput('');
+    setError(null);
+    setIsFocused(false);
+    trackAIChatMessageSent({ messageLength: text.length });
+    openIndexChat({ text, focus: false });
+  }, [openIndexChat, trackAIChatMessageSent]);
+
+  const handleSetMode = useCallback((update: React.SetStateAction<InputMode>) => {
+    setMode((current) => {
+      const next = typeof update === 'function' ? update(current) : update;
+      if (next === 'chat') {
+        openIndexChat({ focus: false });
+      }
+      return next;
+    });
+  }, [openIndexChat]);
 
   useEffect(() => {
     const compose = searchParams.get('compose');
@@ -220,14 +238,7 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
   // Handle suggestion click
   const handleSuggestionClick = useCallback((suggestion: ChatSuggestion) => {
     if (mode === 'chat') {
-      // Chat mode: route to dedicated chat page
-      const question = suggestion.text.trim();
-      if (!question) return;
-      setInput('');
-      setIsFocused(false);
-      trackAIChatMessageSent({ messageLength: question.length });
-      router.prefetch('/chat');
-      router.push(`/chat?q=${encodeURIComponent(question)}`);
+      sendChatToDock(suggestion.text);
       return;
     }
 
@@ -251,7 +262,7 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
       setKeyboardSuggestionActive(false);
       setTimeout(() => textareaRef.current?.focus(), 0);
     }
-  }, [mode, router, trackAIChatMessageSent]);
+  }, [mode, sendChatToDock]);
 
   const visibleSuggestions = useMemo(
     () => suggestions.slice(0, MAX_VISIBLE_INLINE_SUGGESTIONS),
@@ -309,13 +320,9 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
 
     const inputText = input.trim();
 
-    // Chat mode: hand off to dedicated chat page
+    // Chat mode: send into the Index dock instead of leaving the page.
     if (mode === 'chat') {
-      setInput('');
-      setError(null);
-      trackAIChatMessageSent({ messageLength: inputText.length });
-      router.prefetch('/chat');
-      router.push(`/chat?q=${encodeURIComponent(inputText)}`);
+      sendChatToDock(inputText);
       return;
     }
 
@@ -478,7 +485,7 @@ export function AIHabitChat({ onHabitUpdate, onImportData }: AIHabitChatProps) {
   return (
     <AiHabitChatForm
       mode={mode}
-      setMode={setMode}
+      setMode={handleSetMode}
       input={input}
       setInput={setInput}
       error={error}

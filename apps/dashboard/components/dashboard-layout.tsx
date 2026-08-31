@@ -5,7 +5,6 @@ import { useAI } from '@/contexts/AIContext';
 import { useFont } from '@/contexts/FontContext';
 import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
-import { PinnedSummaryPopover } from '@/components/pinned-summary-popover';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -54,8 +53,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const { mode } = useSidebarMode();
   const isChatRoute = pathname === '/chat';
-  const isRoutinesRoute = pathname === '/routines' || pathname?.startsWith('/routines/');
-  const isTasksRoute = pathname === '/tasks' || pathname?.startsWith('/tasks/');
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
   const [rightDockEl, setRightDockEl] = useState<HTMLElement | null>(null);
@@ -187,7 +184,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
                       <div data-tauri-drag-region className="flex min-w-0 items-center justify-end">
                         <div className="no-drag flex h-7 items-center gap-0.5">
-                          {!isRoutinesRoute && !isTasksRoute ? <PinnedSummaryPopover /> : null}
                           <div
                             id="header-right-slot"
                             className="no-drag flex h-7 min-w-0 items-center gap-0.5"

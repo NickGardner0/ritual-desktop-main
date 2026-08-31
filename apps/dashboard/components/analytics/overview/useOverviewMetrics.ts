@@ -7,7 +7,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import type { DateRange } from 'react-day-picker';
-import { parseISO } from 'date-fns';
 import * as Sentry from '@sentry/nextjs';
 import { useHabits } from '@/contexts/HabitsContext';
 import { useUser, useAuth } from '@clerk/nextjs';
@@ -16,7 +15,6 @@ import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
 import { perfInfo } from '@/lib/perf-debug';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { getMetricContextFetchWindow } from '@/components/analytics/metric-context-builder';
 import { useUpdateHabitMutation } from '@/hooks/use-habits-query';
 import { useComputerSnapshotQuery } from '@/hooks/use-computer-snapshot-query';
 import type {
@@ -30,7 +28,6 @@ import {
 import type { OverviewViewProps } from './types';
 import { useOverviewWearableMetrics } from './useOverviewWearableMetrics';
 import { useOverviewHabitMetrics } from './useOverviewHabitMetrics';
-import { useOverviewMetricContext } from './useOverviewMetricContext';
 
 export function useOverviewMetrics({
   hideControls = false,
@@ -132,17 +129,6 @@ export function useOverviewMetrics({
       && snapshot.domains.length === 0;
   }, [computerSnapshotQuery.data]);
   const computerActivityResolved = !user?.id || computerSnapshotQuery.isFetched || computerSnapshotQuery.isSuccess;
-  const contextFetchWindow = useMemo(
-    () => getMetricContextFetchWindow(dateRange),
-    [dateRange?.from?.toISOString(), dateRange?.to?.toISOString()],
-  );
-  const contextComputerDateRange = useMemo<DateRange>(
-    () => ({
-      from: parseISO(contextFetchWindow.startDate),
-      to: parseISO(contextFetchWindow.endDate),
-    }),
-    [contextFetchWindow.startDate, contextFetchWindow.endDate],
-  );
 
   const { wearableMetricDataByHabitId, wearableDailyTotalsQuery } = useOverviewWearableMetrics({
     user,
@@ -425,7 +411,6 @@ export function useOverviewMetrics({
     getHabitMetricDisplay,
     getHabitMetricClassName,
     getHabitMetricStats,
-    habitMetricDataById,
   } = useOverviewHabitMetrics({
     habits,
     orderedHabits,
@@ -452,25 +437,6 @@ export function useOverviewMetrics({
   const handleCloseContext = useCallback(() => {
     setSelectedContextHabitId(null);
   }, []);
-
-  const {
-    metricContextModel,
-    isMetricContextLoading,
-    overviewContextStyle,
-  } = useOverviewMetricContext({
-    user,
-    dateRange,
-    habits,
-    orderedHabits,
-    habitsById,
-    selectedContextHabitId,
-    setSelectedContextHabitId,
-    habitMetricDataById,
-    effectiveComputerActivityDaily,
-    computerSnapshotQuery,
-    contextFetchWindow,
-    contextComputerDateRange,
-  });
 
   const hasRenderableCachedHabits = habits.length > 0;
 
@@ -524,9 +490,6 @@ export function useOverviewMetrics({
     selectedContextHabitId,
     handleOpenContext,
     handleCloseContext,
-    metricContextModel,
-    isMetricContextLoading,
-    overviewContextStyle,
     habitToDelete,
     cancelDelete,
     handleDeleteHabit,

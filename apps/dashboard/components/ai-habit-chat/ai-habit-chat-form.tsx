@@ -284,7 +284,7 @@ export function AiHabitChatForm(props: AiHabitChatFormProps) {
                       className={cn(
                         'flex h-7 items-center justify-center rounded-full border px-3.5 text-[13px] font-normal transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--surface-panel)]',
                         isActive
-                          ? 'border-[var(--border-floating)] bg-[var(--surface-raised)] text-[var(--text-primary)]'
+                          ? 'border-transparent bg-[color-mix(in_srgb,var(--text-primary)_14%,transparent)] text-[var(--text-primary)]'
                           : 'border-transparent bg-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
                       )}
                     >

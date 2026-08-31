@@ -125,8 +125,9 @@ function buildComingSoonDescriptor(options: StaticOptions): IntegrationPlugin {
       title: options.title,
       description: options.description,
       keywords: options.keywords,
-      isConnected: false,
-      node: (
+        isConnected: false,
+        comingSoon: true,
+        node: (
         <IntegrationCard
           logo={<Image src={options.image} alt={options.title} width={48} height={32} className="h-7 w-auto object-contain" />}
           title={options.title}

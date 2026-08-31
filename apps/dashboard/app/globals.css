@@ -875,7 +875,7 @@ table tbody tr,
   .app-toolbar-icon-button.app-toolbar-pill-button[data-state="open"],
   .app-toolbar-icon-button.app-toolbar-pill-button[aria-expanded="true"] {
     border-color: color-mix(in srgb, var(--text-primary) 10%, transparent) !important;
-    background: var(--surface-control-hover) !important;
+    background: var(--row-hover) !important;
     color: var(--text-primary) !important;
   }
 

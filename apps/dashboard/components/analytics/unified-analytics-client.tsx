@@ -434,8 +434,11 @@ function UnifiedAnalyticsContent() {
       {/* AI Habit Chat - Fixed near bottom, only visible in Overview mode */}
       {showAIChat && viewMode === 'overview' && (
         <div
-          className="pointer-events-none fixed bottom-[24px] right-0 flex justify-center px-4 pb-2 pt-2 sm:px-6 lg:px-8"
-          style={{ left: 'var(--ritual-sidebar-current-width, 76px)' }}
+          className="pointer-events-none fixed bottom-[24px] flex justify-center px-4 pb-2 pt-2 sm:px-6 lg:px-8"
+          style={{
+            left: 'var(--ritual-sidebar-current-width, 76px)',
+            right: 'var(--ritual-right-dock-width, 0px)',
+          }}
         >
           <div className="pointer-events-auto w-full max-w-[660px]">
                 <AIHabitChat

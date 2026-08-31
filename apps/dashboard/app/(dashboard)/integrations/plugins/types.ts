@@ -9,6 +9,7 @@ export type IntegrationCardItem = {
   description: string;
   keywords?: string[];
   isConnected: boolean;
+  comingSoon?: boolean;
   node: ReactNode;
 };
 
