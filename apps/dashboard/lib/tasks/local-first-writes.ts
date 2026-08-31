@@ -274,6 +274,26 @@ export function mergeTasksWithOutbox(
   return merged;
 }
 
+function taskUpdatedAt(task: Task): number {
+  return Date.parse(task.updated_at || task.completed_at || task.created_at || '') || 0;
+}
+
+export function mergeTaskSources(
+  remote: Task[] | null | undefined,
+  vault: Task[] | null | undefined,
+  outboxItems: TaskRoutineWriteOutboxItem[] | null | undefined,
+): Task[] {
+  const byId = new Map<string, Task>();
+  for (const task of remote || []) byId.set(task.id, task);
+  for (const task of vault || []) {
+    const existing = byId.get(task.id);
+    if (!existing || taskUpdatedAt(task) >= taskUpdatedAt(existing)) {
+      byId.set(task.id, task);
+    }
+  }
+  return mergeTasksWithOutbox([...byId.values()], outboxItems);
+}
+
 export function mergeRoutinesWithOutbox(
   routines: Routine[] | null | undefined,
   outboxItems: TaskRoutineWriteOutboxItem[] | null | undefined,

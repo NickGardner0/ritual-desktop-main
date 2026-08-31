@@ -90,6 +90,15 @@ export function ViewTabs<T extends string>({
   );
 }
 
+export function viewPillClassName(active: boolean) {
+  return cn(
+    'h-7 rounded-full border px-2.5 text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
+    active
+      ? 'border-transparent bg-[var(--brand-action)] font-medium text-[var(--brand-action-foreground)]'
+      : 'border-[var(--border-floating)] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
+  );
+}
+
 export function ViewPills({
   value,
   options,
@@ -108,12 +117,7 @@ export function ViewPills({
           key={option}
           type="button"
           onClick={() => onChange(option)}
-          className={cn(
-            'h-7 rounded-full border px-2.5 text-[12px] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] focus-visible:ring-offset-1',
-            value === option
-              ? 'border-transparent bg-[var(--surface-panel)] font-medium text-[var(--text-primary)]'
-              : 'border-[var(--border-floating)] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
-          )}
+          className={viewPillClassName(value === option)}
         >
           {option}
         </button>

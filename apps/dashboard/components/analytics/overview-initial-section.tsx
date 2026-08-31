@@ -15,6 +15,7 @@ import {
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
+import { OverviewWelcomeHeader } from '@/components/analytics/overview-welcome-header';
 import { SortableHabitList, type SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
 import type { Habit } from '@/contexts/HabitsContext';
 import { useUIPreferences } from '@/hooks/use-ui-preferences';
@@ -179,9 +180,10 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className={`pt-6 flex-1 overflow-auto ${isSummaryView ? 'pb-24' : 'pb-4'}`}>
+      <div className={`flex-1 overflow-auto ${isSummaryView ? 'pt-2 pb-24' : 'pt-6 pb-4'}`}>
         {isSummaryView ? (
-          <div className="max-w-[960px] mx-auto w-full px-1">
+          <div className="mx-auto w-full max-w-[1040px] px-2">
+            <OverviewWelcomeHeader />
             <OverviewSummaryCards />
           </div>
         ) : (

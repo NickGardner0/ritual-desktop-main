@@ -110,8 +110,8 @@ test('desktop patch version and generated identity source stay synchronized', as
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.111');
-  assert.match(cargo, /^version = "0\.1\.111"$/m);
+  assert.equal(production.version, '0.1.112');
+  assert.match(cargo, /^version = "0\.1\.112"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 
@@ -152,8 +152,12 @@ test('DMG uses the compact Ritual installer composition', async () => {
   assert.match(release, /--app-drop-link 460 200/);
   assert.match(background, /fill="#FEFEFE"/);
   assert.match(background, /fill="#333333"/);
+  assert.match(background, /renderPng\(output2xPng, 144\)/);
+  assert.match(background, /tiffutil/);
+  assert.match(background, /ritual-dmg-background@2x\.png/);
   assert.doesNotMatch(background, /#FAFAF7|#6F6D68/);
   assert.match(background, /Drag Ritual to the Applications folder to install/);
+  assert.match(release, /DMG_BACKGROUND_TIFF/);
 });
 
 test('desktop ships a single resident host with quiet login startup', async () => {

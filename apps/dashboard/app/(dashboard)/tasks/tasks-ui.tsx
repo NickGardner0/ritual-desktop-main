@@ -18,7 +18,6 @@ import {
   ListFilter,
   MoreHorizontal,
   Plus,
-  Search,
   X,
 } from 'lucide-react';
 
@@ -60,8 +59,7 @@ import {
   PillSelect,
   priorityBars,
   TaskRowShell,
-  toolbarPillClass,
-  ViewPills,
+  viewPillClassName,
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskStatus, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
@@ -133,12 +131,31 @@ export function TasksCategoryPills({
 
   return (
     <div className="flex w-full items-center gap-3 pb-3">
-      <ViewPills
-        className="min-w-0"
-        value={category}
-        options={CATEGORY_FILTERS}
-        onChange={(value) => onCategoryChange(value as (typeof CATEGORY_FILTERS)[number])}
-      />
+      <div className="flex min-w-0 flex-wrap items-center gap-1">
+        {CATEGORY_FILTERS.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              if (view === 'completed') onViewChange('today');
+              onCategoryChange(option);
+            }}
+            className={viewPillClassName(view !== 'completed' && category === option)}
+          >
+            {option}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => {
+            onCategoryChange('All');
+            onViewChange('completed');
+          }}
+          className={viewPillClassName(view === 'completed')}
+        >
+          Completed
+        </button>
+      </div>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -788,65 +805,4 @@ export function TaskRowMenu({
   );
 }
 
-export function TasksLoadingSkeleton() {
-  return (
-    <div className="space-y-2">
-      {[0, 1, 2, 3].map((item) => (
-        <div key={item} className="h-8 animate-pulse rounded-[var(--radius-row)] bg-[var(--surface-panel)]" />
-      ))}
-    </div>
-  );
-}
-
-export function TasksEmptyState({
-  onNewTask,
-  onClearFilters,
-  filtered = false,
-}: {
-  onNewTask: () => void;
-  onClearFilters?: () => void;
-  filtered?: boolean;
-}) {
-  return (
-    <div className="flex h-full items-center justify-center text-center">
-      <div>
-        <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border-subtle)] bg-[var(--surface-raised)]">
-          {filtered ? (
-            <Search className="h-4 w-4 text-[var(--icon-muted)]" />
-          ) : (
-            <Circle className="h-4 w-4 text-[var(--icon-muted)]" />
-          )}
-        </span>
-        <div className="mt-3 text-[17px] font-medium text-[var(--text-primary)]">
-          {filtered ? 'No matching tasks' : 'No tasks here'}
-        </div>
-        <p className="mt-1.5 text-[13px] text-[var(--text-muted)]">
-          {filtered ? 'Try clearing a filter or choosing a different scope.' : 'Create a task to start this list.'}
-        </p>
-        {filtered && onClearFilters ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="compact"
-            onClick={onClearFilters}
-            className={cn(toolbarPillClass, 'mt-4 font-medium')}
-          >
-            <X className="h-3.5 w-3.5" />
-            Clear filters
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="outline"
-            size="compact"
-            onClick={onNewTask}
-            className={cn(toolbarPillClass, 'mt-4 font-medium')}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New task
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-}
+export { TasksEmptyState, TasksLoadingSkeleton } from './tasks-empty-state';

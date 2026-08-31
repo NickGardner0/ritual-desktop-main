@@ -2104,49 +2104,49 @@ html body .ritual-font-geist .px-onboarding .px-onboarding-title {
 /* App font selection deliberately overrides component-level font-family
    utilities while preserving code, icon fonts, and the onboarding identity. */
 .ritual-font-fk,
-.ritual-font-fk *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-fk *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-fk);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* GT Standard */
 .ritual-font-gt,
-.ritual-font-gt *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-gt *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-gt);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* GT America */
 .ritual-font-gt-america,
-.ritual-font-gt-america *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-gt-america *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-gt-america);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* Waldenburg */
 .ritual-font-waldenburg,
-.ritual-font-waldenburg *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-waldenburg *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-waldenburg);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* Inter */
 .ritual-font-inter,
-.ritual-font-inter *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-inter *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-inter);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* DM Sans */
 .ritual-font-dm-sans,
-.ritual-font-dm-sans *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-dm-sans *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-dm-sans);
   font-family: var(--ritual-selected-font-family) !important;
 }
 
 /* Geist Sans */
 .ritual-font-geist,
-.ritual-font-geist *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd) {
+.ritual-font-geist *:not(.px-onboarding):not(.px-onboarding *):not([class*="material-symbols"]):not(code):not(pre):not(kbd):not(.ritual-index-greeting):not(.ritual-index-greeting *) {
   --ritual-selected-font-family: var(--ritual-font-geist);
   font-family: var(--ritual-selected-font-family) !important;
 }
@@ -2160,6 +2160,10 @@ html body .ritual-font-geist .px-onboarding .px-onboarding-title {
 .ritual-font-dm-sans .material-symbols-rounded,
 .ritual-font-geist .material-symbols-rounded {
   font-family: 'Material Symbols Rounded' !important;
+}
+
+html body .ritual-index-greeting {
+  font-family: var(--ritual-font-waldenburg) !important;
 }
 
 /* Settings intentionally mimic native macOS preferences typography. */

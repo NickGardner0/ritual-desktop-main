@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 
 const repoRoot = process.cwd();
-const outputPath =
+const outputPng =
   process.argv[2] ??
-  path.join(
-    repoRoot,
-    "apps/desktop/src-tauri/dmg/ritual-dmg-background.png",
-  );
+  path.join(repoRoot, "apps/desktop/src-tauri/dmg/ritual-dmg-background.png");
+const outputDir = path.dirname(outputPng);
+const output2xPng = path.join(outputDir, "ritual-dmg-background@2x.png");
+const outputTiff = path.join(outputDir, "ritual-dmg-background.tiff");
 
 const width = 640;
 const height = 440;
@@ -28,19 +29,44 @@ const svg = `
     x="320"
     y="384"
     fill="#333333"
-    font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif"
+    font-family="Helvetica Neue, Helvetica, Arial, sans-serif"
     font-size="14"
-    font-weight="600"
-    letter-spacing="-0.12"
+    font-weight="500"
+    letter-spacing="0"
     text-anchor="middle"
+    text-rendering="geometricPrecision"
   >Drag Ritual to the Applications folder to install</text>
 </svg>
 `;
 
-fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+fs.mkdirSync(outputDir, { recursive: true });
 
-await sharp(Buffer.from(svg))
-  .png()
-  .toFile(outputPath);
+const svgBuffer = Buffer.from(svg);
 
-console.log(path.relative(repoRoot, outputPath));
+async function renderPng(filePath, density) {
+  await sharp(svgBuffer, { density })
+    .png()
+    .withMetadata({ density })
+    .toFile(filePath);
+}
+
+await renderPng(outputPng, 72);
+await renderPng(output2xPng, 144);
+
+let wroteTiff = false;
+try {
+  execFileSync(
+    "tiffutil",
+    ["-cathidpicheck", outputPng, output2xPng, "-out", outputTiff],
+    { stdio: "pipe" },
+  );
+  wroteTiff = fs.existsSync(outputTiff);
+} catch {
+  wroteTiff = false;
+}
+
+console.log(path.relative(repoRoot, outputPng));
+console.log(path.relative(repoRoot, output2xPng));
+if (wroteTiff) {
+  console.log(path.relative(repoRoot, outputTiff));
+}

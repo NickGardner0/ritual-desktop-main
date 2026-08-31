@@ -10,6 +10,7 @@ import { syncEntityMentions } from '@/lib/entities/sync-mentions';
 import { playInteractionSound } from '@/lib/interaction-sounds';
 
 import { apiOperationWithAuth } from '@/lib/api/client';
+import { BackendClientError } from '@/lib/api/generated/backend-client';
 import { useTaskRoutineOutboxSync } from '@/hooks/use-task-routine-outbox-sync';
 import {
   putLocalVaultTask,
@@ -22,7 +23,7 @@ import {
   buildOptimisticTaskUpdate,
   buildTaskCreateOutboxItem,
   buildTaskUpdateOutboxItem,
-  mergeTasksWithOutbox,
+  mergeTaskSources,
 } from '@/lib/tasks/local-first-writes';
 import {
   defaultScheduleForView,
@@ -42,13 +43,23 @@ import { TaskDetailSheet } from '@/lib/tasks/task-detail-sheet';
 import { rememberEntitySummary, summaryFromTask } from '@/lib/entities/resolve';
 import { dashboardQueryKeys } from '@/lib/dashboard/query-keys';
 import {
-  buildSeedTasks,
+  buildVisibleSeedTasks,
   readDemoGeneratedTasks,
+  rememberDismissedSeedTaskId,
   sortTasksForDisplay,
   subscribeDemoRoutineGeneration,
 } from '@/lib/tasks/seed-data';
+import {
+  createInputFromTask,
+  filterTasksForView,
+  isSeedTaskId,
+  isTaskInView,
+  selectTasksForQuery,
+} from '@/lib/tasks/task-view';
 import type { Task, TaskUpdateInput } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
+
+import { CompletedTaskLog } from './completed-task-log';
 
 import {
   CATEGORY_FILTERS,
@@ -83,25 +94,6 @@ async function withTaskCreateTimeout<T>(request: Promise<T>): Promise<T> {
   }
 }
 
-function isTaskInView(task: Task, view: TaskViewId): boolean {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const tomorrowStart = todayStart + 24 * 60 * 60 * 1000;
-  const scheduled = task.scheduled_for ? new Date(task.scheduled_for).getTime() : null;
-  const due = task.due_at ? new Date(task.due_at).getTime() : null;
-  if (view === 'completed') return task.status === 'completed';
-  if (view === 'skipped') return task.status === 'canceled' || task.status === 'skipped';
-  if (view === 'archived') return task.status === 'archived';
-  if (!['open', 'in_progress', 'in_review'].includes(task.status)) return false;
-  if (view === 'anytime') return !scheduled && !due;
-  if (view === 'upcoming') return Boolean((scheduled && scheduled >= tomorrowStart) || (due && due >= tomorrowStart));
-  return Boolean((scheduled && scheduled < tomorrowStart) || (due && due < tomorrowStart));
-}
-
-function filterTasksForView(tasks: Task[], view: TaskViewId, category: string): Task[] {
-  return tasks.filter((task) => isTaskInView(task, view) && (category === 'All' || task.category === category));
-}
-
 function dedupeTasksByIdentity(tasks: Task[]): Task[] {
   const ids = new Set<string>();
   const clientEventIds = new Set<string>();
@@ -112,6 +104,33 @@ function dedupeTasksByIdentity(tasks: Task[]): Task[] {
     if (task.client_event_id) clientEventIds.add(task.client_event_id);
     return true;
   });
+}
+
+function findCachedTask(
+  queryClient: { getQueriesData: (filters: { queryKey: unknown[] }) => Array<[unknown, unknown]> },
+  userId: string | undefined,
+  taskId: string,
+): Task | undefined {
+  const queries = queryClient.getQueriesData({ queryKey: ['tasks', userId] });
+  for (const [, data] of queries) {
+    if (!Array.isArray(data)) continue;
+    const match = (data as Task[]).find((task) => task.id === taskId);
+    if (match) return match;
+  }
+  return undefined;
+}
+
+function replaceTaskInList(tasks: Task[], previousId: string, next: Task): Task[] {
+  let replaced = false;
+  const mapped = tasks.map((task) => {
+    if (task.id !== previousId) return task;
+    replaced = true;
+    return next;
+  });
+  const withoutDuplicate = mapped.filter((task, index) => (
+    mapped.findIndex((item) => item.id === task.id) === index
+  ));
+  return replaced ? withoutDuplicate : dedupeTasksByIdentity([next, ...tasks]);
 }
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = {
@@ -243,8 +262,6 @@ export function TasksClient() {
   const tasksQuery = useQuery({
     queryKey,
     queryFn: async () => {
-      const params = new URLSearchParams({ view, limit: '300' });
-      if (category !== 'All') params.set('category', category);
       let backendItems: Task[] | null = null;
       try {
         const response = await apiOperationWithAuth(
@@ -260,14 +277,17 @@ export function TasksClient() {
 
       const [vaultItems, outboxItems] = user?.id
         ? await Promise.all([
-            backendItems ? Promise.resolve(null) : readLocalVaultTasks(user.id),
+            readLocalVaultTasks(user.id),
             readLocalVaultTaskRoutineWriteOutboxItems(user.id),
           ])
         : [null, null] as const;
-      const merged = mergeTasksWithOutbox(backendItems || vaultItems || [], outboxItems);
-      const filtered = filterTasksForView(merged, view, category);
-      if (filtered.length) return sortTasksForDisplay(filtered);
-      return sortTasksForDisplay(filterTasksForView(buildSeedTasks(user?.id || 'visual-seed'), view, category));
+      const merged = mergeTaskSources(backendItems, vaultItems, outboxItems);
+      return sortTasksForDisplay(selectTasksForQuery({
+        stored: merged,
+        seeds: buildVisibleSeedTasks(user?.id || 'visual-seed'),
+        view,
+        category,
+      }));
     },
     enabled: Boolean(user?.id),
     staleTime: 15_000,
@@ -326,6 +346,40 @@ export function TasksClient() {
 
   const updateTaskMutation = useMutation({
     mutationFn: async ({ id, patch }: { id: string; patch: TaskUpdateInput }) => {
+      const current = findCachedTask(queryClient, user?.id, id);
+      if (isSeedTaskId(id)) {
+        if (!current) throw new Error('Task not found');
+        const input = createInputFromTask(current, patch);
+        try {
+          const created = await apiOperationWithAuth(
+            'create_task_api_tasks_post',
+            getToken,
+            { body: input },
+            user?.id,
+          ) as Task;
+          if (user?.id) {
+            rememberDismissedSeedTaskId(user.id, id);
+            await putLocalVaultTask(user.id, created).catch(() => undefined);
+          }
+          return created;
+        } catch (createError) {
+          if (!user?.id) throw createError;
+          const optimistic = buildOptimisticTask(input, user.id);
+          await putLocalVaultTask(user.id, optimistic);
+          await putLocalVaultTaskRoutineWriteOutboxItem(
+            user.id,
+            buildTaskCreateOutboxItem(
+              user.id,
+              { ...input, client_event_id: optimistic.client_event_id },
+              optimistic,
+            ),
+          );
+          rememberDismissedSeedTaskId(user.id, id);
+          toast.message('Task update saved locally. It will sync when the backend is available.');
+          return optimistic;
+        }
+      }
+
       try {
         return await apiOperationWithAuth(
           'update_task_api_tasks__task_id__patch',
@@ -335,8 +389,35 @@ export function TasksClient() {
         ) as Task;
       } catch (error) {
         if (!user?.id) throw error;
-        const current = (queryClient.getQueryData<Task[]>(queryKey) || []).find((task) => task.id === id);
         if (!current) throw error;
+        if (error instanceof BackendClientError && error.status === 404) {
+          const input = createInputFromTask(current, patch);
+          try {
+            const created = await apiOperationWithAuth(
+              'create_task_api_tasks_post',
+              getToken,
+              { body: input },
+              user.id,
+            ) as Task;
+            rememberDismissedSeedTaskId(user.id, id);
+            await putLocalVaultTask(user.id, created).catch(() => undefined);
+            return created;
+          } catch (createError) {
+            const optimistic = buildOptimisticTask(input, user.id);
+            await putLocalVaultTask(user.id, optimistic);
+            await putLocalVaultTaskRoutineWriteOutboxItem(
+              user.id,
+              buildTaskCreateOutboxItem(
+                user.id,
+                { ...input, client_event_id: optimistic.client_event_id },
+                optimistic,
+              ),
+            );
+            rememberDismissedSeedTaskId(user.id, id);
+            toast.message('Task update saved locally. It will sync when the backend is available.');
+            return optimistic;
+          }
+        }
         const optimistic = buildOptimisticTaskUpdate(current, patch, user.id);
         await putLocalVaultTask(user.id, optimistic);
         await putLocalVaultTaskRoutineWriteOutboxItem(
@@ -348,19 +429,45 @@ export function TasksClient() {
       }
     },
     onMutate: async ({ id, patch }) => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<Task[]>(queryKey);
-      queryClient.setQueryData<Task[]>(queryKey, (current) =>
-        applyTaskOptimisticPatch(current || [], id, patch),
-      );
-      return { previous };
+      await queryClient.cancelQueries({ queryKey: ['tasks', user?.id] });
+      const completedKey = ['tasks', user?.id, 'completed', 'All'] as const;
+      const previousQueries = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks', user?.id] });
+      const previousCompleted = queryClient.getQueryData<Task[]>(completedKey);
+      const existing = findCachedTask(queryClient, user?.id, id);
+      queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', user?.id] }, (current) => {
+        if (!Array.isArray(current)) return current;
+        return applyTaskOptimisticPatch(current, id, patch);
+      });
+      if (existing && patch.status === 'completed') {
+        const completedTask = applyTaskOptimisticPatch([existing], id, patch)[0];
+        queryClient.setQueryData<Task[]>(completedKey, (current = []) => (
+          dedupeTasksByIdentity([completedTask, ...current.filter((task) => task.id !== id)])
+        ));
+      } else if (existing && patch.status && patch.status !== 'completed') {
+        queryClient.setQueryData<Task[]>(completedKey, (current) => (
+          (current || []).filter((task) => task.id !== id)
+        ));
+      }
+      return { previousQueries, previousCompleted, completedKey };
     },
     onError: (error, _vars, context) => {
-      if (context?.previous) queryClient.setQueryData(queryKey, context.previous);
+      for (const [key, data] of context?.previousQueries || []) {
+        queryClient.setQueryData(key, data);
+      }
+      if (context?.completedKey) {
+        queryClient.setQueryData(context.completedKey, context.previousCompleted);
+      }
       toast.error(error instanceof Error ? error.message : 'Failed to update task.');
     },
     onSuccess: (task, variables) => {
       if (variables.patch.status === 'completed') playInteractionSound('taskCompleted');
+      if (task && task.id !== variables.id) {
+        queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', user?.id] }, (current) => {
+          if (!Array.isArray(current)) return current;
+          return replaceTaskInList(current, variables.id, task);
+        });
+        setRecentlyCreatedTasks((current) => replaceTaskInList(current, variables.id, task));
+      }
       invalidateTaskSurfaces();
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
       if (task) rememberEntitySummary(summaryFromTask(task));
@@ -377,9 +484,12 @@ export function TasksClient() {
 
   const tasksForView = useMemo(() => {
     const demoTasks = filterTasksForView(demoGeneratedTasks, view, category);
-    const sortedTasks = sortTasksForDisplay(dedupeTasksByIdentity([...(tasksQuery.data || []), ...demoTasks]));
+    const storedTasks = filterTasksForView(tasksQuery.data || [], view, category);
     const recentTasks = filterTasksForView(recentlyCreatedTasks, view, category);
-    return dedupeTasksByIdentity([...recentTasks, ...sortedTasks]);
+    return dedupeTasksByIdentity([
+      ...recentTasks,
+      ...sortTasksForDisplay(dedupeTasksByIdentity([...storedTasks, ...demoTasks])),
+    ]);
   }, [category, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
   const tasks = useMemo(
     () => filterAndSortTasks(tasksForView, priorityFilter, sortMode),
@@ -534,6 +644,22 @@ export function TasksClient() {
           />
           {tasksQuery.isLoading ? (
             <TasksLoadingSkeleton />
+          ) : view === 'completed' ? (
+            hasTasks ? (
+              <CompletedTaskLog
+                tasks={tasks}
+                onComplete={rowHandlers.onComplete}
+                onOpen={rowHandlers.onOpen}
+              />
+            ) : (
+              <TasksEmptyState
+                onNewTask={() => setComposerOpen(true)}
+                onClearFilters={clearTaskFilters}
+                filtered={category !== 'All' || priorityFilter !== 'all'}
+                title="No completed tasks"
+                description="Checked-off tasks will show up here, grouped by the month you finished them."
+              />
+            )
           ) : hasTasks ? (
             displayMode === 'board' ? (
               <TaskBoard groups={boardGroups} {...rowHandlers} />

@@ -35,8 +35,7 @@ export type IntegrationCardProps = {
   extraActions?: ReactNode;
 };
 
-const quietActionClassName =
-  'h-7 px-2 text-[13px] font-normal text-[var(--text-secondary)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]';
+const connectActionClassName = 'h-7 !rounded-full px-3 font-medium';
 
 const iconWellClassName =
   'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-[var(--surface-panel)] [&>*]:max-h-6 [&>*]:max-w-6 [&_img]:max-h-6 [&_img]:max-w-6 [&_img]:object-contain';
@@ -146,11 +145,11 @@ export const IntegrationCard = memo(function IntegrationCard({
         ) : (
           <Button
             type="button"
-            variant="ghost"
+            variant="brand"
             size="compact"
             onClick={onConnect}
             disabled={isConnecting}
-            className={quietActionClassName}
+            className={connectActionClassName}
           >
             {isConnecting ? (
               <span className="inline-flex items-center gap-1.5">

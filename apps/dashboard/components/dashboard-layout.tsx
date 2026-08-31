@@ -202,7 +202,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
               <div
                 ref={rightDockRef}
                 id="ritual-right-dock"
-                className="flex h-full shrink-0 items-stretch"
+                className="relative z-20 flex h-full shrink-0 items-stretch overflow-visible"
               />
             </div>
           </RightDockTargetProvider>

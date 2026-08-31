@@ -1,6 +1,7 @@
 "use client";
 
 import { describeSchedule, nextOccurrences } from "@/lib/routines/schedule-engine.mjs";
+import { isSeedTaskId } from "./task-view";
 import type { Routine, RoutineRun, Task } from "./types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -536,6 +537,52 @@ export function subscribeDemoRoutineGeneration(callback: () => void) {
 }
 
 const ACTIVE_TASK_STATUSES = new Set<Task['status']>(['open', 'in_progress', 'in_review']);
+
+export function dismissedSeedTaskStorageKey(userId: string) {
+  return `ritual:dismissed-seed-tasks:${userId}`;
+}
+
+type SeedTaskStorage = Pick<Storage, "getItem" | "setItem">;
+
+function defaultSeedTaskStorage(): SeedTaskStorage | null {
+  try {
+    return typeof window === "undefined" ? null : window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function readDismissedSeedTaskIds(
+  userId: string,
+  storage: Pick<Storage, "getItem"> | null = defaultSeedTaskStorage(),
+): string[] {
+  if (!storage) return [];
+  try {
+    const parsed = JSON.parse(storage.getItem(dismissedSeedTaskStorageKey(userId)) || "[]") as unknown;
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function rememberDismissedSeedTaskId(
+  userId: string,
+  taskId: string,
+  storage: SeedTaskStorage | null = defaultSeedTaskStorage(),
+): string[] {
+  if (!isSeedTaskId(taskId)) return readDismissedSeedTaskIds(userId, storage);
+  const next = [...new Set([...readDismissedSeedTaskIds(userId, storage), taskId])];
+  storage?.setItem(dismissedSeedTaskStorageKey(userId), JSON.stringify(next));
+  return next;
+}
+
+export function buildVisibleSeedTasks(
+  userId: string,
+  storage: Pick<Storage, "getItem"> | null = defaultSeedTaskStorage(),
+): Task[] {
+  const dismissed = new Set(readDismissedSeedTaskIds(userId, storage));
+  return buildSeedTasks(userId).filter((task) => !dismissed.has(task.id));
+}
 
 export function sortTasksForDisplay(tasks: Task[]) {
   return tasks.slice().sort((a, b) => {

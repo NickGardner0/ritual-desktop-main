@@ -21,8 +21,9 @@ import { useChatSendMessage } from '@/app/(dashboard)/chat/use-chat-send-message
 
 const STORAGE_KEY = 'ritual:index-chat-panel-width';
 const DEFAULT_PANEL_WIDTH = 400;
-const MIN_PANEL_WIDTH = 300;
+const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 720;
+const RESIZE_GUTTER_PX = 12;
 
 function readStoredWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_PANEL_WIDTH;
@@ -42,6 +43,14 @@ function clampWidth(next: number): number {
     Math.max(MIN_PANEL_WIDTH, Math.floor(window.innerWidth * 0.52)),
   );
   return Math.min(maxForViewport, Math.max(MIN_PANEL_WIDTH, next));
+}
+
+function persistWidth(width: number) {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, String(width));
+  } catch {
+    // ignore storage failures
+  }
 }
 
 export function IndexChatPanel({
@@ -171,31 +180,34 @@ export function IndexChatPanel({
 
   useEffect(() => {
     if (!isResizing) return;
-    const onMove = (event: MouseEvent) => {
+    const onMove = (event: PointerEvent) => {
       setPanelWidth(clampWidth(window.innerWidth - event.clientX));
     };
     const onUp = () => {
       setIsResizing(false);
       setPanelWidth((current) => {
-        try {
-          window.localStorage.setItem(STORAGE_KEY, String(current));
-        } catch {
-          // ignore storage failures
-        }
+        persistWidth(current);
         return current;
       });
     };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
     };
   }, [isResizing]);
+
+  useEffect(() => {
+    const node = textareaRef.current;
+    if (!node) return;
+    node.style.height = 'auto';
+    node.style.height = `${Math.min(node.scrollHeight, 128)}px`;
+  }, [input, open]);
 
   useEffect(() => {
     const node = scrollRef.current;
@@ -208,7 +220,10 @@ export function IndexChatPanel({
       document.documentElement.style.removeProperty('--ritual-right-dock-width');
       return;
     }
-    document.documentElement.style.setProperty('--ritual-right-dock-width', `${panelWidth}px`);
+    document.documentElement.style.setProperty(
+      '--ritual-right-dock-width',
+      `${panelWidth + RESIZE_GUTTER_PX}px`,
+    );
     return () => {
       document.documentElement.style.removeProperty('--ritual-right-dock-width');
     };
@@ -229,36 +244,42 @@ export function IndexChatPanel({
   const showEmpty = messages.length === 0 && !streamingContent && !isLoading;
 
   return createPortal(
-    <aside
-      role="complementary"
-      aria-label={`${title} chat`}
+    <div
+      className="flex h-full min-h-0"
       onClick={(event) => event.stopPropagation()}
-      className="relative flex h-full shrink-0 overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-content)]"
-      style={{ width: panelWidth }}
+      style={{ width: panelWidth + RESIZE_GUTTER_PX }}
     >
       <div
-        onMouseDown={(event) => {
-          event.preventDefault();
-          setIsResizing(true);
-        }}
-        className="absolute left-0 top-0 z-20 h-full w-2 -translate-x-1 cursor-col-resize"
-        aria-label="Resize chat panel"
         role="separator"
         aria-orientation="vertical"
+        aria-label="Resize chat panel"
         aria-valuemin={MIN_PANEL_WIDTH}
         aria-valuemax={MAX_PANEL_WIDTH}
         aria-valuenow={panelWidth}
+        title="Drag to resize"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setIsResizing(true);
+        }}
+        className="group relative z-30 shrink-0 cursor-col-resize self-stretch touch-none"
+        style={{ width: RESIZE_GUTTER_PX }}
       >
         <div
           className={cn(
-            'mx-auto h-full w-px',
-            isResizing ? 'bg-[var(--border-floating)]' : 'bg-transparent hover:bg-[var(--border-floating)]',
+            'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--border-subtle)]',
+            'group-hover:w-[2px] group-hover:bg-[var(--text-muted)]',
+            isResizing && 'w-[2px] bg-[var(--text-primary)]',
           )}
         />
       </div>
 
-      <div className="flex h-full min-w-0 flex-1 flex-col">
-        <div className="flex h-11 shrink-0 items-center justify-between gap-2 px-3">
+      <aside
+        role="complementary"
+        aria-label={`${title} chat`}
+        className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-content)]"
+      >
+        <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3">
           <div className="min-w-0 truncate text-[13px] font-medium leading-none text-[var(--text-primary)]">
             {title}
           </div>
@@ -274,11 +295,13 @@ export function IndexChatPanel({
           </Button>
         </div>
 
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
           {showEmpty ? (
-            <p className="pt-6 text-[13px] leading-5 text-[var(--text-muted)]">
-              {habitId ? `Ask about ${title}.` : 'Ask anything.'}
-            </p>
+            <div className="flex h-full min-h-[120px] items-center justify-center">
+              <p className="text-center text-[13px] leading-5 text-[var(--text-muted)]">
+                {habitId ? `Ask about ${title}.` : 'Ask anything.'}
+              </p>
+            </div>
           ) : (
             <div className="flex flex-col gap-4">
               {messages.map((message) =>
@@ -325,13 +348,13 @@ export function IndexChatPanel({
         </div>
 
         <form
-          className="shrink-0 p-3"
+          className="shrink-0 px-3 pb-3 pt-1"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
         >
-          <div className="rounded-[var(--radius-floating)] border border-[var(--border-floating)] bg-[var(--surface-raised)] px-3 pb-2.5 pt-2.5">
+          <div className="ritual-floating-surface px-3 pb-2.5 pt-2.5">
             <textarea
               ref={textareaRef}
               value={input}
@@ -343,31 +366,31 @@ export function IndexChatPanel({
                 }
               }}
               placeholder="Ask anything..."
-              rows={2}
+              rows={1}
               disabled={isLoading}
               aria-label={`Ask about ${title}`}
-              className="max-h-32 min-h-[44px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
+              className="max-h-32 min-h-[24px] w-full resize-none bg-transparent text-[14px] leading-5 text-[var(--text-primary)] outline-none placeholder:text-[var(--text-muted)]"
             />
-            <div className="mt-1 flex justify-end">
+            <div className="mt-2 flex justify-end">
               <button
                 type="submit"
                 disabled={!hasInput || isLoading}
                 aria-label="Send"
                 className={cn(
-                  'flex h-8 w-8 items-center justify-center rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
+                  'flex h-7 w-7 items-center justify-center rounded-full transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
                   hasInput
                     ? 'bg-[var(--text-primary)] text-[var(--surface-raised)] hover:opacity-90'
                     : 'bg-[var(--surface-panel)] text-[var(--text-muted)]',
                   'disabled:cursor-not-allowed disabled:opacity-50',
                 )}
               >
-                <ArrowUp className="h-4 w-4" />
+                <ArrowUp className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
         </form>
-      </div>
-    </aside>,
+      </aside>
+    </div>,
     dockTarget,
   );
 }

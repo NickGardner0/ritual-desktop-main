@@ -49,9 +49,10 @@ test("applyTaskOptimisticPatch updates only the target task", () => {
   const next = applyTaskOptimisticPatch([baseTask, otherTask], "task-1", {
     status: "completed",
     priority: "high",
-  });
+  }, "2026-08-31T12:00:00.000Z");
 
   assert.equal(next[0].status, "completed");
+  assert.equal(next[0].completed_at, "2026-08-31T12:00:00.000Z");
   assert.equal(next[0].priority, "high");
   assert.deepEqual(next[0].tags, ["review"]);
   assert.equal(next[1], otherTask);
@@ -174,3 +175,4 @@ test("task local-first status updates keep completion timestamps consistent", ()
   assert.equal(completed.completed_at, NOW);
   assert.equal(reviewed.completed_at, null);
 });
+

@@ -83,6 +83,10 @@ test('Index chrome drops Pinned and docks a resizable chat panel instead of Cont
   assert.match(panel, /--ritual-right-dock-width/);
   assert.match(analytics, /--ritual-right-dock-width/);
   assert.match(panel, /Ask anything/);
+  assert.match(panel, /cursor-col-resize/);
+  assert.match(panel, /Resize chat panel/);
+  assert.match(panel, /RESIZE_GUTTER_PX/);
+  assert.match(panel, /ritual-floating-surface/);
   assert.match(form, /color-mix\(in_srgb,var\(--text-primary\)_14%,transparent\)/);
   assert.match(css, /\.app-toolbar-pill-button:hover[\s\S]*background: var\(--row-hover\)/);
 });

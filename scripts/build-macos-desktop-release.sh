@@ -158,6 +158,7 @@ KEYCHAIN_PATH="${APPLE_SIGNING_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.ke
 UPDATER_ASSET_NAME="$(basename "${UPDATER_TAR}")"
 UPDATER_ASSET_URL="${UPDATER_ENDPOINT%/latest.json}/${UPDATER_ASSET_NAME}"
 DMG_BACKGROUND_PATH="apps/desktop/src-tauri/dmg/ritual-dmg-background.png"
+DMG_BACKGROUND_TIFF="apps/desktop/src-tauri/dmg/ritual-dmg-background.tiff"
 
 NOTARY_AUTH_ARGS=()
 if [[ "${has_api_key_credentials}" == "true" ]]; then
@@ -196,6 +197,10 @@ fi
 
 echo "Generating DMG background asset..."
 node scripts/generate-macos-dmg-background.mjs "${DMG_BACKGROUND_PATH}"
+DMG_BACKGROUND_ASSET="${DMG_BACKGROUND_PATH}"
+if [[ -f "${DMG_BACKGROUND_TIFF}" ]]; then
+  DMG_BACKGROUND_ASSET="${DMG_BACKGROUND_TIFF}"
+fi
 
 SIDECAR_DIR="apps/desktop/src-tauri/binaries"
 WATCHER_SIDECAR_PATH="${SIDECAR_DIR}/ritual-watcher-${TAURI_TARGET_TRIPLE}"
@@ -393,7 +398,7 @@ cp -R "${APP_PATH}" "${DMG_STAGING_DIR}/"
 CREATE_DMG_ARGS=(
   --volname "${PRODUCT_NAME}"
   --no-internet-enable
-  --background "${DMG_BACKGROUND_PATH}"
+  --background "${DMG_BACKGROUND_ASSET}"
   --icon-size 112
   --window-size 640 440
   --format UDZO
