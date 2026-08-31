@@ -55,12 +55,13 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
   assert.match(app, /path="\/sign-in\/\*"/);
   assert.match(app, /path="\/auth\/callback"/);
   assert.match(app, /path="\/auth\/sso-callback"/);
-  assert.match(signIn, /Continue with Google/);
-  assert.match(signIn, /Continue with Apple/);
   assert.match(signIn, /Welcome to Ritual/);
-  assert.match(signIn, /Continue in your browser/);
+  assert.match(signIn, /'Sign in'/);
+  assert.match(signIn, /rounded-full/);
+  assert.match(signIn, /oauth_google/);
+  assert.doesNotMatch(signIn, /Continue with Google/);
+  assert.doesNotMatch(signIn, /Continue in your browser/);
   assert.doesNotMatch(signIn, /Get Started/);
-  assert.doesNotMatch(signIn, />Sign In</);
   assert.match(signIn, /buildDesktopOAuthStartUrl/);
   assert.match(app, /RequireDesktopSession/);
   assert.match(origin, /desktop\.ritualdb\.com/);
@@ -88,21 +89,29 @@ test('signed-in desktop uses native session and a local shell URL', async () => 
   assert.match(app, /function RequireDesktopSession/);
   assert.match(app, /isSignedIn/);
   assert.doesNotMatch(app, /CLERK_LOAD_GRACE_MS/);
+  assert.match(app, /readDesktopSettingsWindowView/);
+  assert.match(app, /DesktopSettingsWindow/);
   assert.match(adapter, /DesktopAuthProvider/);
   assert.match(adapter, /desktopGetAuthToken/);
   assert.doesNotMatch(adapter, /@clerk\/clerk-react/);
   assert.match(sso, /desktopGetAuthToken/);
+  assert.match(sso, /if \(desktop\) \{/);
+  assert.match(sso, /router\.replace\('\/dashboard'\)/);
   assert.match(shellFn, /WebviewUrl::App\("index.html"/);
   assert.doesNotMatch(shellFn, /has_persisted_auth_token/);
   assert.doesNotMatch(shellFn, /WebviewUrl::External\(hosted\)/);
+  assert.match(main, /fn desktop_settings_window_webview_url/);
+  assert.match(main, /ritual_settings_window/);
+  assert.doesNotMatch(main, /desktop\.ritualdb\.com\/settings-window/);
+  assert.doesNotMatch(main, /WebviewUrl::External\(settings_external_url\)/);
 });
 
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
   const infoPlist = await readFile('apps/desktop/src-tauri/Info.plist', 'utf8');
-  assert.equal(production.version, '0.1.109');
-  assert.match(cargo, /^version = "0\.1\.109"$/m);
+  assert.equal(production.version, '0.1.110');
+  assert.match(cargo, /^version = "0\.1\.110"$/m);
   assert.doesNotMatch(infoPlist, /CFBundleURLTypes|com\.ritual\.desktop/);
 });
 
@@ -138,10 +147,12 @@ test('DMG uses the compact Ritual installer composition', async () => {
   const release = await readFile('scripts/build-macos-desktop-release.sh', 'utf8');
   const background = await readFile('scripts/generate-macos-dmg-background.mjs', 'utf8');
   assert.match(release, /--icon-size 112/);
-  assert.match(release, /--window-size 520 356/);
-  assert.match(release, /--icon "\$\{PRODUCT_NAME\}\.app" 140 165/);
-  assert.match(release, /--app-drop-link 380 165/);
-  assert.match(background, /fill="#FAFAF7"/);
+  assert.match(release, /--window-size 640 440/);
+  assert.match(release, /--icon "\$\{PRODUCT_NAME\}\.app" 180 200/);
+  assert.match(release, /--app-drop-link 460 200/);
+  assert.match(background, /fill="#FEFEFE"/);
+  assert.match(background, /fill="#333333"/);
+  assert.doesNotMatch(background, /#FAFAF7|#6F6D68/);
   assert.match(background, /Drag Ritual to the Applications folder to install/);
 });
 

@@ -395,12 +395,12 @@ CREATE_DMG_ARGS=(
   --no-internet-enable
   --background "${DMG_BACKGROUND_PATH}"
   --icon-size 112
-  --window-size 520 356
+  --window-size 640 440
   --format UDZO
   --filesystem APFS
   --hide-extension "${PRODUCT_NAME}.app"
-  --icon "${PRODUCT_NAME}.app" 140 165
-  --app-drop-link 380 165
+  --icon "${PRODUCT_NAME}.app" 180 200
+  --app-drop-link 460 200
   "${DMG_PATH}"
   "${DMG_STAGING_DIR}"
 )

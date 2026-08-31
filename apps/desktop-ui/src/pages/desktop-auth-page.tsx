@@ -39,7 +39,7 @@ async function startDesktopOAuth(mode: DesktopOAuthMode, strategy: DesktopOAuthS
 }
 
 export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
-  const [busyStrategy, setBusyStrategy] = useState<DesktopOAuthStrategy | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLogoSpinning, setIsLogoSpinning] = useState(false);
   const logoRef = useRef<HTMLImageElement>(null);
@@ -59,7 +59,7 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
 
   const launch = async (strategy: DesktopOAuthStrategy) => {
     setError(null);
-    setBusyStrategy(strategy);
+    setBusy(true);
     try {
       await startDesktopOAuth(mode, strategy);
     } catch (launchError) {
@@ -71,7 +71,7 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
       });
       setError(message);
     } finally {
-      setBusyStrategy(null);
+      setBusy(false);
     }
   };
 
@@ -96,32 +96,18 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
             transition: 'transform 500ms ease-in-out',
           }}
         />
-        <h1 className="mb-3 text-[var(--text-primary)]" style={welcomeHeadingStyle}>
+        <h1 className="mb-6 text-[var(--text-primary)]" style={welcomeHeadingStyle}>
           Welcome to Ritual
         </h1>
-        <p className="mb-8 max-w-sm text-center text-sm leading-6 text-[var(--text-muted)]">
-          Continue in your browser. Google and Apple never run inside this window.
-        </p>
-        <div className="flex w-full max-w-xs flex-col gap-2">
-          <Button
-            type="button"
-            variant="brand"
-            className="w-full rounded-sm"
-            disabled={busyStrategy !== null}
-            onClick={() => void launch('oauth_google')}
-          >
-            {busyStrategy === 'oauth_google' ? 'Opening Google…' : 'Continue with Google'}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full rounded-sm"
-            disabled={busyStrategy !== null}
-            onClick={() => void launch('oauth_apple')}
-          >
-            {busyStrategy === 'oauth_apple' ? 'Opening Apple…' : 'Continue with Apple'}
-          </Button>
-        </div>
+        <Button
+          type="button"
+          variant="brand"
+          className="rounded-full px-10"
+          disabled={busy}
+          onClick={() => void launch('oauth_google')}
+        >
+          {busy ? 'Opening…' : 'Sign in'}
+        </Button>
         {error ? (
           <p className="mt-4 max-w-sm text-center text-sm text-[var(--ritual-status-danger)]" role="alert">
             {error}

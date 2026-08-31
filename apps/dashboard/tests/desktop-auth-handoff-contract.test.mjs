@@ -95,7 +95,9 @@ test('signed-in desktop stays on the local SPA and never hops to hosted ticket a
   assert.doesNotMatch(bridge, /desktop\.auth_ticket\.hosted_handoff/);
   assert.doesNotMatch(bridge, /window\.location\.replace/);
   assert.match(bridge, /router\.replace\(nextPath\)/);
-  assert.match(bridge, /\/auth\/sso-callback/);
+  assert.match(bridge, /return '\/dashboard'/);
+  assert.match(bridge, /ritual_settings_window/);
+  assert.doesNotMatch(bridge, /\/auth\/sso-callback/);
   assert.doesNotMatch(callback, /shouldCompleteDesktopAuthOnHostedOrigin/);
   assert.doesNotMatch(callback, /buildDesktopHostedAuthCallbackUrl/);
   assert.match(callback, /getDesktopCapabilities\(\)\.isDesktop/);

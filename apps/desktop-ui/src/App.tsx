@@ -10,6 +10,7 @@ import AuthCallbackPage from '@/app/auth/callback/page';
 import SsoCallbackPage from '@/app/auth/sso-callback/page';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { DesktopAuthPage } from './pages/desktop-auth-page';
+import { readDesktopSettingsWindowView } from './pages/desktop-settings-query';
 
 const LogsClient = lazy(() =>
   import('@/app/(dashboard)/activity/logs-client').then((module) => ({ default: module.LogsClient })),
@@ -35,6 +36,9 @@ const RoutinesClient = lazy(() =>
 const ExperimentsClient = lazy(() =>
   import('@/app/(dashboard)/experiments/experiments-client').then((module) => ({ default: module.ExperimentsClient })),
 );
+const DesktopSettingsWindow = lazy(() =>
+  import('./pages/desktop-settings-window').then((module) => ({ default: module.DesktopSettingsWindow })),
+);
 
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -54,12 +58,20 @@ function StartingRitual() {
 
 function RequireDesktopSession({ children }: { children: ReactNode }) {
   const { isLoaded, isSignedIn } = useUser();
+  const settingsView = readDesktopSettingsWindowView();
 
   if (!isLoaded) {
     return <StartingRitual />;
   }
 
   if (!isSignedIn) {
+    if (settingsView) {
+      return (
+        <main className="flex min-h-screen items-center justify-center bg-[#fefefe] px-6 text-center text-sm text-[#666666]">
+          Sign in from the main window to open Settings.
+        </main>
+      );
+    }
     return <Navigate to="/sign-in" replace />;
   }
 
@@ -90,6 +102,21 @@ function DesktopAppRoutes() {
 }
 
 export function App() {
+  const settingsView = readDesktopSettingsWindowView();
+  if (settingsView) {
+    return (
+      <BrowserRouter>
+        <RootProviders>
+          <RequireDesktopSession>
+            <Suspense fallback={<StartingRitual />}>
+              <DesktopSettingsWindow initialView={settingsView} />
+            </Suspense>
+          </RequireDesktopSession>
+        </RootProviders>
+      </BrowserRouter>
+    );
+  }
+
   return (
     <BrowserRouter>
       <RootProviders>

@@ -210,6 +210,13 @@ export default function SSOCallback() {
         clearFromWelcomeFlow()
         clearSignUpIntent()
 
+        if (desktop) {
+          void initializeDesktopVault(resolvedUserId)
+          await prepareDashboardRedirect('/dashboard', shouldRestoreDashboardWindowSize)
+          if (!cancelled) router.replace('/dashboard')
+          return
+        }
+
         setStatus('Setting up your account...')
         const bootstrapStartedAt = window.performance.now()
         let bootstrap

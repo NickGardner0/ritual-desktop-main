@@ -22,12 +22,14 @@ test('desktop-ui ships a local Vite SPA instead of a hosted redirect', () => {
   assert.match(clerk, /DesktopAuthProvider/);
 });
 
-test('signed-out desktop home shows compact Google and Apple chrome', () => {
+test('signed-out desktop home is Amp-style logo, welcome, and Sign in', () => {
   const signIn = readFileSync(join(root, 'src/pages/desktop-auth-page.tsx'), 'utf8');
   assert.match(signIn, /Welcome to Ritual/);
-  assert.match(signIn, /Continue with Google/);
-  assert.match(signIn, /Continue with Apple/);
-  assert.match(signIn, /Continue in your browser/);
+  assert.match(signIn, /'Sign in'/);
+  assert.match(signIn, /rounded-full/);
+  assert.match(signIn, /oauth_google/);
+  assert.doesNotMatch(signIn, /Continue with Google/);
+  assert.doesNotMatch(signIn, /Continue in your browser/);
   assert.doesNotMatch(signIn, /Get Started/);
   assert.doesNotMatch(signIn, /step === 'welcome'/);
 });
@@ -54,8 +56,12 @@ test('disk session becomes isLoaded before a background JWT refresh', () => {
 test('non-Index desktop routes are lazy and Index stays in the first chunk', () => {
   const app = readFileSync(join(root, 'src/App.tsx'), 'utf8');
   const vite = readFileSync(join(root, 'vite.config.ts'), 'utf8');
+  const settingsQuery = readFileSync(join(root, 'src/pages/desktop-settings-query.ts'), 'utf8');
   assert.match(app, /lazy\(\(\) =>/);
   assert.match(app, /ClientDashboard/);
+  assert.match(app, /readDesktopSettingsWindowView/);
+  assert.match(app, /DesktopSettingsWindow/);
+  assert.match(settingsQuery, /ritual_settings_window/);
   assert.doesNotMatch(app, /import \{ LogsClient \}/);
   assert.doesNotMatch(app, /import \{ ChatClient \}/);
   assert.match(vite, /chunkSizeWarningLimit:\s*800/);

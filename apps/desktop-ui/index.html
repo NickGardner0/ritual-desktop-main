@@ -28,6 +28,11 @@
       html.dark body::before {
         background: #101011;
       }
+      html[data-settings-window] body::before,
+      body:has(.welcome-page)::before,
+      body:has(.ritual-settings-window)::before {
+        display: none;
+      }
       #root {
         position: relative;
         z-index: 1;
@@ -43,6 +48,11 @@
           if (stored === 'dark') {
             document.documentElement.classList.add('dark');
             document.documentElement.style.background = '#111111';
+          }
+        } catch (error) {}
+        try {
+          if (new URLSearchParams(window.location.search).get('ritual_settings_window') === '1') {
+            document.documentElement.dataset.settingsWindow = '1';
           }
         } catch (error) {}
       })();

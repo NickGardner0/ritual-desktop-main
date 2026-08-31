@@ -3,8 +3,11 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { useAuth } from '@clerk/nextjs';
+
 import {
   desktopCompleteAuthHandoff,
+  desktopGetAuthToken,
   getDesktopRuntimeInfo,
   recordDesktopShellEvent,
 } from '@/lib/native-gateway';
@@ -13,6 +16,12 @@ import {
   consumeDesktopAuthHandoff,
   storePendingDesktopAuthAcknowledgement,
 } from '@/lib/desktop-auth-handoff';
+import {
+  clearFromWelcomeFlow,
+  clearSignUpIntent,
+  markDeviceAuthenticated,
+} from '@/lib/onboarding-flow';
+import { initializeDesktopVault } from '@/lib/privacy/vault-client';
 
 const DESKTOP_AUTH_DEEP_LINK_EVENT = 'desktop://auth-deep-link';
 
@@ -58,11 +67,12 @@ async function completeDesktopAuthDeepLink(rawUrl: string): Promise<string> {
   });
   await desktopCompleteAuthHandoff(handoffId);
   storePendingDesktopAuthAcknowledgement(handoffId);
-  return '/auth/sso-callback';
+  return '/dashboard';
 }
 
 export function DesktopAuthDeepLinkBridge() {
   const { isDesktop } = useDesktopCapabilities();
+  const { getToken } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -72,7 +82,10 @@ export function DesktopAuthDeepLinkBridge() {
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      if (params.get('ritual_sidebar_window') === '1') {
+      if (
+        params.get('ritual_sidebar_window') === '1'
+        || params.get('ritual_settings_window') === '1'
+      ) {
         return;
       }
     }
@@ -83,6 +96,14 @@ export function DesktopAuthDeepLinkBridge() {
     const handleDesktopDeepLink = async (rawUrl: string) => {
       try {
         const nextPath = await completeDesktopAuthDeepLink(rawUrl);
+        await getToken();
+        markDeviceAuthenticated();
+        clearFromWelcomeFlow();
+        clearSignUpIntent();
+        const session = await desktopGetAuthToken({ refresh: false });
+        if (session?.userId) {
+          void initializeDesktopVault(session.userId);
+        }
         void recordDesktopShellEvent('desktop.auth_deep_link.received', 'info', {
           nextPath,
         });
@@ -123,7 +144,7 @@ export function DesktopAuthDeepLinkBridge() {
         unlisten();
       }
     };
-  }, [isDesktop, router]);
+  }, [getToken, isDesktop, router]);
 
   return null;
 }

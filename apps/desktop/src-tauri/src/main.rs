@@ -2065,13 +2065,30 @@ fn normalize_settings_view(view: Option<String>) -> String {
     }
 }
 
-fn build_settings_window_url(initial_view: &str) -> String {
-    let ritual_env = configured_ritual_env();
-    let app_origin = get_app_url();
-    let mut settings_url = join_url_path(&app_origin, "/settings-window");
-    settings_url = with_query_param(&settings_url, "ritual_settings_window=1");
-    settings_url = with_query_param(&settings_url, &format!("ritual_desktop_env={ritual_env}"));
-    with_query_param(&settings_url, &format!("view={initial_view}"))
+fn desktop_settings_window_webview_url() -> Result<tauri::WebviewUrl, String> {
+    if !should_use_local_shell_window() {
+        let url = format!("{}/", DESKTOP_SHELL_DEV_URL.trim_end_matches('/'));
+        return url
+            .parse()
+            .map(tauri::WebviewUrl::External)
+            .map_err(|error| format!("Invalid settings window URL: {error}"));
+    }
+    Ok(tauri::WebviewUrl::App("index.html".into()))
+}
+
+fn settings_window_init_script(initial_view: &str) -> String {
+    let view = serde_json::to_string(initial_view).unwrap_or_else(|_| "\"account\"".to_string());
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_settings_window", "1");
+    next.searchParams.set("view", {view});
+    document.documentElement.dataset.settingsWindow = "1";
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
+    )
 }
 
 fn resize_settings_window(settings: &tauri::WebviewWindow) {
@@ -2127,16 +2144,14 @@ fn open_settings_window(app: tauri::AppHandle, initial_view: Option<String>) -> 
         return Ok(());
     }
 
-    let settings_url = build_settings_window_url(&initial_view);
-    let settings_external_url = settings_url
-        .parse()
-        .map_err(|error| format!("Invalid settings window URL: {error}"))?;
+    let settings_webview_url = desktop_settings_window_webview_url()?;
 
     let mut builder = tauri::WebviewWindowBuilder::new(
         &app,
         "settings",
-        tauri::WebviewUrl::External(settings_external_url),
+        settings_webview_url,
     )
+    .initialization_script(settings_window_init_script(&initial_view))
     .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
     .title("Settings")
     .inner_size(SETTINGS_WINDOW_WIDTH, SETTINGS_WINDOW_HEIGHT)
@@ -2842,5 +2857,33 @@ mod voice_hotkey_tests {
         let parsed: VoiceHotkeySettings = serde_json::from_str(&raw).expect("deserialize settings");
         assert_eq!(parsed.shortcut, DEFAULT_VOICE_SHORTCUT);
         assert_eq!(parsed.registration_error.as_deref(), Some("conflict"));
+    }
+}
+
+#[cfg(test)]
+mod settings_window_tests {
+    use super::*;
+
+    #[test]
+    fn settings_init_script_stays_on_the_local_spa() {
+        let script = settings_window_init_script("privacy");
+        assert!(script.contains("ritual_settings_window"));
+        assert!(script.contains("privacy"));
+        assert!(!script.contains("desktop.ritualdb.com"));
+    }
+
+    #[test]
+    fn production_settings_window_uses_the_bundled_spa() {
+        let url = desktop_settings_window_webview_url().expect("settings url");
+        match url {
+            tauri::WebviewUrl::App(path) => {
+                assert_eq!(path.to_string_lossy(), "index.html");
+            }
+            tauri::WebviewUrl::External(external) => {
+                assert!(external.to_string().starts_with(DESKTOP_SHELL_DEV_URL));
+                assert!(!external.to_string().contains("desktop.ritualdb.com"));
+            }
+            other => panic!("unexpected settings webview url: {other:?}"),
+        }
     }
 }
