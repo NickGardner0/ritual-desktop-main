@@ -37,6 +37,9 @@ test('Apple Screen Time card is active and directly follows Computer Use', () =>
   assert.ok(screenTimeIndex < appleWatchIndex, 'Apple Screen Time should be in the first row before Apple Watch');
 
   assert.match(computerCardSource, /id:\s*'computer'/);
+  assert.match(computerCardSource, /connectLabel=\{computerTrackingRegistered \? 'Start' : 'Connect'\}/);
+  assert.match(computerCardSource, /Not running/);
+  assert.match(computerCardSource, /handleComputerTrackingConnect/);
   assert.match(iphoneCardSource, /id:\s*'apple-screen-time'/);
   assert.match(iphoneCardSource, /title:\s*'Apple Screen Time'/);
   assert.match(iphoneCardSource, /IPHONE_TIME_CARD_DESCRIPTION/);

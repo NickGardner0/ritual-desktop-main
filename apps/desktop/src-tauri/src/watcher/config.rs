@@ -60,6 +60,28 @@ pub fn get_saved_watcher_config() -> Option<WatcherConfig> {
     load_saved_watcher_config()
 }
 
+/// Config used to auto-start or recover the sidecar.
+///
+/// Resident `tracking_enabled` is the user's intent. A retained
+/// `disabled_by_user` preference still has the last device config, so if
+/// tracking is still intended we start from that config and heal the split.
+pub(crate) fn watcher_config_for_autostart(
+    preference: &WatcherPreference,
+    tracking_enabled: bool,
+) -> Option<WatcherConfig> {
+    let config = preference.config.clone()?;
+    match preference.state {
+        WatcherPreferenceState::Enabled => Some(config),
+        WatcherPreferenceState::DisabledByUser if tracking_enabled => Some(config),
+        WatcherPreferenceState::NeverEnabled | WatcherPreferenceState::DisabledByUser => None,
+    }
+}
+
+pub fn load_watcher_config_for_autostart(tracking_enabled: bool) -> Option<WatcherConfig> {
+    let preference = load_watcher_preference().ok()?;
+    watcher_config_for_autostart(&preference, tracking_enabled)
+}
+
 pub fn save_watcher_config(config: &WatcherConfig) -> Result<(), String> {
     write_watcher_preference(&WatcherPreference::enabled(config.clone()))?;
     watcher_info!("💾 Watcher config saved for auto-start");
@@ -208,8 +230,8 @@ pub(crate) const WATCHER_HEARTBEAT_ENDPOINTS: [(&str, &str, u16); 2] = [
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_watcher_preference, WatcherConfig, WatcherPreferenceState,
-        WATCHER_PREFERENCE_SCHEMA_VERSION,
+        parse_watcher_preference, watcher_config_for_autostart, WatcherConfig, WatcherPreference,
+        WatcherPreferenceState, WATCHER_PREFERENCE_SCHEMA_VERSION,
     };
 
     fn fixture_config() -> WatcherConfig {
@@ -253,6 +275,28 @@ mod tests {
             assert!(!migrated);
             assert_eq!(preference.state, state);
         }
+    }
+
+    #[test]
+    fn autostart_recovers_disabled_config_when_tracking_is_still_intended() {
+        let config = fixture_config();
+        let preference = WatcherPreference {
+            schema_version: WATCHER_PREFERENCE_SCHEMA_VERSION,
+            state: WatcherPreferenceState::DisabledByUser,
+            config: Some(config.clone()),
+        };
+
+        assert_eq!(
+            watcher_config_for_autostart(&preference, true),
+            Some(config.clone())
+        );
+        assert_eq!(watcher_config_for_autostart(&preference, false), None);
+    }
+
+    #[test]
+    fn autostart_ignores_never_enabled_even_when_tracking_is_intended() {
+        let preference = WatcherPreference::never_enabled();
+        assert_eq!(watcher_config_for_autostart(&preference, true), None);
     }
 
     #[test]

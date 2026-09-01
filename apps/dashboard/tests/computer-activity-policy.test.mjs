@@ -189,7 +189,23 @@ test("resident controls remain in Computer Use settings while Index stays quiet"
   assert.match(settingsSource, /desktop-resident-runtime-v1/);
   assert.match(settingsSource, /title="Launch at Login"/);
   assert.match(settingsSource, /title="Show in Menu Bar"/);
+  assert.match(settingsSource, /resumeComputerTrackingIfStalled/);
   assert.doesNotMatch(settingsSource, /projecting:\s*'Updating habit/);
+});
+
+test("stalled Computer Use tracking resumes when resident intent is still enabled", () => {
+  const resumeSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/lib/computerActivity/resume-if-stalled.ts"),
+    "utf8",
+  );
+  const bridgeSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/components/desktop-runtime-bridge.tsx"),
+    "utf8",
+  );
+
+  assert.match(resumeSource, /!resident\?\.trackingEnabled \|\| resident\.watcherRunning/);
+  assert.match(resumeSource, /desktopSetComputerTracking\(\{ enabled: true \}\)/);
+  assert.match(bridgeSource, /useDesktopWatcherResume/);
 });
 
 test("only factual empty may continue to numeric zero rendering", () => {

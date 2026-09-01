@@ -417,7 +417,7 @@ fn shutdown_background_helpers() {
     }
 }
 
-fn spawn_watcher_watchdog() {
+fn spawn_watcher_watchdog<R: tauri::Runtime + 'static>(app: tauri::AppHandle<R>) {
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -426,7 +426,13 @@ fn spawn_watcher_watchdog() {
         interval.tick().await;
         loop {
             interval.tick().await;
-            match watcher::diagnostics::check_and_restart_watcher_if_hung(60).await {
+            let tracking_enabled = app
+                .state::<resident_runtime::ResidentRuntimeStore>()
+                .read()
+                .tracking_enabled;
+            match watcher::diagnostics::check_and_restart_watcher_if_hung(60, tracking_enabled)
+                .await
+            {
                 Ok(true) => info!("Background watcher watchdog restarted Ritual Watcher"),
                 Ok(false) => {}
                 Err(e) => warn!(error = %e, "Background watcher watchdog check failed"),
@@ -648,11 +654,15 @@ fn spawn_background_startup_tasks<R: tauri::Runtime + 'static>(
             cloud_sync::spawn_cloud_sync_worker(app.clone());
         }
 
-        if let Some(config) = read_watcher_config() {
+        if let Some(config) = watcher::load_watcher_config_for_autostart(
+            app.state::<resident_runtime::ResidentRuntimeStore>()
+                .read()
+                .tracking_enabled,
+        ) {
             auto_start_watcher_from_config(app.clone(), config).await;
         }
 
-        spawn_watcher_watchdog();
+        spawn_watcher_watchdog(app.clone());
         desktop_runtime::emit_runtime_state_changed(app.clone());
 
         let memory_db_init_started_at = Instant::now();

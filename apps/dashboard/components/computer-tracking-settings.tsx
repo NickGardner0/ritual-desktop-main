@@ -39,6 +39,7 @@ import {
   NativeToggle,
 } from '@/components/computer-tracking-settings.native';
 import { useComputerActivitySync } from '@/components/use-computer-activity-sync';
+import { resumeComputerTrackingIfStalled } from '@/lib/computerActivity/resume-if-stalled';
 
 type WatcherConfig = DesktopWatcherConfig;
 
@@ -224,12 +225,19 @@ export function ComputerTrackingSettings({ userId, showAttributionHealth = false
       setIsLoading(true);
       setError(null);
 
-      const [accessGranted, status, diagnostics, resident] = await Promise.all([
+      const [accessGranted, status, diagnostics, initialResident] = await Promise.all([
         invoke<boolean>('check_accessibility_permission').catch(() => false),
         invoke<WatcherStatus>('get_watcher_status').catch(() => null),
         invoke<BrowserExtensionDiagnostics>('get_browser_extension_diagnostics').catch(() => null),
         getDesktopResidentRuntimeState().catch(() => null),
       ]);
+      let resident = initialResident;
+      if (resident?.trackingEnabled && !resident.watcherRunning) {
+        const recovered = await resumeComputerTrackingIfStalled().catch(() => false);
+        if (recovered) {
+          resident = await getDesktopResidentRuntimeState().catch(() => resident);
+        }
+      }
 
       setAccessibilityGranted(accessGranted);
       if (status) {

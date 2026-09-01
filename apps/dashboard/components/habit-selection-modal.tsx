@@ -13,6 +13,7 @@ import { habitKeys } from '@/hooks/use-habits-query';
 import { ComputerTrackingSettings } from './computer-tracking-settings';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { ensureComputerTimeHabit } from '@/lib/ensure-computer-time-habit';
+import { deriveComputerTrackingStatus } from '@/app/(dashboard)/integrations/plugins/computer-tracking/status';
 import { categoryMap } from './habit-selection/constants';
 import { withTimeout } from './habit-selection/helpers';
 import { apiOperationWithAuth } from '@/lib/api/client';
@@ -200,29 +201,26 @@ export function HabitSelectionModal({ isOpen, onClose, onHabitSelect, onHabitCre
           getToken,
           {},
           resolvedUserId,
-        ).catch(() => ({ devices: [] as Array<{ is_enabled?: boolean }> })),
+        ).catch(() => ({ devices: [] as Array<{ is_enabled?: boolean; device_id?: string; device_name?: string }> })),
         5000,
-        { devices: [] as Array<{ is_enabled?: boolean }> },
-      ) as { devices?: Array<{ is_enabled?: boolean }> };
+        { devices: [] as Array<{ is_enabled?: boolean; device_id?: string; device_name?: string }> },
+      ) as { devices?: Array<{ is_enabled?: boolean; device_id?: string; device_name?: string }> };
       const devices = data.devices || [];
-      const hasEnabledDevice = devices.some((d) => d.is_enabled);
-      if (hasEnabledDevice || devices.length > 0) {
-        setComputerTrackingConnected(true);
-        return;
-      }
+      let localWatcherStatus: { is_running?: boolean; device_id?: string | null } | null = null;
 
       if (isDesktop) {
-        const watcherStatus = await withTimeout(
+        localWatcherStatus = await withTimeout(
           invoke<WatcherStatus>('get_watcher_status').catch(() => null),
           2500,
           null,
         );
-        const localWatcherConnected = Boolean(watcherStatus?.is_running || watcherStatus?.device_id);
-        setComputerTrackingConnected(localWatcherConnected);
-        return;
       }
 
-      setComputerTrackingConnected(false);
+      const status = deriveComputerTrackingStatus({
+        watcherDevices: devices,
+        localWatcherStatus,
+      });
+      setComputerTrackingConnected(status.connected);
     } catch (error) {
       console.error('Error checking Computer Use connection:', error);
       setComputerTrackingConnected(false);

@@ -17,6 +17,7 @@ import {
 import { useIntegrationOAuthEffects } from './integrations-client.oauth-effects';
 import { useAppleHealthExport } from './plugins/apple-health/use-apple-health-export';
 import { useIphoneTimeIntegration } from './plugins/iphone-time/use-iphone-time-integration';
+import { useComputerTrackingConnect } from './plugins/computer-tracking/use-computer-tracking-connect';
 import { usePlaidIntegration } from './plugins/plaid/use-plaid-integration';
 import { useTeslaIntegration } from './plugins/tesla/use-tesla-integration';
 import { useWhoopIntegration } from './plugins/whoop/use-whoop-integration';
@@ -81,6 +82,9 @@ export function IntegrationsClient() {
   const appleWatchConnected = appleWatchStatusData?.connected || false;
   const appleWatchLastSync = appleWatchStatusData?.lastSyncAt;
   const computerTrackingConnected = computerTrackingStatus?.connected || false;
+  const computerTrackingRegistered = Boolean(
+    computerTrackingStatus?.registered || computerTrackingStatus?.deviceId,
+  );
   const plaidConnected = !!plaidConnection && plaidConnection.status === 'active';
   const userHasMfaEnabled = Boolean((user as { twoFactorEnabled?: boolean })?.twoFactorEnabled);
   const plaidMfaRequired = !userHasMfaEnabled;
@@ -153,6 +157,12 @@ export function IntegrationsClient() {
     userId: user?.id,
   });
 
+  const computerTrackingIntegration = useComputerTrackingConnect({
+    queryClient,
+    refetchOverview,
+    userId: user?.id,
+  });
+
   const legacyWearables = useLegacyWearableHandlers({
     appleWatchStatusData,
     fetchHabitLogs,
@@ -215,6 +225,7 @@ export function IntegrationsClient() {
       appleWatchLastSync,
       appleWatchStatusData,
       computerTrackingConnected,
+      computerTrackingRegistered,
       detailsTab,
       effectiveWhoopConnected: Boolean(
         whoopIntegration.whoopConnected ||
@@ -243,6 +254,7 @@ export function IntegrationsClient() {
       ...plaidIntegration,
       ...teslaIntegration,
       ...iphoneTimeIntegration,
+      ...computerTrackingIntegration,
       ...legacyWearables,
     }),
     [
@@ -252,6 +264,8 @@ export function IntegrationsClient() {
       appleWatchLastSync,
       appleWatchStatusData,
       computerTrackingConnected,
+      computerTrackingIntegration,
+      computerTrackingRegistered,
       detailsTab,
       garminConnection,
       getToken,
@@ -282,6 +296,8 @@ export function IntegrationsClient() {
     return {
       appleWatchConnected,
       computerTrackingConnected,
+      computerTrackingRegistered,
+      ...computerTrackingIntegration,
       effectiveTeslaConnected: teslaIntegration.effectiveTeslaConnected,
       effectiveWhoopConnected: Boolean(
         whoopIntegration.whoopConnected ||
@@ -328,6 +344,8 @@ export function IntegrationsClient() {
   }, [
     appleWatchConnected,
     computerTrackingConnected,
+    computerTrackingIntegration,
+    computerTrackingRegistered,
     garminConnection,
     isDesktop,
     iphoneTimeIntegration,

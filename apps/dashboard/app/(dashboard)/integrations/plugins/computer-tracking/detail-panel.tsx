@@ -4,14 +4,22 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { IntegrationPanelHeader } from '../shared/panel-chrome';
 import type { IntegrationRuntimeContext } from '../types';
+import { PanelAction } from './panel-action';
 
 export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
+  const subtitle = ctx.computerTrackingConnected
+    ? 'Tracking this Mac'
+    : ctx.computerTrackingRegistered
+      ? 'Installed, not running'
+      : 'Desktop tracking • Local device';
+
   return (
     <div className="flex h-full flex-col bg-white">
       <IntegrationPanelHeader
         integration="computer"
         title="Computer Use"
-        subtitle="Desktop tracking • Local device"
+        subtitle={subtitle}
+        action={<PanelAction ctx={ctx} />}
       />
       <div className="min-h-0 flex-1 px-5">
         <ScrollArea className="h-full">
@@ -21,7 +29,9 @@ export function DetailPanel({ ctx }: { ctx: IntegrationRuntimeContext }) {
                 How it works
               </AccordionTrigger>
               <AccordionContent className="text-sm text-[#69665c]">
-                Manage computer tracking from the Computer Tracking settings panel.
+                Ritual Watcher records app and website time on this Mac. Computer Time on Index
+                reads that local activity. If tracking is paused, hours stay at zero until you
+                start it again.
               </AccordionContent>
             </AccordionItem>
           </Accordion>

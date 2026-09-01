@@ -10,22 +10,34 @@ export function buildCard(ctx: IntegrationCardRuntimeContext): IntegrationCardIt
     return null;
   }
 
-  const { computerTrackingConnected, openIntegrationDetails, router } = ctx;
+  const {
+    computerTrackingConnected,
+    computerTrackingConnecting,
+    computerTrackingRegistered,
+    handleComputerTrackingConnect,
+    handleComputerTrackingDisconnect,
+    openIntegrationDetails,
+  } = ctx;
+
+  const running = Boolean(computerTrackingConnected);
 
   return {
     id: 'computer',
     title: 'Computer Use',
     description: 'Track your computer usage including apps, websites, and active time automatically.',
     keywords: ['computer tracking', 'desktop', 'watcher', 'apps', 'websites'],
-    isConnected: Boolean(computerTrackingConnected),
+    isConnected: running,
     node: (
       <IntegrationCard
         logo={<Monitor className="h-7 w-7 text-gray-900" />}
         title="Computer Use"
         description="Track your computer usage including apps, websites, and active time automatically."
-        isConnected={Boolean(computerTrackingConnected)}
-        onConnect={() => router.replace('/integrations?openSettings=computer-tracking')}
-        onDisconnect={() => router.replace('/integrations?openSettings=computer-tracking')}
+        details={running || !computerTrackingRegistered ? undefined : 'Not running'}
+        isConnected={running}
+        isConnecting={Boolean(computerTrackingConnecting)}
+        connectLabel={computerTrackingRegistered ? 'Start' : 'Connect'}
+        onConnect={() => void handleComputerTrackingConnect()}
+        onDisconnect={() => void handleComputerTrackingDisconnect()}
         onDetails={() => openIntegrationDetails('computer')}
       />
     ),

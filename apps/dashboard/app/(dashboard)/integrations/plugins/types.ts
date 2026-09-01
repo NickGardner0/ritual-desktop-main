@@ -235,6 +235,14 @@ export type IphoneTimeIntegrationContext = {
   iphoneTimeSyncing: boolean;
 };
 
+export type ComputerTrackingIntegrationContext = {
+  computerTrackingConnected: boolean;
+  computerTrackingConnecting: boolean;
+  computerTrackingRegistered: boolean;
+  handleComputerTrackingConnect: () => void | Promise<void>;
+  handleComputerTrackingDisconnect: () => void | Promise<void>;
+};
+
 export type WearableSyncSettingsContext = {
   handleWearableSyncSettingsUpdate: (
     provider: WearableSyncProvider,
@@ -257,6 +265,8 @@ export type IntegrationCardRuntimeContext =
   Pick<IntegrationRuntimeContext,
     | 'appleWatchConnected'
     | 'computerTrackingConnected'
+    | 'computerTrackingConnecting'
+    | 'computerTrackingRegistered'
     | 'effectiveTeslaConnected'
     | 'effectiveWhoopConnected'
     | 'garminConnection'
@@ -289,6 +299,8 @@ export type IntegrationCardRuntimeContext =
     > &
     Pick<
       IntegrationRuntimeContext,
+      | 'handleComputerTrackingConnect'
+      | 'handleComputerTrackingDisconnect'
       | 'handleIphoneTimeConnect'
       | 'handleIphoneTimeSync'
       | 'handlePlaidConnect'
@@ -309,7 +321,6 @@ export type IntegrationRuntimeContext = {
   appleWatchConnected: boolean;
   appleWatchLastSync?: string | null;
   appleWatchStatusData?: AppleWatchStatusData;
-  computerTrackingConnected: boolean;
   detailsTab: IntegrationDetailsTab;
   effectiveWhoopConnected: boolean;
   effectiveTeslaConnected: boolean;
@@ -333,6 +344,7 @@ export type IntegrationRuntimeContext = {
   PlaidIntegrationContext &
   TeslaIntegrationContext &
   IphoneTimeIntegrationContext &
+  ComputerTrackingIntegrationContext &
   LegacyWearableContext &
   WearableSyncSettingsContext;
 

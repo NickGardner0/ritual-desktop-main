@@ -16,6 +16,7 @@ import { acknowledgeDesktopAuthHandoff } from '@/lib/desktop-auth-handoff';
 import { invalidateAfterComputerSync, invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
 import { readPrivacySettings } from '@/lib/privacy/privacy-settings';
+import { resumeComputerTrackingIfStalled } from '@/lib/computerActivity/resume-if-stalled';
 import {
   COMPUTER_HISTORY_BACKFILL_DELAY_MS,
   COMPUTER_HISTORY_BACKFILL_LAST_KEY,
@@ -378,6 +379,21 @@ export function useDesktopNativeEvents(input: {
       if (unlistenToken) unlistenToken();
     };
   }, [bridgeMode, getToken, isDesktop, queryClient, userId]);
+}
+
+export function useDesktopWatcherResume(input: {
+  isDesktop: boolean;
+  bridgeMode: DesktopBridgeMode;
+}): void {
+  const { isDesktop, bridgeMode } = input;
+
+  useEffect(() => {
+    if (!isDesktop || bridgeMode === 'probing') return;
+
+    void resumeComputerTrackingIfStalled().catch((error) => {
+      console.warn('Computer Use resume failed:', error);
+    });
+  }, [bridgeMode, isDesktop]);
 }
 
 export function useDesktopActivityBackfill(input: {

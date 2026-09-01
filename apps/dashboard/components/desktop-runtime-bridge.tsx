@@ -19,6 +19,7 @@ import {
   useDesktopNativeEvents,
   useDesktopProfileSync,
   useDesktopRealtimeSync,
+  useDesktopWatcherResume,
 } from '@/components/desktop-runtime-bridge.lifecycle';
 
 function RuntimeSyncBridge() {
@@ -72,6 +73,10 @@ function RuntimeSyncBridge() {
     getToken,
     queryClient,
     userId: user?.id,
+  });
+  useDesktopWatcherResume({
+    isDesktop,
+    bridgeMode,
   });
   useDesktopActivityBackfill({
     isDesktop,

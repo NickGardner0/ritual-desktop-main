@@ -6,7 +6,7 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use super::config::{
-    default_browser_heartbeat_port, load_saved_watcher_config,
+    default_browser_heartbeat_port, load_watcher_config_for_autostart,
     EXTENSION_HEARTBEAT_LIVE_THRESHOLD_SECONDS, WATCHER_HEARTBEAT_ENDPOINTS,
 };
 use super::internal::{
@@ -383,8 +383,11 @@ pub async fn get_browser_extension_diagnostics() -> Result<BrowserExtensionDiagn
 /// Check watcher health and auto-restart if hung
 /// Returns true if watcher was restarted, false if it was healthy
 #[instrument(fields(max_stale_seconds = max_stale_seconds))]
-pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result<bool, String> {
-    if load_saved_watcher_config().is_none() {
+pub async fn check_and_restart_watcher_if_hung(
+    max_stale_seconds: i64,
+    tracking_enabled: bool,
+) -> Result<bool, String> {
+    if load_watcher_config_for_autostart(tracking_enabled).is_none() {
         return Ok(false);
     }
 
@@ -480,7 +483,7 @@ pub async fn check_and_restart_watcher_if_hung(max_stale_seconds: i64) -> Result
         }
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-        if let Some(config) = load_saved_watcher_config() {
+        if let Some(config) = load_watcher_config_for_autostart(tracking_enabled) {
             let restart_reason = format!(
                 "heartbeat_stale={} context_stale={} watcher_reachable={}",
                 heartbeat_stale, context_stale, watcher_reachable

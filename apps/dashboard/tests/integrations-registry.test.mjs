@@ -210,3 +210,24 @@ test("integration cards use the marketplace row contract", () => {
   assert.match(cardsSource, /md:grid-cols-2/);
   assert.doesNotMatch(cardsSource, /lg:grid-cols-3/);
 });
+
+test("Computer Use connected status requires the local watcher process", () => {
+  const hooksSource = readFileSync(
+    join(
+      process.cwd(),
+      "apps/dashboard/app/(dashboard)/integrations/integrations-client.shared.hooks.tsx",
+    ),
+    "utf8",
+  );
+  const habitModalSource = readFileSync(
+    join(process.cwd(), "apps/dashboard/components/habit-selection-modal.tsx"),
+    "utf8",
+  );
+
+  assert.match(hooksSource, /deriveComputerTrackingStatus/);
+  assert.match(hooksSource, /localWatcherStatus: await getLocalWatcherRuntimeStatus\(\)/);
+  assert.doesNotMatch(hooksSource, /watcherDevices\.length > 0\s*\n\s*\? null/);
+  assert.doesNotMatch(hooksSource, /connected: devices\.length > 0/);
+  assert.match(habitModalSource, /deriveComputerTrackingStatus/);
+  assert.doesNotMatch(habitModalSource, /hasEnabledDevice \|\| devices\.length > 0/);
+});

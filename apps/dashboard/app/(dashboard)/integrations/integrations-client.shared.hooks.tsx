@@ -2,17 +2,10 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { invoke } from '@tauri-apps/api/core';
-import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { QUERY_POLICY } from '@/lib/query-policies';
 import { apiOperationWithAuth } from '@/lib/api/client';
-import {
-  deriveIphoneTimeIntegrationStatus,
-  getLocalWatcherRuntimeStatus,
-  type BiomeIphoneDiagnostics,
-  type IphoneTimeIntegrationStatus,
-  type WatcherRuntimeStatus,
-} from './integrations-client.shared.helpers';
+import { getLocalWatcherRuntimeStatus } from './integrations-client.shared.helpers';
+import { deriveComputerTrackingStatus } from './plugins/computer-tracking/status';
 
 /**
  * Fetch Whoop connection status with React Query (cached!)
@@ -105,8 +98,8 @@ export function useFinancialConnections() {
 }
 
 /**
- * Fetch Computer Use status with React Query
- * Checks for registered watcher devices (macOS desktop)
+ * Fetch Computer Use status with React Query.
+ * A registered watcher device is not enough — connected means the sidecar is running.
  */
 export function useComputerTrackingStatus() {
   const { user } = useUser();
@@ -115,6 +108,7 @@ export function useComputerTrackingStatus() {
   return useQuery({
     queryKey: ['computer-tracking-status', user?.id],
     queryFn: async () => {
+      let watcherDevices: Array<{ is_enabled?: boolean; device_name?: string; device_id?: string }> = [];
       try {
         const data = await apiOperationWithAuth(
           'list_devices_api_watcher_devices_get',
@@ -122,18 +116,15 @@ export function useComputerTrackingStatus() {
           {},
           user?.id,
         ) as { devices?: Array<{ is_enabled?: boolean; device_name?: string; device_id?: string }> };
-        const devices = data.devices || [];
-        const activeDevice = devices.find((d) => d.is_enabled);
-
-        return {
-          connected: devices.length > 0,
-          enabled: !!activeDevice,
-          deviceName: activeDevice?.device_name || devices[0]?.device_name || 'My Mac',
-          deviceId: activeDevice?.device_id || devices[0]?.device_id || null,
-        };
+        watcherDevices = data.devices || [];
       } catch {
-        return { connected: false, enabled: false, deviceName: null, deviceId: null };
+        watcherDevices = [];
       }
+
+      return deriveComputerTrackingStatus({
+        watcherDevices,
+        localWatcherStatus: await getLocalWatcherRuntimeStatus(),
+      });
     },
     staleTime: QUERY_POLICY.general.staleTime,
     enabled: !!user?.id,
@@ -196,12 +187,10 @@ export function useIntegrationsOverview() {
       const whoopConnection = wearableConnections.find((item: any) => item.provider === 'whoop');
       const appleDevices = (appleWatchPayload?.devices || []).filter((device: any) => device.is_active && device.platform === 'ios');
       const watcherDevices = computerTrackingPayload?.devices || [];
-      const activeWatcherDevice = watcherDevices.find((device: any) => device.is_enabled);
-      const localWatcherStatus =
-        watcherDevices.length > 0
-          ? null
-          : await getLocalWatcherRuntimeStatus();
-      const localWatcherConnected = Boolean(localWatcherStatus?.is_running || localWatcherStatus?.device_id);
+      const computerTrackingStatus = deriveComputerTrackingStatus({
+        watcherDevices,
+        localWatcherStatus: await getLocalWatcherRuntimeStatus(),
+      });
       const appleWatchConnected = appleDevices.length > 0 || appleHealthConnection?.status === 'active';
       const whoopConnected = Boolean(whoopStatusPayload?.connected || whoopConnection?.status === 'active');
 
@@ -229,18 +218,10 @@ export function useIntegrationsOverview() {
         },
         wearableConnections: wearablesPayload,
         financialConnections: financialPayload,
-        computerTrackingStatus: {
-          connected: watcherDevices.length > 0 || localWatcherConnected,
-          enabled: !!activeWatcherDevice || Boolean(localWatcherStatus?.is_running),
-          deviceName:
-            activeWatcherDevice?.device_name
-            || watcherDevices[0]?.device_name
-            || (localWatcherConnected ? 'This Mac' : 'My Mac'),
-          deviceId: activeWatcherDevice?.device_id || watcherDevices[0]?.device_id || localWatcherStatus?.device_id || null,
-        },
+        computerTrackingStatus,
       };
     },
-    staleTime: QUERY_POLICY.staticResource.staleTime,
+    staleTime: QUERY_POLICY.general.staleTime,
     enabled: !!user?.id,
   });
 }
