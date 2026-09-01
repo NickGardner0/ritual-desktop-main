@@ -3,11 +3,13 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
+import { Plus, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
@@ -17,6 +19,7 @@ import { OverviewWelcomeHeader } from '@/components/analytics/overview-welcome-h
 import { OverviewFetchBlock } from '@/components/analytics/overview-fetch-block';
 import { SortableHabitList, type SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
 import type { Habit } from '@/contexts/HabitsContext';
+import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
@@ -52,6 +55,35 @@ export function QuickActionChips() {
         </button>
       ))}
     </div>
+  );
+}
+
+export function OverviewViewMenuItems({
+  isFetchView,
+  onSelectList,
+  onSelectFetch,
+}: {
+  isFetchView: boolean;
+  onSelectList: () => void;
+  onSelectFetch: () => void;
+}) {
+  return (
+    <>
+      <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
+        View
+      </DropdownMenuLabel>
+      <DropdownMenuItem onSelect={onSelectList}>
+        <List className="mr-2 h-3.5 w-3.5" />
+        <span>List</span>
+        {!isFetchView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+      </DropdownMenuItem>
+      <DropdownMenuItem onSelect={onSelectFetch}>
+        <LayoutGrid className="mr-2 h-3.5 w-3.5" />
+        <span>Fetch</span>
+        {isFetchView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
+      </DropdownMenuItem>
+      <DropdownMenuSeparator />
+    </>
   );
 }
 
@@ -97,6 +129,9 @@ function OverviewInitialSectionInner({
   onShowSelectionModal,
   onShowImportModal,
 }: OverviewInitialSectionProps) {
+  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
+  const isFetchView = overviewViewMode === 'summary';
+
   const handleScrubberSelect = React.useCallback((date: string | null) => {
     onScrubberSelect(date);
     if (date) {
@@ -108,9 +143,9 @@ function OverviewInitialSectionInner({
   }, [onDateRangeChange, onScrubberSelect]);
 
   return (
-    <>
+    <div className="flex h-full min-h-0 flex-col">
       {!hideControls && (
-        <div className="relative flex items-center justify-end h-14">
+        <div className="relative flex h-14 shrink-0 items-center justify-end">
           {habits.length > 0 && !isDesktopShell ? (
             <div className="absolute left-1/2 -translate-x-1/2 w-[500px]">
               <HistoryScrubber
@@ -124,7 +159,7 @@ function OverviewInitialSectionInner({
             </div>
           ) : null}
 
-          <div className="flex items-center space-x-1 relative z-10">
+          <div className="relative z-10 flex items-center space-x-1">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -136,6 +171,11 @@ function OverviewInitialSectionInner({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
+                <OverviewViewMenuItems
+                  isFetchView={isFetchView}
+                  onSelectList={() => { void setOverviewViewMode('list'); }}
+                  onSelectFetch={() => { void setOverviewViewMode('summary'); }}
+                />
                 <DropdownMenuItem onSelect={onShowSelectionModal}>
                   <Plus className="mr-2 h-3.5 w-3.5" />
                   <span>Add habit</span>
@@ -156,30 +196,35 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto pt-6 pb-4">
-        <div className="max-w-[408px] mx-auto w-full">
-          <OverviewWelcomeHeader align="start" />
-          <OverviewFetchBlock />
-          <SortableHabitList
-            habits={orderedHabits}
-            onReorder={onReorder}
-            getHabitMetricDisplay={getHabitMetricDisplay}
-            getHabitMetricClassName={getHabitMetricClassName}
-            scrubberHoveredDate={scrubberHoveredDate}
-            scrubberHoveredValues={scrubberHoveredValues}
-            activeTooltip={activeTooltip}
-            setActiveTooltip={setActiveTooltip}
-            getHabitMetricStats={getHabitMetricStats}
-            onUpdateHabitDetails={onUpdateHabitDetails}
-            updatingHabitId={updatingHabitId}
-            confirmDelete={confirmDelete}
-            deletingHabit={deletingHabit}
-            selectedContextHabitId={selectedContextHabitId}
-            onOpenContext={onOpenContext}
-          />
-        </div>
+      <div className={`min-h-0 flex-1 overflow-y-auto ${isFetchView ? 'pt-2 pb-24' : 'pt-6 pb-24'}`}>
+        {isFetchView ? (
+          <div className="mx-auto w-full max-w-[408px]">
+            <OverviewWelcomeHeader />
+            <OverviewFetchBlock />
+          </div>
+        ) : (
+          <div className="mx-auto w-full max-w-[408px]">
+            <SortableHabitList
+              habits={orderedHabits}
+              onReorder={onReorder}
+              getHabitMetricDisplay={getHabitMetricDisplay}
+              getHabitMetricClassName={getHabitMetricClassName}
+              scrubberHoveredDate={scrubberHoveredDate}
+              scrubberHoveredValues={scrubberHoveredValues}
+              activeTooltip={activeTooltip}
+              setActiveTooltip={setActiveTooltip}
+              getHabitMetricStats={getHabitMetricStats}
+              onUpdateHabitDetails={onUpdateHabitDetails}
+              updatingHabitId={updatingHabitId}
+              confirmDelete={confirmDelete}
+              deletingHabit={deletingHabit}
+              selectedContextHabitId={selectedContextHabitId}
+              onOpenContext={onOpenContext}
+            />
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
 

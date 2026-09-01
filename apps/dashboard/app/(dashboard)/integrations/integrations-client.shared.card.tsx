@@ -1,7 +1,6 @@
 'use client';
 
 import { memo, isValidElement, type ReactElement, type ReactNode } from 'react';
-import { MoreHorizontal } from 'lucide-react';
 import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
 import {
@@ -36,6 +35,8 @@ export type IntegrationCardProps = {
 };
 
 const connectActionClassName = 'h-7 !rounded-full px-3 font-medium';
+const connectedActionClassName =
+  'h-7 !rounded-full border-0 bg-[#2f6e45] px-3 font-medium text-white hover:bg-[#275c3a] hover:text-white';
 
 const iconWellClassName =
   'flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-[var(--surface-panel)] [&>*]:max-h-6 [&>*]:max-w-6 [&_img]:max-h-6 [&_img]:max-w-6 [&_img]:object-contain';
@@ -69,7 +70,7 @@ export const IntegrationCard = memo(function IntegrationCard({
   return (
     <div
       className={cn(
-        'flex min-h-[64px] items-center gap-3 rounded-[8px] px-2 py-2 hover:bg-[var(--row-hover)]',
+        'flex min-h-[64px] items-center gap-3 rounded-full px-3 py-2 hover:bg-[var(--row-hover)]',
         onDetails ? 'cursor-pointer' : 'cursor-default',
       )}
       onClick={onDetails}
@@ -103,12 +104,11 @@ export const IntegrationCard = memo(function IntegrationCard({
                 <DropdownMenuTrigger asChild>
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="icon-compact"
+                    size="compact"
                     aria-label={`${title} actions`}
-                    className="text-[var(--text-muted)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
+                    className={connectedActionClassName}
                   >
-                    <MoreHorizontal />
+                    Connected
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
@@ -140,7 +140,11 @@ export const IntegrationCard = memo(function IntegrationCard({
                   ) : null}
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : null}
+            ) : (
+              <span className="inline-flex h-7 items-center rounded-full bg-[#2f6e45] px-3 text-xs font-medium text-white">
+                Connected
+              </span>
+            )}
           </>
         ) : (
           <Button

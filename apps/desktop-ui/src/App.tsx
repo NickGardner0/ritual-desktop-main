@@ -11,6 +11,7 @@ import SsoCallbackPage from '@/app/auth/sso-callback/page';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { DesktopAuthPage } from './pages/desktop-auth-page';
 import { readDesktopSettingsWindowView } from './pages/desktop-settings-query';
+import { isDesktopVoiceHudWindow } from './pages/desktop-voice-hud-query';
 
 const LogsClient = lazy(() =>
   import('@/app/(dashboard)/activity/logs-client').then((module) => ({ default: module.LogsClient })),
@@ -39,6 +40,7 @@ const ExperimentsClient = lazy(() =>
 const DesktopSettingsWindow = lazy(() =>
   import('./pages/desktop-settings-window').then((module) => ({ default: module.DesktopSettingsWindow })),
 );
+const VoiceHudPage = lazy(() => import('@/app/voice-hud/page'));
 
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -102,6 +104,18 @@ function DesktopAppRoutes() {
 }
 
 export function App() {
+  if (isDesktopVoiceHudWindow()) {
+    return (
+      <BrowserRouter>
+        <RootProviders>
+          <Suspense fallback={null}>
+            <VoiceHudPage />
+          </Suspense>
+        </RootProviders>
+      </BrowserRouter>
+    );
+  }
+
   const settingsView = readDesktopSettingsWindowView();
   if (settingsView) {
     return (

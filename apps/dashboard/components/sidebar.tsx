@@ -190,12 +190,19 @@ export function Sidebar({
         />
       </div>
 
-      <div className="no-drag flex w-full flex-col items-stretch px-[15px]">
-        <SidebarAccountMenu
-          isExpanded={isExpanded}
-          onOpenChange={setIsAccountMenuOpen}
-          onOpenSettings={handleSettingsClick}
-        />
+      <div
+        className={cn(
+          'no-drag flex w-full px-[15px]',
+          isExpanded ? 'items-center gap-1.5' : 'flex-col items-stretch',
+        )}
+      >
+        <div className={isExpanded ? 'min-w-0 flex-1' : undefined}>
+          <SidebarAccountMenu
+            isExpanded={isExpanded}
+            onOpenChange={setIsAccountMenuOpen}
+            onOpenSettings={handleSettingsClick}
+          />
+        </div>
         <DesktopUpdateControl isExpanded={isExpanded} />
       </div>
     </SidebarShell>

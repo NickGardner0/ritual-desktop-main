@@ -29,9 +29,16 @@
         background: #101011;
       }
       html[data-settings-window] body::before,
+      html[data-voice-hud-window] body::before,
       body:has(.welcome-page)::before,
-      body:has(.ritual-settings-window)::before {
+      body:has(.ritual-settings-window)::before,
+      body:has(.voice-hud-shell)::before {
         display: none;
+      }
+      html[data-voice-hud-window],
+      html[data-voice-hud-window] body,
+      html[data-voice-hud-window] #root {
+        background: transparent;
       }
       #root {
         position: relative;
@@ -51,8 +58,13 @@
           }
         } catch (error) {}
         try {
-          if (new URLSearchParams(window.location.search).get('ritual_settings_window') === '1') {
+          var params = new URLSearchParams(window.location.search);
+          if (params.get('ritual_settings_window') === '1') {
             document.documentElement.dataset.settingsWindow = '1';
+          }
+          if (params.get('ritual_voice_hud_window') === '1') {
+            document.documentElement.dataset.voiceHudWindow = '1';
+            document.documentElement.style.background = 'transparent';
           }
         } catch (error) {}
       })();

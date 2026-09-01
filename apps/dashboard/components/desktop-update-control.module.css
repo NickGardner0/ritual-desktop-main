@@ -12,32 +12,21 @@
 }
 .grid {
   display: grid;
-  width: 22px;
-  height: 12px;
+  width: 16px;
+  height: 10px;
   grid-template-columns: repeat(5, minmax(0, 1fr));
   grid-template-rows: repeat(3, minmax(0, 1fr));
   align-items: center;
   justify-items: center;
   flex: 0 0 auto;
-  gap: 2px;
+  gap: 1.5px;
 }
 
 .cell {
   width: 100%;
   aspect-ratio: 1;
   border-radius: 999px;
-  background:
-    radial-gradient(
-      circle at 35% 30%,
-      color-mix(in srgb, var(--ritual-focus-ring) 92%, white),
-      transparent 58%
-    ),
-    linear-gradient(
-      135deg,
-      color-mix(in srgb, var(--ritual-focus-ring) 72%, transparent),
-      color-mix(in srgb, var(--text-primary) 42%, transparent)
-    );
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ritual-focus-ring) 18%, transparent);
+  background: rgba(255, 255, 255, 0.92);
   animation: loadingCell 1.15s cubic-bezier(0.66, 0, 0.34, 1) infinite;
   animation-delay: var(--desktop-update-loading-delay);
 }

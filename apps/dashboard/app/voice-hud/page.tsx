@@ -136,9 +136,8 @@ export default function VoiceHudPage() {
         text: finalText,
       };
 
-      void emitToMain(VOICE_EVENTS.final, payload).finally(() => {
-        void hideDesktopVoiceHud().catch(() => undefined);
-      });
+      void emitToMain(VOICE_EVENTS.final, payload).catch(() => undefined);
+      void hideDesktopVoiceHud().catch(() => undefined);
     },
     [emitToMain],
   );
@@ -168,20 +167,16 @@ export default function VoiceHudPage() {
 
   const cancelSession = useCallback(() => {
     const activeSession = sessionRef.current;
-    if (!activeSession) {
-      void hideDesktopVoiceHud().catch(() => undefined);
-      return;
+    if (activeSession) {
+      cancelledSessionRef.current = activeSession.sessionId;
+      cancelVoiceRecording();
+      const payload: VoiceSessionCancelledPayload = {
+        sessionId: activeSession.sessionId,
+        target: activeSession.target,
+      };
+      void emitToMain(VOICE_EVENTS.cancelled, payload).catch(() => undefined);
     }
-
-    cancelledSessionRef.current = activeSession.sessionId;
-    cancelVoiceRecording();
-    const payload: VoiceSessionCancelledPayload = {
-      sessionId: activeSession.sessionId,
-      target: activeSession.target,
-    };
-    void emitToMain(VOICE_EVENTS.cancelled, payload).finally(() => {
-      void hideDesktopVoiceHud().catch(() => undefined);
-    });
+    void hideDesktopVoiceHud().catch(() => undefined);
   }, [cancelVoiceRecording, emitToMain]);
 
   const stopSession = useCallback(() => {
@@ -275,6 +270,23 @@ export default function VoiceHudPage() {
     session?.sessionId,
   ]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Escape' || event.key === 'Escape') {
+        event.preventDefault();
+        cancelSession();
+        return;
+      }
+      if (event.code === 'Space' || event.key === ' ') {
+        event.preventDefault();
+        stopSession();
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [cancelSession, stopSession]);
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       if (event.code === 'Escape') {
@@ -318,6 +330,7 @@ export default function VoiceHudPage() {
         <button
           type="button"
           aria-label="Expand voice HUD"
+          data-tauri-drag-region="false"
           className="absolute right-[26px] top-[25px] flex h-9 w-9 items-center justify-center text-[#9b9b9b]"
           onClick={() => shellRef.current?.focus()}
         >
@@ -368,6 +381,7 @@ export default function VoiceHudPage() {
           <div className="flex items-center gap-[24px] text-[27px] font-medium leading-none text-[#848484]">
             <button
               type="button"
+              data-tauri-drag-region="false"
               onClick={stopSession}
               className={cn(
                 'flex items-center gap-2 transition-none',
@@ -383,6 +397,7 @@ export default function VoiceHudPage() {
             </div>
             <button
               type="button"
+              data-tauri-drag-region="false"
               onClick={cancelSession}
               className="transition-none hover:text-[#5f5f5f]"
             >

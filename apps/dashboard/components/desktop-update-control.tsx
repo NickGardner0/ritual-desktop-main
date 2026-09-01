@@ -2,6 +2,7 @@
 
 import type { CSSProperties } from 'react';
 import { AlertCircle, ChevronUp, Download } from 'lucide-react';
+import { Button } from '@ritual/ui/button';
 import { cn } from '@/lib/utils';
 import { openInBrowser } from '@/lib/native-gateway';
 import {
@@ -59,9 +60,9 @@ export function DesktopUpdateControl({ isExpanded }: { isExpanded: boolean }) {
             ? 'Checking'
             : update.phase === 'error'
               ? update.error?.startsWith('Desktop update required')
-                ? 'Desktop update required'
-                : 'Update failed'
-              : 'Update available';
+                ? 'Required'
+                : 'Failed'
+              : 'Update';
   const tooltip =
     update.phase === 'error'
       ? update.error || 'Update failed'
@@ -84,48 +85,57 @@ export function DesktopUpdateControl({ isExpanded }: { isExpanded: boolean }) {
   };
 
   return (
-    <div className={cn('mt-1 flex h-[30px] items-center gap-0.5', isExpanded ? 'w-full' : 'w-[40px]')}>
-      <button
+    <div
+      className={cn(
+        'flex shrink-0 items-center gap-0.5',
+        isExpanded ? 'h-[var(--sidebar-row-height)]' : 'mt-1 h-[30px] w-[40px] justify-center',
+      )}
+    >
+      <Button
         aria-label={tooltip}
         className={cn(
-          'relative flex h-[30px] min-w-0 items-center rounded-[var(--radius-row)] text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)]',
-          'text-[var(--ritual-status-info)] hover:bg-[var(--row-hover)]',
-          busy && 'cursor-wait bg-[color-mix(in_srgb,var(--ritual-focus-ring)_10%,transparent)]',
-          update.phase === 'error' && 'text-[var(--ritual-status-danger)]',
-          isExpanded ? 'flex-1' : 'w-[40px]',
+          'h-6 min-w-0 border-0 px-2.5 text-[12px] font-medium text-white shadow-none hover:text-white',
+          '!rounded-full',
+          update.phase === 'error'
+            ? 'bg-[var(--ritual-status-danger)] hover:bg-[color-mix(in_srgb,var(--ritual-status-danger)_88%,black)]'
+            : 'bg-[#2f6e45] hover:bg-[#275c3a]',
+          busy && 'cursor-wait',
+          !isExpanded && 'h-6 w-6 px-0',
         )}
+        data-desktop-update-pill=""
         disabled={busy}
         onClick={handlePrimaryAction}
+        size="compact"
         title={tooltip}
         type="button"
       >
-        <span className="flex h-[30px] w-[40px] shrink-0 items-center justify-center">
-          {busy ? (
-            <UpdateLoadingIndicator label={label} />
-          ) : update.phase === 'error' ? (
-            <AlertCircle aria-hidden="true" className="h-[18px] w-[18px]" strokeWidth={2} />
+        {busy ? (
+          <UpdateLoadingIndicator label={label} />
+        ) : !isExpanded ? (
+          update.phase === 'error' ? (
+            <AlertCircle aria-hidden="true" className="!h-3.5 !w-3.5" strokeWidth={2.2} />
           ) : (
-            <Download aria-hidden="true" className="h-[18px] w-[18px]" strokeWidth={2} />
-          )}
-        </span>
-        {isExpanded ? <span className="min-w-0 truncate pr-1 tabular-nums">{label}</span> : null}
-      </button>
+            <Download aria-hidden="true" className="!h-3.5 !w-3.5" strokeWidth={2.2} />
+          )
+        ) : null}
+        {isExpanded ? <span className="tabular-nums">{label}</span> : null}
+      </Button>
 
       {isExpanded && update.manifest ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               aria-label="Update options"
-              className="flex h-[26px] w-[24px] shrink-0 items-center justify-center rounded-[var(--radius-control)] text-[var(--ritual-status-info)] transition-colors hover:bg-[var(--row-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] disabled:cursor-wait disabled:opacity-50"
+              className="flex h-6 w-5 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ritual-focus-ring)] disabled:cursor-wait disabled:opacity-50"
               disabled={busy}
               title="Update options"
               type="button"
             >
-              <ChevronUp aria-hidden="true" className="h-[14px] w-[14px]" strokeWidth={2.2} />
+              <ChevronUp aria-hidden="true" className="h-3.5 w-3.5" strokeWidth={2.2} />
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            align="start"
+            align="end"
             className="min-w-[190px] rounded-[8px] border-[var(--border-subtle)] bg-[var(--surface-window)] text-[var(--text-primary)]"
             side="top"
             sideOffset={6}

@@ -14,6 +14,7 @@ const isPublicRoute = createRouteMatcher([
   '/onboarding(.*)',
   '/sign-in(.*)',
   '/sign-up(.*)',
+  '/voice-hud(.*)',
   '/auth/callback(.*)',
   '/auth/sso-callback(.*)',
   '/auth/desktop-start-oauth(.*)',

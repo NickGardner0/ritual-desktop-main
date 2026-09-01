@@ -347,6 +347,7 @@ private class CenteredTextControl: NSControl {
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { action == nil }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
@@ -588,8 +589,26 @@ private final class VoiceHudApp: NSObject, NSApplicationDelegate {
 
         let view = HudView(frame: NSRect(x: 0, y: 0, width: hudWidth, height: hudHeight))
         view.onStop = { [weak self] in self?.writeCommand("stop") }
-        view.onCancel = { [weak self] in self?.writeCommand("cancel") }
+        view.onCancel = { [weak self] in
+            self?.writeCommand("cancel")
+            NSApplication.shared.terminate(nil)
+        }
         panel.contentView = view
+        panel.ignoresMouseEvents = false
+
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            switch event.keyCode {
+            case 53:
+                self?.writeCommand("cancel")
+                NSApplication.shared.terminate(nil)
+                return nil
+            case 49:
+                self?.writeCommand("stop")
+                return nil
+            default:
+                return event
+            }
+        }
 
         if let state = readState() {
             view.update(state)

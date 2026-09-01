@@ -61,8 +61,22 @@ test('non-Index desktop routes are lazy and Index stays in the first chunk', () 
   assert.match(app, /ClientDashboard/);
   assert.match(app, /readDesktopSettingsWindowView/);
   assert.match(app, /DesktopSettingsWindow/);
+  assert.match(app, /isDesktopVoiceHudWindow/);
+  assert.match(app, /VoiceHudPage/);
   assert.match(settingsQuery, /ritual_settings_window/);
   assert.doesNotMatch(app, /import \{ LogsClient \}/);
   assert.doesNotMatch(app, /import \{ ChatClient \}/);
   assert.match(vite, /chunkSizeWarningLimit:\s*800/);
+});
+
+test('voice HUD is a dedicated local SPA window, not a dashboard route', () => {
+  const app = readFileSync(join(root, 'src/App.tsx'), 'utf8');
+  const query = readFileSync(join(root, 'src/pages/desktop-voice-hud-query.ts'), 'utf8');
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  assert.match(app, /isDesktopVoiceHudWindow\(\)/);
+  assert.match(app, /lazy\(\(\) => import\('@\/app\/voice-hud\/page'\)\)/);
+  assert.doesNotMatch(app, /path="\/voice-hud"/);
+  assert.match(query, /ritual_voice_hud_window/);
+  assert.match(html, /ritual_voice_hud_window/);
+  assert.match(html, /data-voice-hud-window/);
 });

@@ -1594,25 +1594,48 @@ fn build_voice_session_payload(
     }
 }
 
-fn build_voice_hud_url(payload: &VoiceSessionStartPayload) -> String {
-    let ritual_env = configured_ritual_env();
-    let app_origin = get_app_url();
-    let mut url = join_url_path(&app_origin, "/voice-hud");
-    url = with_query_param(&url, "ritual_voice_hud_window=1");
-    url = with_query_param(&url, "ritual_native_voice_hud=1");
-    url = with_query_param(&url, &format!("ritual_desktop_env={ritual_env}"));
-    url = with_query_param(
-        &url,
-        &format!("sessionId={}", urlencoding::encode(&payload.session_id)),
-    );
-    url = with_query_param(
-        &url,
-        &format!("target={}", urlencoding::encode(&payload.target)),
-    );
-    with_query_param(
-        &url,
-        &format!("source={}", urlencoding::encode(&payload.source)),
+fn desktop_local_spa_webview_url() -> Result<tauri::WebviewUrl, String> {
+    if !should_use_local_shell_window() {
+        let url = format!("{}/", DESKTOP_SHELL_DEV_URL.trim_end_matches('/'));
+        return url
+            .parse()
+            .map(tauri::WebviewUrl::External)
+            .map_err(|error| format!("Invalid local SPA URL: {error}"));
+    }
+    Ok(tauri::WebviewUrl::App("index.html".into()))
+}
+
+fn voice_hud_window_init_script(
+    payload: &VoiceSessionStartPayload,
+    native_hud: bool,
+) -> String {
+    let session_id =
+        serde_json::to_string(&payload.session_id).unwrap_or_else(|_| "\"\"".to_string());
+    let target =
+        serde_json::to_string(&payload.target).unwrap_or_else(|_| "\"chat-query\"".to_string());
+    let source =
+        serde_json::to_string(&payload.source).unwrap_or_else(|_| "\"composer\"".to_string());
+    let native_flag = if native_hud { "1" } else { "0" };
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_voice_hud_window", "1");
+    next.searchParams.set("ritual_native_voice_hud", "{native_flag}");
+    next.searchParams.set("sessionId", {session_id});
+    next.searchParams.set("target", {target});
+    next.searchParams.set("source", {source});
+    document.documentElement.dataset.voiceHudWindow = "1";
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
     )
+}
+
+fn voice_hud_session_is_current(app: &tauri::AppHandle, session_id: &str) -> bool {
+    app.try_state::<VoiceHudRuntimeState>()
+        .and_then(|state| state.helper())
+        .is_some_and(|helper| helper.session_id == session_id)
 }
 
 fn initial_voice_hud_visual_state(payload: &VoiceSessionStartPayload) -> VoiceHudVisualState {
@@ -1825,7 +1848,9 @@ fn spawn_voice_hud_command_monitor(app: tauri::AppHandle, session: VoiceHudHelpe
 
             if cancel_path.exists() {
                 let _ = std::fs::remove_file(&cancel_path);
-                emit_voice_hud_control_event_with_retry(&app, VOICE_EVENTS_CANCEL_REQUEST);
+                let _ = emit_voice_hud_control_event(&app, VOICE_EVENTS_CANCEL_REQUEST);
+                dismiss_voice_hud(&app);
+                break;
             }
 
             thread::sleep(Duration::from_millis(50));
@@ -1913,38 +1938,60 @@ fn resize_voice_hud_window(window: &tauri::WebviewWindow) {
     let _ = window.set_size(size);
 }
 
+fn hide_voice_hud_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        let _ = window.hide();
+    }
+}
+
+fn dismiss_voice_hud(app: &tauri::AppHandle) {
+    hide_voice_hud_window(app);
+    app.state::<VoiceHudRuntimeState>().set_active(false);
+    hide_native_voice_hud(app);
+    sync_macos_dock_icon_to_window_visibility(app);
+}
+
+fn configure_voice_hud_window(window: &tauri::WebviewWindow, native_hud_shown: bool) {
+    resize_voice_hud_window(window);
+    if native_hud_shown {
+        let _ = window.hide();
+        return;
+    }
+    let _ = window.center();
+    let _ = window.show();
+    let _ = window.unminimize();
+    let _ = window.set_focus();
+}
+
 fn show_voice_hud_window(
     app: &tauri::AppHandle,
     payload: VoiceSessionStartPayload,
 ) -> Result<VoiceSessionStartPayload, String> {
+    hide_native_voice_hud(app);
+
     let native_hud_shown = show_native_voice_hud(app, &payload);
     app.state::<VoiceHudRuntimeState>()
         .set_active(native_hud_shown);
 
-    if let Some(window) = app.get_webview_window("voice-hud") {
-        resize_voice_hud_window(&window);
-        if native_hud_shown {
-            let _ = window.hide();
-        } else {
-            let _ = window.center();
-            let _ = window.show();
-            let _ = window.unminimize();
-            let _ = window.set_focus();
-        }
-        let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+    if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
         return Ok(payload);
     }
 
-    let url = build_voice_hud_url(&payload);
-    let external_url = url
-        .parse()
-        .map_err(|error| format!("Invalid voice HUD URL: {error}"))?;
+    if let Some(window) = app.get_webview_window("voice-hud") {
+        configure_voice_hud_window(&window, native_hud_shown);
+        let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+        if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
+            hide_voice_hud_window(app);
+        }
+        return Ok(payload);
+    }
 
     let window = tauri::WebviewWindowBuilder::new(
         app,
         "voice-hud",
-        tauri::WebviewUrl::External(external_url),
+        desktop_local_spa_webview_url()?,
     )
+    .initialization_script(voice_hud_window_init_script(&payload, native_hud_shown))
     .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
     .title("")
     .inner_size(VOICE_HUD_WINDOW_WIDTH, VOICE_HUD_WINDOW_HEIGHT)
@@ -1961,12 +2008,11 @@ fn show_voice_hud_window(
     .build()
     .map_err(|error| format!("Failed to create voice HUD window: {error}"))?;
 
-    if native_hud_shown {
-        let _ = window.hide();
-    } else {
-        let _ = window.center();
-    }
+    configure_voice_hud_window(&window, native_hud_shown);
     let _ = window.emit(VOICE_EVENTS_START, payload.clone());
+    if native_hud_shown && !voice_hud_session_is_current(app, &payload.session_id) {
+        hide_voice_hud_window(app);
+    }
     Ok(payload)
 }
 
@@ -2026,14 +2072,7 @@ fn open_voice_hud(
 
 #[tauri::command]
 fn hide_voice_hud(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("voice-hud") {
-        window
-            .hide()
-            .map_err(|error| format!("Failed to hide voice HUD: {error}"))?;
-    }
-    app.state::<VoiceHudRuntimeState>().set_active(false);
-    hide_native_voice_hud(&app);
-    sync_macos_dock_icon_to_window_visibility(&app);
+    dismiss_voice_hud(&app);
     Ok(())
 }
 
@@ -2076,14 +2115,7 @@ fn normalize_settings_view(view: Option<String>) -> String {
 }
 
 fn desktop_settings_window_webview_url() -> Result<tauri::WebviewUrl, String> {
-    if !should_use_local_shell_window() {
-        let url = format!("{}/", DESKTOP_SHELL_DEV_URL.trim_end_matches('/'));
-        return url
-            .parse()
-            .map(tauri::WebviewUrl::External)
-            .map_err(|error| format!("Invalid settings window URL: {error}"));
-    }
-    Ok(tauri::WebviewUrl::App("index.html".into()))
+    desktop_local_spa_webview_url()
 }
 
 fn settings_window_init_script(initial_view: &str) -> String {
@@ -2894,6 +2926,44 @@ mod settings_window_tests {
                 assert!(!external.to_string().contains("desktop.ritualdb.com"));
             }
             other => panic!("unexpected settings webview url: {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod voice_hud_window_tests {
+    use super::*;
+
+    #[test]
+    fn voice_hud_init_script_stays_on_the_local_spa() {
+        let payload = VoiceSessionStartPayload {
+            session_id: "voice-1".to_string(),
+            target: "habit-log".to_string(),
+            source: "hotkey".to_string(),
+            submit_on_final: false,
+            anchor_rect: None,
+        };
+        let script = voice_hud_window_init_script(&payload, true);
+        assert!(script.contains("ritual_voice_hud_window"));
+        assert!(script.contains("ritual_native_voice_hud"));
+        assert!(script.contains("voice-1"));
+        assert!(script.contains("habit-log"));
+        assert!(!script.contains("desktop.ritualdb.com"));
+        assert!(!script.contains("/voice-hud"));
+    }
+
+    #[test]
+    fn production_voice_hud_window_uses_the_bundled_spa() {
+        let url = desktop_local_spa_webview_url().expect("voice hud url");
+        match url {
+            tauri::WebviewUrl::App(path) => {
+                assert_eq!(path.to_string_lossy(), "index.html");
+            }
+            tauri::WebviewUrl::External(external) => {
+                assert!(external.to_string().starts_with(DESKTOP_SHELL_DEV_URL));
+                assert!(!external.to_string().contains("desktop.ritualdb.com"));
+            }
+            other => panic!("unexpected voice HUD webview url: {other:?}"),
         }
     }
 }

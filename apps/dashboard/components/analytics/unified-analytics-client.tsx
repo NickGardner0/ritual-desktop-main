@@ -33,6 +33,8 @@ import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
 import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
 import { DateRangePicker } from '@/components/date-range-picker';
+import { OverviewViewMenuItems } from '@/components/analytics/overview-initial-section';
+import { useUIPreferences } from '@/hooks/use-ui-preferences';
 import { OverviewView } from './overview/OverviewView';
 import { invalidateHabitData } from '@/lib/query-invalidation';
 import { markReadConsistencyRequired } from '@/lib/read-consistency';
@@ -125,6 +127,8 @@ function UnifiedAnalyticsContent() {
   
   // Get AI context for chat
   const { showAIChat, isFullScreenChat } = useAI();
+  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
+  const isFetchView = overviewViewMode === 'summary';
   
   // For optimistic updates via React Query
   const queryClient = useQueryClient();
@@ -324,6 +328,11 @@ function UnifiedAnalyticsContent() {
                 sideOffset={6}
                 className="w-44 rounded-md border-[rgba(31,35,40,0.1)]"
               >
+                <OverviewViewMenuItems
+                  isFetchView={isFetchView}
+                  onSelectList={() => { void setOverviewViewMode('list'); }}
+                  onSelectFetch={() => { void setOverviewViewMode('summary'); }}
+                />
                 <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
                   <Plus className="w-3.5 h-3.5 mr-2" />
                   Add habit
@@ -352,7 +361,7 @@ function UnifiedAnalyticsContent() {
           role="tabpanel"
           id="overview-panel"
           aria-labelledby="overview-tab"
-          className={`transition-[opacity,transform] duration-200 ease-out ${
+          className={`h-full min-h-0 transition-[opacity,transform] duration-200 ease-out ${
             viewMode === 'overview' 
               ? 'opacity-100 translate-y-0' 
               : 'opacity-0 translate-y-2 absolute inset-0 pointer-events-none'

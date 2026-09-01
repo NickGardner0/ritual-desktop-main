@@ -200,7 +200,10 @@ test("integration cards use the marketplace row contract", () => {
 
   assert.match(cardSource, /min-h-\[64px\]/);
   assert.match(cardSource, /rounded-\[12px\] bg-\[var\(--surface-panel\)\]/);
-  assert.match(cardSource, /MoreHorizontal/);
+  assert.match(cardSource, /rounded-full px-3 py-2 hover:bg-\[var\(--row-hover\)\]/);
+  assert.match(cardSource, /Connected/);
+  assert.match(cardSource, /#2f6e45/);
+  assert.doesNotMatch(cardSource, /MoreHorizontal/);
   assert.match(cardSource, /variant="brand"/);
   assert.match(cardSource, /!rounded-full/);
   assert.doesNotMatch(cardSource, /h-\[168px\]/);

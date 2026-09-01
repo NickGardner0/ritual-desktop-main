@@ -61,14 +61,14 @@ export function OverviewView(props: OverviewViewProps) {
 
   return (
     <div
-      className="relative h-[calc(100vh-160px)] overflow-hidden"
+      className="relative flex h-[calc(100vh-160px)] min-h-0 flex-col overflow-hidden"
       onClick={(event) => {
         if (!indexChatOpen) return;
         if ((event.target as HTMLElement | null)?.closest('#ritual-right-dock')) return;
         handleCloseChat();
       }}
     >
-      <div className="h-full min-w-0 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {!shouldShowEmptyState && (
           <OverviewInitialSection
             hideControls={metrics.hideControls}

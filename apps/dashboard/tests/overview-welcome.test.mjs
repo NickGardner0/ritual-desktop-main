@@ -10,18 +10,19 @@ function read(rel) {
   return readFileSync(join(repo, rel), 'utf8');
 }
 
-test('Index list greeting copies Midday ticker behavior with Waldenburg', () => {
+test('Index fetch greeting copies Midday ticker behavior with Waldenburg', () => {
   const header = read('apps/dashboard/components/analytics/overview-welcome-header.tsx');
   const section = read('apps/dashboard/components/analytics/overview-initial-section.tsx');
   const css = read('apps/dashboard/app/globals.css');
   const copy = read('apps/dashboard/components/analytics/overview-welcome.ts');
 
-  assert.match(section, /<OverviewWelcomeHeader align="start"/);
+  assert.match(section, /isFetchView \? \(/);
+  assert.match(section, /<OverviewWelcomeHeader \/>/);
   assert.match(section, /<OverviewFetchBlock/);
   assert.match(section, /<SortableHabitList/);
-  assert.doesNotMatch(section, /isSummaryView/);
+  assert.doesNotMatch(section, /align="start"/);
   assert.doesNotMatch(section, /OverviewSummaryCards/);
-  assert.doesNotMatch(section, /setOverviewViewMode/);
+  assert.match(section, /setOverviewViewMode\('list'\)/);
   assert.match(header, /align === 'start' \? 'text-left' : 'text-center'/);
   assert.match(header, /ritual-index-greeting/);
   assert.match(header, /text-\[28px\]/);

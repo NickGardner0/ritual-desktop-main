@@ -106,6 +106,26 @@ test('signed-in desktop uses native session and a local shell URL', async () => 
   assert.doesNotMatch(main, /WebviewUrl::External\(settings_external_url\)/);
 });
 
+test('voice HUD dismisses natively and loads the local SPA, not hosted /voice-hud', async () => {
+  const app = await readFile('apps/desktop-ui/src/App.tsx', 'utf8');
+  const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
+  const helper = await readFile('apps/desktop/src-tauri/native-voice-hud/main.swift', 'utf8');
+  const page = await readFile('apps/dashboard/app/voice-hud/page.tsx', 'utf8');
+  assert.match(app, /isDesktopVoiceHudWindow/);
+  assert.match(app, /VoiceHudPage/);
+  assert.match(main, /fn desktop_local_spa_webview_url/);
+  assert.match(main, /fn dismiss_voice_hud/);
+  assert.match(main, /ritual_voice_hud_window/);
+  assert.match(main, /VOICE_EVENTS_CANCEL_REQUEST/);
+  assert.doesNotMatch(main, /desktop\.ritualdb\.com\/voice-hud/);
+  assert.doesNotMatch(main, /join_url_path\(&app_origin, "\/voice-hud"\)/);
+  assert.match(helper, /NSApplication\.shared\.terminate/);
+  assert.match(helper, /mouseDownCanMoveWindow: Bool \{ action == nil \}/);
+  assert.match(page, /void hideDesktopVoiceHud\(\)/);
+  assert.match(page, /data-tauri-drag-region="false"/);
+  assert.match(page, /window\.addEventListener\('keydown'/);
+});
+
 test('desktop patch version and generated identity source stay synchronized', async () => {
   const production = await readJson('apps/desktop/src-tauri/tauri.conf.json');
   const cargo = await readFile('apps/desktop/src-tauri/Cargo.toml', 'utf8');
