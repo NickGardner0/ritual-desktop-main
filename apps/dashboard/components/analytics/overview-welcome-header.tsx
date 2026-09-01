@@ -11,6 +11,9 @@ import {
   WELCOME_TICK_DURATION_MS,
   type WelcomeInsight,
 } from '@/components/analytics/overview-welcome';
+import { cn } from '@/lib/utils';
+
+type WelcomeAlign = 'center' | 'start';
 
 const linkClass =
   'border-b border-dashed border-[color-mix(in_srgb,var(--text-muted)_32%,transparent)] transition-colors hover:text-[var(--text-primary)]';
@@ -29,7 +32,14 @@ function InsightCopy({ insight }: { insight: WelcomeInsight }) {
   );
 }
 
-function SummaryTicker({ insights }: { insights: WelcomeInsight[] }) {
+function SummaryTicker({
+  insights,
+  align,
+}: {
+  insights: WelcomeInsight[];
+  align: WelcomeAlign;
+}) {
+  const isStart = align === 'start';
   const [index, setIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [fast, setFast] = useState(false);
@@ -91,7 +101,12 @@ function SummaryTicker({ insights }: { insights: WelcomeInsight[] }) {
 
   if (insights.length <= 1) {
     return (
-      <p className="mt-3 max-w-lg text-center text-sm leading-relaxed text-[var(--text-muted)]">
+      <p
+        className={cn(
+          'mt-3 max-w-lg text-sm leading-relaxed text-[var(--text-muted)]',
+          isStart ? 'text-left' : 'text-center',
+        )}
+      >
         <InsightCopy insight={current} />
       </p>
     );
@@ -99,7 +114,10 @@ function SummaryTicker({ insights }: { insights: WelcomeInsight[] }) {
 
   return (
     <div
-      className="mt-3 flex w-full max-w-lg flex-col items-center gap-3"
+      className={cn(
+        'mt-3 flex w-full max-w-lg flex-col gap-3',
+        isStart ? 'items-start' : 'items-center',
+      )}
       onMouseEnter={() => {
         hoveredRef.current = true;
         elapsedOnPauseRef.current += Date.now() - startRef.current;
@@ -113,13 +131,21 @@ function SummaryTicker({ insights }: { insights: WelcomeInsight[] }) {
         <AnimatePresence mode="wait" initial={false} custom={direction}>
           <motion.div
             key={current.key}
-            className="absolute inset-0 flex items-center justify-center"
+            className={cn(
+              'absolute inset-0 flex items-center',
+              isStart ? 'justify-start' : 'justify-center',
+            )}
             initial={reduceMotion ? { opacity: 0 } : { y: slideY, opacity: 0, filter: 'blur(4px)' }}
             animate={reduceMotion ? { opacity: 1 } : { y: 0, opacity: 1, filter: 'blur(0px)' }}
             exit={reduceMotion ? { opacity: 0 } : { y: -slideY, opacity: 0, filter: 'blur(4px)' }}
             transition={{ duration, ease: [0.16, 1, 0.3, 1] }}
           >
-            <span className="text-center text-sm leading-relaxed text-[var(--text-muted)]">
+            <span
+              className={cn(
+                'text-sm leading-relaxed text-[var(--text-muted)]',
+                isStart ? 'text-left' : 'text-center',
+              )}
+            >
               <InsightCopy insight={current} />
             </span>
           </motion.div>
@@ -152,7 +178,11 @@ function SummaryTicker({ insights }: { insights: WelcomeInsight[] }) {
   );
 }
 
-export function OverviewWelcomeGreeting() {
+export function OverviewWelcomeGreeting({
+  align = 'center',
+}: {
+  align?: WelcomeAlign;
+}) {
   const { user } = useUser();
   const [greeting, setGreeting] = useState(() => getTimeBasedGreeting());
 
@@ -169,7 +199,10 @@ export function OverviewWelcomeGreeting() {
   return (
     <h1
       suppressHydrationWarning
-      className="ritual-index-greeting text-center text-[28px] font-normal leading-tight tracking-[-0.02em] text-[var(--text-primary)]"
+      className={cn(
+        'ritual-index-greeting text-[28px] font-normal leading-tight tracking-[-0.02em] text-[var(--text-primary)]',
+        align === 'start' ? 'text-left' : 'text-center',
+      )}
     >
       {greeting}
       {firstName ? (
@@ -181,17 +214,32 @@ export function OverviewWelcomeGreeting() {
   );
 }
 
-export function OverviewWelcomeSummary() {
+export function OverviewWelcomeSummary({
+  align = 'center',
+}: {
+  align?: WelcomeAlign;
+}) {
   const metrics = useOverviewWidgetMetrics();
   const insights = useMemo(() => buildWelcomeInsights(metrics), [metrics]);
-  return <SummaryTicker insights={insights} />;
+  return <SummaryTicker insights={insights} align={align} />;
 }
 
-export function OverviewWelcomeHeader() {
+export function OverviewWelcomeHeader({
+  align = 'center',
+}: {
+  align?: WelcomeAlign;
+}) {
   return (
-    <div className="flex w-full flex-col items-center pt-4 pb-6 text-center">
-      <OverviewWelcomeGreeting />
-      <OverviewWelcomeSummary />
+    <div
+      className={cn(
+        'flex w-full flex-col',
+        align === 'start'
+          ? 'items-start pt-1 pb-3 text-left'
+          : 'items-center pt-4 pb-6 text-center',
+      )}
+    >
+      <OverviewWelcomeGreeting align={align} />
+      <OverviewWelcomeSummary align={align} />
     </div>
   );
 }

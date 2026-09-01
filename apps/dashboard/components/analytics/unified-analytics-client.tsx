@@ -14,15 +14,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { Plus, Download, List, LayoutGrid } from 'lucide-react';
-import { useUIPreferences } from '@/hooks/use-ui-preferences';
+import { Plus, Download } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
 } from '@ritual/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
 import type { ViewMode } from './view-mode-toggle';
@@ -112,8 +109,6 @@ function ViewLoadingFallback() {
 // Inner component that uses the filter context
 function UnifiedAnalyticsContent() {
   const { viewMode, setViewMode, dateRange, setDateRange, selectedHabits, setSelectedHabits, toggleHabit, selectAllHabits, clearHabitSelection } = useAnalyticsFilters();
-  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
-  const isSummaryView = overviewViewMode === 'summary';
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -329,20 +324,6 @@ function UnifiedAnalyticsContent() {
                 sideOffset={6}
                 className="w-44 rounded-md border-[rgba(31,35,40,0.1)]"
               >
-                <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
-                  View
-                </DropdownMenuLabel>
-                <DropdownMenuItem onClick={() => { void setOverviewViewMode('list'); }}>
-                  <List className="w-3.5 h-3.5 mr-2" />
-                  <span>List</span>
-                  {!isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => { void setOverviewViewMode('summary'); }}>
-                  <LayoutGrid className="w-3.5 h-3.5 mr-2" />
-                  <span>Card</span>
-                  {isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={() => setShowSelectionModal(true)}>
                   <Plus className="w-3.5 h-3.5 mr-2" />
                   Add habit

@@ -17,7 +17,9 @@ test('Index first frame uses local snapshots and does not dynamic-gate the habit
   const metrics = read('apps/dashboard/components/analytics/overview/useOverviewMetrics.ts');
 
   assert.match(overview, /import \{ SortableHabitList/);
+  assert.match(overview, /import \{ OverviewFetchBlock/);
   assert.doesNotMatch(overview, /dynamic\(\s*\(\) => import\('@\/components\/analytics\/sortable-habit-list'/);
+  assert.doesNotMatch(overview, /dynamic\(\s*\(\) => import\('@\/components\/analytics\/overview-fetch-block'/);
   assert.match(habits, /placeholderData/);
   assert.match(habits, /readLocalVaultHabits/);
   assert.match(filters, /getLast14DaysRange/);

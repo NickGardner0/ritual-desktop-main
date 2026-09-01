@@ -3,30 +3,23 @@
 import React from 'react';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import { Plus, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
+import { Plus, TrendingUp, CalendarCheck, Upload, Watch } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
 import type { DateRange } from 'react-day-picker';
 import { parseISO } from 'date-fns';
 import { HistoryScrubber } from '@/components/history-scrubber';
 import { OverviewWelcomeHeader } from '@/components/analytics/overview-welcome-header';
+import { OverviewFetchBlock } from '@/components/analytics/overview-fetch-block';
 import { SortableHabitList, type SortableHabitListProps } from '@/components/analytics/sortable-habit-list';
 import type { Habit } from '@/contexts/HabitsContext';
-import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
 const DateRangePicker = dynamic(
   () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
-  { ssr: false },
-);
-
-const OverviewSummaryCards = dynamic(
-  () => import('@/components/analytics/overview-summary-cards').then((m) => ({ default: m.OverviewSummaryCards })),
   { ssr: false },
 );
 
@@ -104,9 +97,6 @@ function OverviewInitialSectionInner({
   onShowSelectionModal,
   onShowImportModal,
 }: OverviewInitialSectionProps) {
-  const { overviewViewMode, setOverviewViewMode } = useUIPreferences();
-  const isSummaryView = overviewViewMode === 'summary';
-
   const handleScrubberSelect = React.useCallback((date: string | null) => {
     onScrubberSelect(date);
     if (date) {
@@ -146,20 +136,6 @@ function OverviewInitialSectionInner({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuLabel className="text-[11px] font-normal uppercase tracking-wide text-gray-500">
-                  View
-                </DropdownMenuLabel>
-                <DropdownMenuItem onSelect={() => { void setOverviewViewMode('list'); }}>
-                  <List className="mr-2 h-3.5 w-3.5" />
-                  <span>List</span>
-                  {!isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => { void setOverviewViewMode('summary'); }}>
-                  <LayoutGrid className="mr-2 h-3.5 w-3.5" />
-                  <span>Card</span>
-                  {isSummaryView && <span className="ml-auto text-[11px] text-gray-500">✓</span>}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={onShowSelectionModal}>
                   <Plus className="mr-2 h-3.5 w-3.5" />
                   <span>Add habit</span>
@@ -180,33 +156,28 @@ function OverviewInitialSectionInner({
         </div>
       )}
 
-      <div className={`flex-1 overflow-auto ${isSummaryView ? 'pt-2 pb-24' : 'pt-6 pb-4'}`}>
-        {isSummaryView ? (
-          <div className="mx-auto w-full max-w-3xl px-2">
-            <OverviewWelcomeHeader />
-            <OverviewSummaryCards />
-          </div>
-        ) : (
-          <div className="max-w-[408px] mx-auto w-full">
-            <SortableHabitList
-              habits={orderedHabits}
-              onReorder={onReorder}
-              getHabitMetricDisplay={getHabitMetricDisplay}
-              getHabitMetricClassName={getHabitMetricClassName}
-              scrubberHoveredDate={scrubberHoveredDate}
-              scrubberHoveredValues={scrubberHoveredValues}
-              activeTooltip={activeTooltip}
-              setActiveTooltip={setActiveTooltip}
-              getHabitMetricStats={getHabitMetricStats}
-              onUpdateHabitDetails={onUpdateHabitDetails}
-              updatingHabitId={updatingHabitId}
-              confirmDelete={confirmDelete}
-              deletingHabit={deletingHabit}
-              selectedContextHabitId={selectedContextHabitId}
-              onOpenContext={onOpenContext}
-            />
-          </div>
-        )}
+      <div className="flex-1 overflow-auto pt-6 pb-4">
+        <div className="max-w-[408px] mx-auto w-full">
+          <OverviewWelcomeHeader align="start" />
+          <OverviewFetchBlock />
+          <SortableHabitList
+            habits={orderedHabits}
+            onReorder={onReorder}
+            getHabitMetricDisplay={getHabitMetricDisplay}
+            getHabitMetricClassName={getHabitMetricClassName}
+            scrubberHoveredDate={scrubberHoveredDate}
+            scrubberHoveredValues={scrubberHoveredValues}
+            activeTooltip={activeTooltip}
+            setActiveTooltip={setActiveTooltip}
+            getHabitMetricStats={getHabitMetricStats}
+            onUpdateHabitDetails={onUpdateHabitDetails}
+            updatingHabitId={updatingHabitId}
+            confirmDelete={confirmDelete}
+            deletingHabit={deletingHabit}
+            selectedContextHabitId={selectedContextHabitId}
+            onOpenContext={onOpenContext}
+          />
+        </div>
       </div>
     </>
   );
