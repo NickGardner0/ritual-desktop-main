@@ -11,7 +11,7 @@ function read(rel) {
 }
 
 test('tasks page has a Completed pill and a Things-style completed log', () => {
-  const pills = read('apps/dashboard/app/(dashboard)/tasks/tasks-ui.tsx');
+  const pills = read('apps/dashboard/app/(dashboard)/tasks/tasks-filters.tsx');
   const log = read('apps/dashboard/app/(dashboard)/tasks/completed-task-log.tsx');
   const client = read('apps/dashboard/app/(dashboard)/tasks/tasks-client.tsx');
 

@@ -12,13 +12,9 @@ import {
   CircleDotDashed,
   CircleGauge,
   CircleX,
-  Columns3,
   Flag,
-  List,
-  ListFilter,
   MoreHorizontal,
   Plus,
-  X,
 } from 'lucide-react';
 
 import { Button } from '@ritual/ui/button';
@@ -26,13 +22,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@ritual/ui/dropdown-menu';
 import { Popover, PopoverContent, PopoverTrigger } from '@ritual/ui/popover';
@@ -40,17 +29,11 @@ import { dateInputValue } from '@/lib/tasks/date-format';
 import {
   CATEGORY_FILTERS,
   LIST_LAYOUT_MODES,
-  PRIORITY_FILTERS,
   PRIORITIES,
-  TASK_DISPLAY_MODES,
   TASK_STATUS_OPTIONS,
-  TASK_SORTS,
   TASK_VIEWS,
   isTaskViewId,
   type ListLayoutMode,
-  type TaskPriorityFilter,
-  type TaskDisplayMode,
-  type TaskSortId,
   type TaskViewId,
 } from '@/lib/tasks/task-constants';
 import {
@@ -59,10 +42,10 @@ import {
   PillSelect,
   priorityBars,
   TaskRowShell,
-  viewPillClassName,
 } from '@/lib/tasks/task-ui-shell';
 import type { Task, TaskPriority, TaskStatus, TaskUpdateInput } from '@/lib/tasks/types';
 import { relativeDayLabel } from '@/lib/tasks/seed-data';
+import { TaskCompleteShell, TaskCompleteTitle } from '@/lib/tasks/task-complete-effect';
 import { checklistProgress, splitTaskNotes } from '@/lib/tasks/checklist';
 import { cn } from '@/lib/utils';
 
@@ -75,6 +58,8 @@ export {
   type ListLayoutMode,
   type TaskViewId,
 };
+
+export { TasksCategoryPills } from './tasks-filters';
 
 export function TasksToolbarActions({
   onNewTask,
@@ -95,185 +80,6 @@ export function TasksToolbarActions({
         New task
       </Button>
     </HeaderPortal>
-  );
-}
-
-export function TasksCategoryPills({
-  category,
-  onCategoryChange,
-  displayMode,
-  onDisplayModeChange,
-  layoutMode,
-  onLayoutModeChange,
-  view,
-  onViewChange,
-  priorityFilter,
-  onPriorityFilterChange,
-  sortMode,
-  onSortModeChange,
-  onClearFilters,
-}: {
-  category: (typeof CATEGORY_FILTERS)[number];
-  onCategoryChange: (category: (typeof CATEGORY_FILTERS)[number]) => void;
-  displayMode: TaskDisplayMode;
-  onDisplayModeChange: (mode: TaskDisplayMode) => void;
-  layoutMode: ListLayoutMode;
-  onLayoutModeChange: (mode: ListLayoutMode) => void;
-  view: TaskViewId;
-  onViewChange: (view: TaskViewId) => void;
-  priorityFilter: TaskPriorityFilter;
-  onPriorityFilterChange: (priority: TaskPriorityFilter) => void;
-  sortMode: TaskSortId;
-  onSortModeChange: (sort: TaskSortId) => void;
-  onClearFilters: () => void;
-}) {
-  const hasFilters = view !== 'today' || category !== 'All' || priorityFilter !== 'all';
-
-  return (
-    <div className="flex w-full items-center gap-3 pb-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-1">
-        {CATEGORY_FILTERS.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => {
-              if (view === 'completed') onViewChange('today');
-              onCategoryChange(option);
-            }}
-            className={viewPillClassName(view !== 'completed' && category === option)}
-          >
-            {option}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => {
-            onCategoryChange('All');
-            onViewChange('completed');
-          }}
-          className={viewPillClassName(view === 'completed')}
-        >
-          Completed
-        </button>
-      </div>
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-compact"
-              className={cn(
-                'h-7 w-7 text-[var(--icon-default)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]',
-                hasFilters && 'bg-[var(--surface-panel)] text-[var(--text-primary)]',
-              )}
-              aria-label="Filter tasks"
-              title="Filter tasks"
-            >
-              <ListFilter className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Filter tasks</DropdownMenuLabel>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <span>Scope</span>
-                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">
-                  {TASK_VIEWS.find((item) => item.id === view)?.label}
-                </span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-44">
-                <DropdownMenuRadioGroup value={view} onValueChange={(value) => onViewChange(value as TaskViewId)}>
-                  {TASK_VIEWS.map((option) => (
-                    <DropdownMenuRadioItem key={option.id} value={option.id}>
-                      {option.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <span>Priority</span>
-                <span className="ml-auto mr-1 text-[11px] text-[var(--text-muted)]">
-                  {PRIORITY_FILTERS.find((item) => item.id === priorityFilter)?.label}
-                </span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-48">
-                <DropdownMenuRadioGroup
-                  value={priorityFilter}
-                  onValueChange={(value) => onPriorityFilterChange(value as TaskPriorityFilter)}
-                >
-                  {PRIORITY_FILTERS.map((option) => (
-                    <DropdownMenuRadioItem key={option.id} value={option.id}>
-                      {option.label}
-                    </DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem disabled={!hasFilters} onSelect={onClearFilters}>
-              <X className="h-3.5 w-3.5" />
-              Clear filters
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-compact"
-              className="h-7 w-7 text-[var(--icon-default)] hover:bg-[var(--row-hover)] hover:text-[var(--text-primary)]"
-              aria-label="Change task view"
-              title="Change task view"
-            >
-              {displayMode === 'board' ? <Columns3 className="h-3.5 w-3.5" /> : <List className="h-3.5 w-3.5" />}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Layout</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={displayMode}
-              onValueChange={(value) => onDisplayModeChange(value as TaskDisplayMode)}
-            >
-              {TASK_DISPLAY_MODES.map((option) => (
-                <DropdownMenuRadioItem key={option.id} value={option.id}>
-                  {option.id === 'list' ? <List className="h-3.5 w-3.5" /> : <Columns3 className="h-3.5 w-3.5" />}
-                  {option.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Grouping</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={layoutMode}
-              onValueChange={(value) => onLayoutModeChange(value as ListLayoutMode)}
-            >
-              {LIST_LAYOUT_MODES.map((option) => (
-                <DropdownMenuRadioItem key={option.id} value={option.id}>
-                  {option.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Ordering</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={sortMode}
-              onValueChange={(value) => onSortModeChange(value as TaskSortId)}
-            >
-              {TASK_SORTS.map((option) => (
-                <DropdownMenuRadioItem key={option.id} value={option.id}>
-                  {option.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    </div>
   );
 }
 
@@ -331,6 +137,8 @@ const TASK_ROW_GRID_CLASS = cn(
   'md:grid-cols-[minmax(0,1fr)_112px_92px_72px_1.75rem]',
   'lg:grid-cols-[minmax(0,1fr)_112px_92px_72px_88px_1.75rem]',
 );
+
+const emptyCompletingIds: ReadonlySet<string> = new Set();
 
 function formatTaskCreatedDate(value: string | null): string {
   if (!value) return '—';
@@ -466,6 +274,7 @@ export function TaskGroupSection({
   onComplete,
   onUpdate,
   onOpen,
+  completingIds = emptyCompletingIds,
 }: {
   group: string;
   tasks: Task[];
@@ -474,6 +283,7 @@ export function TaskGroupSection({
   onComplete: (task: Task) => void;
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
   onOpen: (task: Task) => void;
+  completingIds?: ReadonlySet<string>;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const overdueLabel = groupOverdueLabel(tasks);
@@ -490,15 +300,17 @@ export function TaskGroupSection({
       {!collapsed ? (
         <div className="space-y-0.5">
           {tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              menuOpen={menuTaskId === task.id}
-              onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
-              onComplete={() => onComplete(task)}
-              onUpdate={(patch) => onUpdate(task.id, patch)}
-              onOpen={() => onOpen(task)}
-            />
+            <TaskCompleteShell key={task.id} completing={completingIds.has(task.id)}>
+              <TaskRow
+                task={task}
+                completing={completingIds.has(task.id)}
+                menuOpen={menuTaskId === task.id}
+                onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
+                onComplete={() => onComplete(task)}
+                onUpdate={(patch) => onUpdate(task.id, patch)}
+                onOpen={() => onOpen(task)}
+              />
+            </TaskCompleteShell>
           ))}
         </div>
       ) : null}
@@ -513,6 +325,7 @@ export function TaskListSection({
   onComplete,
   onUpdate,
   onOpen,
+  completingIds = emptyCompletingIds,
 }: {
   tasks: Task[];
   menuTaskId: string | null;
@@ -520,19 +333,22 @@ export function TaskListSection({
   onComplete: (task: Task) => void;
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
   onOpen: (task: Task) => void;
+  completingIds?: ReadonlySet<string>;
 }) {
   return (
     <div className="space-y-0.5">
       {tasks.map((task) => (
-        <TaskRow
-          key={task.id}
-          task={task}
-          menuOpen={menuTaskId === task.id}
-          onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
-          onComplete={() => onComplete(task)}
-          onUpdate={(patch) => onUpdate(task.id, patch)}
-          onOpen={() => onOpen(task)}
-        />
+        <TaskCompleteShell key={task.id} completing={completingIds.has(task.id)}>
+          <TaskRow
+            task={task}
+            completing={completingIds.has(task.id)}
+            menuOpen={menuTaskId === task.id}
+            onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
+            onComplete={() => onComplete(task)}
+            onUpdate={(patch) => onUpdate(task.id, patch)}
+            onOpen={() => onOpen(task)}
+          />
+        </TaskCompleteShell>
       ))}
     </div>
   );
@@ -540,6 +356,7 @@ export function TaskListSection({
 
 export function TaskRow({
   task,
+  completing = false,
   menuOpen,
   onMenuOpenChange,
   onComplete,
@@ -547,6 +364,7 @@ export function TaskRow({
   onOpen,
 }: {
   task: Task;
+  completing?: boolean;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   onComplete: () => void;
@@ -556,6 +374,7 @@ export function TaskRow({
   const createdLabel = formatTaskCreatedDate(task.created_at);
   const deadlineLabel = relativeDayLabel(task.due_at);
   const progress = checklistProgress(splitTaskNotes(task.notes).items);
+  const checked = completing || task.status === 'completed';
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -576,28 +395,36 @@ export function TaskRow({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onComplete();
+              if (!completing) onComplete();
             }}
             className={cn(
               'flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
-              task.status === 'completed'
+              checked
                 ? 'border-[#27251E] bg-[#27251E] text-white'
                 : 'border-[rgba(39,37,30,0.38)] bg-white text-transparent hover:border-[#27251E]',
             )}
             aria-label={`Complete ${task.title}`}
-            aria-pressed={task.status === 'completed'}
+            aria-pressed={checked}
+            disabled={completing}
           >
-            <Check className="h-3 w-3" />
+            <Check className={cn('h-3 w-3', completing && 'ritual-task-complete-check')} />
           </button>
           <div className="flex min-w-0 items-center gap-2">
-            <div
-              className={cn(
-                'min-w-0 truncate text-[14px] font-normal leading-5 text-[var(--text-primary)]',
-                task.status === 'completed' && 'text-[var(--text-muted)] line-through',
-              )}
-            >
-              {task.title}
-            </div>
+            {completing ? (
+              <TaskCompleteTitle
+                title={task.title}
+                className="block max-w-full min-w-0 truncate text-[14px] font-normal leading-5"
+              />
+            ) : (
+              <div
+                className={cn(
+                  'min-w-0 truncate text-[14px] font-normal leading-5 text-[var(--text-primary)]',
+                  task.status === 'completed' && 'text-[var(--text-muted)] line-through',
+                )}
+              >
+                {task.title}
+              </div>
+            )}
             {progress.total > 0 ? (
               <span className="shrink-0 tabular-nums text-[11px] text-[var(--text-muted)]">
                 {progress.done}/{progress.total}
@@ -638,6 +465,7 @@ export function TaskRow({
 
 function TaskBoardCard({
   task,
+  completing = false,
   menuOpen,
   onMenuOpenChange,
   onComplete,
@@ -645,6 +473,7 @@ function TaskBoardCard({
   onOpen,
 }: {
   task: Task;
+  completing?: boolean;
   menuOpen: boolean;
   onMenuOpenChange: (open: boolean) => void;
   onComplete: () => void;
@@ -652,6 +481,7 @@ function TaskBoardCard({
   onOpen: () => void;
 }) {
   const contextLabel = task.project || task.category || 'Inbox';
+  const checked = completing || task.status === 'completed';
 
   return (
     <Popover open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -669,22 +499,30 @@ function TaskBoardCard({
             type="button"
             onClick={(event) => {
               event.stopPropagation();
-              onComplete();
+              if (!completing) onComplete();
             }}
             className={cn(
               'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border',
-              task.status === 'completed'
+              checked
                 ? 'border-[var(--text-primary)] bg-[var(--text-primary)] text-[var(--surface-raised)]'
                 : 'border-[var(--border-floating)] bg-[var(--surface-raised)] text-transparent',
             )}
             aria-label={`Complete ${task.title}`}
-            aria-pressed={task.status === 'completed'}
+            aria-pressed={checked}
+            disabled={completing}
           >
-            <Check className="h-3 w-3" />
+            <Check className={cn('h-3 w-3', completing && 'ritual-task-complete-check')} />
           </button>
-          <span className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-[var(--text-primary)]">
-            {task.title}
-          </span>
+          {completing ? (
+            <TaskCompleteTitle
+              title={task.title}
+              className="block max-w-full min-w-0 flex-1 truncate text-[13px] font-medium leading-5"
+            />
+          ) : (
+            <span className="min-w-0 flex-1 text-[13px] font-medium leading-5 text-[var(--text-primary)]">
+              {task.title}
+            </span>
+          )}
           <PopoverTrigger asChild>
             <button
               type="button"
@@ -713,6 +551,7 @@ export function TaskBoard({
   onComplete,
   onUpdate,
   onOpen,
+  completingIds = emptyCompletingIds,
 }: {
   groups: Array<readonly [string, Task[]]>;
   menuTaskId: string | null;
@@ -720,6 +559,7 @@ export function TaskBoard({
   onComplete: (task: Task) => void;
   onUpdate: (id: string, patch: TaskUpdateInput) => void;
   onOpen: (task: Task) => void;
+  completingIds?: ReadonlySet<string>;
 }) {
   return (
     <div className="grid auto-cols-[minmax(240px,1fr)] grid-flow-col gap-3 overflow-x-auto pb-4">
@@ -734,15 +574,17 @@ export function TaskBoard({
           </header>
           <div className="space-y-1.5">
             {tasks.map((task) => (
-              <TaskBoardCard
-                key={task.id}
-                task={task}
-                menuOpen={menuTaskId === task.id}
-                onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
-                onComplete={() => onComplete(task)}
-                onUpdate={(patch) => onUpdate(task.id, patch)}
-                onOpen={() => onOpen(task)}
-              />
+              <TaskCompleteShell key={task.id} completing={completingIds.has(task.id)}>
+                <TaskBoardCard
+                  task={task}
+                  completing={completingIds.has(task.id)}
+                  menuOpen={menuTaskId === task.id}
+                  onMenuOpenChange={(open) => onMenuTaskChange(open ? task.id : null)}
+                  onComplete={() => onComplete(task)}
+                  onUpdate={(patch) => onUpdate(task.id, patch)}
+                  onOpen={() => onOpen(task)}
+                />
+              </TaskCompleteShell>
             ))}
           </div>
         </section>

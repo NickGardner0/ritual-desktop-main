@@ -30,6 +30,42 @@ export function filterTasksForView(tasks: Task[], view: TaskViewId, category: st
   return tasks.filter((task) => isTaskInView(task, view) && (category === 'All' || task.category === category));
 }
 
+export function dedupeTasksByIdentity(tasks: Task[]): Task[] {
+  const ids = new Set<string>();
+  const clientEventIds = new Set<string>();
+  return tasks.filter((task) => {
+    if (ids.has(task.id)) return false;
+    if (task.client_event_id && clientEventIds.has(task.client_event_id)) return false;
+    ids.add(task.id);
+    if (task.client_event_id) clientEventIds.add(task.client_event_id);
+    return true;
+  });
+}
+
+export function mergeVisibleTasksForView({
+  stored,
+  recent,
+  demo,
+  held = [],
+  view,
+  category,
+}: {
+  stored: Task[];
+  recent: Task[];
+  demo: Task[];
+  held?: Task[];
+  view: TaskViewId;
+  category: string;
+}): Task[] {
+  const visible = filterTasksForView(
+    dedupeTasksByIdentity([...stored, ...recent, ...demo]),
+    view,
+    category,
+  );
+  if (held.length === 0) return visible;
+  return dedupeTasksByIdentity([...held, ...visible]);
+}
+
 export function createInputFromTask(task: Task, patch: TaskUpdateInput = {}): TaskCreateInput {
   return {
     title: patch.title ?? task.title,
@@ -83,6 +119,55 @@ export type CompletedTaskMonthGroup = {
   label: string;
   tasks: Task[];
 };
+
+export type TodoTaskGroupId = 'overdue' | 'today' | 'upcoming' | 'undated';
+
+export type TodoTaskGroup = {
+  id: TodoTaskGroupId;
+  label: string;
+  tasks: Task[];
+};
+
+function startOfLocalDayMs(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
+export function taskTodoDateAnchorMs(task: Pick<Task, 'due_at' | 'scheduled_for'>): number | null {
+  const value = task.scheduled_for || task.due_at;
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return startOfLocalDayMs(parsed);
+}
+
+export function groupTasksForTodoView(tasks: Task[], now: Date = new Date()): TodoTaskGroup[] {
+  const today = startOfLocalDayMs(now);
+  const buckets: Record<TodoTaskGroupId, Task[]> = {
+    overdue: [],
+    today: [],
+    upcoming: [],
+    undated: [],
+  };
+
+  for (const task of tasks) {
+    const anchor = taskTodoDateAnchorMs(task);
+    if (anchor === null) buckets.undated.push(task);
+    else if (anchor < today) buckets.overdue.push(task);
+    else if (anchor === today) buckets.today.push(task);
+    else buckets.upcoming.push(task);
+  }
+
+  const labels: Record<TodoTaskGroupId, string> = {
+    overdue: 'Overdue',
+    today: 'Today',
+    upcoming: 'Upcoming',
+    undated: 'No date',
+  };
+
+  return (['overdue', 'today', 'upcoming', 'undated'] as const)
+    .map((id) => ({ id, label: labels[id], tasks: buckets[id] }))
+    .filter((group) => group.tasks.length > 0);
+}
 
 export function groupCompletedTasksByMonth(
   tasks: Task[],

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   buildOptimisticTask,
@@ -10,9 +10,17 @@ import {
   createInputFromTask,
   filterTasksForView,
   groupCompletedTasksByMonth,
+  groupTasksForTodoView,
   isSeedTaskId,
+  mergeVisibleTasksForView,
   selectTasksForQuery,
 } from '../lib/tasks/task-view';
+import {
+  isTaskDisplayMode,
+  readStoredTaskDisplayMode,
+  TASK_DISPLAY_MODE_STORAGE_KEY,
+  writeStoredTaskDisplayMode,
+} from '../lib/tasks/task-constants';
 import type { Task } from '../lib/tasks/types';
 
 const NOW = '2026-06-29T12:00:00.000Z';
@@ -52,6 +60,63 @@ describe('task completion views', () => {
     expect(filterTasksForView(patched, 'today', 'All')).toHaveLength(0);
     expect(filterTasksForView(patched, 'completed', 'All')).toHaveLength(1);
     expect(patched[0].completed_at).toBe(NOW);
+  });
+
+  it('does not resurrect a completed task from a stale create overlay', () => {
+    const open: Task = {
+      ...baseTask,
+      status: 'open',
+      due_at: new Date().toISOString(),
+      scheduled_for: new Date().toISOString(),
+    };
+    const completed: Task = { ...open, status: 'completed', completed_at: NOW };
+    expect(mergeVisibleTasksForView({
+      stored: [completed],
+      recent: [open],
+      demo: [open],
+      view: 'today',
+      category: 'All',
+    })).toEqual([]);
+    expect(mergeVisibleTasksForView({
+      stored: [completed],
+      recent: [open],
+      demo: [],
+      view: 'completed',
+      category: 'All',
+    }).map((task) => task.id)).toEqual(['task-1']);
+  });
+
+  it('keeps a completing snapshot visible while the cached task is already complete', () => {
+    const open: Task = {
+      ...baseTask,
+      status: 'open',
+      due_at: new Date().toISOString(),
+      scheduled_for: new Date().toISOString(),
+    };
+    const completed: Task = { ...open, status: 'completed', completed_at: NOW };
+    expect(mergeVisibleTasksForView({
+      stored: [completed],
+      recent: [],
+      demo: [],
+      held: [open],
+      view: 'today',
+      category: 'All',
+    }).map((task) => task.id)).toEqual(['task-1']);
+  });
+
+  it('still shows a newly created task that has not landed in the cache yet', () => {
+    const recent: Task = {
+      ...baseTask,
+      due_at: new Date().toISOString(),
+      scheduled_for: new Date().toISOString(),
+    };
+    expect(mergeVisibleTasksForView({
+      stored: [],
+      recent: [recent],
+      demo: [],
+      view: 'today',
+      category: 'All',
+    }).map((task) => task.id)).toEqual(['task-1']);
   });
 
   it('uses seed tasks only for empty active lists, not completed', () => {
@@ -120,3 +185,72 @@ describe('task completion views', () => {
     expect(merged.some((task) => task.id === outboxTask.id)).toBe(true);
   });
 });
+
+describe('todo list grouping', () => {
+  function localMorningIso(year: number, month: number, day: number) {
+    return new Date(year, month - 1, day, 9, 0, 0).toISOString();
+  }
+
+  function localNoon(year: number, month: number, day: number) {
+    return new Date(year, month - 1, day, 12, 0, 0);
+  }
+
+  it('groups tasks into overdue, today, upcoming, and no date', () => {
+    const now = localNoon(2026, 9, 1);
+    const overdue: Task = { ...baseTask, id: 'overdue', due_at: localMorningIso(2026, 8, 25) };
+    const today: Task = {
+      ...baseTask,
+      id: 'today',
+      scheduled_for: localMorningIso(2026, 9, 1),
+    };
+    const upcoming: Task = { ...baseTask, id: 'upcoming', due_at: localMorningIso(2026, 9, 10) };
+    const undated: Task = { ...baseTask, id: 'undated', due_at: null, scheduled_for: null };
+    const groups = groupTasksForTodoView([undated, upcoming, overdue, today], now);
+
+    expect(groups.map((group) => group.id)).toEqual(['overdue', 'today', 'upcoming', 'undated']);
+    expect(groups.find((group) => group.id === 'overdue')?.tasks.map((task) => task.id)).toEqual(['overdue']);
+    expect(groups.find((group) => group.id === 'today')?.tasks.map((task) => task.id)).toEqual(['today']);
+    expect(groups.find((group) => group.id === 'upcoming')?.tasks.map((task) => task.id)).toEqual(['upcoming']);
+    expect(groups.find((group) => group.id === 'undated')?.tasks.map((task) => task.id)).toEqual(['undated']);
+  });
+
+  it('prefers scheduled_for over due_at when grouping', () => {
+    const now = localNoon(2026, 9, 1);
+    const task: Task = {
+      ...baseTask,
+      due_at: localMorningIso(2026, 8, 20),
+      scheduled_for: localMorningIso(2026, 9, 1),
+    };
+    const groups = groupTasksForTodoView([task], now);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].id).toBe('today');
+  });
+
+  it('omits empty groups', () => {
+    const groups = groupTasksForTodoView([{ ...baseTask, due_at: null, scheduled_for: null }]);
+    expect(groups).toEqual([
+      { id: 'undated', label: 'No date', tasks: [{ ...baseTask, due_at: null, scheduled_for: null }] },
+    ]);
+  });
+});
+
+describe('task display mode preference', () => {
+  afterEach(() => {
+    window.localStorage.removeItem(TASK_DISPLAY_MODE_STORAGE_KEY);
+  });
+
+  it('accepts table, todo, and board values', () => {
+    expect(isTaskDisplayMode('list')).toBe(true);
+    expect(isTaskDisplayMode('todo')).toBe(true);
+    expect(isTaskDisplayMode('board')).toBe(true);
+    expect(isTaskDisplayMode('cards')).toBe(false);
+  });
+
+  it('reads a stored todo layout and ignores unknown values', () => {
+    writeStoredTaskDisplayMode('todo');
+    expect(readStoredTaskDisplayMode()).toBe('todo');
+    window.localStorage.setItem(TASK_DISPLAY_MODE_STORAGE_KEY, 'cards');
+    expect(readStoredTaskDisplayMode()).toBe('list');
+  });
+});
+

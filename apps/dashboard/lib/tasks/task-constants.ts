@@ -40,9 +40,11 @@ export const LIST_LAYOUT_MODES = [
   { id: 'priority', label: 'Priority' },
 ] as const;
 export const TASK_DISPLAY_MODES = [
-  { id: 'list', label: 'List' },
+  { id: 'list', label: 'Table' },
+  { id: 'todo', label: 'Todo' },
   { id: 'board', label: 'Board' },
 ] as const;
+export const TASK_DISPLAY_MODE_STORAGE_KEY = 'ritual:tasks-display-mode';
 
 export type TaskViewId = (typeof TASK_VIEWS)[number]['id'];
 export type ListLayoutMode = (typeof LIST_LAYOUT_MODES)[number]['id'];
@@ -52,6 +54,29 @@ export type TaskSortId = (typeof TASK_SORTS)[number]['id'];
 
 export function isTaskViewId(value: string | null): value is TaskViewId {
   return TASK_VIEWS.some((item) => item.id === value);
+}
+
+export function isTaskDisplayMode(value: unknown): value is TaskDisplayMode {
+  return TASK_DISPLAY_MODES.some((item) => item.id === value);
+}
+
+export function readStoredTaskDisplayMode(): TaskDisplayMode {
+  if (typeof window === 'undefined') return 'list';
+  try {
+    const stored = window.localStorage.getItem(TASK_DISPLAY_MODE_STORAGE_KEY);
+    return isTaskDisplayMode(stored) ? stored : 'list';
+  } catch {
+    return 'list';
+  }
+}
+
+export function writeStoredTaskDisplayMode(mode: TaskDisplayMode) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(TASK_DISPLAY_MODE_STORAGE_KEY, mode);
+  } catch {
+    // Private mode and quota failures should not break the page.
+  }
 }
 
 export function defaultScheduleForView(view: TaskViewId): 'today' | 'upcoming' | 'anytime' {

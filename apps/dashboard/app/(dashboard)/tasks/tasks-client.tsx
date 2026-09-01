@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -28,6 +28,8 @@ import {
 import {
   defaultScheduleForView,
   isTaskViewId,
+  readStoredTaskDisplayMode,
+  writeStoredTaskDisplayMode,
   type TaskDisplayMode,
   type TaskPriorityFilter,
   type TaskSortId,
@@ -38,6 +40,7 @@ import {
   type NewTaskComposerSubmit,
 } from '@/lib/tasks/new-task-composer';
 import { applyTaskOptimisticPatch } from '@/lib/tasks/optimistic';
+import { taskCompleteHoldMs } from '@/lib/tasks/task-complete-effect';
 import { TaskPageShell, taskContentMaxClass } from '@/lib/tasks/task-ui-shell';
 import { TaskDetailSheet } from '@/lib/tasks/task-detail-sheet';
 import { rememberEntitySummary, summaryFromTask } from '@/lib/entities/resolve';
@@ -51,15 +54,17 @@ import {
 } from '@/lib/tasks/seed-data';
 import {
   createInputFromTask,
-  filterTasksForView,
+  dedupeTasksByIdentity,
   isSeedTaskId,
   isTaskInView,
+  mergeVisibleTasksForView,
   selectTasksForQuery,
 } from '@/lib/tasks/task-view';
 import type { Task, TaskUpdateInput } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
 import { CompletedTaskLog } from './completed-task-log';
+import { TaskTodoList } from './tasks-todo-list';
 
 import {
   CATEGORY_FILTERS,
@@ -94,18 +99,6 @@ async function withTaskCreateTimeout<T>(request: Promise<T>): Promise<T> {
   }
 }
 
-function dedupeTasksByIdentity(tasks: Task[]): Task[] {
-  const ids = new Set<string>();
-  const clientEventIds = new Set<string>();
-  return tasks.filter((task) => {
-    if (ids.has(task.id)) return false;
-    if (task.client_event_id && clientEventIds.has(task.client_event_id)) return false;
-    ids.add(task.id);
-    if (task.client_event_id) clientEventIds.add(task.client_event_id);
-    return true;
-  });
-}
-
 function findCachedTask(
   queryClient: { getQueriesData: (filters: { queryKey: unknown[] }) => Array<[unknown, unknown]> },
   userId: string | undefined,
@@ -131,6 +124,19 @@ function replaceTaskInList(tasks: Task[], previousId: string, next: Task): Task[
     mapped.findIndex((item) => item.id === task.id) === index
   ));
   return replaced ? withoutDuplicate : dedupeTasksByIdentity([next, ...tasks]);
+}
+
+function applyActiveOverlayPatch(
+  tasks: Task[],
+  id: string,
+  patch: TaskUpdateInput,
+  replacement?: Task,
+): Task[] {
+  const patched = applyTaskOptimisticPatch(tasks, id, patch);
+  const next = replacement ? replaceTaskInList(patched, id, replacement) : patched;
+  return next.filter((task) => (
+    task.status === 'open' || task.status === 'in_progress' || task.status === 'in_review'
+  ));
 }
 
 const PRIORITY_ORDER: Record<Task['priority'], number> = {
@@ -224,6 +230,16 @@ export function TasksClient() {
   const [menuTaskId, setMenuTaskId] = useState<string | null>(null);
   const [demoGeneratedTasks, setDemoGeneratedTasks] = useState<Task[]>([]);
   const [recentlyCreatedTasks, setRecentlyCreatedTasks] = useState<Task[]>([]);
+  const [completingById, setCompletingById] = useState<Record<string, Task>>({});
+  const recentlyCreatedTasksRef = useRef(recentlyCreatedTasks);
+  const demoGeneratedTasksRef = useRef(demoGeneratedTasks);
+  const completingTimersRef = useRef(new Map<string, number>());
+  recentlyCreatedTasksRef.current = recentlyCreatedTasks;
+  demoGeneratedTasksRef.current = demoGeneratedTasks;
+
+  useEffect(() => {
+    setDisplayMode(readStoredTaskDisplayMode());
+  }, []);
 
   useEffect(() => {
     if (searchParams.get('create') !== '1') return;
@@ -251,6 +267,23 @@ export function TasksClient() {
       queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
     });
   }, [queryClient, user?.id]);
+
+  const releaseCompletingTask = useCallback((taskId: string) => {
+    const timer = completingTimersRef.current.get(taskId);
+    if (timer) window.clearTimeout(timer);
+    completingTimersRef.current.delete(taskId);
+    setCompletingById((current) => {
+      if (!(taskId in current)) return current;
+      const next = { ...current };
+      delete next[taskId];
+      return next;
+    });
+  }, []);
+
+  useEffect(() => () => {
+    completingTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    completingTimersRef.current.clear();
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -433,11 +466,15 @@ export function TasksClient() {
       const completedKey = ['tasks', user?.id, 'completed', 'All'] as const;
       const previousQueries = queryClient.getQueriesData<Task[]>({ queryKey: ['tasks', user?.id] });
       const previousCompleted = queryClient.getQueryData<Task[]>(completedKey);
+      const previousRecent = recentlyCreatedTasksRef.current;
+      const previousDemo = demoGeneratedTasksRef.current;
       const existing = findCachedTask(queryClient, user?.id, id);
       queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', user?.id] }, (current) => {
         if (!Array.isArray(current)) return current;
         return applyTaskOptimisticPatch(current, id, patch);
       });
+      setRecentlyCreatedTasks((current) => applyActiveOverlayPatch(current, id, patch));
+      setDemoGeneratedTasks((current) => applyActiveOverlayPatch(current, id, patch));
       if (existing && patch.status === 'completed') {
         const completedTask = applyTaskOptimisticPatch([existing], id, patch)[0];
         queryClient.setQueryData<Task[]>(completedKey, (current = []) => (
@@ -448,26 +485,35 @@ export function TasksClient() {
           (current || []).filter((task) => task.id !== id)
         ));
       }
-      return { previousQueries, previousCompleted, completedKey };
+      return { previousQueries, previousCompleted, completedKey, previousRecent, previousDemo };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, variables, context) => {
       for (const [key, data] of context?.previousQueries || []) {
         queryClient.setQueryData(key, data);
       }
       if (context?.completedKey) {
         queryClient.setQueryData(context.completedKey, context.previousCompleted);
       }
+      if (context) {
+        setRecentlyCreatedTasks(context.previousRecent);
+        setDemoGeneratedTasks(context.previousDemo);
+      }
+      if (variables.patch.status === 'completed') releaseCompletingTask(variables.id);
       toast.error(error instanceof Error ? error.message : 'Failed to update task.');
     },
     onSuccess: (task, variables) => {
-      if (variables.patch.status === 'completed') playInteractionSound('taskCompleted');
       if (task && task.id !== variables.id) {
         queryClient.setQueriesData<Task[]>({ queryKey: ['tasks', user?.id] }, (current) => {
           if (!Array.isArray(current)) return current;
           return replaceTaskInList(current, variables.id, task);
         });
-        setRecentlyCreatedTasks((current) => replaceTaskInList(current, variables.id, task));
       }
+      setRecentlyCreatedTasks((current) => (
+        applyActiveOverlayPatch(current, variables.id, variables.patch, task)
+      ));
+      setDemoGeneratedTasks((current) => (
+        applyActiveOverlayPatch(current, variables.id, variables.patch, task && current.some((item) => item.id === variables.id) ? task : undefined)
+      ));
       invalidateTaskSurfaces();
       if (user?.id) void putLocalVaultTask(user.id, task).catch(() => undefined);
       if (task) rememberEntitySummary(summaryFromTask(task));
@@ -483,14 +529,15 @@ export function TasksClient() {
   });
 
   const tasksForView = useMemo(() => {
-    const demoTasks = filterTasksForView(demoGeneratedTasks, view, category);
-    const storedTasks = filterTasksForView(tasksQuery.data || [], view, category);
-    const recentTasks = filterTasksForView(recentlyCreatedTasks, view, category);
-    return dedupeTasksByIdentity([
-      ...recentTasks,
-      ...sortTasksForDisplay(dedupeTasksByIdentity([...storedTasks, ...demoTasks])),
-    ]);
-  }, [category, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
+    return sortTasksForDisplay(mergeVisibleTasksForView({
+      stored: tasksQuery.data || [],
+      recent: recentlyCreatedTasks,
+      demo: demoGeneratedTasks,
+      held: Object.values(completingById),
+      view,
+      category,
+    }));
+  }, [category, completingById, demoGeneratedTasks, recentlyCreatedTasks, tasksQuery.data, view]);
   const tasks = useMemo(
     () => filterAndSortTasks(tasksForView, priorityFilter, sortMode),
     [priorityFilter, sortMode, tasksForView],
@@ -558,6 +605,7 @@ export function TasksClient() {
 
   const selectDisplayMode = (nextMode: TaskDisplayMode) => {
     setDisplayMode(nextMode);
+    writeStoredTaskDisplayMode(nextMode);
     if (nextMode === 'board' && layoutMode === 'list') setLayoutMode('priority');
   };
 
@@ -606,17 +654,42 @@ export function TasksClient() {
     });
   };
 
+  const completingIds = useMemo(() => new Set(Object.keys(completingById)), [completingById]);
+
   const hasTasks = tasks.length > 0;
+
+  const completeTask = (task: Task) => {
+    if (task.status === 'completed') {
+      updateTaskMutation.mutate({ id: task.id, patch: { status: 'open' } });
+      return;
+    }
+    if (completingTimersRef.current.has(task.id) || completingById[task.id]) return;
+
+    playInteractionSound('taskCompleted');
+    setCompletingById((current) => ({ ...current, [task.id]: task }));
+    updateTaskMutation.mutate({ id: task.id, patch: { status: 'completed' } });
+    const timer = window.setTimeout(() => {
+      releaseCompletingTask(task.id);
+    }, taskCompleteHoldMs());
+    completingTimersRef.current.set(task.id, timer);
+  };
 
   const rowHandlers = {
     menuTaskId,
     onMenuTaskChange: setMenuTaskId,
-    onComplete: (task: Task) => updateTaskMutation.mutate({
-      id: task.id,
-      patch: { status: task.status === 'completed' ? 'open' : 'completed' },
-    }),
-    onUpdate: (id: string, patch: TaskUpdateInput) => updateTaskMutation.mutate({ id, patch }),
+    onComplete: completeTask,
+    onUpdate: (id: string, patch: TaskUpdateInput) => {
+      if (patch.status === 'completed') {
+        const task = tasks.find((item) => item.id === id) || completingById[id];
+        if (task && task.status !== 'completed') {
+          completeTask(task);
+          return;
+        }
+      }
+      updateTaskMutation.mutate({ id, patch });
+    },
     onOpen: openTask,
+    completingIds,
   };
 
   return (
@@ -663,6 +736,8 @@ export function TasksClient() {
           ) : hasTasks ? (
             displayMode === 'board' ? (
               <TaskBoard groups={boardGroups} {...rowHandlers} />
+            ) : displayMode === 'todo' ? (
+              <TaskTodoList tasks={tasks} {...rowHandlers} />
             ) : (
               <>
                 <TaskTableHeader />
