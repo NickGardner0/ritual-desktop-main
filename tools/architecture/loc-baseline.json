@@ -4,31 +4,31 @@
   "tokeiVersion": "14.0.0",
   "repository": {
     "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "d64f8b37bcbe82c1088d313164737de7ef078e4a"
+    "headAtMeasurement": "a9c1f8efdb3c26d590539f333030b0e9fb98c8dd"
   },
-  "sourceDigest": "59f219e04103bf8439a9a98cb796afec0a1c77b28611e85d01c9781eb9455295",
+  "sourceDigest": "aa72d38637ad598176e1d233560db0afdc8297c4f5eea4bb86830f06ef34d2b6",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
-      "files": 528,
-      "code": 86294,
+      "files": 541,
+      "code": 88216,
       "languages": {
         "CSS": {
           "files": 4,
-          "code": 1937
+          "code": 1975
         },
         "JavaScript": {
           "files": 14,
           "code": 960
         },
         "TSX": {
-          "files": 272,
-          "code": 48102
+          "files": 280,
+          "code": 49436
         },
         "TypeScript": {
-          "files": 238,
-          "code": 35295
+          "files": 243,
+          "code": 35845
         }
       }
     },
@@ -68,11 +68,11 @@
       "id": "desktop_rust",
       "label": "Rust desktop, watcher, and ritual-db",
       "files": 91,
-      "code": 39909,
+      "code": 39996,
       "languages": {
         "Rust": {
           "files": 91,
-          "code": 39909
+          "code": 39996
         }
       }
     },
@@ -99,16 +99,16 @@
     {
       "id": "desktop_ui",
       "label": "Desktop local Vite SPA",
-      "files": 19,
-      "code": 850,
+      "files": 21,
+      "code": 864,
       "languages": {
         "TSX": {
-          "files": 8,
-          "code": 625
+          "files": 9,
+          "code": 624
         },
         "TypeScript": {
-          "files": 11,
-          "code": 225
+          "files": 12,
+          "code": 240
         }
       }
     },
@@ -141,5 +141,5 @@
       }
     }
   ],
-  "total": 199395
+  "total": 201418
 }

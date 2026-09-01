@@ -4,33 +4,33 @@ This is the single executable LOC baseline for the Ritual ship branch. It measur
 
 - Command: `npm run audit:loc`
 - Verification: `npm run audit:loc:check`
-- Head at measurement: `d64f8b37bcbe82c1088d313164737de7ef078e4a`
-- Source digest: `59f219e04103bf8439a9a98cb796afec0a1c77b28611e85d01c9781eb9455295`
+- Head at measurement: `a9c1f8efdb3c26d590539f333030b0e9fb98c8dd`
+- Source digest: `aa72d38637ad598176e1d233560db0afdc8297c4f5eea4bb86830f06ef34d2b6`
 - Tokei: `14.0.0`
-- Total: **199,395**
+- Total: **201,418**
 - Historical 180,000–185,000 target: **not met**
 
 ## Current buckets
 
 | Bucket | Files | Code lines |
 |---|---:|---:|
-| Dashboard production | 528 | 86,294 |
+| Dashboard production | 541 | 88,216 |
 | Shared packages | 69 | 10,327 |
 | FastAPI application | 240 | 58,666 |
-| Rust desktop, watcher, and ritual-db | 91 | 39,909 |
+| Rust desktop, watcher, and ritual-db | 91 | 39,996 |
 | Desktop hosted-shell bootstrap | 4 | 299 |
-| Desktop local Vite SPA | 19 | 850 |
+| Desktop local Vite SPA | 21 | 864 |
 | Browser extension | 4 | 1,002 |
 | Tinybird authored DSL | 24 | 2,048 |
-| **Strict authored production, excluding iOS** | **979** | **199,395** |
+| **Strict authored production, excluding iOS** | **994** | **201,418** |
 
 ## Historical reconciliation
 
 | Claim | Lines | Current delta | Provenance |
 |---|---:|---:|---|
-| Original architecture audit | 192,474 | +6,921 | Dirty source snapshot documented by RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md |
-| Dirty feature-tree results claim | 183,970 | +15,425 | Uncommitted codex/tasks-routines-mvp snapshot; not a ship-branch result |
-| Release overview estimate | 192,600 | +6,795 | Manual audit-comparable estimate; replaced by this executable baseline |
+| Original architecture audit | 192,474 | +8,944 | Dirty source snapshot documented by RITUAL_VS_BERD_ARCHITECTURE_AUDIT.md |
+| Dirty feature-tree results claim | 183,970 | +17,448 | Uncommitted codex/tasks-routines-mvp snapshot; not a ship-branch result |
+| Release overview estimate | 192,600 | +8,818 | Manual audit-comparable estimate; replaced by this executable baseline |
 
 The 183.97k number is not a release-branch result and must not be used as proof that the original target was met. The former ~192.6k release value was an undocumented estimate. The original 192,474 count was a valid audit snapshot but described a dirty historical tree. This report supersedes those values for current ship-branch decisions.
 
