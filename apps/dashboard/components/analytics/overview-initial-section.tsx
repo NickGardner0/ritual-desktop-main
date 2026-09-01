@@ -182,7 +182,7 @@ function OverviewInitialSectionInner({
 
       <div className={`flex-1 overflow-auto ${isSummaryView ? 'pt-2 pb-24' : 'pt-6 pb-4'}`}>
         {isSummaryView ? (
-          <div className="mx-auto w-full max-w-[1040px] px-2">
+          <div className="mx-auto w-full max-w-3xl px-2">
             <OverviewWelcomeHeader />
             <OverviewSummaryCards />
           </div>

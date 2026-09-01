@@ -169,7 +169,7 @@ export function OverviewWelcomeGreeting() {
   return (
     <h1
       suppressHydrationWarning
-      className="ritual-index-greeting text-center text-[38px] font-normal leading-tight tracking-[-0.02em] text-[var(--text-primary)]"
+      className="ritual-index-greeting text-center text-[28px] font-normal leading-tight tracking-[-0.02em] text-[var(--text-primary)]"
     >
       {greeting}
       {firstName ? (
@@ -189,7 +189,7 @@ export function OverviewWelcomeSummary() {
 
 export function OverviewWelcomeHeader() {
   return (
-    <div className="flex w-full flex-col items-center pt-6 pb-10 text-center">
+    <div className="flex w-full flex-col items-center pt-4 pb-6 text-center">
       <OverviewWelcomeGreeting />
       <OverviewWelcomeSummary />
     </div>

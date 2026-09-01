@@ -19,7 +19,7 @@ test('Index card greeting copies Midday ticker behavior with Waldenburg', () => 
   assert.match(section, /<OverviewWelcomeHeader/);
   assert.match(section, /isSummaryView \? \(/);
   assert.match(header, /ritual-index-greeting/);
-  assert.match(header, /text-\[38px\]/);
+  assert.match(header, /text-\[28px\]/);
   assert.match(header, /h-\[2px\] w-4/);
   assert.match(header, /onMouseEnter=\{\(\) => goTo\(insightIndex\)\}/);
   assert.match(header, /WELCOME_TICK_DURATION_MS/);
