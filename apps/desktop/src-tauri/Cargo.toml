@@ -70,7 +70,6 @@ tauri-plugin-single-instance = "2.4.3"
 # macOS specific for watcher + vibrancy
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.9"
-window-vibrancy = "0.7.1"
 cocoa = "0.25"
 objc = "0.2"
 arboard = "3.6"

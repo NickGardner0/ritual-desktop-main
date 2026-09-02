@@ -18,6 +18,8 @@ export {
   hideDesktopVoiceHud,
   getVoiceHotkeySettings,
   setVoiceHotkeySettings,
+  syncSidebarGlassWidth,
+  startWindowResizeDragging,
   resizeWindow,
   restoreDashboardWindowSize,
   setStandardWindowSize,
@@ -38,6 +40,7 @@ export {
   type DesktopSettingsView,
   type OpenDesktopVoiceHudPayload,
   type VoiceHotkeySettings,
+  type WindowResizeDirection,
 } from "@/lib/desktop-bridge/shell";
 export {
   buildDesktopCommandOrigin,

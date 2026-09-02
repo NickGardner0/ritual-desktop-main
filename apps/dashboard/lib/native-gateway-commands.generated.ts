@@ -67,6 +67,7 @@ export const NATIVE_COMMANDS = [
   "stop_native_speech_recognition",
   "stop_watcher",
   "sync_computer_activity_now",
+  "sync_sidebar_glass_width",
   "update_voice_hud_state",
   "vault_compare_and_swap",
   "vault_get_record",
@@ -153,6 +154,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "stop_native_speech_recognition": "desktop-runtime",
   "stop_watcher": "desktop-activity",
   "sync_computer_activity_now": "desktop-runtime",
+  "sync_sidebar_glass_width": "desktop-shell-ui",
   "update_voice_hud_state": "desktop-shell-ui",
   "vault_compare_and_swap": "desktop-vault",
   "vault_get_record": "desktop-vault",
@@ -239,6 +241,7 @@ export type NativeCommandInputs = {
   stop_native_speech_recognition: Record<string, never>;
   stop_watcher: Record<string, never>;
   sync_computer_activity_now: Record<string, never>;
+  sync_sidebar_glass_width: { width: number };
   update_voice_hud_state: { state: unknown };
   vault_compare_and_swap: { input: unknown };
   vault_get_record: { userId: string; collection: string; recordId: string };
@@ -323,6 +326,7 @@ export type NativeCommandOutputs = {
   stop_native_speech_recognition: void;
   stop_watcher: unknown;
   sync_computer_activity_now: unknown;
+  sync_sidebar_glass_width: void;
   update_voice_hud_state: void;
   vault_compare_and_swap: unknown;
   vault_get_record: unknown | null;

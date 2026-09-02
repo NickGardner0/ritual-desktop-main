@@ -468,8 +468,8 @@ table tbody tr,
   /* macOS sidebar vibrancy tuning knobs (light mode)
      Lower alpha = more native frosted glass visible.
      Raise alpha = more opaque white overlay. */
-  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.27);
-  --sidebar-vibrancy-border: rgba(15, 23, 42, 0.05);
+  --sidebar-vibrancy-bg: rgba(255, 255, 255, 0.28);
+  --sidebar-vibrancy-border: rgba(0, 0, 0, 0.08);
   --sidebar-vibrancy-selected: rgba(255, 255, 255, 0.33);
   --titlebar-glass-bg: rgba(255, 255, 255, 0.46);
   --titlebar-glass-bg-strong: rgba(255, 255, 255, 0.62);
@@ -482,7 +482,7 @@ table tbody tr,
   --titlebar-glass-control-text-active: rgba(17, 24, 39, 0.92);
   --titlebar-glass-border: rgba(15, 23, 42, 0.052);
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.24);
-  --titlebar-glass-filter: saturate(1.08) blur(24px);
+  --titlebar-glass-filter: none;
   --content-bg: #fefefe;
 
   /* Ritual design system v0
@@ -563,7 +563,7 @@ table tbody tr,
   --titlebar-glass-control-text-active: rgba(255, 255, 250, 0.95);
   --titlebar-glass-border: rgba(255, 255, 255, 0.08);
   --titlebar-glass-highlight: rgba(255, 255, 255, 0.18);
-  --titlebar-glass-filter: saturate(1.2) blur(22px);
+  --titlebar-glass-filter: none;
   --content-bg: #0b0b0c;
 
   --surface-window: #0b0b0c;
@@ -683,17 +683,19 @@ table tbody tr,
   }
 
   .app-window-shell.has-shell-sidebar-divider::before {
+    content: none;
+  }
+
+  .sidebar-vibrancy::after {
     content: "";
     position: absolute;
     top: 0;
+    right: 0;
     bottom: 0;
-    left: var(--ritual-sidebar-current-width, 256px);
-    z-index: 45;
+    z-index: 5;
     width: 1px;
     pointer-events: none;
-    /* Crisp 1px hairline for White / Soft Grey / Zed (Cursor / Granola weight). */
     background: var(--sidebar-vibrancy-border);
-    box-shadow: none;
   }
 
   .integrated-window-chrome .content-shell {
@@ -817,8 +819,8 @@ table tbody tr,
     box-shadow:
       0 1px 1px rgba(15, 23, 42, 0.035),
       inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
-    backdrop-filter: saturate(1.08) blur(24px);
-    -webkit-backdrop-filter: saturate(1.08) blur(24px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .titlebar-control:hover {
@@ -939,8 +941,8 @@ table tbody tr,
     box-shadow:
       0 1px 1px rgba(15, 23, 42, 0.035),
       inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    backdrop-filter: saturate(1.08) blur(24px);
-    -webkit-backdrop-filter: saturate(1.08) blur(24px);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   .titlebar-segmented-control [role="tab"] {
@@ -1233,31 +1235,20 @@ table tbody tr,
   }
   /* ===== End Transparency Probe Mode ===== */
 
-  /* Desktop fallback glass: preserve the intended frosted sidebar look even
-     if native macOS glass is unavailable or disabled for a given session. */
+  /* Desktop fallback paint when native glass is off. Never use CSS blur here:
+     backdrop-filter in Tauri's macOS WebKit webview forces GPU recomposites
+     on hover/scroll and can freeze the app. */
   html.desktop .sidebar-vibrancy {
-    background:
-      linear-gradient(
-        180deg,
-        rgba(250, 249, 247, 0.88) 0%,
-        rgba(247, 246, 243, 0.82) 44%,
-        rgba(244, 243, 240, 0.76) 100%
-      );
-    background-color: rgba(247, 246, 243, 0.82);
+    background: var(--surface-sidebar);
+    background-color: var(--surface-sidebar);
     border-right: 0;
-    /* backdrop-filter removed: blur() in Tauri's macOS WebKit webview
-       forces expensive GPU recomposites on every hover/scroll, causing
-       the entire app to freeze with the macOS pinwheel. The slightly
-       higher opacity backgrounds above preserve the frosted look. */
     box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
   html.desktop .sidebar-vibrancy .sidebar-header {
     border-color: rgba(0, 0, 0, 0.025);
-  }
-
-  html.desktop .sidebar-vibrancy::after {
-    display: none;
   }
 
   html.desktop .titlebar-glass-layer {
@@ -1367,29 +1358,16 @@ table tbody tr,
     opacity: 0.82;
   }
 
-  /* Sidebar: semi-transparent overlay on the native glass.
-     Lower alpha = more of the native NSGlassEffectView shows through.
-     The 1px border-right creates the native sidebar/content separator. */
+  /* Sidebar: light tint over native glass so WKWebView still hit-tests.
+     Lower alpha = more NSGlassEffectView / Sidebar vibrancy visible. */
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.44) 0%,
-      rgba(255, 255, 255, 0.29) 48%,
-      rgba(252, 252, 250, 0.22) 100%
-    ) !important;
-    background-color: rgba(255, 255, 255, 0.26) !important;
+    background: var(--sidebar-vibrancy-bg) !important;
+    background-color: var(--sidebar-vibrancy-bg) !important;
     border-right: 0 !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
-  }
-
-  /* All children inside the sidebar must be transparent */
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy *,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy * {
-    background: transparent !important;
-    background-color: transparent !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy .ritual-nav-row-surface,
@@ -1423,18 +1401,6 @@ table tbody tr,
 
   html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.08) 42%, rgba(255, 255, 255, 0.0) 100%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 44%);
-    opacity: 0.82;
-  }
-
-  html.desktop[data-platform="macos"][data-main-glass="1"] .sidebar-vibrancy::after,
-  html.desktop:not([data-platform])[data-main-glass="1"] .sidebar-vibrancy::after {
     display: none;
   }
 
@@ -1447,23 +1413,14 @@ table tbody tr,
   }
 
   html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.86) 0%,
-      rgba(249, 250, 251, 0.78) 48%,
-      rgba(244, 246, 248, 0.70) 100%
-    ) !important;
-    background-color: rgba(248, 249, 250, 0.78) !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     border-right: 0 !important;
   }
 
-  html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer {
-    display: none !important;
-  }
-
+  html.desktop[data-chrome-appearance="white"] .titlebar-glass-layer,
   html.desktop[data-chrome-appearance="white"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.46 !important;
+    display: none !important;
   }
 
   html.desktop[data-chrome-appearance="soft"] .titlebar-region,
@@ -1494,23 +1451,14 @@ table tbody tr,
   }
 
   html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(238, 238, 236, 0.92) 0%,
-      rgba(235, 235, 232, 0.84) 48%,
-      rgba(232, 232, 229, 0.76) 100%
-    ) !important;
-    background-color: rgba(236, 236, 233, 0.84) !important;
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
     border-right: 0 !important;
   }
 
-  html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer {
-    display: none !important;
-  }
-
+  html.desktop[data-chrome-appearance="zed"] .titlebar-glass-layer,
   html.desktop[data-chrome-appearance="zed"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.36 !important;
+    display: none !important;
   }
 
   html.desktop[data-chrome-appearance="zed"] .titlebar-icon-button {
@@ -1523,20 +1471,14 @@ table tbody tr,
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.86) 0%,
-      rgba(249, 250, 251, 0.78) 48%,
-      rgba(244, 246, 248, 0.70) 100%
-    ) !important;
-    background-color: rgba(248, 249, 250, 0.78) !important;
+    background: #ffffff !important;
+    background-color: #ffffff !important;
     border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="white"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.46 !important;
+    display: none !important;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="white"] .sidebar-vibrancy .sidebar-header,
@@ -1571,20 +1513,14 @@ table tbody tr,
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy {
-    background: linear-gradient(
-      180deg,
-      rgba(238, 238, 236, 0.92) 0%,
-      rgba(235, 235, 232, 0.84) 48%,
-      rgba(232, 232, 229, 0.76) 100%
-    ) !important;
-    background-color: rgba(236, 236, 233, 0.84) !important;
+    background: #eeeeec !important;
+    background-color: #eeeeec !important;
     border-right: 0 !important;
   }
 
   html.desktop[data-platform="macos"][data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before,
   html.desktop:not([data-platform])[data-main-glass="1"][data-chrome-appearance="zed"] .sidebar-vibrancy::before {
-    display: block !important;
-    opacity: 0.36 !important;
+    display: none !important;
   }
 
   html.desktop[data-platform="macos"][data-glass-chrome="1"][data-chrome-appearance="zed"] .sidebar-vibrancy .sidebar-header,
@@ -1596,13 +1532,14 @@ table tbody tr,
     box-shadow: none !important;
   }
 
-  /* The app shell owns the embedded sidebar/content divider. Keep the
-     sidebar's own edge only for the detached sidebar window. */
+  /* Sidebar hairline rides the aside edge so it stays aligned during width animation. */
   html.desktop .app-window-shell.has-shell-sidebar-divider .sidebar-vibrancy {
     border-right: 0 !important;
   }
 
   /* Opaque app surfaces cover native blur so only sidebar/chrome stay glassy. */
+  html.desktop[data-platform="macos"][data-main-glass="1"] .app-toolbar-region,
+  html.desktop:not([data-platform])[data-main-glass="1"] .app-toolbar-region,
   html.desktop[data-platform="macos"][data-main-glass="1"] .content-opaque,
   html.desktop:not([data-platform])[data-main-glass="1"] .content-opaque,
   html.desktop[data-platform="macos"][data-main-glass="1"] .glass-opaque-screen,

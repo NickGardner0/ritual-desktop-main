@@ -10,6 +10,8 @@ import { usePathname, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
 import { ContentSurface } from '@/components/ui/ritual-system';
+import { useChromeAppearance } from '@/contexts/ChromeAppearanceContext';
+import { syncSidebarGlassWidth } from '@/lib/native-gateway';
 
 const Sidebar = dynamic(
   () => import('@/components/sidebar').then(m => ({ default: m.Sidebar })),
@@ -52,6 +54,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const { isFullScreenChat } = useAI();
   const pathname = usePathname();
   const { mode } = useSidebarMode();
+  const { appearance } = useChromeAppearance();
   const isChatRoute = pathname === '/chat';
   const { fontClass } = useFont();
   const shouldMountSearchHandler = pathname === '/dashboard';
@@ -126,10 +129,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
   useEffect(() => {
     if (typeof document === 'undefined') return;
+    const sidebarWidth =
+      detachedSidebarMode || shouldHideAppSidebar
+        ? 0
+        : mode === 'expanded'
+          ? 256
+          : 76;
     if (detachedSidebarMode || shouldHideAppSidebar) {
       document.documentElement.style.setProperty('--ritual-sidebar-current-width', '0px');
     }
-  }, [detachedSidebarMode, shouldHideAppSidebar]);
+    if (!isDesktop) return;
+    void syncSidebarGlassWidth(appearance === 'frosted' ? sidebarWidth : 0);
+  }, [appearance, detachedSidebarMode, isDesktop, mode, shouldHideAppSidebar]);
 
   return (
     <div className={`app-container integrated-window-chrome flex h-screen overflow-x-hidden max-w-full w-full border-0 ${fontClass}`}>

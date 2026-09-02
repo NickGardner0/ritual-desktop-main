@@ -179,30 +179,6 @@ export function IndexChatPanel({
   }, [open]);
 
   useEffect(() => {
-    if (!isResizing) return;
-    const onMove = (event: PointerEvent) => {
-      setPanelWidth(clampWidth(window.innerWidth - event.clientX));
-    };
-    const onUp = () => {
-      setIsResizing(false);
-      setPanelWidth((current) => {
-        persistWidth(current);
-        return current;
-      });
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing]);
-
-  useEffect(() => {
     const node = textareaRef.current;
     if (!node) return;
     node.style.height = 'auto';
@@ -257,12 +233,36 @@ export function IndexChatPanel({
         aria-valuemax={MAX_PANEL_WIDTH}
         aria-valuenow={panelWidth}
         title="Drag to resize"
+        data-tauri-drag-region="false"
         onPointerDown={(event) => {
+          if (event.button !== 0) return;
           event.preventDefault();
           event.stopPropagation();
+          const handle = event.currentTarget;
+          handle.setPointerCapture(event.pointerId);
           setIsResizing(true);
+          document.body.style.cursor = 'col-resize';
+          document.body.style.userSelect = 'none';
+          const onMove = (moveEvent: PointerEvent) => {
+            setPanelWidth(clampWidth(window.innerWidth - moveEvent.clientX));
+          };
+          const onUp = () => {
+            window.removeEventListener('pointermove', onMove);
+            window.removeEventListener('pointerup', onUp);
+            window.removeEventListener('pointercancel', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            setIsResizing(false);
+            setPanelWidth((current) => {
+              persistWidth(current);
+              return current;
+            });
+          };
+          window.addEventListener('pointermove', onMove);
+          window.addEventListener('pointerup', onUp);
+          window.addEventListener('pointercancel', onUp);
         }}
-        className="group relative z-30 shrink-0 cursor-col-resize self-stretch touch-none"
+        className="group relative z-30 no-drag shrink-0 cursor-col-resize self-stretch touch-none"
         style={{ width: RESIZE_GUTTER_PX }}
       >
         <div

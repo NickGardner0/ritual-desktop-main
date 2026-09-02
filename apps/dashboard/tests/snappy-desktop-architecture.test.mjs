@@ -88,6 +88,8 @@ test('Index chrome drops Pinned and docks a resizable chat panel instead of Cont
   assert.match(panel, /cursor-col-resize/);
   assert.match(panel, /Resize chat panel/);
   assert.match(panel, /RESIZE_GUTTER_PX/);
+  assert.match(panel, /setPointerCapture/);
+  assert.match(panel, /data-tauri-drag-region="false"/);
   assert.match(panel, /ritual-floating-surface/);
   assert.match(form, /color-mix\(in_srgb,var\(--text-primary\)_14%,transparent\)/);
   assert.match(css, /\.app-toolbar-pill-button:hover[\s\S]*background: var\(--row-hover\)/);

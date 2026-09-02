@@ -15,6 +15,7 @@ mod privacy_policy;
 mod resident_runtime;
 mod ritual_database;
 mod sidecar_integrity;
+mod sidebar_glass;
 mod watcher;
 mod watcher_activity;
 
@@ -25,7 +26,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder},
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, RunEvent,
 };
@@ -266,7 +267,7 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
     }
 
     let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
-    let main_glass_enabled = transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS");
+    let main_glass_enabled = main_window_glass_enabled(transparency_probe);
     let mut bootstrap_url = with_query_param(
         &join_url_path(app_origin, "/dashboard"),
         &format!("ritual_desktop_env={}", ritual_env),
@@ -274,7 +275,6 @@ fn build_desktop_bootstrap_url(app_origin: &str, ritual_env: &str) -> String {
 
     if main_glass_enabled {
         bootstrap_url = with_query_param(&bootstrap_url, "ritual_main_glass=1");
-        bootstrap_url = with_query_param(&bootstrap_url, "ritual_glass_chrome=1");
     }
 
     if transparency_probe {
@@ -362,6 +362,32 @@ fn env_flag_enabled(name: &str) -> bool {
             matches!(value.as_str(), "1" | "true" | "yes" | "on")
         })
         .unwrap_or(false)
+}
+
+fn main_window_glass_enabled(transparency_probe: bool) -> bool {
+    // Native NSGlassEffectView / NSVisualEffectView is compositor frost, not
+    // CSS backdrop-filter. Default on so Frosted actually shows glass; set
+    // RITUAL_DISABLE_MAIN_GLASS=1 to keep an opaque window.
+    transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS")
+}
+
+fn main_window_glass_init_script(enabled: bool) -> String {
+    let flag = if enabled { "1" } else { "0" };
+    format!(
+        r#"(function () {{
+  try {{
+    var next = new URL(window.location.href);
+    next.searchParams.set("ritual_main_glass", "{flag}");
+    if ("{flag}" === "1") {{
+      document.documentElement.dataset.mainGlass = "1";
+      document.documentElement.style.background = "transparent";
+    }} else {{
+      delete document.documentElement.dataset.mainGlass;
+    }}
+    history.replaceState(null, "", next.pathname + next.search + next.hash);
+  }} catch (_error) {{}}
+}})();"#
+    )
 }
 
 fn load_persisted_turso_sync_config() -> PersistedTursoSyncConfigLoadStatus {
@@ -550,16 +576,49 @@ fn reload_focused_main_webview<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
     }
 }
 
-#[cfg(any(debug_assertions, feature = "qa-tools"))]
-fn install_qa_reload_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
-    use tauri::menu::SubmenuBuilder;
-
-    let reload = MenuItemBuilder::with_id("reload_main_webview", "Reload Ritual")
-        .accelerator("CmdOrCtrl+R")
-        .build(app)?;
-    let view = SubmenuBuilder::new(app, "View").item(&reload).build()?;
-    let menu = MenuBuilder::new(app).item(&view).build()?;
+fn install_ritual_app_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    let app_menu = SubmenuBuilder::new(app, "Ritual")
+        .hide()
+        .hide_others()
+        .show_all()
+        .separator()
+        .quit()
+        .build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let view_menu = {
+        let mut view = SubmenuBuilder::new(app, "View").fullscreen();
+        #[cfg(any(debug_assertions, feature = "qa-tools"))]
+        {
+            let reload = MenuItemBuilder::with_id("reload_main_webview", "Reload Ritual")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            view = view.separator().item(&reload);
+        }
+        view.build()?
+    };
+    let window_menu = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize_with_text("Zoom")
+        .separator()
+        .close_window()
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&edit_menu)
+        .item(&view_menu)
+        .item(&window_menu)
+        .build()?;
     app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    window_menu.set_as_windows_menu_for_nsapp()?;
     Ok(())
 }
 
@@ -754,7 +813,9 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
             // NSNormalWindowLevel = 0. Keep the main shell interactive and out
             // of desktop-overlay/click-through levels.
             let _: () = msg_send![ns_win, setLevel: 0_isize];
-            let _: () = msg_send![ns_win, setMovableByWindowBackground: YES];
+            // Transparent glass windows steal AppKit edge-resize if the
+            // background is movable. Drag only via data-tauri-drag-region.
+            let _: () = msg_send![ns_win, setMovableByWindowBackground: NO];
             let _: () = msg_send![ns_win, setTitlebarAppearsTransparent: YES];
             // NSWindowTitleVisibilityHidden = 1
             let _: () = msg_send![ns_win, setTitleVisibility: 1_isize];
@@ -777,9 +838,8 @@ fn configure_macos_native_window_chrome(window: &tauri::WebviewWindow) {
 fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
     use cocoa::appkit::{NSColor, NSWindow};
     use cocoa::base::{id, nil};
-    use objc::{msg_send, sel, sel_impl};
 
-    println!("🔧 Configuring macOS window transparency + liquid glass…");
+    println!("🔧 Configuring macOS window transparency…");
 
     let _ = window.set_background_color(Some(tauri::utils::config::Color(0, 0, 0, 0)));
 
@@ -789,79 +849,8 @@ fn configure_macos_window_transparency(window: &tauri::WebviewWindow) {
             ns_win.setOpaque_(cocoa::base::NO);
             ns_win.setBackgroundColor_(NSColor::clearColor(nil));
             println!("✅ NSWindow transparent configured (non-opaque + clear)");
-
-            // -----------------------------------------------------------
-            // Apply Apple Liquid Glass (macOS 26+ / NSGlassEffectView)
-            // Falls back to NSVisualEffectView vibrancy on older macOS.
-            // -----------------------------------------------------------
-            let content_view: id = msg_send![ns_win, contentView];
-            if content_view.is_null() {
-                eprintln!("❌ contentView is null, cannot apply glass");
-                return;
-            }
-
-            // Try to get NSGlassEffectView class (macOS 26+ / Tahoe)
-            let glass_cls = objc::runtime::Class::get("NSGlassEffectView");
-            if let Some(cls) = glass_cls {
-                // Instantiate NSGlassEffectView
-                let frame: cocoa::foundation::NSRect = msg_send![content_view, bounds];
-                let alloc: id = msg_send![cls, alloc];
-                if alloc.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView alloc returned null, falling back to vibrancy");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-                let glass_view: id = msg_send![alloc, initWithFrame: frame];
-                if glass_view.is_null() {
-                    eprintln!("⚠️ NSGlassEffectView initWithFrame returned null, falling back");
-                    apply_vibrancy_fallback(window);
-                    return;
-                }
-
-                // Style 16 = Sidebar (matches NSGlassEffectViewStyle::Sidebar)
-                let _: () = msg_send![glass_view, setStyle: 16_isize];
-
-                // White tint on the native glass for a frostier look
-                let tint: id = NSColor::colorWithRed_green_blue_alpha_(nil, 1.0, 1.0, 1.0, 0.0);
-                let _: () = msg_send![glass_view, setTintColor: tint];
-
-                // Make it resize with the window
-                // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
-                let _: () = msg_send![glass_view, setAutoresizingMask: 18_u64];
-
-                // Add BELOW the WKWebView so web content renders on top
-                // NSWindowOrderingMode::Below = -1
-                let below: i64 = -1;
-                let _: () = msg_send![
-                    content_view,
-                    addSubview: glass_view
-                    positioned: below
-                    relativeTo: nil
-                ];
-
-                println!("✅ Apple Liquid Glass applied (NSGlassEffectView, style=Sidebar)");
-            } else {
-                println!("⚠️ NSGlassEffectView not available, falling back to vibrancy");
-                apply_vibrancy_fallback(window);
-            }
         },
         Err(e) => eprintln!("❌ NSWindow handle not available: {e}"),
-    }
-}
-
-/// Fallback for macOS < 26: use traditional NSVisualEffectView vibrancy
-#[cfg(target_os = "macos")]
-fn apply_vibrancy_fallback(window: &tauri::WebviewWindow) {
-    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
-
-    match apply_vibrancy(
-        window,
-        NSVisualEffectMaterial::Sidebar,
-        Some(NSVisualEffectState::Active),
-        None,
-    ) {
-        Ok(()) => println!("✅ Fallback: NSVisualEffectView vibrancy applied (Sidebar material)"),
-        Err(e) => eprintln!("❌ Fallback vibrancy also failed: {e:?}"),
     }
 }
 
@@ -1161,6 +1150,7 @@ fn ensure_detached_sidebar_window(
 
     if let Some(sidebar) = app.get_webview_window("sidebar") {
         configure_macos_window_transparency(&sidebar);
+        sidebar_glass::install_full_window(&sidebar);
         let _ = sidebar.set_always_on_top(false);
     }
     sync_detached_sidebar_window(app, width)?;
@@ -2452,6 +2442,7 @@ fn main() {
 
     builder
         .manage(SidebarWindowState::default())
+        .manage(sidebar_glass::SidebarGlassState::default())
         .manage(VoiceHotkeyState::default())
         .manage(VoiceHudRuntimeState::default())
         .manage(shell_feature_flags)
@@ -2472,6 +2463,7 @@ fn main() {
             sidebar_set_width,
             sidebar_navigate,
             sidebar_get_main_state,
+            sidebar_glass::sync_sidebar_glass_width,
             // Desktop runtime bridge commands
             native_widget::write_auth_token_to_file,
             native_widget::check_runtime_bridge_signals,
@@ -2566,8 +2558,7 @@ fn main() {
             desktop_runtime::register_biome_outbox_drain_worker(app.handle().clone());
             initialize_voice_hotkey(app.handle());
 
-            #[cfg(any(debug_assertions, feature = "qa-tools"))]
-            install_qa_reload_menu(app)?;
+            install_ritual_app_menu(app)?;
 
             let resident_preferences = app.state::<resident_runtime::ResidentRuntimeStore>().read();
             let tray = TrayIconBuilder::with_id(resident_runtime::RESIDENT_TRAY_ID)
@@ -2661,11 +2652,9 @@ fn main() {
                 with_query_param(&app_origin, &format!("ritual_desktop_env={}", ritual_env));
             let bootstrap_url = build_desktop_bootstrap_url(&app_origin, &ritual_env);
             let transparency_probe = env_flag_enabled("RITUAL_TRANSPARENCY_PROBE");
-            let main_glass_enabled =
-                transparency_probe || env_flag_enabled("RITUAL_ENABLE_MAIN_GLASS");
+            let main_glass_enabled = main_window_glass_enabled(transparency_probe);
             if main_glass_enabled {
                 app_url = with_query_param(&app_url, "ritual_main_glass=1");
-                app_url = with_query_param(&app_url, "ritual_glass_chrome=1");
             }
             if transparency_probe {
                 info!("Transparency probe mode enabled");
@@ -2677,6 +2666,7 @@ fn main() {
             } else {
                 let mut builder =
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url(&app_url)?)
+                        .initialization_script(main_window_glass_init_script(main_glass_enabled))
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
                         .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)
@@ -2691,7 +2681,8 @@ fn main() {
                 {
                     builder = builder
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
-                        .hidden_title(true);
+                        .hidden_title(true)
+                        .traffic_light_position(tauri::LogicalPosition::new(14.0, 20.0));
                 }
 
                 builder.build().map_err(|e| {
@@ -2706,11 +2697,12 @@ fn main() {
                     configure_macos_native_window_chrome(&window);
 
                     if main_glass_enabled {
-                        info!("Main window glass enabled");
+                        info!("Main window glass enabled (native compositor frost, sidebar-clipped)");
                         configure_macos_window_transparency(&window);
                         configure_macos_webview_transparency(&window);
+                        sidebar_glass::install_clipped(&window, app.handle());
                     } else {
-                        info!("Main window glass disabled for stable production rendering");
+                        info!("Main window glass disabled via RITUAL_DISABLE_MAIN_GLASS");
                     }
 
                     if let Err(error) = window.set_resizable(true) {

@@ -28,12 +28,12 @@ export const CHROME_APPEARANCE_OPTIONS: ChromeAppearanceOption[] = [
   {
     value: "frosted",
     label: "Frosted",
-    description: "Current transparent glass chrome",
+    description: "Native macOS glass behind the sidebar",
   },
   {
     value: "white",
     label: "White",
-    description: "Soft white titlebar and sidebar material",
+    description: "Solid white sidebar and chrome",
   },
   {
     value: "soft",
@@ -53,8 +53,8 @@ const DEFAULT_APPEARANCE: ChromeAppearance = "frosted";
 
 const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   frosted: {
-    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.27)",
-    "--sidebar-vibrancy-border": "rgba(15, 23, 42, 0.05)",
+    "--sidebar-vibrancy-bg": "rgba(255, 255, 255, 0.28)",
+    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.08)",
     "--sidebar-vibrancy-selected": "rgba(255, 255, 255, 0.33)",
     "--titlebar-glass-bg": "rgba(255, 255, 255, 0.46)",
     "--titlebar-glass-bg-strong": "rgba(255, 255, 255, 0.62)",
@@ -67,11 +67,11 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
     "--titlebar-glass-control-text-active": "rgba(17, 24, 39, 0.92)",
     "--titlebar-glass-border": "rgba(15, 23, 42, 0.052)",
     "--titlebar-glass-highlight": "rgba(255, 255, 255, 0.24)",
-    "--titlebar-glass-filter": "saturate(1.08) blur(24px)",
+    "--titlebar-glass-filter": "none",
   },
   white: {
     "--sidebar-vibrancy-bg": "#ffffff",
-    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.12)",
+    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.08)",
     "--sidebar-vibrancy-selected": "rgba(15, 23, 42, 0.052)",
     "--titlebar-glass-bg": "#ffffff",
     "--titlebar-glass-bg-strong": "#ffffff",
@@ -88,7 +88,7 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   },
   soft: {
     "--sidebar-vibrancy-bg": "#efefef",
-    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.12)",
+    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.08)",
     "--sidebar-vibrancy-selected": "rgba(15, 23, 42, 0.055)",
     "--titlebar-glass-bg": "#efefef",
     "--titlebar-glass-bg-strong": "#efefef",
@@ -105,7 +105,7 @@ const chromeVariables: Record<ChromeAppearance, Record<string, string>> = {
   },
   zed: {
     "--sidebar-vibrancy-bg": "#eeeeec",
-    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.12)",
+    "--sidebar-vibrancy-border": "rgba(0, 0, 0, 0.08)",
     "--sidebar-vibrancy-selected": "rgba(15, 23, 42, 0.055)",
     "--titlebar-glass-bg": "#eeeeec",
     "--titlebar-glass-bg-strong": "#eeeeec",

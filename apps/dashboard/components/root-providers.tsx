@@ -17,6 +17,7 @@ import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, 
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
 import { InteractionSounds } from '@/components/interaction-sounds';
 import { DeferredFonts } from '@/components/deferred-fonts';
+import { DesktopWindowResizeEdges } from '@/components/desktop-window-resize-edges';
 
 /**
  * Root Providers Wrapper
@@ -70,16 +71,18 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
   const [isMainGlassEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
     if (isAuxiliaryDesktopWindow()) return false;
-    const queryValue = new URLSearchParams(window.location.search).get('ritual_main_glass');
-    return queryValue === '1';
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('ritual_main_glass') === '0') return false;
+    return (
+      params.get('ritual_main_glass') === '1' ||
+      document.documentElement.dataset.mainGlass === '1'
+    );
   });
   const [isGlassChromeEnabled] = useState(() => {
     if (typeof window === 'undefined') return false;
     if (isAuxiliaryDesktopWindow()) return false;
     const params = new URLSearchParams(window.location.search);
-    const queryValue = params.get('ritual_glass_chrome');
-    if (queryValue === '0') return false;
-    return queryValue === '1' || params.get('ritual_main_glass') === '1';
+    return params.get('ritual_glass_chrome') === '1';
   });
   const [isSidebarCaptureMode, setIsSidebarCaptureMode] = useState(() => {
     if (typeof window === 'undefined') return false;
@@ -296,6 +299,9 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       <PlatformDetector />
       <DeferredFonts />
       <InteractionSounds />
+      {isDesktop && !isDesktopBootstrap && !isAuxiliaryDesktopWindow() ? (
+        <DesktopWindowResizeEdges />
+      ) : null}
       {isTransparencyProbe ? (
         <TransparencyProbe />
       ) : isDesktopBootstrap || isVoiceHudWindow() ? (

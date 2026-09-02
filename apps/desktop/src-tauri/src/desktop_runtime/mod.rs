@@ -761,14 +761,14 @@ fn window_diagnostics<R: Runtime>(app: &AppHandle<R>) -> DesktopWindowDiagnostic
         ignores_mouse_events,
         window_level,
         hit_testable,
-        main_content_opaque: std::env::var("RITUAL_ENABLE_MAIN_GLASS")
+        main_content_opaque: std::env::var("RITUAL_DISABLE_MAIN_GLASS")
             .map(|value| {
-                !matches!(
+                matches!(
                     value.trim().to_ascii_lowercase().as_str(),
                     "1" | "true" | "yes" | "on"
                 )
             })
-            .unwrap_or(true),
+            .unwrap_or(false),
     }
 }
 

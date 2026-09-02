@@ -13,6 +13,11 @@
       html.dark, html.dark body, html.dark #root {
         background: #111111;
       }
+      html[data-main-glass="1"],
+      html[data-main-glass="1"] body,
+      html[data-main-glass="1"] #root {
+        background: transparent;
+      }
       /* Chrome that remains visible if the JS bundle is delayed. */
       body::before {
         content: "";
@@ -28,6 +33,7 @@
       html.dark body::before {
         background: #101011;
       }
+      html[data-main-glass="1"] body::before,
       html[data-settings-window] body::before,
       html[data-voice-hud-window] body::before,
       body:has(.welcome-page)::before,
@@ -64,6 +70,13 @@
           }
           if (params.get('ritual_voice_hud_window') === '1') {
             document.documentElement.dataset.voiceHudWindow = '1';
+            document.documentElement.style.background = 'transparent';
+          }
+          if (
+            params.get('ritual_main_glass') === '1' ||
+            document.documentElement.dataset.mainGlass === '1'
+          ) {
+            document.documentElement.dataset.mainGlass = '1';
             document.documentElement.style.background = 'transparent';
           }
         } catch (error) {}

@@ -163,6 +163,37 @@ export async function setVoiceHotkeySettings(
   return invokeDesktopCommand("set_voice_hotkey_settings", { settings });
 }
 
+export type WindowResizeDirection =
+  | "East"
+  | "North"
+  | "NorthEast"
+  | "NorthWest"
+  | "South"
+  | "SouthEast"
+  | "SouthWest"
+  | "West";
+
+export async function syncSidebarGlassWidth(width: number): Promise<void> {
+  if (!isDesktopTauriRuntime()) return;
+  try {
+    await invokeDesktopCommand("sync_sidebar_glass_width", { width });
+  } catch {
+    // Older desktop hosts do not clip native glass.
+  }
+}
+
+export async function startWindowResizeDragging(
+  direction: WindowResizeDirection,
+): Promise<void> {
+  if (!isDesktopTauriRuntime()) return;
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().startResizeDragging(direction);
+  } catch (error) {
+    console.error("Failed to start window resize:", error);
+  }
+}
+
 export async function resizeWindow(width: number, height: number): Promise<void> {
   if (!isDesktopTauriRuntime()) return;
 

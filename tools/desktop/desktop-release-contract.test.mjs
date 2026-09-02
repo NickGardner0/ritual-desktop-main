@@ -227,14 +227,31 @@ test('runtime sidecar hashes are derived from the signed bytes actually bundled'
   assert.match(integrity, /option_env!\("RITUAL_RUNTIME_SIDECAR_LOCK_JSON"\)/);
 });
 
-test('main window defaults opaque and AppKit explicitly disables click-through', async () => {
+test('native sidebar glass is compositor frost with click-through disabled', async () => {
   const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
+  const glass = await readFile('apps/desktop/src-tauri/src/sidebar_glass.rs', 'utf8');
   const css = await readFile('apps/dashboard/app/globals.css', 'utf8');
   const capture = await readFile('scripts/capture-desktop-window-qa.mjs', 'utf8');
-  assert.match(main, /transparency_probe \|\| env_flag_enabled\("RITUAL_ENABLE_MAIN_GLASS"\)/);
+  const providers = await readFile('apps/dashboard/components/root-providers.tsx', 'utf8');
+  const capabilities = await readFile('apps/desktop/src-tauri/capabilities/main.json', 'utf8');
+  assert.match(main, /fn main_window_glass_enabled/);
+  assert.match(main, /!env_flag_enabled\("RITUAL_DISABLE_MAIN_GLASS"\)/);
+  assert.match(main, /sidebar_glass::install_clipped/);
+  assert.match(main, /setMovableByWindowBackground: NO/);
   assert.match(main, /setIgnoresMouseEvents: NO/);
   assert.match(main, /setLevel: 0_isize/);
-  assert.match(css, /data-transparency-probe="1"[\s\S]*background: hsl\(var\(--background\)\) !important/);
+  assert.match(glass, /NSGlassEffectView/);
+  assert.match(glass, /fn sync_sidebar_glass_width/);
+  assert.match(glass, /setAutoresizingMask: autoresize/);
+  assert.match(capabilities, /core:window:allow-start-resize-dragging/);
+  assert.match(providers, /params\.get\('ritual_glass_chrome'\) === '1'/);
+  assert.doesNotMatch(
+    providers,
+    /return queryValue === '1' \|\| params\.get\('ritual_main_glass'\) === '1'/,
+  );
+  assert.match(css, /\.sidebar-vibrancy::after/);
+  assert.match(css, /html\.desktop \.sidebar-vibrancy \{[\s\S]*backdrop-filter: none/);
+  assert.doesNotMatch(css, /html\.desktop \.sidebar-vibrancy \*[\s\S]*background: transparent !important/);
   assert.match(capture, /WKWebView did not acknowledge the declared hit-test click/);
   assert.match(capture, /opaqueMainSurface\.alpha !== 255/);
 });
