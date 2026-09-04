@@ -16,6 +16,12 @@ async function decide(ask: PermissionAsk, decision: 'once' | 'always' | 'deny') 
   if (decision === 'always') {
     rememberAlwaysToolScope(ask.scope);
   }
+  if (ask.protocol === 'agent' && ask.askSeq != null) {
+    const mapped = decision === 'once' ? 'allow' : decision === 'always' ? 'always_allow' : 'deny';
+    getChatSessionUi().agentApprove?.(mapped, ask.askSeq);
+    setChatPermissionAsk(null);
+    return;
+  }
   try {
     await fetch(getChatStreamUrl(), {
       method: 'POST',

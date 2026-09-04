@@ -20,7 +20,6 @@ const SOURCES: Source[] = [
   { id: "fitbit", name: "Fitbit", label: "Fitness & sleep" },
   { id: "screen-time", name: "Screen Time", label: "iPhone usage" },
   { id: "computer-use", name: "Computer Use", label: "Desktop activity" },
-  { id: "imessage", name: "iMessage", label: "Calorie tracking" },
   { id: "plaid", name: "Plaid", label: "Spending tracking" },
   { id: "tesla", name: "Tesla", label: "Miles driven" },
   { id: "gmail", name: "Gmail", label: "Emails sent" },

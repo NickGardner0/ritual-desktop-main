@@ -13,7 +13,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { createPortal } from 'react-dom';
-import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import { useSearchParams, useRouter, usePathname } from '@/lib/app-navigation';
 import { Plus, Download } from 'lucide-react';
 import {
   DropdownMenu,
@@ -27,12 +27,11 @@ import { AnalyticsFilterProvider, useAnalyticsFilters } from './analytics-filter
 import { useHabits } from '@/contexts/HabitsContext';
 import { useAI } from '@/contexts/AIContext';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
 import { useDashboardSnapshotQuery } from '@/hooks/use-dashboard-snapshot-query';
 import { useMetricsSnapshotQuery } from '@/hooks/use-metrics-snapshot-query';
 import { resolveDashboardViewMode } from '@/lib/dashboard/view-mode-route.mjs';
 import { perfInfo } from '@/lib/perf-debug';
-import { DateRangePicker } from '@/components/date-range-picker';
 import { OverviewViewMenuItems } from '@/components/analytics/overview-initial-section';
 import { useUIPreferences } from '@/hooks/use-ui-preferences';
 import { OverviewView } from './overview/OverviewView';
@@ -77,8 +76,13 @@ async function playHabitSuccessSound() {
   }
 }
 
-// Keep heavy views lazy. Overview and the titlebar date picker load with the page
-// so the default dashboard does not hit a post-navigation Loading... boundary.
+// Keep heavy views lazy. Overview already dynamic()s DateRangePicker; do the
+// same here so the calendar SDK stays off Index boot.
+const DateRangePicker = dynamic(
+  () => import('@/components/date-range-picker').then((m) => ({ default: m.DateRangePicker })),
+  { ssr: false },
+);
+
 const MetricsView = dynamic(
   () => import('./metrics/MetricsView').then(m => ({ default: m.MetricsView })),
   { loading: () => <ViewLoadingFallback /> }

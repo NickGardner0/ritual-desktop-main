@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from typing import Optional, List
-from datetime import datetime, timezone
+from datetime import datetime
 from types import SimpleNamespace
 from sqlalchemy import func, select, update
 from sqlalchemy.exc import SQLAlchemyError
@@ -73,94 +73,6 @@ def _normalize_phone_number(phone_number: Optional[str]) -> Optional[str]:
 
 class UserService:
     """Service class for user operations"""
-
-    async def _maybe_send_sms_welcome(
-        self,
-        *,
-        session,
-        user_id: str,
-        phone_number: Optional[str],
-        full_name: Optional[str],
-        sms_welcome_sent_at: Optional[datetime],
-        user_obj: Optional[SimpleNamespace] = None,
-    ) -> bool:
-        """Send the first outbound Ritual SMS welcome exactly once."""
-        if not phone_number or sms_welcome_sent_at:
-            return False
-
-        claim_sent_at = datetime.now(timezone.utc)
-
-        try:
-            claim_result = await session.execute(
-                update(UserDB)
-                .where(UserDB.id == user_id)
-                .where(UserDB.sms_welcome_sent_at.is_(None))
-                .values(
-                    sms_welcome_sent_at=claim_sent_at,
-                    updated_at=datetime.utcnow(),
-                )
-            )
-            await session.commit()
-
-            if getattr(claim_result, "rowcount", 0) != 1:
-                logger.info(
-                    "ℹ️ Welcome SMS already claimed by another request for user %s",
-                    user_id,
-                )
-                return False
-
-            from services.sms_onboarding_service import sms_onboarding_service
-
-            onboarding_result = await sms_onboarding_service.send_desktop_welcome(
-                user_id=user_id,
-                phone_number=phone_number,
-                full_name=full_name,
-            )
-            if not onboarding_result.get("sent"):
-                await session.execute(
-                    update(UserDB)
-                    .where(UserDB.id == user_id)
-                    .where(UserDB.sms_welcome_sent_at == claim_sent_at)
-                    .values(
-                        sms_welcome_sent_at=None,
-                        updated_at=datetime.utcnow(),
-                    )
-                )
-                await session.commit()
-                return False
-
-            if user_obj is not None:
-                user_obj.sms_welcome_sent_at = claim_sent_at
-
-            logger.info(
-                "✅ Ritual welcome SMS sent to %s for user %s",
-                phone_number,
-                user_id,
-            )
-            return True
-        except Exception as sms_exc:
-            try:
-                await session.execute(
-                    update(UserDB)
-                    .where(UserDB.id == user_id)
-                    .where(UserDB.sms_welcome_sent_at == claim_sent_at)
-                    .values(
-                        sms_welcome_sent_at=None,
-                        updated_at=datetime.utcnow(),
-                    )
-                )
-                await session.commit()
-            except Exception:
-                logger.warning(
-                    "⚠️ Failed to clear welcome SMS claim for user %s after send error",
-                    user_id,
-                )
-            logger.warning(
-                "⚠️ Failed to send Ritual welcome SMS for user %s: %s",
-                user_id,
-                sms_exc,
-            )
-            return False
 
     @staticmethod
     def _row_to_user_projection(row) -> SimpleNamespace:
@@ -256,17 +168,6 @@ class UserService:
                 if updated_user is None:
                     raise Exception(f"User not found with ID: {user_id}")
 
-                # Keep onboarding-triggered sends desktop-only, but reuse the shared once-only helper.
-                if client_surface == "desktop":
-                    await self._maybe_send_sms_welcome(
-                        session=session,
-                        user_id=user_id,
-                        phone_number=normalized_phone_number,
-                        full_name=name,
-                        sms_welcome_sent_at=getattr(user, "sms_welcome_sent_at", None),
-                        user_obj=updated_user,
-                    )
-
                 logger.info(f"✅ Successfully updated onboarding for user: {user_id}")
                 return updated_user
                 
@@ -275,38 +176,6 @@ class UserService:
                 logger.error(f"❌ Database error updating onboarding: {str(e)}")
                 raise Exception(f"Failed to update onboarding: {str(e)}")
     
-    async def get_user_by_phone(self, phone_number: str) -> Optional[UserDB]:
-        """Look up a user by phone number (for Sendblue webhook)"""
-        async with get_db_session() as session:
-            try:
-                normalized_phone = _normalize_phone_number(phone_number)
-                candidates = [phone_number]
-                if normalized_phone and normalized_phone not in candidates:
-                    candidates.append(normalized_phone)
-
-                result = await session.execute(
-                    select(*_USER_SAFE_COLUMNS).where(UserDB.phone_number.in_(candidates))
-                )
-                row = result.first()
-                user = self._row_to_user_projection(row) if row else None
-                if user:
-                    return user
-
-                if not normalized_phone:
-                    return None
-
-                result = await session.execute(
-                    select(*_USER_SAFE_COLUMNS).where(UserDB.phone_number.is_not(None))
-                )
-                for row in result.fetchall():
-                    candidate = self._row_to_user_projection(row)
-                    if _normalize_phone_number(candidate.phone_number) == normalized_phone:
-                        return candidate
-                return None
-            except SQLAlchemyError as e:
-                logger.error(f"❌ Database error looking up user by phone: {str(e)}")
-                return None
-
     async def ensure_user_exists(
         self,
         user_id: str,
@@ -319,6 +188,7 @@ class UserService:
         """
         Ensure user exists in database, create if not
         """
+        del send_welcome_sms
         normalized_phone_number = _normalize_phone_number(phone_number)
         async with get_db_session() as session:
             try:
@@ -350,19 +220,6 @@ class UserService:
                         for key, value in updates.items():
                             setattr(user, key, value)
 
-                    if (
-                        send_welcome_sms
-                        and normalized_phone_number
-                        and not getattr(user, "sms_welcome_sent_at", None)
-                    ):
-                        await self._maybe_send_sms_welcome(
-                            session=session,
-                            user_id=user_id,
-                            phone_number=normalized_phone_number,
-                            full_name=full_name or user.full_name,
-                            sms_welcome_sent_at=getattr(user, "sms_welcome_sent_at", None),
-                            user_obj=user,
-                        )
                     logger.info(f"✅ User already exists: {user.email}")
                     return user
 
@@ -416,16 +273,6 @@ class UserService:
                     initial_activation_state,
                 )
 
-                if send_welcome_sms:
-                    await self._maybe_send_sms_welcome(
-                        session=session,
-                        user_id=user_id,
-                        phone_number=normalized_phone_number,
-                        full_name=default_name,
-                        sms_welcome_sent_at=None,
-                        user_obj=new_user,
-                    )
-                
                 logger.info(f"✅ Created new user: {email or user_id}")
                 return new_user
                 

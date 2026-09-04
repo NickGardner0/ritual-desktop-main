@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
- * Pin ritual-watcher and ritual-vision-helper by SHA-256.
+ * Pin ritual-watcher, ritual-vision-helper, and ritual-agent by SHA-256.
  * Rebuilds must update apps/desktop/src-tauri/binaries/sidecar-lock.json.
+ * ritual-agent is optionalInRepo (gitignored bun --compile binary); release runs
+ * scripts/pin-desktop-agent-sidecar.mjs before this check.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -66,13 +68,24 @@ function main() {
 
   for (const [name, spec] of Object.entries(sidecars)) {
     const targets = spec.targets || {};
+    const optionalInRepo = Boolean(spec.optionalInRepo);
     for (const [triple, target] of Object.entries(targets)) {
       const file = join(binariesDir, target.file);
       const required = requiredTriple ? triple === requiredTriple : shippedTargets.has(triple);
       if (!existsSync(file)) {
-        if (required) {
-          errors.push(`Required sidecar missing: ${name} (${triple}) at ${file}`);
+        if (required && (!optionalInRepo || Boolean(requiredTriple))) {
+          errors.push(
+            `Required sidecar missing: ${name} (${triple}) at ${file}${
+              name === 'ritual-agent'
+                ? '. Run node scripts/pin-desktop-agent-sidecar.mjs'
+                : ''
+            }`,
+          );
         }
+        continue;
+      }
+      if (!target.sha256) {
+        errors.push(`${name} (${triple}) is present but sidecar-lock.json has no sha256. Re-run the pin script.`);
         continue;
       }
       const actual = sha256File(file);

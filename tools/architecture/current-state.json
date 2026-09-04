@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "sourceHead": "65ced577031db252495f505318229dc98b15090d",
   "dashboardApi": {
-    "routeCount": 19,
+    "routeCount": 16,
     "manifest": "tools/dashboard-api-routes.manifest.json",
     "fixedNonJsonAdapters": [
       "apps/dashboard/app/api/import/preview/route.ts",
@@ -17,18 +17,17 @@
     "occurrenceTable": "scheduler_occurrence_claims",
     "healthOperation": "GET /api/internal/scheduler/health",
     "retainedExternalAdapters": [
-      { "path": "apps/backend/api/proactive_sms.py", "claimFunction": "run_proactive_sms_scheduler_job" },
       { "path": "apps/backend/api/integrations.py", "claimFunction": "run_whoop_scheduler_job" },
       { "path": "apps/backend/api/integrations.py", "claimFunction": "run_tesla_scheduler_job" },
       { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_whoop_scheduler_job" },
       { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_oura_garmin_scheduler_job" },
       { "path": "apps/backend/api/financial.py", "claimFunction": "run_financial_scheduler_job" }
     ],
-    "jobCount": 13,
+    "jobCount": 11,
     "jobs": [
-      "proactive_sms", "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",
+      "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",
       "financial_sync", "location_ping_retention", "habit_reports", "workflow_runs",
-      "ambient_signals", "sms_copilot", "wearable_ingest", "wearable_maintenance",
+      "ambient_signals", "wearable_ingest", "wearable_maintenance",
       "wearable_event_outbox"
     ]
   },
@@ -45,8 +44,6 @@
   },
   "chatEntrypoints": [
     "apps/dashboard/app/api/chat/stream/route.ts",
-    "apps/dashboard/app/api/chat/sms/route.ts",
-    "apps/dashboard/app/api/chat/sms/proactive/route.ts",
     "apps/dashboard/app/api/internal/workflows/execute/route.ts",
     "packages/chat-runtime/src/index.ts"
   ],
@@ -55,7 +52,7 @@
     "turnLifecycleOwner": "packages/chat-runtime/src/assistant-kernel.ts#AssistantKernel.runTurn",
     "providerOwner": "packages/chat-runtime/src/model-engine/openai-adapter.ts#OpenAIModelEngineAdapter.stream"
   },
-  "desktopProcesses": ["Ritual", "Ritual QA", "Ritual Dev", "ritual-watcher", "ritual-vision-helper"],
+  "desktopProcesses": ["Ritual", "Ritual QA", "Ritual Dev", "ritual-watcher", "ritual-vision-helper", "ritual-agent"],
   "releaseTargets": {
     "aarch64-apple-darwin": "implemented",
     "x86_64-apple-darwin": "blocked_pending_real_intel_artifacts_and_runner"

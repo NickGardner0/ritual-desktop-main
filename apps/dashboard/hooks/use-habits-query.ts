@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@/lib/desktop-session';
 import { useMemo } from 'react';
 import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';

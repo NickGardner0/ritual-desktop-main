@@ -28,7 +28,7 @@ This document describes the **current** architecture of the `ritual-desktop-main
 
 ## Executive summary
 
-Ritual is a **multi-surface personal data platform** spanning macOS desktop, web (desktop-only in production), iOS companion, and a FastAPI backend. Users track habits, computer activity, wearables, finances, and workflows; an AI layer provides chat, SMS copilot, and proactive insights.
+Ritual is a **desktop-first personal OS** spanning a macOS app, an iOS companion, and a FastAPI backend. Users track habits, computer activity, wearables, finances, and workflows; an AI layer provides in-app chat and ambient insights.
 
 The architecture is **not an unmanaged ball of mud** — there is an active remediation program (`docs/thermo-nuclear-remediation-plan.md`), CI guardrails (`npm run repo:check`), and several successful refactors (thin backend entry, split database models, plugin registry for integrations, extracted chat runtime). However, the system has accumulated **parallel implementations**, **oversized modules**, and **cross-runtime sprawl** (especially in wearables, privacy/vault, and watcher/activity domains).
 
@@ -56,7 +56,7 @@ Shared language for navigating this codebase. Terms are used consistently in [de
 | **Per-user Turso** | Isolated libSQL database per user for high-volume activity data (`turso_user_service.py`) |
 | **Integration plugin** | Self-contained UI module for a third-party connection (Whoop, Plaid, Tesla, etc.) |
 | **Integration orchestrator** | Central React layer wiring shared deps into typed plugin-owned runtime contexts |
-| **Chat runtime** | `@ritual/chat-runtime` — shared AI turn engine, tools, SMS handlers used by dashboard and chat-api |
+| **Chat runtime** | `@ritual/chat-runtime` — shared AI turn engine and tools used by the desktop chat sidecar |
 | **Desktop capabilities** | `useDesktopCapabilities()` — canonical boundary for detecting and invoking Tauri features |
 | **Trigger.dev job (legacy external)** | Historical cloud delivery calling a retained internal-auth adapter. No Trigger source remains; every reachable adapter now enters the FastAPI occurrence fence. |
 
@@ -210,9 +210,8 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | `multipart-adapter` | Fixed import and screenshot preview operations |
 | `export-adapter` | Fixed Apple export operation with mixed response types |
 | `analytics-boundary` | Remaining calendar summary composition |
-| `ai-streaming` | Chat stream, SMS, voice |
+| `ai-streaming` | Chat stream |
 | `oauth-callback` | Whoop, Tesla OAuth returns |
-| `webhook` | Sendblue webhooks |
 
 **Key `lib/` domains (101 files):**
 
@@ -247,7 +246,7 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 
 ### apps/backend — FastAPI (system of record)
 
-**Role:** Auth validation, CRUD, wearables ingest, watcher projection, AI conversations, workflows, SMS, privacy API, financial data, location.
+**Role:** Auth validation, CRUD, wearables ingest, watcher projection, AI conversations, workflows, privacy API, financial data, location.
 
 **Entry points:**
 
@@ -276,7 +275,6 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | Metric facts | `api/metric_facts.py` | Read-model projection |
 | Facts | `api/facts.py` | AI memory/facts |
 | Privacy | `api/privacy.py` | Vault sync, migration inventory |
-| SMS | `api/sendblue.py`, `proactive_sms.py`, `sms_copilot.py`, `sms_preferences.py` | Sendblue integration |
 | Location | `api/location.py` | Location pings/state |
 | Reports | `api/reports.py` | Generated reports |
 | Artifacts | `api/artifacts.py` | Report artifacts |
@@ -286,7 +284,6 @@ Categories from `tools/dashboard-api-routes.manifest.json`:
 | Screenshot | `api/screenshot.py` | Screenshot analysis |
 | Observability | `api/observability.py` | Health/metrics endpoints |
 | UI preferences | `api/ui_preferences.py` | User UI settings |
-| VCard | `api/vcard.py` | Contact card generation |
 
 **Watcher sub-routers** (prefix `/api/watcher`):
 
@@ -338,7 +335,10 @@ Largest modules:
 |--------|---------|
 | `ritual-watcher` | Activity/accessibility tracking |
 | `ritual-vision-helper` | Vision/OCR helper for watcher |
+| `ritual-agent` | Compiled local chat sidecar (`bun --compile` of `packages/agent`) |
 | ~~`ritual-recorder`~~ | **Removed** (CI enforced) |
+
+**Chat agent sidecar:** packaged apps spawn hash-pinned `ritual-agent` next to `ritual-watcher` (`chat_runtime.rs`, `externalBin` + `sidecar-lock.json`). The TS kernel stays in `@ritual/agent` / `@ritual/chat-runtime`; `scripts/pin-desktop-agent-sidecar.mjs` compiles `sidecar.bundle.js` with bun 1.2.19. The binary is `optionalInRepo` (gitignored) so Finder/Dock launches keep chat local without Homebrew Node. First paint does not wait on `/health`; the SPA probes `127.0.0.1:8787` after `createRoot` and falls back to hosted chat if the sidecar is missing. `tauri dev` still runs the JS bundle with a host `node`/`bun`.
 
 **Tauri command groups (~60 commands in `main.rs`, 1,669 lines):**
 
@@ -436,14 +436,12 @@ Largest modules:
 
 ### @ritual/chat-runtime
 
-**47 files.** Exports chat turn engine, SMS handlers, tools, narrative, weekly overview utils.
-
-**Largest modules:** `sms.ts` (739), `system-prompt.ts` (337), `tools.ts` (308)
+**Exports** chat turn engine, tools, narrative, weekly overview utils.
 
 **Consumers:**
 
-- Dashboard: `app/api/chat/stream`, SMS routes, `lib/workflows/executor.ts`
-- Chat API: `POST /chat/stream`
+- Dashboard chat UI compiled into the Vite desktop SPA
+- Desktop agent sidecar: `packages/agent`
 
 ### @ritual/shared-contracts
 
@@ -593,7 +591,7 @@ IntegrationPlugin {
 
 ### FastAPI scheduler
 
-Trigger.dev **code** is deleted. `scheduler_service.py` statically registers all 13 owners; `lifespan.py` starts eight loops independently of startup maintenance. Eleven clock jobs use durable `(job_key, scope_key, scheduled_for)` occurrence claims and the two queue workers use atomic domain row claims. The retained proactive and provider bulk-sync adapters call the same claimed functions, so stale cloud delivery cannot create a second mutation path. Disable the leftover Trigger.dev cloud project only after production health evidence (`TRIGGER_DEV_OPS.md`).
+Trigger.dev **code** is deleted. `scheduler_service.py` statically registers 11 owners; `lifespan.py` starts seven loops independently of startup maintenance. Nine clock jobs use durable `(job_key, scope_key, scheduled_for)` occurrence claims and the two queue workers use atomic domain row claims. The retained provider bulk-sync adapters call the same claimed functions, so stale cloud delivery cannot create a second mutation path.
 
 Pattern: internal auth (`INTERNAL_API_KEY`) plus privacy consent checks at compatibility adapters; scheduler health uses `INTERNAL_BACKEND_TOKEN`. Workflow execution still POSTs to Next `/api/internal/workflows/execute` so the TypeScript executor can run.
 

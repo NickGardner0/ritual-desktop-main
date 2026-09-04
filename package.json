@@ -49,6 +49,7 @@
     "test:desktop-release-contract": "node --test tools/desktop/*.test.mjs",
     "desktop:check:browser-extension": "bash scripts/check-browser-extension-health.sh",
     "desktop:check:sidecars": "node scripts/verify-desktop-sidecars.mjs",
+    "desktop:pin:agent": "node scripts/pin-desktop-agent-sidecar.mjs",
     "desktop:sidecars:build": "bash scripts/build-desktop-sidecars.sh",
     "desktop:check:activity-audit": "bash scripts/check-activity-audit.sh",
     "desktop:watcher:seed-qa": "node scripts/seed-watcher-preferences-for-qa.mjs",

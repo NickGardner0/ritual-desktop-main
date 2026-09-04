@@ -130,7 +130,7 @@ class LocationHabitLoggingE2ETests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored.location_lat, 40.741061)
         self.assertEqual(stored.location_source, "mac_one_shot")
 
-    async def test_imessage_iphone_ping_enriches_habit_log(self):
+    async def test_iphone_ping_enriches_habit_log(self):
         ingest_result, log, stored = await self._ingest_ping_then_log(
             source="ios_one_shot",
             lat=40.7128,

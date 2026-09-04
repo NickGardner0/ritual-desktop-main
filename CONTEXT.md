@@ -20,9 +20,9 @@ codebase. Keep terms short, stable, and aligned with
 | Per-user Turso | Isolated libSQL database per user for high-volume activity data, owned by `turso_user_service.py`. |
 | Integration plugin | Self-contained UI module for a third-party connection such as Whoop, Plaid, Tesla, Apple Health, or Screen Time. |
 | Integration orchestrator | Central React layer wiring shared deps into typed plugin-owned runtime contexts. |
-| Chat runtime | `@ritual/chat-runtime`, the shared AI turn engine, tools, SMS handlers, and streaming helpers. |
+| Chat runtime | `@ritual/chat-runtime`, the shared AI turn engine, tools, and streaming helpers. |
 | Desktop capabilities | `useDesktopCapabilities()`, the canonical seam for detecting and invoking Tauri features. |
-| Trigger.dev job | Scheduled cloud task such as wearable sync, Plaid sync, Tesla sync, or proactive SMS calling backend with internal auth. |
+| Trigger.dev job | Historical scheduled cloud task such as wearable sync, Plaid sync, or Tesla sync calling backend with internal auth. |
 
 ## Maintenance Rules
 

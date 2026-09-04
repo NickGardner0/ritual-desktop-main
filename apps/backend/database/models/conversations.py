@@ -16,7 +16,7 @@ class AIConversationDB(Base):
     experiment_id = Column(String, ForeignKey("experiments.id", ondelete="SET NULL"), nullable=True)
     title = Column(String, nullable=True)  # Optional title for the conversation
     response_mode = Column(String, default="text")  # 'text' or 'voice' - controls response style
-    channel = Column(String, nullable=False, default="app")  # 'app', 'sms', or 'voice'
+    channel = Column(String, nullable=False, default="app")  # 'app' or 'voice'; historical 'sms' rows may remain
     auto_run_queued = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=_utcnow_naive)
     updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
@@ -102,4 +102,3 @@ class AssistantTurnDB(Base):
         Index("idx_assistant_turns_user_created", "user_id", "created_at"),
         Index("idx_assistant_turns_conversation_sequence", "conversation_id", "sequence"),
     )
-

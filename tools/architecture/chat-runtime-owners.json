@@ -12,18 +12,6 @@
       "turnOwner": "AssistantKernel.runTurn"
     },
     {
-      "channel": "sms",
-      "path": "packages/chat-runtime/src/sms.ts",
-      "handler": "handleSmsChatPost",
-      "turnOwner": "AssistantKernel.runTurn"
-    },
-    {
-      "channel": "proactive_sms",
-      "path": "packages/chat-runtime/src/sms.ts",
-      "handler": "handleSmsProactivePost",
-      "turnOwner": "AssistantKernel.runTurn"
-    },
-    {
       "channel": "queued_workflow",
       "path": "apps/dashboard/lib/workflows/executor.ts",
       "handler": "executeWorkflow",
@@ -37,8 +25,8 @@
     },
     {
       "channel": "desktop_sidecar",
-      "path": "packages/chat-runtime/src/sidecar.ts",
-      "handler": "startChatRuntimeSidecar",
+      "path": "packages/agent/src/sidecar.ts",
+      "handler": "startAgentSidecar",
       "delegatesTo": "packages/chat-runtime/src/handle-chat-stream.ts#handleChatStreamRequest"
     }
   ]

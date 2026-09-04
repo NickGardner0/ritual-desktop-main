@@ -2,22 +2,23 @@
 import './dashboard-css';
 import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
-import { useUser } from '@clerk/nextjs';
-import { RootProviders } from '@/components/root-providers';
-import { DashboardLayoutClient } from '@/app/(dashboard)/dashboard-layout-client';
 import { ClientDashboard } from '@/app/(dashboard)/dashboard/client-dashboard';
-import AuthCallbackPage from '@/app/auth/callback/page';
-import SsoCallbackPage from '@/app/auth/sso-callback/page';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { DesktopAuthPage } from './pages/desktop-auth-page';
 import { readDesktopSettingsWindowView } from './pages/desktop-settings-query';
 import { isDesktopVoiceHudWindow } from './pages/desktop-voice-hud-query';
+import { DesktopShellLayout, RequireDesktopSession, RootProviders, StartingRitual } from './shell';
 
+const AuthCallbackPage = lazy(() => import('@/app/auth/callback/page'));
+const SsoCallbackPage = lazy(() => import('@/app/auth/sso-callback/page'));
 const LogsClient = lazy(() =>
   import('@/app/(dashboard)/activity/logs-client').then((module) => ({ default: module.LogsClient })),
 );
 const ChatClient = lazy(() =>
   import('@/app/(dashboard)/chat/chat-client').then((module) => ({ default: module.ChatClient })),
+);
+const AgentChat = lazy(() =>
+  import('@/app/(dashboard)/agent/agent-chat').then((module) => ({ default: module.AgentChat })),
 );
 const CalendarClient = lazy(() =>
   import('@/app/(dashboard)/calendar/calendar-client').then((module) => ({ default: module.CalendarClient })),
@@ -44,51 +45,30 @@ const VoiceHudPage = lazy(() => import('@/app/voice-hud/page'));
 
 function Shell({ children }: { children: ReactNode }) {
   return (
-    <DashboardLayoutClient>
+    <DesktopShellLayout>
       {children}
-    </DashboardLayoutClient>
+    </DesktopShellLayout>
   );
 }
 
-function StartingRitual() {
+function RouteFallback() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#fefefe]">
-      <BrailleSpinner className="text-2xl text-gray-900" />
-    </main>
+    <div className="flex min-h-[30vh] items-center justify-center" aria-hidden>
+      <BrailleSpinner className="text-lg text-gray-400" />
+    </div>
   );
-}
-
-function RequireDesktopSession({ children }: { children: ReactNode }) {
-  const { isLoaded, isSignedIn } = useUser();
-  const settingsView = readDesktopSettingsWindowView();
-
-  if (!isLoaded) {
-    return <StartingRitual />;
-  }
-
-  if (!isSignedIn) {
-    if (settingsView) {
-      return (
-        <main className="flex min-h-screen items-center justify-center bg-[#fefefe] px-6 text-center text-sm text-[#666666]">
-          Sign in from the main window to open Settings.
-        </main>
-      );
-    }
-    return <Navigate to="/sign-in" replace />;
-  }
-
-  return children;
 }
 
 function DesktopAppRoutes() {
   return (
-    <Suspense fallback={<StartingRitual />}>
+    <Suspense fallback={<RouteFallback />}>
       <Routes>
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/index.html" element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<ClientDashboard initialViewMode="overview" />} />
         <Route path="/activity" element={<LogsClient />} />
         <Route path="/chat" element={<ChatClient />} />
+        <Route path="/agent" element={<AgentChat />} />
         <Route path="/calendar" element={<CalendarClient />} />
         <Route path="/integrations" element={<IntegrationsClient />} />
         <Route path="/reports" element={<ReportsClient />} />
@@ -135,10 +115,24 @@ export function App() {
     <BrowserRouter>
       <RootProviders>
         <Routes>
-          <Route path="/sign-in/*" element={<DesktopAuthPage mode="sign_in" />} />
+        <Route path="/sign-in/*" element={<DesktopAuthPage mode="sign_in" />} />
           <Route path="/sign-up/*" element={<DesktopAuthPage mode="sign_up" />} />
-          <Route path="/auth/callback" element={<AuthCallbackPage />} />
-          <Route path="/auth/sso-callback" element={<SsoCallbackPage />} />
+          <Route
+            path="/auth/callback"
+            element={(
+              <Suspense fallback={<StartingRitual />}>
+                <AuthCallbackPage />
+              </Suspense>
+            )}
+          />
+          <Route
+            path="/auth/sso-callback"
+            element={(
+              <Suspense fallback={<StartingRitual />}>
+                <SsoCallbackPage />
+              </Suspense>
+            )}
+          />
           <Route
             path="/*"
             element={(

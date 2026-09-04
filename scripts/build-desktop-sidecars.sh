@@ -30,11 +30,14 @@ cp "${WATCHER_TARGET_DIR}/${TARGET_TRIPLE}/release/ritual-watcher" \
 chmod 755 "${BINARIES_DIR}/ritual-watcher-${TARGET_TRIPLE}"
 
 bash "${ROOT_DIR}/scripts/build-native-vision-helper.sh" "${TARGET_TRIPLE}" "${BINARIES_DIR}"
+node "${ROOT_DIR}/scripts/pin-desktop-agent-sidecar.mjs" --target "${TARGET_TRIPLE}"
 node "${ROOT_DIR}/scripts/pin-desktop-sidecar-target.mjs" --target "${TARGET_TRIPLE}"
 RITUAL_REQUIRE_SIDECAR_TRIPLE="${TARGET_TRIPLE}" \
   node "${ROOT_DIR}/scripts/verify-desktop-sidecars.mjs"
 
 file "${BINARIES_DIR}/ritual-watcher-${TARGET_TRIPLE}"
 file "${BINARIES_DIR}/ritual-vision-helper-${TARGET_TRIPLE}"
+file "${BINARIES_DIR}/ritual-agent-${TARGET_TRIPLE}"
 shasum -a 256 "${BINARIES_DIR}/ritual-watcher-${TARGET_TRIPLE}"
 shasum -a 256 "${BINARIES_DIR}/ritual-vision-helper-${TARGET_TRIPLE}"
+shasum -a 256 "${BINARIES_DIR}/ritual-agent-${TARGET_TRIPLE}"

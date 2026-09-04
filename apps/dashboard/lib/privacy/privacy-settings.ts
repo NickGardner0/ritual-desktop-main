@@ -19,7 +19,6 @@ export const DEFAULT_PRIVACY_SETTINGS: PrivacySettings = {
     provider_sync: false,
     crash_diagnostics: false,
     product_telemetry: false,
-    sms: false,
     plaintext_sync: false,
   },
   updatedAt: "1970-01-01T00:00:00.000Z",

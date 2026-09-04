@@ -79,6 +79,7 @@ test('local SPA sign-in has visible chrome and hosted OAuth start', async () => 
 
 test('signed-in desktop uses native session and a local shell URL', async () => {
   const app = await readFile('apps/desktop-ui/src/App.tsx', 'utf8');
+  const session = await readFile('apps/desktop-ui/src/shell/require-session.tsx', 'utf8');
   const adapter = await readFile('apps/desktop-ui/src/adapters/clerk.tsx', 'utf8');
   const main = await readFile('apps/desktop/src-tauri/src/main.rs', 'utf8');
   const sso = await readFile('apps/dashboard/app/auth/sso-callback/page.tsx', 'utf8');
@@ -86,8 +87,9 @@ test('signed-in desktop uses native session and a local shell URL', async () => 
     main.indexOf('fn desktop_shell_window_url'),
     main.indexOf('fn env_flag_enabled'),
   );
-  assert.match(app, /function RequireDesktopSession/);
-  assert.match(app, /isSignedIn/);
+  assert.match(app, /RequireDesktopSession/);
+  assert.match(session, /function RequireDesktopSession/);
+  assert.match(session, /isSignedIn/);
   assert.doesNotMatch(app, /CLERK_LOAD_GRACE_MS/);
   assert.match(app, /readDesktopSettingsWindowView/);
   assert.match(app, /DesktopSettingsWindow/);
@@ -221,6 +223,10 @@ test('runtime sidecar hashes are derived from the signed bytes actually bundled'
   assert.match(release, /tauri build[\s\S]*--no-sign[\s\S]*--bundles app/);
   assert.match(release, /cmp -s "\$\{WATCHER_SIDECAR_PATH\}" "\$\{HELPER_PATH\}"/);
   assert.match(release, /cmp -s "\$\{VISION_SIDECAR_PATH\}" "\$\{VISION_HELPER_PATH\}"/);
+  assert.match(release, /cmp -s "\$\{AGENT_SIDECAR_PATH\}" "\$\{AGENT_HELPER_PATH\}"/);
+  assert.match(release, /pin-desktop-agent-sidecar\.mjs/);
+  assert.doesNotMatch(release, /pin-desktop-node-runtime\.mjs/);
+  assert.doesNotMatch(release, /ritual-node/);
   assert.doesNotMatch(release, /sign_macos_path "\$\{HELPER_PATH\}"/);
   assert.match(release, /Add :RitualSourceSHA string \$\{SOURCE_SHA\}/);
   assert.match(release, /Add :RitualTargetTriple string \$\{TAURI_TARGET_TRIPLE\}/);

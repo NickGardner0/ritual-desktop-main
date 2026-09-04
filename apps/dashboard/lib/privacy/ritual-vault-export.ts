@@ -62,7 +62,6 @@ export const SENSITIVE_RITUAL_VAULT_CATEGORIES = [
   "calendar_occurrences",
   "calendar_sources",
   "calendar_sync_runs",
-  "sms_copilot",
   "workflows",
 ] as const satisfies readonly RitualVaultCategory[];
 

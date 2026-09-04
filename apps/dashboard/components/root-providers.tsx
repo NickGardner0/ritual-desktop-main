@@ -1,9 +1,9 @@
 'use client';
 
 import { ReactNode, useEffect, useRef, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/app-navigation';
 import { ThemeProvider } from '@/components/theme-provider';
-import { ClerkProvider } from '@clerk/nextjs';
+import { ClerkProvider } from '@/lib/desktop-session';
 import { QueryProvider } from '@/components/providers';
 import { HabitsProvider } from '@/contexts/HabitsContext';
 import { OpenPanelProvider } from '@/components/openpanel-provider';
@@ -13,10 +13,11 @@ import { DesktopAuthDeepLinkBridge } from '@/components/desktop-auth-deep-link-b
 import { DesktopAssetRecoveryBridge } from '@/components/desktop-asset-recovery-bridge';
 import { ChromeAppearanceProvider } from '@/contexts/ChromeAppearanceContext';
 import { DesktopCapabilitiesProvider, getDesktopCapabilities, useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, recordLaunchMilestone, showMainWindow, summarizeLaunchMilestones } from '@/lib/native-gateway';
+import { desktopFrontendReady, getDesktopRuntimeState, recordDesktopShellEvent, recordLaunchMilestone, summarizeLaunchMilestones } from '@/lib/native-gateway';
 import { VoiceSessionProvider } from '@/components/voice-session-provider';
 import { InteractionSounds } from '@/components/interaction-sounds';
 import { DeferredFonts } from '@/components/deferred-fonts';
+import { DeferredChrome } from '@/components/deferred-chrome';
 import { DesktopWindowResizeEdges } from '@/components/desktop-window-resize-edges';
 
 /**
@@ -91,7 +92,8 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     return false;
   });
 
-  // Show the Tauri window once shell chrome can paint. Do not wait on dashboard queries.
+  // HTML and the webview init script already show the window. Record paint
+  // without waiting two animation frames.
   useEffect(() => {
     if (!isDesktopShell) {
       return;
@@ -105,20 +107,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       return;
     }
 
-    let cancelled = false;
-    let secondFrame = 0;
-    const firstFrame = window.requestAnimationFrame(() => {
-      secondFrame = window.requestAnimationFrame(() => {
-        if (cancelled) return;
-        recordLaunchMilestone('shell_paint', { desktop: true });
-        showMainWindow();
-      });
-    });
-    return () => {
-      cancelled = true;
-      window.cancelAnimationFrame(firstFrame);
-      if (secondFrame) window.cancelAnimationFrame(secondFrame);
-    };
+    recordLaunchMilestone('shell_paint', { desktop: true });
   }, [isDesktopShell, isDesktopBootstrap]);
 
   useEffect(() => {
@@ -273,17 +262,30 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const isSettingsWindow = typeof window !== 'undefined'
+    && new URLSearchParams(window.location.search).get('ritual_settings_window') === '1';
+
+  const signedInTree = (
+    <>
+      <DesktopAssetRecoveryBridge />
+      <DesktopAuthDeepLinkBridge />
+      {children}
+    </>
+  );
+
   const content = (
     <ChromeAppearanceProvider>
       <OpenPanelProvider>
         <QueryProvider>
-          <HabitsProvider>
-            <VoiceSessionProvider>
-              <DesktopAssetRecoveryBridge />
-              <DesktopAuthDeepLinkBridge />
-              {children}
-            </VoiceSessionProvider>
-          </HabitsProvider>
+          {isSettingsWindow ? (
+            signedInTree
+          ) : (
+            <HabitsProvider>
+              <VoiceSessionProvider>
+                {signedInTree}
+              </VoiceSessionProvider>
+            </HabitsProvider>
+          )}
         </QueryProvider>
       </OpenPanelProvider>
     </ChromeAppearanceProvider>
@@ -298,6 +300,7 @@ function RootProvidersInner({ children }: { children: ReactNode }) {
       {/* Detect OS and set data-platform attr for macOS vibrancy CSS */}
       <PlatformDetector />
       <DeferredFonts />
+      <DeferredChrome />
       <InteractionSounds />
       {isDesktop && !isDesktopBootstrap && !isAuxiliaryDesktopWindow() ? (
         <DesktopWindowResizeEdges />

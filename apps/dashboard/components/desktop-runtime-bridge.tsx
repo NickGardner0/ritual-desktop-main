@@ -1,9 +1,9 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQueryClient } from '@tanstack/react-query';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/app-navigation';
 import { DesktopUpdater } from '@/components/desktop-updater';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import {

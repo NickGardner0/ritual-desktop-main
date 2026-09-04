@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
 import { useOverviewWidgetMetrics } from '@/hooks/use-overview-widget-metrics';
 import {
   buildWelcomeInsights,

@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { X } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   DndContext,
   closestCenter,
@@ -327,6 +328,20 @@ export interface SortableHabitListProps {
   onOpenContext?: (habitId: string) => void;
 }
 
+const HABIT_ROW_ESTIMATE_PX = 36;
+
+function findScrollParent(node: HTMLElement | null): HTMLElement | null {
+  let current = node?.parentElement ?? null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (overflowY === 'auto' || overflowY === 'scroll') {
+      return current;
+    }
+    current = current.parentElement;
+  }
+  return node;
+}
+
 function SortableHabitListInner({
   habits,
   onReorder,
@@ -362,6 +377,21 @@ function SortableHabitListInner({
     }
   };
 
+  const listRef = React.useRef<HTMLDivElement>(null);
+  const [scrollElement, setScrollElement] = React.useState<HTMLElement | null>(null);
+
+  React.useLayoutEffect(() => {
+    setScrollElement(findScrollParent(listRef.current));
+  }, [habits.length]);
+
+  const virtualizer = useVirtualizer({
+    count: habits.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => HABIT_ROW_ESTIMATE_PX,
+    overscan: 10,
+    getItemKey: (index) => habits[index]?.id || String(index),
+  });
+
   return (
     <DndContext
       sensors={sensors}
@@ -372,30 +402,43 @@ function SortableHabitListInner({
         items={habits.map(h => h.id || '')}
         strategy={verticalListSortingStrategy}
       >
-        <div>
-          {habits.map((habit) => {
+        <div
+          ref={listRef}
+          className="relative w-full"
+          style={{ height: virtualizer.getTotalSize() }}
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const habit = habits[virtualRow.index];
+            if (!habit) return null;
             const habitId = habit.id || '';
             return (
-              <SortableHabitItem
+              <div
                 key={habitId}
-                habit={habit}
-                getHabitMetricDisplay={getHabitMetricDisplay}
-                getHabitMetricClassName={getHabitMetricClassName}
-                hoveredValue={
-                  scrubberHoveredDate && scrubberHoveredValues
-                    ? scrubberHoveredValues[habitId]
-                    : undefined
-                }
-                isTooltipOpen={activeTooltip === habitId}
-                setActiveTooltip={setActiveTooltip}
-                getHabitMetricStats={getHabitMetricStats}
-                onUpdateHabitDetails={onUpdateHabitDetails}
-                isUpdatingHabit={updatingHabitId === habitId}
-                confirmDelete={confirmDelete}
-                isDeleting={deletingHabit === habitId}
-                isContextSelected={selectedContextHabitId === habitId}
-                onOpenContext={onOpenContext}
-              />
+                data-index={virtualRow.index}
+                ref={virtualizer.measureElement}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                <SortableHabitItem
+                  habit={habit}
+                  getHabitMetricDisplay={getHabitMetricDisplay}
+                  getHabitMetricClassName={getHabitMetricClassName}
+                  hoveredValue={
+                    scrubberHoveredDate && scrubberHoveredValues
+                      ? scrubberHoveredValues[habitId]
+                      : undefined
+                  }
+                  isTooltipOpen={activeTooltip === habitId}
+                  setActiveTooltip={setActiveTooltip}
+                  getHabitMetricStats={getHabitMetricStats}
+                  onUpdateHabitDetails={onUpdateHabitDetails}
+                  isUpdatingHabit={updatingHabitId === habitId}
+                  confirmDelete={confirmDelete}
+                  isDeleting={deletingHabit === habitId}
+                  isContextSelected={selectedContextHabitId === habitId}
+                  onOpenContext={onOpenContext}
+                />
+              </div>
             );
           })}
         </div>

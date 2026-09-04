@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams } from '@/lib/app-navigation';
 
 /**
  * Dashboard Search Handler
@@ -32,4 +32,3 @@ export function DashboardSearchHandler({
   // This component doesn't render anything
   return null;
 }
-

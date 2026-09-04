@@ -61,9 +61,7 @@ from database.models.reports import (
 )
 from database.models.scheduler import SchedulerOccurrenceClaimDB
 from database.models.desktop_auth import DesktopAuthHandoffDB
-from database.models.sms import (
-    SmsPreferencesDB,
-    SmsCopilotEventDB,
+from database.models.behavior_baseline import (
     BehaviorBaselineSnapshotDB,
 )
 from database.models.tasks import (
@@ -181,8 +179,7 @@ __all__ = [
     "RoutineRunDB",
     "SchedulerOccurrenceClaimDB",
     "ScreenTimeRollupDB",
-    "SmsCopilotEventDB",
-    "SmsPreferencesDB",
+
     "TaskDB",
     "TaskEventDB",
     "UserActivationChecklistItemDB",

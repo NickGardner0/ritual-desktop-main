@@ -94,7 +94,7 @@ export function PlaceTaggingSettings({ compact = false }: PlaceTaggingSettingsPr
             <div className="min-w-0">
               <h3 className="text-[13px] font-medium leading-4 text-[#1d1d1f]">Place tagging</h3>
               <p className="mt-[2px] max-w-[330px] text-[12px] leading-[15px] text-[#8a8a8a]">
-                Attach place context to habit logs from your Mac and use iPhone companion location for iMessage logs.
+                Attach place context to habit logs from your Mac and iPhone companion.
               </p>
             </div>
           </div>

@@ -104,24 +104,26 @@ export default defineConfig(({ mode }) => {
     },
     resolve: {
       dedupe: ['react', 'react-dom'],
-      alias: {
-        '@': dashboard,
-        'next/navigation': path.join(adapters, 'next-navigation.ts'),
-        'next/link': path.join(adapters, 'next-link.tsx'),
-        'next/dynamic': path.join(adapters, 'next-dynamic.tsx'),
-        'next/image': path.join(adapters, 'next-image.tsx'),
-        'next/headers': path.join(adapters, 'next-headers.ts'),
-        'next/server': path.join(adapters, 'next-server.ts'),
-        'next/cache': path.join(adapters, 'next-cache.ts'),
-        'next/script': path.join(adapters, 'next-script.tsx'),
-        'next/font/google': emptyModule,
-        '@clerk/nextjs': path.join(adapters, 'clerk.tsx'),
-        '@clerk/nextjs/server': path.join(adapters, 'clerk-server.ts'),
-        '@openpanel/nextjs': path.join(adapters, 'openpanel.ts'),
-        '@sentry/nextjs': path.join(adapters, 'sentry.ts'),
-        'server-only': emptyModule,
-        'client-only': emptyModule,
-      },
+      alias: [
+        { find: '@/lib/desktop-session', replacement: path.join(adapters, 'clerk.tsx') },
+        { find: '@/lib/app-navigation', replacement: path.join(adapters, 'next-navigation.ts') },
+        { find: 'next/navigation', replacement: path.join(adapters, 'next-navigation.ts') },
+        { find: 'next/link', replacement: path.join(adapters, 'next-link.tsx') },
+        { find: 'next/dynamic', replacement: path.join(adapters, 'next-dynamic.tsx') },
+        { find: 'next/image', replacement: path.join(adapters, 'next-image.tsx') },
+        { find: 'next/headers', replacement: path.join(adapters, 'next-headers.ts') },
+        { find: 'next/server', replacement: path.join(adapters, 'next-server.ts') },
+        { find: 'next/cache', replacement: path.join(adapters, 'next-cache.ts') },
+        { find: 'next/script', replacement: path.join(adapters, 'next-script.tsx') },
+        { find: 'next/font/google', replacement: emptyModule },
+        { find: '@clerk/nextjs/server', replacement: path.join(adapters, 'clerk-server.ts') },
+        { find: '@clerk/nextjs', replacement: path.join(adapters, 'clerk.tsx') },
+        { find: '@openpanel/nextjs', replacement: path.join(adapters, 'openpanel.ts') },
+        { find: '@sentry/nextjs', replacement: path.join(adapters, 'sentry.ts') },
+        { find: 'server-only', replacement: emptyModule },
+        { find: 'client-only', replacement: emptyModule },
+        { find: '@', replacement: dashboard },
+      ],
     },
     optimizeDeps: {
       include: ['react', 'react-dom', 'react-router-dom'],
@@ -139,6 +141,10 @@ export default defineConfig(({ mode }) => {
           target: fileEnv.VITE_CHAT_ORIGIN || 'http://127.0.0.1:8787',
           changeOrigin: true,
         },
+        '/api/agent': {
+          target: fileEnv.VITE_CHAT_ORIGIN || 'http://127.0.0.1:8787',
+          changeOrigin: true,
+        },
         '/api': {
           target: fileEnv.VITE_PYTHON_API_URL || processEnv.NEXT_PUBLIC_PYTHON_API_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
@@ -151,6 +157,29 @@ export default defineConfig(({ mode }) => {
       sourcemap: false,
       emptyOutDir: true,
       chunkSizeWarningLimit: 800,
+      modulePreload: {
+        resolveDependencies(_filename, deps) {
+          return deps.filter((dep) => !/(?:^|\/)(?:streamdown|shiki|mermaid|cytoscape|charts|katex)[^/]*$/.test(dep));
+        },
+      },
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalized = id.replaceAll('\\', '/');
+            if (normalized.includes('/node_modules/streamdown/')) return 'streamdown';
+            if (
+              normalized.includes('/node_modules/@shikijs/')
+              || normalized.includes('/node_modules/shiki/')
+            ) {
+              return 'shiki';
+            }
+            if (normalized.includes('/node_modules/mermaid/')) return 'mermaid';
+            if (normalized.includes('/node_modules/cytoscape')) return 'cytoscape';
+            if (normalized.includes('/node_modules/recharts/')) return 'charts';
+            return undefined;
+          },
+        },
+      },
     },
   };
 });

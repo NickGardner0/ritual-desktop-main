@@ -1,6 +1,6 @@
 /**
  * OpenCode-style drain helpers: doom-loop detection and fork compaction.
- * Ritual keeps its existing 19 tools and observe|draft|organize|act profiles.
+ * Ritual keeps its existing tools and observe|draft|organize|act profiles.
  */
 
 const DOOM_LOOP_REPEAT = 3;

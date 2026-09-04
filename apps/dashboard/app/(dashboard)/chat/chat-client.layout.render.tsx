@@ -10,15 +10,15 @@ import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import { VoiceWaveform, VoiceWaveformMini } from '@/components/voice-waveform';
 import { HabitCanvas } from '@/components/chat/habit-canvas';
 import { ViewModeToggle } from '@/components/analytics/view-mode-toggle';
+import { Response } from '@/components/chat/chat-markdown';
+import { TextShimmer } from '@/components/chat/text-shimmer';
 import {
   CHAT_PAGE_CARD_BG,
   ConnectAppsBar,
-  Response,
   SidebarToggleIcon,
-  TextShimmer,
-  cleanContentForDisplay,
   cn,
 } from './chat-client.shared';
+import { cleanContentForDisplay } from './chat-stream-helpers';
 
 
 import { buildRenderActiveChat } from './chat-client.layout.active';

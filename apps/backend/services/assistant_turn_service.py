@@ -142,7 +142,7 @@ class AssistantTurnService:
             id=str(uuid.uuid4()),
             user_id=user_id,
             response_mode=response_mode,
-            channel="sms" if channel == "sms" else "app",
+            channel="app",
             created_at=now,
             updated_at=now,
         )

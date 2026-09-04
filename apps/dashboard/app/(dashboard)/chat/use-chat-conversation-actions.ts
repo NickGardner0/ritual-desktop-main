@@ -4,8 +4,8 @@ import { useCallback, useEffect, type Dispatch, type SetStateAction } from 'reac
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { apiOperationWithAuth } from '@/lib/api/client';
+import { buildCanvasFromToolData } from './chat-stream-helpers';
 import {
-  buildCanvasFromToolData,
   buildConversationArtifactBody,
   getPersistedAfterMessageId,
 } from './chat-client.shared';

@@ -172,7 +172,6 @@ export const PRESENTATION_DESCRIPTORS: readonly IntegrationPlugin[] = [
     description: 'Integrate Garmin devices for activity, workout, sleep, and recovery tracking.',
     keywords: ['activity', 'workout', 'sleep', 'recovery'],
   }),
-  buildComingSoonDescriptor({ id: 'imessage', detailKey: 'imessage', title: 'iMessage', image: '/images/imessage.svg', keywords: ['sms', 'messages', 'copilot', 'chatbot'], description: 'Use Ritual’s SMS companion for ambient behavioral support, quick logging, and lightweight daily check-ins.' }),
   buildComingSoonDescriptor({ id: 'raycast', detailKey: 'raycast', title: 'Raycast', image: '/images/raycast.png', keywords: ['launcher', 'extension', 'search', 'logging'], description: 'Use the Ritual Raycast extension for quick time tracking, logging, and search.' }),
   buildComingSoonDescriptor({ id: 'obsidian', detailKey: 'obsidian', title: 'Obsidian', image: '/images/obsidian.svg', keywords: ['vault', 'markdown', 'notes', 'export'], description: 'Connect to your Obsidian vault to export your behavioral data into markdown files.' }),
   buildComingSoonDescriptor({ id: 'fitbit', detailKey: 'fitbit', title: 'Fitbit', image: '/images/fitbit.svg', keywords: ['activity', 'health', 'wearable'], description: 'Connect your Fitbit to track activity and health metrics.' }),

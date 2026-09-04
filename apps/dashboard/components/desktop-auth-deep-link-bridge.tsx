@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/app-navigation';
 
-import { useAuth } from '@clerk/nextjs';
+import { useAuth } from '@/lib/desktop-session';
 
 import {
   desktopCompleteAuthHandoff,

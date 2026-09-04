@@ -1,7 +1,7 @@
 /**
  * Provider-neutral model tool definitions — single source of truth.
  *
- * All 16 tool schemas are defined here. The orchestrator imports this
+ * All 17 tool schemas are defined here. The orchestrator imports this
  * array and passes it through the model-engine adapter.
  *
  * Tool names are string constants — never rename them without updating
@@ -338,7 +338,7 @@ export const tools: ModelEngineTool[] = [
           habitName: { type: 'string', description: 'Name of the habit to log, matching one of the user\'s existing habits (case-insensitive fuzzy match is OK)' },
           amount: { type: 'number', description: 'Numeric value to log in the SAME unit the user stated (e.g. 30 for "30mg", 3 for "3 miles", 1 for "1 hour"). Do not pre-convert hours to minutes. Null for boolean/checkbox habits.' },
           unitType: { type: 'string', description: 'Optional unit exactly as the user stated it (e.g. "hours", "minutes", "miles", "mg"). Preserve the user\'s unit instead of converting it.' },
-          note: { type: 'string', description: 'Optional note to attach to the log entry. For SMS logging, pass the user\'s original message verbatim when possible.' },
+          note: { type: 'string', description: 'Optional note to attach to the log entry.' },
         },
         required: ['habitName'],
       },
@@ -357,37 +357,6 @@ export const tools: ModelEngineTool[] = [
           unitType: { type: 'string', description: 'Optional unit of measurement (e.g., "minutes", "oz", "reps", "pages", "mg"). Omit for simple checkbox/boolean habits.' },
         },
         required: ['name', 'category'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'getSmsPreferences',
-      description: 'Get the user\'s SMS chatbot preferences (proactive messaging settings, quiet hours, etc.). Use when the user asks about their SMS settings, notifications, or proactive message preferences.',
-      parameters: { type: 'object', properties: {} },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'updateSmsPreferences',
-      description: 'Update the user\'s SMS copilot preferences. Use when the user wants to change proactive messaging, daily narratives, interrupt behavior, quiet hours, or notification settings.',
-      parameters: {
-        type: 'object',
-        properties: {
-          proactiveEnabled: { type: 'boolean', description: 'Enable/disable proactive messages (end-of-day recap, morning briefing, etc.)' },
-          quietHoursStart: { type: 'string', description: 'Start of quiet hours in HH:MM format (e.g. "22:00"). Set to null to remove.' },
-          quietHoursEnd: { type: 'string', description: 'End of quiet hours in HH:MM format (e.g. "08:00"). Set to null to remove.' },
-          allowedTriggers: { type: 'string', description: 'Comma-separated trigger types to allow. Options: "eod_recap" (end-of-day recap), "morning_briefing", "streak_alert" (celebrate milestones), "missed_habit_nudge" (gentle reminders), "weekly_milestone" (weekly highlights). Example: "eod_recap,streak_alert,missed_habit_nudge"' },
-          maxProactivePerDay: { type: 'number', description: 'Maximum proactive messages per day (default 1, max 3)' },
-          dailyNarrativeEnabled: { type: 'boolean', description: 'Enable or disable the end-of-day daily narrative SMS.' },
-          interruptsEnabled: { type: 'boolean', description: 'Enable or disable high-confidence copilot interrupts.' },
-          allowedInterruptKinds: { type: 'string', description: 'Comma-separated interrupt kinds to allow. Current option: "distraction_spiral".' },
-          maxInterruptsPerDay: { type: 'number', description: 'Maximum copilot interrupts per day (default 2, max 3).' },
-          minHoursBetweenInterrupts: { type: 'number', description: 'Minimum hours between copilot interrupts (default 4, min 1, max 24).' },
-        },
-        required: [],
       },
     },
   },

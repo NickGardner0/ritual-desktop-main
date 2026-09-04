@@ -170,18 +170,18 @@ test('feature tour describes Ritual devices, imports, tasks, routines, and analy
 })
 
 test('onboarding window and page canvases use the warm fcfcfa surface', async () => {
-  const [globalStyles, onboardingWindow, onboardingPage, callbackPage] =
+  const [onboardingStyles, onboardingWindow, onboardingPage, callbackPage] =
     await Promise.all([
-      readDashboardFile('app/globals.css'),
+      readDashboardFile('app/deferred-chrome.css'),
       readDashboardFile('components/onboarding/onboarding-window.tsx'),
       readDashboardFile('app/onboarding/page.tsx'),
       readDashboardFile('app/auth/sso-callback/page.tsx'),
     ])
 
-  assert.match(globalStyles, /--px-onboarding-stage: #fcfcfa;/)
-  assert.match(globalStyles, /--px-onboarding-cream: #fcfcfa;/)
-  assert.match(globalStyles, /--px-onboarding-chip: #fcfcfa;/)
-  assert.match(globalStyles, /background-color: #fcfcfa !important;/)
+  assert.match(onboardingStyles, /--px-onboarding-stage: #fcfcfa;/)
+  assert.match(onboardingStyles, /--px-onboarding-cream: #fcfcfa;/)
+  assert.match(onboardingStyles, /--px-onboarding-chip: #fcfcfa;/)
+  assert.match(onboardingStyles, /background-color: #fcfcfa !important;/)
   assert.match(onboardingWindow, /bg-\[#fcfcfa\]/)
   assert.match(onboardingPage, /bg-\[#fcfcfa\]/)
   assert.match(callbackPage, /bg-\[#fcfcfa\]/)
@@ -222,7 +222,7 @@ test('tracking interests use behavior domains and updated recommendations copy',
 
 test('every onboarding surface is scoped to FK Grotesk Neue', async () => {
   const [
-    globalStyles,
+    onboardingStyles,
     onboardingPage,
     callbackPage,
     setupShell,
@@ -235,7 +235,7 @@ test('every onboarding surface is scoped to FK Grotesk Neue', async () => {
     desktopOauthBridge,
     desktopOauthStart,
   ] = await Promise.all([
-    readDashboardFile('app/globals.css'),
+    readDashboardFile('app/deferred-chrome.css'),
     readDashboardFile('app/onboarding/page.tsx'),
     readDashboardFile('app/auth/sso-callback/page.tsx'),
     readDashboardFile('components/onboarding/perplexity-onboarding-shell.tsx'),
@@ -249,8 +249,8 @@ test('every onboarding surface is scoped to FK Grotesk Neue', async () => {
     readDashboardFile('app/auth/desktop-start-oauth/page.tsx'),
   ])
 
-  assert.match(globalStyles, /\.ritual-onboarding-font,/)
-  assert.match(globalStyles, /font-family: var\(--ritual-font-fk\) !important;/)
+  assert.match(onboardingStyles, /\.ritual-onboarding-font,/)
+  assert.match(onboardingStyles, /font-family: var\(--ritual-font-fk\) !important;/)
   assert.match(onboardingPage, /ritual-onboarding-font/)
   assert.match(onboardingPage, /fontFamily: "'FK Grotesk Neue'/)
   assert.match(onboardingPage, /fontFamilyButtons: "'FK Grotesk Neue'/)

@@ -1,23 +1,20 @@
 'use client';
 
-import { useEffect } from 'react';
-import { bind, setEnabled, setVolume } from 'cuelume';
+import { lazy, Suspense, useEffect, useState } from 'react';
+import { runWhenIdle } from '@/lib/run-when-idle';
 
-import {
-  readInteractionSoundPreferences,
-  subscribeToInteractionSoundPreferences,
-} from '@/lib/interaction-sounds';
+const InteractionSoundsRuntime = lazy(() => import('./interaction-sounds-runtime'));
 
 export function InteractionSounds() {
-  useEffect(() => {
-    bind();
-    const applyPreferences = (preferences: ReturnType<typeof readInteractionSoundPreferences>) => {
-      setVolume(preferences.volume);
-      setEnabled(preferences.enabled);
-    };
-    applyPreferences(readInteractionSoundPreferences());
-    return subscribeToInteractionSoundPreferences(applyPreferences);
-  }, []);
+  const [ready, setReady] = useState(false);
 
-  return null;
+  useEffect(() => runWhenIdle(() => setReady(true)), []);
+
+  if (!ready) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <InteractionSoundsRuntime />
+    </Suspense>
+  );
 }

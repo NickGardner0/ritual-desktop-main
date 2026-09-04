@@ -206,10 +206,6 @@ export async function dispatchToolCall(
         conversationIdPromise: ctx.conversationIdPromise,
         clientEventId: ctx.clientEventId,
       });
-    case 'getSmsPreferences':
-      return executeGetSmsPreferences(token);
-    case 'updateSmsPreferences':
-      return executeUpdateSmsPreferences(token, a);
     default:
       return JSON.stringify({ error: `Unknown tool: ${name}` });
   }

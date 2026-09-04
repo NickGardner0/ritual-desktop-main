@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@/lib/desktop-session';
 import { useQuery } from '@tanstack/react-query';
 import { subDays } from 'date-fns';
 import { apiOperationWithAuth } from '@/lib/api/client';

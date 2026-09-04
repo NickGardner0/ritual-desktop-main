@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQueryClient } from '@tanstack/react-query';
 
 import { apiOperationWithAuth } from '@/lib/api/client';

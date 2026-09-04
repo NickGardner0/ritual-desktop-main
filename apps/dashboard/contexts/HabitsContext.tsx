@@ -14,8 +14,8 @@
 
 import * as React from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { useUser } from '@/lib/desktop-session';
+import { usePathname, useSearchParams } from '@/lib/app-navigation';
 
 import type { CreateHabitInput, HabitRecord } from '@ritual/shared-contracts';
 import type { Habit, HabitLog } from '@/contexts/habits-context.types';

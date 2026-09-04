@@ -6,7 +6,7 @@ import { useFont } from '@/contexts/FontContext';
 import { RightDockTargetProvider } from '@/contexts/RightDockContext';
 import { DashboardSearchHandler } from '@/components/dashboard-search-handler';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useSearchParams } from '@/lib/app-navigation';
 import dynamic from 'next/dynamic';
 import { useSidebarMode } from '@/contexts/SidebarModeContext';
 import { ContentSurface } from '@/components/ui/ritual-system';

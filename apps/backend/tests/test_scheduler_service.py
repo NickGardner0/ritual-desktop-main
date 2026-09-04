@@ -85,12 +85,11 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self._tmpdir.cleanup()
 
-    async def test_registry_contains_all_fourteen_named_owners(self):
-        self.assertEqual(len(SCHEDULER_JOB_DEFINITIONS), 14)
+    async def test_registry_contains_all_twelve_named_owners(self):
+        self.assertEqual(len(SCHEDULER_JOB_DEFINITIONS), 12)
         self.assertEqual(
             {item.job_key for item in SCHEDULER_JOB_DEFINITIONS},
             {
-                "proactive_sms",
                 "whoop_auto_sync",
                 "oura_garmin_auto_sync",
                 "tesla_odometer_sync",
@@ -100,7 +99,6 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
                 "habit_reports",
                 "workflow_runs",
                 "ambient_signals",
-                "sms_copilot",
                 "wearable_ingest",
                 "wearable_maintenance",
                 "wearable_event_outbox",
@@ -113,10 +111,10 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_normalization_is_stable_inside_one_cadence(self):
         first = normalize_scheduled_occurrence(
-            "proactive_sms", datetime(2026, 8, 22, 10, 1, tzinfo=timezone.utc)
+            "whoop_auto_sync", datetime(2026, 8, 22, 10, 1, tzinfo=timezone.utc)
         )
         second = normalize_scheduled_occurrence(
-            "proactive_sms", datetime(2026, 8, 22, 10, 59, tzinfo=timezone.utc)
+            "whoop_auto_sync", datetime(2026, 8, 22, 10, 59, tzinfo=timezone.utc)
         )
         self.assertEqual(first, second)
         self.assertEqual(first.minute, 0)
@@ -143,10 +141,10 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
             await release.wait()
             return {"effects": effects}
 
-        first_task = asyncio.create_task(run_clock_job("proactive_sms", work, now=occurrence))
+        first_task = asyncio.create_task(run_clock_job("whoop_auto_sync", work, now=occurrence))
         await started.wait()
-        duplicate = await run_clock_job("proactive_sms", work, now=occurrence)
-        active_duplicate_state = service_module.scheduler_runtime.states["proactive_sms"]
+        duplicate = await run_clock_job("whoop_auto_sync", work, now=occurrence)
+        active_duplicate_state = service_module.scheduler_runtime.states["whoop_auto_sync"]
         self.assertIsNone(active_duplicate_state.last_successful_at)
         self.assertEqual(active_duplicate_state.lease_state, "duplicate")
         release.set()
@@ -165,7 +163,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
     async def test_turso_value_error_duplicate_is_read_from_winning_claim(self):
         occurrence = datetime(2026, 8, 22, 10, 5, tzinfo=timezone.utc)
         first = await run_clock_job(
-            "proactive_sms",
+            "whoop_auto_sync",
             lambda: asyncio.sleep(0, result={"effects": 1}),
             now=occurrence,
         )
@@ -199,12 +197,12 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         work = AsyncMock(return_value={"effects": 2})
         service_module.scheduler_runtime.reset()
         service_module.get_db_session = turso_session
-        duplicate = await run_clock_job("proactive_sms", work, now=occurrence)
+        duplicate = await run_clock_job("whoop_auto_sync", work, now=occurrence)
 
         self.assertEqual(duplicate.status, "duplicate")
         work.assert_not_awaited()
         service_module.force_local_replica_sync.assert_awaited()
-        runtime = service_module.scheduler_runtime.states["proactive_sms"]
+        runtime = service_module.scheduler_runtime.states["whoop_auto_sync"]
         self.assertIsNotNone(runtime.last_successful_at)
         self.assertEqual(runtime.lease_state, "duplicate_completed")
 
@@ -242,16 +240,6 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].status, "succeeded")
         self.assertEqual(rows[0].attempt_count, 2)
-
-    async def test_stale_external_proactive_delivery_uses_internal_occurrence_claim(self):
-        occurrence = datetime(2026, 8, 22, 14, 10, tzinfo=timezone.utc)
-        work = AsyncMock(return_value=[{"sent": 1}])
-        with patch.object(background_tasks, "_run_proactive_sms", work):
-            internal = await background_tasks.run_proactive_sms_scheduler_job(now=occurrence)
-            stale_external = await background_tasks.run_proactive_sms_scheduler_job(now=occurrence)
-        self.assertEqual(internal.status, "completed")
-        self.assertEqual(stale_external.status, "duplicate")
-        work.assert_awaited_once_with("all", None)
 
     async def test_retained_sync_deliveries_share_internal_occurrence_claims(self):
         occurrence = datetime(2026, 8, 22, 14, 10, tzinfo=timezone.utc)
@@ -309,7 +297,6 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
                 "run_whoop_scheduler_job",
                 "run_oura_garmin_scheduler_job",
             },
-            "api/proactive_sms.py": {"run_proactive_sms_scheduler_job"},
         }
         for relative_path, expected_fragments in source_expectations.items():
             source = (backend_root / relative_path).read_text()
@@ -337,7 +324,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
             tasks[definition.loop_key] = _RunningTask()
         starting = await registry.health_snapshot(tasks)
         self.assertEqual(starting["status"], "starting")
-        self.assertEqual(len(starting["neverSucceeded"]), 13)
+        self.assertEqual(len(starting["neverSucceeded"]), 12)
         self.assertEqual(starting["duplicateOccurrenceIdentities"], [])
         for definition in SCHEDULER_JOB_DEFINITIONS:
             started = registry.record_attempt(definition.job_key, lease_state="test")
@@ -351,7 +338,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         registry._duplicate_occurrence_identities = AsyncMock(
             return_value=[
                 {
-                    "jobKey": "proactive_sms",
+                    "jobKey": "whoop_auto_sync",
                     "scopeKey": "global",
                     "scheduledFor": "2026-08-22T10:00:00+00:00",
                     "claimCount": 2,
@@ -428,7 +415,7 @@ class SchedulerHealthApiTests(unittest.TestCase):
             "status": "starting",
             "enabled": True,
             "startedAt": None,
-            "jobCount": 13,
+            "jobCount": 12,
             "readiness": {},
             "neverSucceeded": [],
             "staleJobs": [],

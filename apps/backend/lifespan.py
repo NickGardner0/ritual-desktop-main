@@ -12,7 +12,6 @@ from background_tasks import (
     ambient_scheduler_loop,
     internal_scheduler_loop,
     report_scheduler_loop,
-    sms_copilot_loop,
     wearable_event_outbox_loop,
     wearable_ingest_job_loop,
     wearable_maintenance_loop,
@@ -74,7 +73,6 @@ def start_internal_scheduler_tasks(app: FastAPI, tesla_service) -> None:
         ("habit_reports", "report_scheduler_task", report_scheduler_loop()),
         ("workflow_runs", "workflow_scheduler_task", workflow_scheduler_loop()),
         ("ambient_signals", "ambient_scheduler_task", ambient_scheduler_loop()),
-        ("sms_copilot", "sms_copilot_task", sms_copilot_loop()),
         ("wearable_ingest", "wearable_ingest_job_task", wearable_ingest_job_loop()),
         ("wearable_maintenance", "wearable_maintenance_task", wearable_maintenance_loop()),
         ("wearable_event_outbox", "wearable_event_outbox_task", wearable_event_outbox_loop()),
@@ -118,7 +116,6 @@ def register_lifecycle(app: FastAPI, tesla_service) -> None:
         app.state.report_scheduler_task = None
         app.state.workflow_scheduler_task = None
         app.state.ambient_scheduler_task = None
-        app.state.sms_copilot_task = None
         app.state.wearable_ingest_job_task = None
         app.state.wearable_maintenance_task = None
         app.state.wearable_event_outbox_task = None

@@ -32,7 +32,6 @@ class SchedulerJobDefinition:
 
 
 SCHEDULER_JOB_DEFINITIONS = (
-    SchedulerJobDefinition("proactive_sms", "hourly_domain", 3600, "clock_occurrence", 3300, "Proactive SMS sweep"),
     SchedulerJobDefinition("whoop_auto_sync", "hourly_domain", 3600, "clock_occurrence", 3300, "Whoop account sync"),
     SchedulerJobDefinition("oura_garmin_auto_sync", "hourly_domain", 3600, "clock_occurrence", 3300, "Oura and Garmin account sync"),
     SchedulerJobDefinition("tesla_odometer_sync", "hourly_domain", 3600, "clock_occurrence", 3300, "Tesla odometer sync"),
@@ -42,7 +41,6 @@ SCHEDULER_JOB_DEFINITIONS = (
     SchedulerJobDefinition("habit_reports", "habit_reports", 900, "clock_occurrence", 720, "Habit report dispatch and processing"),
     SchedulerJobDefinition("workflow_runs", "workflow_runs", 300, "clock_occurrence", 240, "Scheduled workflow dispatch and processing"),
     SchedulerJobDefinition("ambient_signals", "ambient_signals", 900, "clock_occurrence", 720, "Ambient signal evaluation"),
-    SchedulerJobDefinition("sms_copilot", "sms_copilot", 300, "clock_occurrence", 240, "SMS copilot evaluation"),
     SchedulerJobDefinition("wearable_ingest", "wearable_ingest", 15, "queue_claim", 60, "Wearable ingest queue worker"),
     SchedulerJobDefinition("wearable_maintenance", "wearable_maintenance", 86400, "clock_occurrence", 7200, "Wearable retention and compaction"),
     SchedulerJobDefinition("wearable_event_outbox", "wearable_event_outbox", 15, "queue_claim", 60, "Wearable event outbox worker"),

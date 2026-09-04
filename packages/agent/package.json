@@ -1,0 +1,33 @@
+{
+  "name": "@ritual/agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./sidecar": {
+      "types": "./dist/sidecar.d.ts",
+      "import": "./dist/sidecar.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node scripts/bundle-sidecar.mjs",
+    "bundle": "node scripts/bundle-sidecar.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "sidecar": "npm run build && node dist/sidecar.bundle.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@ritual/chat-runtime": "file:../chat-runtime",
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

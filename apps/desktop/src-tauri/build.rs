@@ -181,6 +181,34 @@ fn running_on_macos_target() -> bool {
         .unwrap_or(false)
 }
 
+fn ensure_agent_sidecar_for_tauri() {
+    if !running_on_macos_target() {
+        return;
+    }
+
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR should be set"),
+    );
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.is_empty() {
+        return;
+    }
+
+    let sidecar_path = manifest_dir
+        .join("binaries")
+        .join(format!("ritual-agent-{target}"));
+    println!("cargo:rerun-if-changed={}", sidecar_path.display());
+    if sidecar_path.exists() {
+        set_executable_permissions(&sidecar_path);
+        return;
+    }
+
+    println!(
+        "cargo:warning=Pinned ritual-agent is missing at {}. Run `node scripts/pin-desktop-agent-sidecar.mjs` so Finder-launched chat stays local.",
+        sidecar_path.display()
+    );
+}
+
 fn ensure_vision_helper_for_tauri() {
     if !running_on_macos_target() {
         return;
@@ -701,6 +729,7 @@ fn main() {
 
     ensure_watcher_sidecar_for_tauri();
     ensure_vision_helper_for_tauri();
+    ensure_agent_sidecar_for_tauri();
     ensure_system_audio_helper_for_tauri();
     ensure_voice_hud_helper_for_tauri();
     println!("cargo:rerun-if-env-changed=RITUAL_CHANNEL");

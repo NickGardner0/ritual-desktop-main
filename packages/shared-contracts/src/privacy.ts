@@ -39,7 +39,6 @@ export const CLOUD_DESTINATIONS = [
   "deepgram",
   "groq",
   "provider_api",
-  "sendblue",
 ] as const;
 
 export type CloudDestination = (typeof CLOUD_DESTINATIONS)[number];
@@ -53,7 +52,6 @@ export const CLOUD_CONSENTS = [
   "provider_sync",
   "crash_diagnostics",
   "product_telemetry",
-  "sms",
   "plaintext_sync",
 ] as const;
 

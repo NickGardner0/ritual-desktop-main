@@ -371,6 +371,21 @@ fn main_window_glass_enabled(transparency_probe: bool) -> bool {
     transparency_probe || !env_flag_enabled("RITUAL_DISABLE_MAIN_GLASS")
 }
 
+fn main_window_show_on_html_init_script() -> &'static str {
+    r#"(function () {
+  try {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get("ritual_settings_window") === "1") return;
+    if (params.get("ritual_voice_hud_window") === "1") return;
+    if (params.get("ritual_sidebar_window") === "1") return;
+    var internals = window.__TAURI_INTERNALS__;
+    if (internals && typeof internals.invoke === "function") {
+      internals.invoke("show_main_window");
+    }
+  } catch (_error) {}
+})();"#
+}
+
 fn main_window_glass_init_script(enabled: bool) -> String {
     let flag = if enabled { "1" } else { "0" };
     format!(
@@ -2278,7 +2293,8 @@ fn sync_macos_dock_icon_to_window_visibility<R: tauri::Runtime>(app: &tauri::App
     }
 }
 
-/// Show the main window (called from frontend when React is ready)
+/// Show the main window. HTML and the webview init script call this so a Dock
+/// click does not wait on React. A login launch stays hidden.
 #[tauri::command]
 #[instrument(skip(window, resident))]
 fn show_main_window(
@@ -2667,6 +2683,8 @@ fn main() {
                 let mut builder =
                     tauri::WebviewWindowBuilder::new(app, "main", desktop_shell_window_url(&app_url)?)
                         .initialization_script(main_window_glass_init_script(main_glass_enabled))
+                        .initialization_script(desktop_runtime::auth_session::disk_session_init_script())
+                        .initialization_script(main_window_show_on_html_init_script())
                         .user_agent(DESKTOP_WEBVIEW_USER_AGENT)
                         .title("")
                         .inner_size(MAIN_WINDOW_DEFAULT_WIDTH, MAIN_WINDOW_DEFAULT_HEIGHT)

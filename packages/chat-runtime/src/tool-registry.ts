@@ -24,21 +24,18 @@ export const toolNames = [
   'getStreaks',
   'logHabit',
   'createHabit',
-  'getSmsPreferences',
-  'updateSmsPreferences',
 ] as const;
 
 export type ToolName = (typeof toolNames)[number];
 export type ChatToolSchema = ModelEngineTool;
-export type ChatToolChannel = 'dashboard' | 'sms';
+export type ChatToolChannel = 'dashboard';
 export type ChatToolOwner =
   | 'habits'
   | 'overviews'
   | 'computer-activity'
   | 'biometrics'
   | 'screen-time'
-  | 'calendar'
-  | 'sms-preferences';
+  | 'calendar';
 
 export interface RegisteredTool {
   name: ToolName;
@@ -51,18 +48,6 @@ export interface RegisteredTool {
 const mutatingTools = new Set<ToolName>([
   'logHabit',
   'createHabit',
-  'updateSmsPreferences',
-]);
-
-const dashboardOnlyTools = new Set<ToolName>([
-  'getWeeklyOverview',
-  'getDailyOverview',
-  'getMonthlyOverview',
-  'getComputerTimeSpentBreakdown',
-  'getActivitySummary',
-  'getDailyBiometrics',
-  'getScreenTimeSummary',
-  'getCalendarEvents',
 ]);
 
 const toolOwners: Record<ToolName, ChatToolOwner> = {
@@ -87,8 +72,6 @@ const toolOwners: Record<ToolName, ChatToolOwner> = {
   getStreaks: 'habits',
   logHabit: 'habits',
   createHabit: 'habits',
-  getSmsPreferences: 'sms-preferences',
-  updateSmsPreferences: 'sms-preferences',
 };
 
 function toToolName(name: string): ToolName | null {
@@ -108,7 +91,7 @@ export const toolRegistry: ReadonlyMap<ToolName, RegisteredTool> = new Map(
         name,
         schema,
         owner: toolOwners[name],
-        channels: dashboardOnlyTools.has(name) ? ['dashboard'] : ['dashboard', 'sms'],
+        channels: ['dashboard'],
         sideEffect: mutatingTools.has(name) ? 'mutating' : 'read_only',
       },
     ];

@@ -15,17 +15,16 @@ test('observe and organize deny writes while reads stay allowed', () => {
   assert.equal(resolveToolPermission({ toolName: 'createHabit', profile: 'organize' }), 'deny');
 });
 
-test('act allows logHabit/createHabit and still asks for SMS writes', () => {
+test('act allows logHabit/createHabit writes', () => {
   assert.equal(resolveToolPermission({ toolName: 'logHabit', profile: 'act' }), 'allow');
   assert.equal(resolveToolPermission({ toolName: 'createHabit', profile: 'act' }), 'allow');
-  assert.equal(resolveToolPermission({ toolName: 'updateSmsPreferences', profile: 'act' }), 'ask');
 });
 
 test('Always scopes skip the ask dock', () => {
   assert.equal(resolveToolPermission({
-    toolName: 'updateSmsPreferences',
-    profile: 'act',
-    alwaysAllowed: new Set(['updateSmsPreferences']),
+    toolName: 'logHabit',
+    profile: 'observe',
+    alwaysAllowed: new Set(['logHabit']),
   }), 'allow');
 });
 

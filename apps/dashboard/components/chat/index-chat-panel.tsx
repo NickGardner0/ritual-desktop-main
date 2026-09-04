@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowUp, PanelRightClose } from 'lucide-react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '@ritual/ui/button';
 import { cn } from '@ritual/ui/cn';
@@ -12,18 +12,20 @@ import { useAI } from '@/contexts/AIContext';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { ChatPermissionDock } from '@/app/(dashboard)/chat/chat-permission-dock';
-import {
-  Response,
-  TextShimmer,
-  type Message,
-} from '@/app/(dashboard)/chat/chat-client.shared';
+import { Response } from '@/components/chat/chat-markdown';
+import type { Message } from '@/components/chat/chat-message';
+import { TextShimmer } from '@/components/chat/text-shimmer';
 import { useChatSendMessage } from '@/app/(dashboard)/chat/use-chat-send-message';
+import { useAgentSendMessage } from '@/components/chat/use-agent-send-message';
+import { AgentTranscript } from '@/components/chat/agent-transcript';
+import { shouldUseAgentLoop } from '@/lib/agent-url';
 
 const STORAGE_KEY = 'ritual:index-chat-panel-width';
 const DEFAULT_PANEL_WIDTH = 400;
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 720;
-const RESIZE_GUTTER_PX = 12;
+/** Overlay hit target. Does not consume layout — OpenCode-style flush split. */
+const RESIZE_HANDLE_PX = 8;
 
 function readStoredWidth(): number {
   if (typeof window === 'undefined') return DEFAULT_PANEL_WIDTH;
@@ -80,6 +82,7 @@ export function IndexChatPanel({
   const [, setCurrentQuestion] = useState('');
   const [toolStatus, setToolStatus] = useState<{ label: string; done: boolean } | null>(null);
   const [, setCanvasData] = useState<HabitCanvasData | null>(null);
+  const [agentSessionId] = useState(() => `sess_${crypto.randomUUID()}`);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const outboundRef = useRef<string[]>([]);
@@ -91,7 +94,7 @@ export function IndexChatPanel({
 
   const noopAsync = useCallback(async () => {}, []);
 
-  const sendMessage = useChatSendMessage({
+  const legacySendMessage = useChatSendMessage({
     getToken,
     queryClient,
     userId: user?.id,
@@ -111,6 +114,23 @@ export function IndexChatPanel({
     loadMemoryFacts: noopAsync,
     voiceStyleEnabled: false,
   });
+  const agent = useAgentSendMessage({
+    getToken,
+    timezone,
+    sessionId: agentSessionId,
+    messages,
+    setMessages,
+    isLoading,
+    setIsLoading,
+    setStreamingContent,
+    setCurrentQuestion,
+    setToolStatus,
+    setCanvasData,
+  });
+  const sendMessage = useCallback((text: string, options?: { entityRefs?: Message['entityRefs'] }) => {
+    if (shouldUseAgentLoop()) return agent.sendMessage(text, options);
+    return legacySendMessage(text, options);
+  }, [agent.sendMessage, legacySendMessage]);
 
   useRegisterRightDockClose(open, onClose);
 
@@ -198,7 +218,7 @@ export function IndexChatPanel({
     }
     document.documentElement.style.setProperty(
       '--ritual-right-dock-width',
-      `${panelWidth + RESIZE_GUTTER_PX}px`,
+      `${panelWidth}px`,
     );
     return () => {
       document.documentElement.style.removeProperty('--ritual-right-dock-width');
@@ -217,13 +237,16 @@ export function IndexChatPanel({
   if (!open || !dockTarget) return null;
 
   const hasInput = input.trim().length > 0;
-  const showEmpty = messages.length === 0 && !streamingContent && !isLoading;
+  const useAgent = shouldUseAgentLoop();
+  const showEmpty = (useAgent ? agent.items.length === 0 : messages.length === 0)
+    && !streamingContent
+    && !isLoading;
 
   return createPortal(
     <div
-      className="flex h-full min-h-0"
+      className="relative flex h-full min-h-0 overflow-visible"
       onClick={(event) => event.stopPropagation()}
-      style={{ width: panelWidth + RESIZE_GUTTER_PX }}
+      style={{ width: panelWidth }}
     >
       <div
         role="separator"
@@ -262,14 +285,14 @@ export function IndexChatPanel({
           window.addEventListener('pointerup', onUp);
           window.addEventListener('pointercancel', onUp);
         }}
-        className="group relative z-30 no-drag shrink-0 cursor-col-resize self-stretch touch-none"
-        style={{ width: RESIZE_GUTTER_PX }}
+        className="group absolute inset-y-0 left-0 z-30 no-drag -translate-x-1/2 cursor-col-resize touch-none"
+        style={{ width: RESIZE_HANDLE_PX }}
       >
         <div
           className={cn(
-            'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--border-subtle)]',
-            'group-hover:w-[2px] group-hover:bg-[var(--text-muted)]',
-            isResizing && 'w-[2px] bg-[var(--text-primary)]',
+            'pointer-events-none absolute inset-y-0 left-1/2 w-[3px] -translate-x-1/2 bg-[var(--text-muted)] opacity-0 transition-opacity duration-150',
+            'group-hover:opacity-100',
+            isResizing && 'bg-[var(--text-primary)] opacity-100',
           )}
         />
       </div>
@@ -277,7 +300,7 @@ export function IndexChatPanel({
       <aside
         role="complementary"
         aria-label={`${title} chat`}
-        className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-[var(--surface-content)]"
+        className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden border-l border-[var(--border-subtle)] bg-[var(--surface-content)]"
       >
         <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3">
           <div className="min-w-0 truncate text-[13px] font-medium leading-none text-[var(--text-primary)]">
@@ -304,6 +327,14 @@ export function IndexChatPanel({
             </div>
           ) : (
             <div className="flex flex-col gap-4">
+              {useAgent ? (
+                <AgentTranscript
+                  items={agent.items}
+                  streamingText={streamingContent}
+                  isStreaming={isLoading}
+                />
+              ) : (
+                <>
               {messages.map((message) =>
                 message.role === 'user' ? (
                   <div
@@ -332,15 +363,16 @@ export function IndexChatPanel({
                   <Response className="text-[13px] leading-[1.55] text-[var(--text-primary)]">
                     {streamingContent}
                   </Response>
-                  <ChatPermissionDock />
                 </div>
               ) : null}
-              {isLoading && !streamingContent ? (
+                </>
+              )}
+              {isLoading || streamingContent ? <ChatPermissionDock /> : null}
+              {isLoading && !streamingContent && !useAgent ? (
                 <div className="flex flex-col gap-2 py-1">
                   <TextShimmer className="text-[13px]" duration={1.2}>
                     {toolStatus?.label || 'Thinking...'}
                   </TextShimmer>
-                  <ChatPermissionDock />
                 </div>
               ) : null}
             </div>

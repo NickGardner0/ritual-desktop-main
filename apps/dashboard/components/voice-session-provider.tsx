@@ -9,9 +9,10 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname, useRouter } from '@/lib/app-navigation';
 import { useDesktopCapabilities } from '@/lib/desktop-capabilities';
 import { openDesktopVoiceHud } from '@/lib/native-gateway';
+import { runWhenIdle } from '@/lib/run-when-idle';
 import {
   VOICE_EVENTS,
   type VoiceHotkeyOpenPayload,
@@ -150,30 +151,33 @@ export function VoiceSessionProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     let unlisteners: Array<() => void> = [];
 
-    void import('@tauri-apps/api/event').then(async ({ listen }) => {
-      const finalUnlisten = await listen<VoiceSessionFinalPayload>(VOICE_EVENTS.final, (event) => {
-        deliverFinal(event.payload);
-      });
-      const cancelledUnlisten = await listen<VoiceSessionCancelledPayload>(VOICE_EVENTS.cancelled, (event) => {
-        lastActiveTargetRef.current = event.payload.target;
-      });
-      const hotkeyUnlisten = await listen<VoiceHotkeyOpenPayload>(VOICE_EVENTS.hotkeyOpen, () => {
-        const target = lastActiveTargetRef.current || getFallbackTargetForPath(pathname);
-        void openVoiceHud({ target, source: 'hotkey' });
-      });
+    const stopIdle = runWhenIdle(() => {
+      void import('@tauri-apps/api/event').then(async ({ listen }) => {
+        const finalUnlisten = await listen<VoiceSessionFinalPayload>(VOICE_EVENTS.final, (event) => {
+          deliverFinal(event.payload);
+        });
+        const cancelledUnlisten = await listen<VoiceSessionCancelledPayload>(VOICE_EVENTS.cancelled, (event) => {
+          lastActiveTargetRef.current = event.payload.target;
+        });
+        const hotkeyUnlisten = await listen<VoiceHotkeyOpenPayload>(VOICE_EVENTS.hotkeyOpen, () => {
+          const target = lastActiveTargetRef.current || getFallbackTargetForPath(pathname);
+          void openVoiceHud({ target, source: 'hotkey' });
+        });
 
-      if (cancelled) {
-        finalUnlisten();
-        cancelledUnlisten();
-        hotkeyUnlisten();
-        return;
-      }
+        if (cancelled) {
+          finalUnlisten();
+          cancelledUnlisten();
+          hotkeyUnlisten();
+          return;
+        }
 
-      unlisteners = [finalUnlisten, cancelledUnlisten, hotkeyUnlisten];
+        unlisteners = [finalUnlisten, cancelledUnlisten, hotkeyUnlisten];
+      });
     });
 
     return () => {
       cancelled = true;
+      stopIdle();
       unlisteners.forEach((unlisten) => unlisten());
       unlisteners = [];
     };

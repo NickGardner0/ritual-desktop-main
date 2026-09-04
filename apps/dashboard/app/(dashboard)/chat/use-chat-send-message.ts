@@ -16,13 +16,13 @@ import {
   cleanContentForDisplay,
   extractCanvasData,
   getToolLabel,
-} from './chat-client.shared';
+} from './chat-stream-helpers';
 import {
   CHAT_STREAM_FLUSH_INTERVAL_MS,
   getNextStreamingFlushDelay,
   shouldFlushStreamingContent,
 } from '@/lib/chat-stream-buffer.mjs';
-import type { Message } from './chat-client.shared';
+import type { Message } from '@/components/chat/chat-message';
 import type { HabitCanvasData } from '@/components/chat/habit-canvas';
 import { perfInfo } from '@/lib/perf-debug';
 import { parsePhaseLine, parsePermissionLine, parseToolLine, labelForChatPhase } from '@ritual/chat-runtime/stream-response';

@@ -27,21 +27,19 @@ test("registered tool schemas expose function names and JSON object parameters",
   }
 });
 
-test("SMS mutation tools remain available in the shared registry", () => {
-  for (const name of ["logHabit", "createHabit", "getSmsPreferences", "updateSmsPreferences"]) {
+test("mutating habit tools remain available in the shared registry", () => {
+  for (const name of ["logHabit", "createHabit"]) {
     const entry = toolRegistry.get(name);
     assert.ok(entry, `${name} should be registered`);
-    assert.deepEqual(entry.channels, ["dashboard", "sms"]);
+    assert.deepEqual(entry.channels, ["dashboard"]);
   }
 });
 
-test("tool registry records executor ownership and channel-specific schemas", () => {
+test("tool registry records executor ownership and dashboard schemas", () => {
   assert.equal(getToolOwner("getDailyBiometrics"), "biometrics");
   assert.equal(getToolOwner("getActivitySummary"), "computer-activity");
-  assert.equal(getToolOwner("updateSmsPreferences"), "sms-preferences");
 
-  const smsToolNames = getToolsForChannel("sms").map((tool) => tool.function.name);
-  assert.ok(smsToolNames.includes("logHabit"));
-  assert.ok(smsToolNames.includes("updateSmsPreferences"));
-  assert.ok(!smsToolNames.includes("getCalendarEvents"));
+  const dashboardToolNames = getToolsForChannel("dashboard").map((tool) => tool.function.name);
+  assert.ok(dashboardToolNames.includes("logHabit"));
+  assert.ok(dashboardToolNames.includes("getCalendarEvents"));
 });

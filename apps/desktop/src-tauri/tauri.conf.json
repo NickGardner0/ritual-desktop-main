@@ -43,7 +43,8 @@
     },
     "externalBin": [
       "binaries/ritual-watcher",
-      "binaries/ritual-vision-helper"
+      "binaries/ritual-vision-helper",
+      "binaries/ritual-agent"
     ],
     "icon": [
       "icons/32x32.png",
@@ -62,7 +63,8 @@
       "signingIdentity": "Developer ID Application: NICHOLAS,ALEXANDER GARDNER (D657T2LVR2)"
     },
     "resources": [
-      "resources/chat-runtime"
+      "resources/chat-runtime",
+      "resources/agent"
     ],
     "shortDescription": "",
     "targets": "all",

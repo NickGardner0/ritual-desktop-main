@@ -38,18 +38,13 @@ from api.calendar import create_calendar_router
 from api.metric_facts import create_metric_facts_router
 from api.observability import create_observability_router
 from api.privacy import create_privacy_router
-from api.proactive_sms import router as proactive_sms_router
 from api.reports import create_reports_router
 from api.screen_time import create_screen_time_router
 from api.scheduler import create_scheduler_router
 from api.screenshot import create_screenshot_router
 from api.search import create_search_router
-from api.sendblue import router as sendblue_router
-from api.sms_copilot import create_sms_copilot_router
-from api.sms_preferences import create_sms_preferences_router
 from api.tasks import create_tasks_router
 from api.ui_preferences import create_ui_preferences_router
-from api.vcard import router as vcard_router
 from api.watcher import include_watcher_router
 from api.wearables import create_wearables_router
 from api.workflows import create_workflows_router
@@ -280,12 +275,7 @@ def create_app() -> FastAPI:
     app.include_router(create_financial_router(get_current_user=get_persisted_account))
     app.include_router(create_location_router(get_current_user=get_persisted_account))
     include_watcher_router(app, get_current_user=get_current_user)
-    app.include_router(sendblue_router)
-    app.include_router(proactive_sms_router)
-    app.include_router(create_sms_preferences_router(get_current_user=get_persisted_account))
     app.include_router(create_ui_preferences_router(get_current_user=get_persisted_account))
-    app.include_router(create_sms_copilot_router())
-    app.include_router(vcard_router)
 
     @app.get("/")
     async def root():

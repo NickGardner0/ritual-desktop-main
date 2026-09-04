@@ -87,7 +87,7 @@ function parseTurnRecord(payload: unknown): AssistantTurnRecord | null {
   return {
     id: value.id,
     conversationId: typeof value.conversation_id === 'string' ? value.conversation_id : null,
-    channel: value.channel === 'sms' ? 'sms' : 'dashboard',
+    channel: 'dashboard',
     status: value.status,
     epoch: value.epoch,
     sequence: typeof value.sequence === 'number' ? value.sequence : 0,

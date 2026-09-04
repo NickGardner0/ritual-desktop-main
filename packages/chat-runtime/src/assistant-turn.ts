@@ -10,7 +10,7 @@ export const ASSISTANT_TURN_STATUSES = [
 
 export type AssistantTurnStatus = (typeof ASSISTANT_TURN_STATUSES)[number];
 
-export const ASSISTANT_CHANNELS = ['dashboard', 'sms'] as const;
+export const ASSISTANT_CHANNELS = ['dashboard'] as const;
 export type AssistantChannel = (typeof ASSISTANT_CHANNELS)[number];
 
 export const TOOL_SIDE_EFFECTS = ['read_only', 'mutating'] as const;

@@ -102,7 +102,6 @@ test("one ordered registry owns wearable and coming-soon card/detail identities"
 
   assert.match(registrySource, /\.\.\.PRESENTATION_DESCRIPTORS\.slice\(2\)/);
   for (const [id, detailKey] of [
-    ['imessage', 'imessage'],
     ['raycast', 'raycast'],
     ['obsidian', 'obsidian'],
     ['fitbit', 'fitbit'],

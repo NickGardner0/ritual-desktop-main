@@ -1,9 +1,9 @@
 'use client';
 
 import { QueryClientProvider, dehydrate, hydrate, type Query } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
+import { useUser } from '@/lib/desktop-session';
 import * as Sentry from '@sentry/nextjs';
-import { usePathname } from 'next/navigation';
+import { usePathname } from '@/lib/app-navigation';
 import { queryClient } from '@/lib/query-client';
 import { ReactNode, useEffect, useRef } from 'react';
 import { auditLocalStorage, auditQueryCache, perfInfo, perfWarn } from '@/lib/perf-debug';

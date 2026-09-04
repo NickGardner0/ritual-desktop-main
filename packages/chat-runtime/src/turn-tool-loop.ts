@@ -193,9 +193,6 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
           appendEntityRefsFromReceipt(toolResults, receipt);
         }
         break;
-      case 'getSmsPreferences':
-      case 'updateSmsPreferences':
-        break;
       default:
         break;
     }

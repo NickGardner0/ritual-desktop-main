@@ -3,17 +3,7 @@ export {
   type ChatStreamRequestBody,
   type ChatStreamRequestContext,
 } from './handle-chat-stream.js';
-
-export {
-  handleSmsChatPost,
-  handleSmsProactivePost,
-  splitSmsSegments,
-  handleSmsChatPost as handleSmsChatRequest,
-  handleSmsProactivePost as handleSmsProactiveRequest,
-  type SmsChatRequest,
-  type SmsProactiveRequest,
-  type SmsChatResponse,
-} from './sms.js';
+export { startChatRuntimeSidecar } from './sidecar.js';
 
 export * from './executors/index.js';
 export * from './narrative/index.js';
@@ -69,7 +59,6 @@ export {
   submitPermissionDecision,
   waitForPermission,
 } from './action-permission.js';
-export { startChatRuntimeSidecar } from './sidecar.js';
 export {
   classifyModelEngineError,
   collectModelEngineResponse,

@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from './next-navigation';
 
 import { getDesktopHostedOrigin } from '@/lib/desktop-auth-origin';
 import {
@@ -75,17 +75,68 @@ function mapNativeProfile(session: DesktopNativeAuthSession | null): DesktopAuth
   };
 }
 
-function hasNativeSession(session: DesktopNativeAuthSession | null): boolean {
-  return Boolean(session?.sessionId?.trim() && session.userId?.trim() && session.token?.trim());
+const DISK_SESSION_CACHE_KEY = 'ritual:desktop-auth-session:v1';
+
+type RitualDiskSessionWindow = Window & {
+  __RITUAL_DISK_SESSION__?: unknown;
+};
+
+function hasIdentity(session: DesktopNativeAuthSession | null): boolean {
+  return Boolean(session?.sessionId?.trim() && session.userId?.trim());
+}
+
+function normalizeSession(value: unknown): DesktopNativeAuthSession | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const userId = typeof record.userId === 'string' ? record.userId : '';
+  const sessionId = typeof record.sessionId === 'string' ? record.sessionId : '';
+  if (!userId.trim() || !sessionId.trim()) return null;
+  return {
+    token: typeof record.token === 'string' ? record.token : '',
+    userId,
+    sessionId,
+    profile: record.profile ?? null,
+  };
+}
+
+function readSeededSession(): DesktopNativeAuthSession | null {
+  if (typeof window === 'undefined') return null;
+  const injected = normalizeSession((window as RitualDiskSessionWindow).__RITUAL_DISK_SESSION__);
+  if (injected) return injected;
+  try {
+    return normalizeSession(JSON.parse(localStorage.getItem(DISK_SESSION_CACHE_KEY) || 'null'));
+  } catch {
+    return null;
+  }
+}
+
+function writeSeededSession(session: DesktopNativeAuthSession | null) {
+  if (typeof window === 'undefined') return;
+  const next = hasIdentity(session) ? session : null;
+  (window as RitualDiskSessionWindow).__RITUAL_DISK_SESSION__ = next;
+  try {
+    if (next) {
+      localStorage.setItem(DISK_SESSION_CACHE_KEY, JSON.stringify(next));
+    } else {
+      localStorage.removeItem(DISK_SESSION_CACHE_KEY);
+    }
+  } catch {
+    // Private mode or quota — Index still paints from the in-memory seed.
+  }
 }
 
 export function DesktopAuthProvider({ children }: { children?: ReactNode }) {
   const router = useRouter();
-  const [isLoaded, setIsLoaded] = useState(false);
-  const [session, setSession] = useState<DesktopNativeAuthSession | null>(null);
+  const seeded = typeof window === 'undefined' ? null : readSeededSession();
+  const [isLoaded, setIsLoaded] = useState(() => hasIdentity(seeded));
+  const [session, setSession] = useState<DesktopNativeAuthSession | null>(() => (
+    hasIdentity(seeded) ? seeded : null
+  ));
 
   const applySession = useCallback((next: DesktopNativeAuthSession | null) => {
-    setSession(hasNativeSession(next) ? next : null);
+    const resolved = hasIdentity(next) ? next : null;
+    setSession(resolved);
+    writeSeededSession(resolved);
   }, []);
 
   useEffect(() => {
@@ -96,10 +147,10 @@ export function DesktopAuthProvider({ children }: { children?: ReactNode }) {
         if (cancelled) return;
         applySession(disk);
         setIsLoaded(true);
-        if (!hasNativeSession(disk)) return;
+        if (!hasIdentity(disk)) return;
         try {
           const refreshed = await desktopGetAuthToken({ refresh: true });
-          if (!cancelled && hasNativeSession(refreshed)) applySession(refreshed);
+          if (!cancelled && hasIdentity(refreshed)) applySession(refreshed);
         } catch {
           // Keep the disk session while a background refresh fails.
         }
@@ -117,9 +168,11 @@ export function DesktopAuthProvider({ children }: { children?: ReactNode }) {
 
   const getToken = useCallback(async (options?: { skipCache?: boolean }) => {
     try {
-      const next = await desktopGetAuthToken({ refresh: Boolean(options?.skipCache) });
+      const next = await desktopGetAuthToken({
+        refresh: options?.skipCache ? true : null,
+      });
       applySession(next);
-      return hasNativeSession(next) ? next!.token : null;
+      return next?.token?.trim() ? next.token : null;
     } catch {
       applySession(null);
       return null;

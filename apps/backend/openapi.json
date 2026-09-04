@@ -2911,6 +2911,104 @@
         "title": "AssistantTurnUpsert",
         "type": "object"
       },
+      "AvailabilityRequest": {
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "minimum_minutes": {
+            "default": 30,
+            "maximum": 1440.0,
+            "minimum": 5.0,
+            "title": "Minimum Minutes",
+            "type": "integer"
+          },
+          "source_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Ids",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "UTC",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "workday_end_minutes": {
+            "default": 1080,
+            "maximum": 1440.0,
+            "minimum": 1.0,
+            "title": "Workday End Minutes",
+            "type": "integer"
+          },
+          "workday_start_minutes": {
+            "default": 480,
+            "maximum": 1439.0,
+            "minimum": 0.0,
+            "title": "Workday Start Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "AvailabilityRequest",
+        "type": "object"
+      },
+      "AvailabilityResponse": {
+        "properties": {
+          "formatted_text": {
+            "title": "Formatted Text",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/AvailabilityWindow"
+            },
+            "title": "Windows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "timezone",
+          "formatted_text"
+        ],
+        "title": "AvailabilityResponse",
+        "type": "object"
+      },
+      "AvailabilityWindow": {
+        "properties": {
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_at",
+          "end_at"
+        ],
+        "title": "AvailabilityWindow",
+        "type": "object"
+      },
       "BatchLogItem": {
         "properties": {
           "amount": {
@@ -3361,6 +3459,1759 @@
           "email"
         ],
         "title": "BootstrapUser",
+        "type": "object"
+      },
+      "CalendarAccountStatus": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "connected": {
+            "title": "Connected",
+            "type": "boolean"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          }
+        },
+        "required": [
+          "connected"
+        ],
+        "title": "CalendarAccountStatus",
+        "type": "object"
+      },
+      "CalendarConnectResponse": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "CalendarConnectResponse",
+        "type": "object"
+      },
+      "CalendarEventCreate": {
+        "properties": {
+          "all_day": {
+            "default": false,
+            "title": "All Day",
+            "type": "boolean"
+          },
+          "attendees": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Attendees",
+            "type": "array"
+          },
+          "availability": {
+            "default": "busy",
+            "enum": [
+              "busy",
+              "free"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "client_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Event Id"
+          },
+          "conference": {
+            "additionalProperties": true,
+            "title": "Conference",
+            "type": "object"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "kind": {
+            "default": "event",
+            "enum": [
+              "event",
+              "task_allocation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "additionalProperties": true,
+            "title": "Location",
+            "type": "object"
+          },
+          "organizer": {
+            "additionalProperties": true,
+            "title": "Organizer",
+            "type": "object"
+          },
+          "origin": {
+            "default": "ritual",
+            "enum": [
+              "ritual",
+              "google",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "recurrence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recurrence",
+            "type": "array"
+          },
+          "reminders": {
+            "additionalProperties": true,
+            "title": "Reminders",
+            "type": "object"
+          },
+          "routine_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Run Id"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start At"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "default": "confirmed",
+            "enum": [
+              "confirmed",
+              "tentative",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "timezone": {
+            "default": "UTC",
+            "title": "Timezone",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "default": "default",
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "CalendarEventCreate",
+        "type": "object"
+      },
+      "CalendarEventRead": {
+        "properties": {
+          "all_day": {
+            "title": "All Day",
+            "type": "boolean"
+          },
+          "attendees": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Attendees",
+            "type": "array"
+          },
+          "availability": {
+            "enum": [
+              "busy",
+              "free"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "conference": {
+            "additionalProperties": true,
+            "title": "Conference",
+            "type": "object"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "event",
+              "task_allocation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "location": {
+            "additionalProperties": true,
+            "title": "Location",
+            "type": "object"
+          },
+          "organizer": {
+            "additionalProperties": true,
+            "title": "Organizer",
+            "type": "object"
+          },
+          "origin": {
+            "enum": [
+              "ritual",
+              "google",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "provider_etag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Etag"
+          },
+          "provider_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Event Id"
+          },
+          "provider_event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Event Type"
+          },
+          "recurrence": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recurrence",
+            "type": "array"
+          },
+          "recurring_event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recurring Event Id"
+          },
+          "reminders": {
+            "additionalProperties": true,
+            "title": "Reminders",
+            "type": "object"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "routine_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Run Id"
+          },
+          "source_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Color"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start At"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "tentative",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "sync_state": {
+            "enum": [
+              "local",
+              "pending",
+              "synced",
+              "conflict",
+              "error"
+            ],
+            "title": "Sync State",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "kind",
+          "origin",
+          "title",
+          "timezone",
+          "all_day",
+          "status",
+          "availability",
+          "visibility",
+          "sync_state",
+          "revision"
+        ],
+        "title": "CalendarEventRead",
+        "type": "object"
+      },
+      "CalendarEventUpdate": {
+        "properties": {
+          "all_day": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "All Day"
+          },
+          "attendees": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attendees"
+          },
+          "availability": {
+            "anyOf": [
+              {
+                "enum": [
+                  "busy",
+                  "free"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Availability"
+          },
+          "conference": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conference"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Location"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          },
+          "recurrence": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recurrence"
+          },
+          "recurrence_scope": {
+            "default": "series",
+            "enum": [
+              "occurrence",
+              "following",
+              "series"
+            ],
+            "title": "Recurrence Scope",
+            "type": "string"
+          },
+          "reminders": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminders"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start At"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "confirmed",
+                  "tentative",
+                  "canceled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "default",
+                  "public",
+                  "private",
+                  "confidential"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Visibility"
+          }
+        },
+        "title": "CalendarEventUpdate",
+        "type": "object"
+      },
+      "CalendarMutationDraft": {
+        "properties": {
+          "action": {
+            "enum": [
+              "create_event",
+              "update_event",
+              "move_event",
+              "resize_event",
+              "delete_event",
+              "rsvp",
+              "publish",
+              "create_task_allocation"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "after": {
+            "additionalProperties": true,
+            "title": "After",
+            "type": "object"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          },
+          "recurrence_scope": {
+            "default": "series",
+            "enum": [
+              "occurrence",
+              "following",
+              "series"
+            ],
+            "title": "Recurrence Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "CalendarMutationDraft",
+        "type": "object"
+      },
+      "CalendarMutationProposal": {
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "after": {
+            "additionalProperties": true,
+            "title": "After",
+            "type": "object"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "conflicts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "expires_at"
+        ],
+        "title": "CalendarMutationProposal",
+        "type": "object"
+      },
+      "CalendarOccurrenceRead": {
+        "properties": {
+          "all_day": {
+            "title": "All Day",
+            "type": "boolean"
+          },
+          "availability": {
+            "enum": [
+              "busy",
+              "free"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "conflict": {
+            "default": false,
+            "title": "Conflict",
+            "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "end_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End At"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "event_id": {
+            "title": "Event Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_exception": {
+            "default": false,
+            "title": "Is Exception",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "event",
+              "task_allocation"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "origin": {
+            "enum": [
+              "ritual",
+              "google",
+              "ai"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
+          "provider_event_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Event Type"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source_color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Color"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "start_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start At"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "status": {
+            "enum": [
+              "confirmed",
+              "tentative",
+              "canceled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "sync_state": {
+            "enum": [
+              "local",
+              "pending",
+              "synced",
+              "conflict",
+              "error"
+            ],
+            "title": "Sync State",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "enum": [
+              "default",
+              "public",
+              "private",
+              "confidential"
+            ],
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "event_id",
+          "title",
+          "kind",
+          "origin",
+          "timezone",
+          "all_day",
+          "status",
+          "availability",
+          "visibility",
+          "sync_state",
+          "revision"
+        ],
+        "title": "CalendarOccurrenceRead",
+        "type": "object"
+      },
+      "CalendarProposalApply": {
+        "properties": {
+          "proposal_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Proposal Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposal_ids"
+        ],
+        "title": "CalendarProposalApply",
+        "type": "object"
+      },
+      "CalendarProposalApplyResponse": {
+        "properties": {
+          "applied": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarEventRead"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "failed": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Failed",
+            "type": "object"
+          }
+        },
+        "title": "CalendarProposalApplyResponse",
+        "type": "object"
+      },
+      "CalendarProposalCreate": {
+        "properties": {
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarMutationDraft"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Changes",
+            "type": "array"
+          },
+          "conversation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conversation Id"
+          }
+        },
+        "required": [
+          "changes"
+        ],
+        "title": "CalendarProposalCreate",
+        "type": "object"
+      },
+      "CalendarPublishRequest": {
+        "properties": {
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id"
+        ],
+        "title": "CalendarPublishRequest",
+        "type": "object"
+      },
+      "CalendarRangeReadModel": {
+        "properties": {
+          "end": {
+            "format": "date-time",
+            "title": "End",
+            "type": "string"
+          },
+          "mode": {
+            "enum": [
+              "plan",
+              "review"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "occurrences": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarOccurrenceRead"
+            },
+            "title": "Occurrences",
+            "type": "array"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarMutationProposal"
+            },
+            "title": "Proposals",
+            "type": "array"
+          },
+          "review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CalendarReviewData"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarSourceRead"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "start": {
+            "format": "date-time",
+            "title": "Start",
+            "type": "string"
+          },
+          "sync": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarSyncStatus"
+            },
+            "title": "Sync",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarTaskSummary"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTimelineItem"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "timezone",
+          "mode"
+        ],
+        "title": "CalendarRangeReadModel",
+        "type": "object"
+      },
+      "CalendarReviewData": {
+        "properties": {
+          "activity_sessions": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Activity Sessions",
+            "type": "array"
+          },
+          "attributable_actual_minutes": {
+            "default": 0,
+            "title": "Attributable Actual Minutes",
+            "type": "integer"
+          },
+          "completed_task_count": {
+            "default": 0,
+            "title": "Completed Task Count",
+            "type": "integer"
+          },
+          "habit_markers": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Habit Markers",
+            "type": "array"
+          },
+          "health_summaries": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Health Summaries",
+            "type": "array"
+          },
+          "linked_task_comparisons": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Linked Task Comparisons",
+            "type": "array"
+          },
+          "planned_minutes": {
+            "default": 0,
+            "title": "Planned Minutes",
+            "type": "integer"
+          }
+        },
+        "title": "CalendarReviewData",
+        "type": "object"
+      },
+      "CalendarRsvpRequest": {
+        "properties": {
+          "response": {
+            "enum": [
+              "accepted",
+              "declined",
+              "tentative",
+              "needsAction"
+            ],
+            "title": "Response",
+            "type": "string"
+          }
+        },
+        "required": [
+          "response"
+        ],
+        "title": "CalendarRsvpRequest",
+        "type": "object"
+      },
+      "CalendarSearchResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarEventRead"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/CalendarTaskSummary"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "workflows": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowTimelineItem"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "title": "CalendarSearchResponse",
+        "type": "object"
+      },
+      "CalendarSourceRead": {
+        "properties": {
+          "access_role": {
+            "title": "Access Role",
+            "type": "string"
+          },
+          "account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default_write": {
+            "title": "Is Default Write",
+            "type": "boolean"
+          },
+          "is_primary": {
+            "title": "Is Primary",
+            "type": "boolean"
+          },
+          "is_visible": {
+            "title": "Is Visible",
+            "type": "boolean"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_calendar_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Calendar Id"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "writable": {
+            "title": "Writable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "timezone",
+          "access_role",
+          "is_visible",
+          "is_primary",
+          "is_default_write",
+          "writable"
+        ],
+        "title": "CalendarSourceRead",
+        "type": "object"
+      },
+      "CalendarSourceUpdate": {
+        "properties": {
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "is_default_write": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Default Write"
+          },
+          "is_visible": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Visible"
+          }
+        },
+        "title": "CalendarSourceUpdate",
+        "type": "object"
+      },
+      "CalendarSyncStatus": {
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "status"
+        ],
+        "title": "CalendarSyncStatus",
+        "type": "object"
+      },
+      "CalendarTaskSummary": {
+        "properties": {
+          "allocation_count": {
+            "default": 0,
+            "title": "Allocation Count",
+            "type": "integer"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "due_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "priority": {
+            "title": "Priority",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "priority"
+        ],
+        "title": "CalendarTaskSummary",
         "type": "object"
       },
       "ChecklistUpdateRequest": {
@@ -4422,7 +6273,8 @@
               "artifact",
               "conversation",
               "experiment",
-              "calendar_block",
+              "calendar_event",
+              "calendar_occurrence",
               "day",
               "time_window"
             ],
@@ -9408,28 +11260,6 @@
         "title": "PrivateSyncKeyGrantPutRequest",
         "type": "object"
       },
-      "ProactiveTriggerRequest": {
-        "properties": {
-          "target_hour": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Hour"
-          },
-          "trigger_type": {
-            "default": "eod_recap",
-            "title": "Trigger Type",
-            "type": "string"
-          }
-        },
-        "title": "ProactiveTriggerRequest",
-        "type": "object"
-      },
       "ProjectTimeClassificationPatch": {
         "properties": {
           "apply_forward": {
@@ -9631,7 +11461,6 @@
               "task",
               "ai_workflow",
               "habit_prompt",
-              "calendar_block",
               "mixed"
             ],
             "title": "Kind",
@@ -9705,11 +11534,6 @@
       },
       "RoutineGenerateResponse": {
         "properties": {
-          "generated_scheduled_blocks": {
-            "default": 0,
-            "title": "Generated Scheduled Blocks",
-            "type": "integer"
-          },
           "generated_tasks": {
             "default": 0,
             "title": "Generated Tasks",
@@ -9944,7 +11768,6 @@
               "task",
               "ai_workflow",
               "habit_prompt",
-              "calendar_block",
               "mixed"
             ],
             "title": "Kind",
@@ -10104,17 +11927,6 @@
               }
             ],
             "title": "Error Json"
-          },
-          "generated_scheduled_block_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Generated Scheduled Block Id"
           },
           "generated_task_id": {
             "anyOf": [
@@ -10329,7 +12141,6 @@
                   "task",
                   "ai_workflow",
                   "habit_prompt",
-                  "calendar_block",
                   "mixed"
                 ],
                 "type": "string"
@@ -10453,222 +12264,6 @@
           }
         },
         "title": "RoutineUpdate",
-        "type": "object"
-      },
-      "ScheduledBlock": {
-        "properties": {
-          "created_at": {
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "day": {
-            "title": "Day",
-            "type": "string"
-          },
-          "end_minutes": {
-            "title": "End Minutes",
-            "type": "integer"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "start_minutes": {
-            "title": "Start Minutes",
-            "type": "integer"
-          },
-          "task_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Id"
-          },
-          "task_status": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Status"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          },
-          "updated_at": {
-            "format": "date-time",
-            "title": "Updated At",
-            "type": "string"
-          },
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "day",
-          "start_minutes",
-          "end_minutes",
-          "id",
-          "user_id",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "ScheduledBlock",
-        "type": "object"
-      },
-      "ScheduledBlockCreate": {
-        "properties": {
-          "client_event_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Client Event Id"
-          },
-          "day": {
-            "title": "Day",
-            "type": "string"
-          },
-          "end_minutes": {
-            "title": "End Minutes",
-            "type": "integer"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "start_minutes": {
-            "title": "Start Minutes",
-            "type": "integer"
-          },
-          "task_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Id"
-          },
-          "title": {
-            "title": "Title",
-            "type": "string"
-          }
-        },
-        "required": [
-          "title",
-          "day",
-          "start_minutes",
-          "end_minutes"
-        ],
-        "title": "ScheduledBlockCreate",
-        "type": "object"
-      },
-      "ScheduledBlockUpdate": {
-        "properties": {
-          "day": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Day"
-          },
-          "end_minutes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "End Minutes"
-          },
-          "notes": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Notes"
-          },
-          "start_minutes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Start Minutes"
-          },
-          "task_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Task Id"
-          },
-          "title": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Title"
-          }
-        },
-        "title": "ScheduledBlockUpdate",
         "type": "object"
       },
       "ScheduledWearableSyncRequest": {
@@ -11150,211 +12745,6 @@
         "title": "SemanticDedupeOptions",
         "type": "object"
       },
-      "SmsCopilotEvaluateRequest": {
-        "properties": {
-          "dry_run": {
-            "default": true,
-            "title": "Dry Run",
-            "type": "boolean"
-          },
-          "kinds": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Kinds",
-            "type": "array"
-          },
-          "now_utc": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Now Utc"
-          },
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id"
-        ],
-        "title": "SmsCopilotEvaluateRequest",
-        "type": "object"
-      },
-      "SmsLogConfirmationRequest": {
-        "properties": {
-          "amount": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Amount"
-          },
-          "habit_id": {
-            "title": "Habit Id",
-            "type": "string"
-          },
-          "logged_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Logged At"
-          },
-          "note": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Note"
-          },
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id",
-          "habit_id"
-        ],
-        "title": "SmsLogConfirmationRequest",
-        "type": "object"
-      },
-      "SmsPreferencesUpdateRequest": {
-        "properties": {
-          "allowed_interrupt_kinds": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Allowed Interrupt Kinds"
-          },
-          "allowed_triggers": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Allowed Triggers"
-          },
-          "daily_narrative_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Daily Narrative Enabled"
-          },
-          "interrupts_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Interrupts Enabled"
-          },
-          "max_interrupts_per_day": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Interrupts Per Day"
-          },
-          "max_proactive_per_day": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Max Proactive Per Day"
-          },
-          "min_hours_between_interrupts": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Min Hours Between Interrupts"
-          },
-          "proactive_enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Proactive Enabled"
-          },
-          "quiet_hours_end": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quiet Hours End"
-          },
-          "quiet_hours_start": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Quiet Hours Start"
-          }
-        },
-        "title": "SmsPreferencesUpdateRequest",
-        "type": "object"
-      },
       "StateResponse": {
         "properties": {
           "accessibility_status": {
@@ -11737,25 +13127,12 @@
             ],
             "title": "Routine Run Id"
           },
-          "scheduled_for": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scheduled For"
-          },
           "source": {
             "default": "manual",
             "enum": [
               "manual",
               "routine",
               "ai",
-              "calendar",
               "habit",
               "experiment"
             ],
@@ -11959,24 +13336,11 @@
             ],
             "title": "Routine Run Id"
           },
-          "scheduled_for": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scheduled For"
-          },
           "source": {
             "enum": [
               "manual",
               "routine",
               "ai",
-              "calendar",
               "habit",
               "experiment"
             ],
@@ -12145,18 +13509,6 @@
             ],
             "title": "Project"
           },
-          "scheduled_for": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Scheduled For"
-          },
           "status": {
             "anyOf": [
               {
@@ -12259,6 +13611,18 @@
       },
       "UIPreferencesUpdateRequest": {
         "properties": {
+          "calendar_preferences": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calendar Preferences"
+          },
           "habit_text_color": {
             "anyOf": [
               {
@@ -14342,6 +15706,13 @@
           "delivery": {
             "$ref": "#/components/schemas/WorkflowDelivery"
           },
+          "expected_duration_minutes": {
+            "default": 30,
+            "maximum": 720.0,
+            "minimum": 5.0,
+            "title": "Expected Duration Minutes",
+            "type": "integer"
+          },
           "kind": {
             "enum": [
               "morning_brief",
@@ -14458,6 +15829,11 @@
           },
           "delivery": {
             "$ref": "#/components/schemas/WorkflowDelivery"
+          },
+          "expected_duration_minutes": {
+            "default": 30,
+            "title": "Expected Duration Minutes",
+            "type": "integer"
           },
           "id": {
             "title": "Id",
@@ -14639,6 +16015,19 @@
                 "type": "null"
               }
             ]
+          },
+          "expected_duration_minutes": {
+            "anyOf": [
+              {
+                "maximum": 720.0,
+                "minimum": 5.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Duration Minutes"
           },
           "name": {
             "anyOf": [
@@ -15132,6 +16521,87 @@
           }
         },
         "title": "WorkflowSchedule",
+        "type": "object"
+      },
+      "WorkflowTimelineItem": {
+        "properties": {
+          "approval_request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Request Id"
+          },
+          "definition_id": {
+            "title": "Definition Id",
+            "type": "string"
+          },
+          "end_at": {
+            "format": "date-time",
+            "title": "End At",
+            "type": "string"
+          },
+          "expected_duration_minutes": {
+            "default": 30,
+            "title": "Expected Duration Minutes",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item_type": {
+            "enum": [
+              "planned",
+              "actual"
+            ],
+            "title": "Item Type",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "start_at": {
+            "format": "date-time",
+            "title": "Start At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "definition_id",
+          "name",
+          "kind",
+          "item_type",
+          "status",
+          "start_at",
+          "end_at"
+        ],
+        "title": "WorkflowTimelineItem",
         "type": "object"
       },
       "api__watcher_common__DeviceRegisterRequest": {
@@ -17935,29 +19405,125 @@
         ]
       }
     },
-    "/api/calendar/read-model": {
-      "get": {
-        "operationId": "get_calendar_read_model_api_calendar_read_model_get",
+    "/api/calendar/availability": {
+      "post": {
+        "operationId": "get_calendar_availability_api_calendar_availability_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AvailabilityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calendar Availability",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/events": {
+      "post": {
+        "operationId": "create_calendar_event_api_calendar_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Calendar Event",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/events/{event_id}": {
+      "delete": {
+        "operationId": "delete_calendar_event_api_calendar_events__event_id__delete",
         "parameters": [
           {
-            "in": "query",
-            "name": "start_date",
-            "required": false,
+            "in": "path",
+            "name": "event_id",
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Start Date"
+              "title": "Event Id",
+              "type": "string"
             }
           },
           {
             "in": "query",
-            "name": "end_date",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "series",
+              "pattern": "^(occurrence|following|series)$",
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "occurrence_id",
             "required": false,
             "schema": {
               "anyOf": [
@@ -17968,7 +19534,7 @@
                   "type": "null"
                 }
               ],
-              "title": "End Date"
+              "title": "Occurrence Id"
             }
           }
         ],
@@ -17997,46 +19563,21 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Calendar Read Model",
+        "summary": "Delete Calendar Event",
         "tags": [
-          "core"
+          "calendar"
         ]
-      }
-    },
-    "/api/calendar/scheduled-blocks": {
+      },
       "get": {
-        "operationId": "get_scheduled_blocks_api_calendar_scheduled_blocks_get",
+        "operationId": "get_calendar_event_api_calendar_events__event_id__get",
         "parameters": [
           {
-            "in": "query",
-            "name": "start_date",
-            "required": false,
+            "in": "path",
+            "name": "event_id",
+            "required": true,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Start Date"
-            }
-          },
-          {
-            "in": "query",
-            "name": "end_date",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "End Date"
+              "title": "Event Id",
+              "type": "string"
             }
           }
         ],
@@ -18045,10 +19586,253 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "$ref": "#/components/schemas/CalendarEventRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calendar Event",
+        "tags": [
+          "calendar"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_calendar_event_api_calendar_events__event_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarEventUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Calendar Event",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/events/{event_id}/publish": {
+      "post": {
+        "operationId": "publish_calendar_event_api_calendar_events__event_id__publish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarPublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Publish Calendar Event",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/events/{event_id}/rsvp": {
+      "post": {
+        "operationId": "rsvp_calendar_event_api_calendar_events__event_id__rsvp_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "required": true,
+            "schema": {
+              "title": "Event Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarRsvpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarEventRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rsvp Calendar Event",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/proposals": {
+      "get": {
+        "operationId": "list_calendar_proposals_api_calendar_proposals_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/ScheduledBlock"
+                    "$ref": "#/components/schemas/CalendarMutationProposal"
                   },
-                  "title": "Response Get Scheduled Blocks Api Calendar Scheduled Blocks Get",
+                  "title": "Response List Calendar Proposals Api Calendar Proposals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Calendar Proposals",
+        "tags": [
+          "calendar"
+        ]
+      },
+      "post": {
+        "operationId": "create_calendar_proposals_api_calendar_proposals_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarProposalCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalendarMutationProposal"
+                  },
+                  "title": "Response Create Calendar Proposals Api Calendar Proposals Post",
                   "type": "array"
                 }
               }
@@ -18071,18 +19855,20 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Get Scheduled Blocks",
+        "summary": "Create Calendar Proposals",
         "tags": [
-          "core"
+          "calendar"
         ]
-      },
+      }
+    },
+    "/api/calendar/proposals/apply": {
       "post": {
-        "operationId": "create_scheduled_block_api_calendar_scheduled_blocks_post",
+        "operationId": "apply_calendar_proposals_api_calendar_proposals_apply_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ScheduledBlockCreate"
+                "$ref": "#/components/schemas/CalendarProposalApply"
               }
             }
           },
@@ -18093,7 +19879,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScheduledBlock"
+                  "$ref": "#/components/schemas/CalendarProposalApplyResponse"
                 }
               }
             },
@@ -18115,22 +19901,22 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Create Scheduled Block",
+        "summary": "Apply Calendar Proposals",
         "tags": [
-          "core"
+          "calendar"
         ]
       }
     },
-    "/api/calendar/scheduled-blocks/{block_id}": {
-      "delete": {
-        "operationId": "delete_scheduled_block_api_calendar_scheduled_blocks__block_id__delete",
+    "/api/calendar/proposals/{proposal_id}/reject": {
+      "post": {
+        "operationId": "reject_calendar_proposal_api_calendar_proposals__proposal_id__reject_post",
         "parameters": [
           {
             "in": "path",
-            "name": "block_id",
+            "name": "proposal_id",
             "required": true,
             "schema": {
-              "title": "Block Id",
+              "title": "Proposal Id",
               "type": "string"
             }
           }
@@ -18160,82 +19946,253 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Delete Scheduled Block",
+        "summary": "Reject Calendar Proposal",
         "tags": [
-          "core"
-        ]
-      },
-      "put": {
-        "operationId": "update_scheduled_block_api_calendar_scheduled_blocks__block_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "block_id",
-            "required": true,
-            "schema": {
-              "title": "Block Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScheduledBlockUpdate"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ScheduledBlock"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Update Scheduled Block",
-        "tags": [
-          "core"
+          "calendar"
         ]
       }
     },
-    "/api/contact/ritual.vcf": {
+    "/api/calendar/range": {
       "get": {
-        "description": "Return a vCard that saves 'Ritual' as a contact with the SendBlue number.",
-        "operationId": "get_ritual_vcard_api_contact_ritual_vcf_get",
+        "operationId": "get_calendar_range_api_calendar_range_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "start",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "Start",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "end",
+            "required": true,
+            "schema": {
+              "format": "date-time",
+              "title": "End",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "required": false,
+            "schema": {
+              "default": "UTC",
+              "title": "Timezone",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "plan",
+              "pattern": "^(plan|review)$",
+              "title": "Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sources",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sources"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarRangeReadModel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calendar Range",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/search": {
+      "get": {
+        "operationId": "search_calendar_api_calendar_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarSearchResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Search Calendar",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/sources": {
+      "get": {
+        "operationId": "get_calendar_sources_api_calendar_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CalendarSourceRead"
+                  },
+                  "title": "Response Get Calendar Sources Api Calendar Sources Get",
+                  "type": "array"
+                }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "Get Ritual Vcard"
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Calendar Sources",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/calendar/sources/{source_id}": {
+      "patch": {
+        "operationId": "patch_calendar_source_api_calendar_sources__source_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CalendarSourceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarSourceRead"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Calendar Source",
+        "tags": [
+          "calendar"
+        ]
       }
     },
     "/api/conversations": {
@@ -22386,6 +24343,128 @@
         ]
       }
     },
+    "/api/integrations/google-calendar": {
+      "delete": {
+        "operationId": "disconnect_google_calendar_api_integrations_google_calendar_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Disconnect Google Calendar",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/integrations/google-calendar/connect": {
+      "post": {
+        "operationId": "connect_google_calendar_api_integrations_google_calendar_connect_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "return_url",
+            "required": false,
+            "schema": {
+              "default": "/calendar",
+              "title": "Return Url",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarConnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Connect Google Calendar",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/integrations/google-calendar/status": {
+      "get": {
+        "operationId": "google_calendar_status_api_integrations_google_calendar_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CalendarAccountStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Google Calendar Status",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
+    "/api/integrations/google-calendar/sync": {
+      "post": {
+        "operationId": "sync_google_calendar_api_integrations_google_calendar_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync Google Calendar",
+        "tags": [
+          "calendar"
+        ]
+      }
+    },
     "/api/integrations/tesla": {
       "delete": {
         "operationId": "tesla_disconnect_api_integrations_tesla_delete",
@@ -22926,220 +25005,6 @@
           }
         },
         "summary": "Scheduler Health"
-      }
-    },
-    "/api/internal/sms-copilot/evaluate": {
-      "post": {
-        "operationId": "evaluate_sms_copilot_api_internal_sms_copilot_evaluate_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Internal-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Internal-Key"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SmsCopilotEvaluateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Evaluate Sms Copilot",
-        "tags": [
-          "sms-copilot"
-        ]
-      }
-    },
-    "/api/internal/sms-copilot/events": {
-      "get": {
-        "operationId": "get_sms_copilot_events_api_internal_sms_copilot_events_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "title": "User Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 50,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "kind",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Kind"
-            }
-          },
-          {
-            "in": "query",
-            "name": "status",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Status"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Internal-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Internal-Key"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Sms Copilot Events",
-        "tags": [
-          "sms-copilot"
-        ]
-      }
-    },
-    "/api/internal/sms-copilot/log-confirmation": {
-      "post": {
-        "operationId": "build_sms_log_confirmation_api_internal_sms_copilot_log_confirmation_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Internal-Key",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Internal-Key"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SmsLogConfirmationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Build Sms Log Confirmation",
-        "tags": [
-          "sms-copilot"
-        ]
       }
     },
     "/api/logs/batch": {
@@ -25905,123 +27770,6 @@
         "tags": [
           "search"
         ]
-      }
-    },
-    "/api/sendblue/webhook": {
-      "post": {
-        "description": "Receive inbound messages from Sendblue.\n\nSendblue webhook payload (receive type):\n{\n    \"accountEmail\": \"...\",\n    \"content\": \"30mg caffeine\",\n    \"is_outbound\": false,\n    \"status\": \"RECEIVED\",\n    \"from_number\": \"+1...\",\n    \"to_number\": \"+1...\",\n    \"number\": \"+1...\",\n    \"was_downgraded\": false,\n    \"media_url\": \"...\",\n    \"message_type\": \"message\",\n    \"group_id\": null,\n    ...\n}",
-        "operationId": "sendblue_webhook_api_sendblue_webhook_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Sendblue Webhook",
-        "tags": [
-          "sendblue"
-        ]
-      }
-    },
-    "/api/sms/preferences": {
-      "get": {
-        "operationId": "get_sms_preferences_api_sms_preferences_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Get Sms Preferences"
-      },
-      "post": {
-        "operationId": "update_sms_preferences_api_sms_preferences_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SmsPreferencesUpdateRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "summary": "Update Sms Preferences"
-      }
-    },
-    "/api/sms/proactive/trigger": {
-      "post": {
-        "description": "Trigger a proactive SMS sweep.\n\nFinds all users eligible for the given trigger type at the target\nhour in their local timezone, generates content via the TS\norchestrator, and sends via SendBlue.\n\nUse trigger_type=\"all\" to run all trigger types (for hourly cron).",
-        "operationId": "proactive_trigger_api_sms_proactive_trigger_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ProactiveTriggerRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Proactive Trigger"
       }
     },
     "/api/suggestions": {

@@ -1,8 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useUser } from '@clerk/nextjs';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useUser } from '@/lib/desktop-session';
+import { usePathname, useRouter, useSearchParams } from '@/lib/app-navigation';
 import { UnifiedAnalyticsClient } from '@/components/analytics/unified-analytics-client';
 import { BrailleSpinner } from '@/components/ui/braille-spinner';
 import type { ViewMode } from '@/components/analytics/view-mode-toggle';

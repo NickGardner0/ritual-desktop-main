@@ -15,11 +15,6 @@ export type UserPermissionChoice = (typeof USER_PERMISSION_CHOICES)[number];
 const WRITE_TOOLS = new Set([
   'logHabit',
   'createHabit',
-  'updateSmsPreferences',
-]);
-
-const ASK_IN_ACT = new Set([
-  'updateSmsPreferences',
 ]);
 
 const alwaysByToken = new Map<string, Set<string>>();
@@ -72,10 +67,9 @@ export function resolveToolPermission(input: {
   if (!isWrite) return 'allow';
 
   if (input.profile === 'observe' || input.profile === 'draft' || input.profile === 'organize') {
-    return input.profile === 'draft' ? 'deny' : 'deny';
+    return 'deny';
   }
 
-  if (ASK_IN_ACT.has(input.toolName)) return 'ask';
   return 'allow';
 }
 

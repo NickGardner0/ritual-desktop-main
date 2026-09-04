@@ -16,6 +16,8 @@ test('desktop-ui ships a local Vite SPA instead of a hosted redirect', () => {
   assert.doesNotMatch(main, /location\.replace/);
   assert.match(app, /\/activity/);
   assert.match(app, /\/chat/);
+  assert.match(app, /\/agent/);
+  assert.match(app, /AgentChat/);
   assert.match(app, /LogsClient/);
   assert.match(app, /RequireDesktopSession/);
   assert.doesNotMatch(clerk, /@clerk\/clerk-react/);
@@ -51,6 +53,18 @@ test('disk session becomes isLoaded before a background JWT refresh', () => {
   const loadedAt = clerk.indexOf('setIsLoaded(true)');
   const refreshAt = clerk.indexOf("desktopGetAuthToken({ refresh: true })");
   assert.ok(diskAt >= 0 && loadedAt > diskAt && refreshAt > loadedAt);
+  assert.match(clerk, /__RITUAL_DISK_SESSION__/);
+  assert.match(clerk, /ritual:desktop-auth-session:v1/);
+  assert.match(clerk, /hasIdentity\(seeded\)/);
+});
+
+test('Tauri window shows from HTML instead of after two rAFs', () => {
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  const shell = readFileSync(join(root, 'src/shell/root-providers.tsx'), 'utf8');
+  assert.match(html, /show_main_window/);
+  assert.match(html, /__TAURI_INTERNALS__/);
+  assert.doesNotMatch(shell, /requestAnimationFrame/);
+  assert.doesNotMatch(shell, /showMainWindow/);
 });
 
 test('non-Index desktop routes are lazy and Index stays in the first chunk', () => {
@@ -67,6 +81,7 @@ test('non-Index desktop routes are lazy and Index stays in the first chunk', () 
   assert.doesNotMatch(app, /import \{ LogsClient \}/);
   assert.doesNotMatch(app, /import \{ ChatClient \}/);
   assert.match(vite, /chunkSizeWarningLimit:\s*800/);
+  assert.match(vite, /'\/api\/agent'/);
 });
 
 test('voice HUD is a dedicated local SPA window, not a dashboard route', () => {
@@ -79,4 +94,25 @@ test('voice HUD is a dedicated local SPA window, not a dashboard route', () => {
   assert.match(query, /ritual_voice_hud_window/);
   assert.match(html, /ritual_voice_hud_window/);
   assert.match(html, /data-voice-hud-window/);
+});
+
+test('desktop shell owns providers and session, not dashboard RootProviders', () => {
+  const app = readFileSync(join(root, 'src/App.tsx'), 'utf8');
+  const vite = readFileSync(join(root, 'vite.config.ts'), 'utf8');
+  const shell = readFileSync(join(root, 'src/shell/root-providers.tsx'), 'utf8');
+  const clerk = readFileSync(join(root, 'src/adapters/clerk.tsx'), 'utf8');
+  assert.match(app, /from '\.\/shell'/);
+  assert.doesNotMatch(app, /@\/components\/root-providers/);
+  assert.doesNotMatch(app, /@clerk\/nextjs/);
+  assert.doesNotMatch(app, /next\/navigation/);
+  assert.match(shell, /from '\.\.\/adapters\/clerk'/);
+  assert.match(shell, /from '\.\.\/adapters\/next-navigation'/);
+  assert.doesNotMatch(clerk, /from ['"]next\/navigation['"]/);
+  assert.match(vite, /@\/lib\/desktop-session/);
+  assert.match(vite, /@\/lib\/app-navigation/);
+  assert.match(vite, /manualChunks/);
+  assert.match(vite, /streamdown/);
+  assert.match(vite, /@shikijs/);
+  assert.match(vite, /modulePreload/);
+  assert.match(vite, /resolveDependencies/);
 });

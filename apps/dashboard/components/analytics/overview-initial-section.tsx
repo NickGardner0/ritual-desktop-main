@@ -2,7 +2,7 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/app-navigation';
 import { Plus, TrendingUp, CalendarCheck, Upload, Watch, List, LayoutGrid } from 'lucide-react';
 import {
   DropdownMenu,

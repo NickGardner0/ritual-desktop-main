@@ -34,7 +34,6 @@ from database.models import (
     ReportRunDB,
     RoutineDB,
     RoutineRunDB,
-    SmsCopilotEventDB,
     TaskDB,
     TaskEventDB,
     UserDB,
@@ -340,15 +339,6 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
                     status="completed",
                     trigger_source="manual",
                     result_json='{"result":"private"}',
-                )
-            )
-            session.add(
-                SmsCopilotEventDB(
-                    id="sms-private",
-                    user_id="user-privacy-inventory",
-                    kind="daily_narrative",
-                    dedupe_key="sms-private",
-                    body="Private SMS body",
                 )
             )
             session.add(

@@ -20,39 +20,6 @@ async def _sleep_after_clock_tick(tick_started_at: datetime, cadence_seconds: in
     await asyncio.sleep(max(0.0, remaining))
 
 
-async def _run_proactive_sms(trigger_type: str = "all", target_hour: int | None = None):
-    from services.proactive_sms_service import run_hourly_proactive_sweep, run_proactive_sweep
-
-    if trigger_type == "all":
-        results = await run_hourly_proactive_sweep()
-        total_sent = sum(result.get("sent", 0) for result in results)
-        logger.info(
-            "📬 Proactive SMS sweep complete: %d messages sent across %d trigger types",
-            total_sent,
-            len(results),
-        )
-        return results
-    return await run_proactive_sweep(trigger_type=trigger_type, target_hour=target_hour)
-
-
-async def run_proactive_sms_scheduler_job(
-    *,
-    trigger_type: str = "all",
-    target_hour: int | None = None,
-    now: datetime | None = None,
-):
-    """Run internal or legacy external delivery through the same occurrence claim."""
-    from services.scheduler_service import run_clock_job
-
-    scope_key = "global" if trigger_type == "all" else f"trigger:{trigger_type}"
-    return await run_clock_job(
-        "proactive_sms",
-        lambda: _run_proactive_sms(trigger_type, target_hour),
-        scope_key=scope_key,
-        now=now,
-    )
-
-
 async def _run_whoop_auto_sync(current_hour: int) -> int:
     import json
     from sqlalchemy import select
@@ -246,7 +213,7 @@ async def _run_google_calendar_reconciliation() -> dict[str, int]:
 
 
 async def internal_scheduler_loop(tesla_service) -> None:
-    """Run the six hourly domain owners behind independent occurrence claims."""
+    """Run the hourly domain owners behind independent occurrence claims."""
     from services.scheduler_service import run_clock_job
 
     await asyncio.sleep(30)
@@ -255,10 +222,6 @@ async def internal_scheduler_loop(tesla_service) -> None:
         tick_now = datetime.now(timezone.utc)
         current_hour = tick_now.hour
         jobs = (
-            (
-                "proactive_sms",
-                lambda: run_proactive_sms_scheduler_job(now=tick_now),
-            ),
             (
                 "whoop_auto_sync",
                 lambda: run_whoop_scheduler_job(
@@ -431,65 +394,6 @@ async def ambient_scheduler_loop() -> None:
             logger.exception("⚠️ Ambient scheduler tick failed: %s", exc)
 
         await _sleep_after_clock_tick(tick_now, 900)
-
-
-async def sms_copilot_loop() -> None:
-    """Run narrow deterministic copilot checks every five minutes."""
-    from sqlalchemy import select
-    from database.models import UserDB
-    from services.scheduler_service import run_clock_job
-
-    await asyncio.sleep(45)
-    logger.info("📲 SMS copilot loop started (runs every 5 minutes)")
-
-    while True:
-        tick_now = datetime.now(timezone.utc)
-        try:
-            from services.sms_copilot_dispatch_service import sms_copilot_dispatch_service
-            from services.sms_copilot_signal_service import sms_copilot_signal_service
-
-            async def run_tick():
-                candidate_count = 0
-                sent_count = 0
-                now_utc = datetime.now(timezone.utc)
-                async with get_db_session() as session:
-                    result = await session.execute(
-                        select(UserDB.id).where(
-                            UserDB.phone_number.isnot(None),
-                            UserDB.onboarding_completed.is_(True),
-                        )
-                    )
-                    user_ids = [row[0] for row in result.all()]
-                for user_id in user_ids:
-                    candidates = await sms_copilot_signal_service.evaluate_user(
-                        user_id=user_id,
-                        now_utc=now_utc,
-                    )
-                    candidate_count += len(candidates)
-                    for candidate in candidates:
-                        event = await sms_copilot_dispatch_service.dispatch_candidate(candidate)
-                        if event.status == "sent":
-                            sent_count += 1
-                return candidate_count, sent_count, len(user_ids)
-
-            execution = await run_clock_job("sms_copilot", run_tick, now=tick_now)
-            if execution.status == "duplicate":
-                await _sleep_after_clock_tick(tick_now, 300)
-                continue
-            candidate_count, sent_count, user_count = execution.result or (0, 0, 0)
-            if candidate_count or sent_count:
-                logger.info(
-                    "📲 SMS copilot tick complete: candidates=%d sent=%d users=%d",
-                    candidate_count,
-                    sent_count,
-                    user_count,
-                )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.exception("⚠️ SMS copilot loop failed: %s", exc)
-
-        await _sleep_after_clock_tick(tick_now, 300)
 
 
 async def wearable_ingest_job_loop() -> None:

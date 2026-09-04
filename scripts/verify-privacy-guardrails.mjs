@@ -52,7 +52,7 @@ const requiredPatterns = [
   },
   {
     file: "apps/dashboard/lib/privacy/vault-migration.ts",
-    patterns: ["executeLocalVaultMigration", "hashMigrationRecords", "putManifest", "Local vault verification failed", "financial_transactions", "wearable_samples", "sms_copilot"],
+    patterns: ["executeLocalVaultMigration", "hashMigrationRecords", "putManifest", "Local vault verification failed", "financial_transactions", "wearable_samples"],
   },
   {
     file: "apps/dashboard/lib/privacy/vault-deletion.ts",

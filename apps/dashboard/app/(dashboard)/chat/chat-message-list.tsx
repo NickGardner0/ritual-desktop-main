@@ -3,12 +3,10 @@
 import React, { memo, useEffect, useMemo, useState, type RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Check } from 'lucide-react';
-import {
-  Response,
-  TextShimmer,
-  cleanContentForDisplay,
-} from './chat-client.shared';
-import type { Message } from './chat-client.shared';
+import { Response } from '@/components/chat/chat-markdown';
+import type { Message } from '@/components/chat/chat-message';
+import { TextShimmer } from '@/components/chat/text-shimmer';
+import { cleanContentForDisplay } from './chat-stream-helpers';
 import { ChatActionReceiptList } from './chat-action-receipt';
 import { EntityCitationList } from '@/components/entities/entity-related-panel';
 import { EntityNoteText } from '@/components/entities/entity-note-text';

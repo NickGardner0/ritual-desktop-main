@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiOperationWithAuth } from '@/lib/api/client';
 import type { CalendarPreferences } from '@ritual/shared-contracts';

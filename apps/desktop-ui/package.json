@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit --pretty false"
   },
   "dependencies": {
+    "@ritual/agent": "file:../../packages/agent",
     "@ritual/chat-runtime": "file:../../packages/chat-runtime",
     "@ritual/shared-contracts": "file:../../packages/shared-contracts",
     "@ritual/ui": "file:../../packages/ui",

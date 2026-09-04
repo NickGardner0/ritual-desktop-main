@@ -79,6 +79,16 @@
             document.documentElement.dataset.mainGlass = '1';
             document.documentElement.style.background = 'transparent';
           }
+          if (
+            params.get('ritual_settings_window') !== '1' &&
+            params.get('ritual_voice_hud_window') !== '1' &&
+            params.get('ritual_sidebar_window') !== '1'
+          ) {
+            var internals = window.__TAURI_INTERNALS__;
+            if (internals && typeof internals.invoke === 'function') {
+              internals.invoke('show_main_window');
+            }
+          }
         } catch (error) {}
       })();
     </script>

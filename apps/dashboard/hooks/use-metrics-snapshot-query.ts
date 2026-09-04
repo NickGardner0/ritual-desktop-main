@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useUser } from '@/lib/desktop-session';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DateRange } from 'react-day-picker';
 import type {

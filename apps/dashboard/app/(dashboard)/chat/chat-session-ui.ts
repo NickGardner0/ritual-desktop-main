@@ -10,16 +10,22 @@ type PermissionAsk = {
   name: string;
   scope: string;
   profile: string;
+  protocol?: 'legacy' | 'agent';
+  sessionId?: string;
+  askSeq?: number;
 } | null;
+
+type AgentApprovalHandler = (decision: 'allow' | 'deny' | 'always_allow', askSeq: number) => void;
 
 type ChatSessionUiState = {
   toolParts: ToolPart[];
   permissionAsk: PermissionAsk;
   authToken: string | null;
+  agentApprove: AgentApprovalHandler | null;
 };
 
 const listeners = new Set<() => void>();
-let state: ChatSessionUiState = { toolParts: [], permissionAsk: null, authToken: null };
+let state: ChatSessionUiState = { toolParts: [], permissionAsk: null, authToken: null, agentApprove: null };
 
 function emit() {
   for (const listener of listeners) listener();
@@ -37,7 +43,7 @@ export function getChatSessionUi(): ChatSessionUiState {
 }
 
 export function resetChatSessionUi(): void {
-  state = { toolParts: [], permissionAsk: null, authToken: state.authToken };
+  state = { toolParts: [], permissionAsk: null, authToken: state.authToken, agentApprove: state.agentApprove };
   emit();
 }
 
@@ -59,8 +65,12 @@ export function setChatPermissionAsk(permissionAsk: PermissionAsk): void {
   emit();
 }
 
+export function setAgentApprovalHandler(agentApprove: AgentApprovalHandler | null): void {
+  state = { ...state, agentApprove };
+}
+
 export function useChatSessionUiSnapshot(): ChatSessionUiState {
   return state;
 }
 
-export type { ToolPart, PermissionAsk, ChatSessionUiState };
+export type { ToolPart, PermissionAsk, ChatSessionUiState, AgentApprovalHandler };

@@ -53,16 +53,6 @@ export function renderIntegrationLogo(integration: string, size: 'card' | 'panel
       );
     case 'fitbit':
       return <Image src="/images/fitbit.svg" alt="Fitbit" width={60} height={24} className={imageClass} />;
-    case 'imessage':
-      return (
-        <Image
-          src="/images/imessage.svg"
-          alt="iMessage"
-          width={36}
-          height={36}
-          className={size === 'panel' ? 'h-8 w-8 rounded-[8px]' : 'h-8 w-8 rounded-[8px]'}
-        />
-      );
     case 'raycast':
       return (
         <Image

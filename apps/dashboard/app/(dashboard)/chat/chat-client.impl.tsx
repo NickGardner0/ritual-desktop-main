@@ -33,16 +33,18 @@ import {
   MAX_VISIBLE_CHAT_SUGGESTIONS,
   MIN_CANVAS_WIDTH,
 } from './chat-client.shared';
+import type { Message } from '@/components/chat/chat-message';
 import type {
   ConversationContextMenuState,
   ConversationListItem,
-  Message,
 } from './chat-client.shared';
 import { createChatClientLayout } from './chat-client.layout';
 import { ChatSuggestionList } from './chat-suggestion-list';
 import { useChatOverviewActivityPrefetch } from './use-chat-overview-activity-prefetch';
 import { useChatConversationActions } from './use-chat-conversation-actions';
 import { useChatSendMessage } from './use-chat-send-message';
+import { useAgentSendMessage } from '@/components/chat/use-agent-send-message';
+import { shouldUseAgentLoop } from '@/lib/agent-url';
 import { useChatVoiceInput } from './use-chat-voice-input';
 import { useAssistantTurnOutboxDrain } from './use-assistant-turn-outbox';
 
@@ -104,6 +106,7 @@ export function ChatClient() {
   
   // Conversation persistence state
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [fallbackAgentSessionId] = useState(() => `sess_${crypto.randomUUID()}`);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   
   // Sidebar state
@@ -316,7 +319,21 @@ export function ChatClient() {
     isSidebarCollapsed,
   });
 
-  const sendMessage = useChatSendMessage({
+  const agentSessionId = conversationId ? `conv_${conversationId}` : fallbackAgentSessionId;
+  const agent = useAgentSendMessage({
+    getToken,
+    timezone,
+    sessionId: agentSessionId,
+    messages,
+    setMessages,
+    isLoading,
+    setIsLoading,
+    setStreamingContent,
+    setCurrentQuestion,
+    setToolStatus,
+    setCanvasData,
+  });
+  const legacySendMessage = useChatSendMessage({
     getToken,
     queryClient,
     userId: user?.id,
@@ -336,6 +353,10 @@ export function ChatClient() {
     loadMemoryFacts,
     voiceStyleEnabled,
   });
+  const sendMessage = useCallback((text: string, options?: { entityRefs?: Message['entityRefs']; turnId?: string; retryExisting?: boolean }) => {
+    if (shouldUseAgentLoop()) return agent.sendMessage(text, options);
+    return legacySendMessage(text, options);
+  }, [agent.sendMessage, legacySendMessage]);
 
 
   const runQueuedItem = useCallback(async (itemId: string) => {

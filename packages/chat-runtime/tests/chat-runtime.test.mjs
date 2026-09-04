@@ -3,9 +3,6 @@ import assert from 'node:assert/strict';
 
 import {
   handleChatStreamRequest,
-  handleSmsChatRequest,
-  handleSmsProactiveRequest,
-  splitSmsSegments,
   tools,
 } from '../dist/index.js';
 import {
@@ -109,42 +106,6 @@ test('createChatStreamResponse supports deferred conversation and tool payloads'
   assert.match(text, /0:"streamed text"/);
 });
 
-test('handleSmsChatRequest rejects missing internal secret before model calls', async () => {
-  const response = await handleSmsChatRequest(new Request('http://localhost/sms', {
-    method: 'POST',
-    body: JSON.stringify({
-      user_id: 'user_1',
-      conversation_id: 'conv_1',
-      user_message: 'how was my sleep?',
-      recent_messages: [],
-    }),
-  }));
-
-  assert.equal(response.status, 401);
-  assert.match(await response.text(), /Unauthorized/);
-});
-
-test('handleSmsProactiveRequest rejects missing internal secret before model calls', async () => {
-  const response = await handleSmsProactiveRequest(new Request('http://localhost/sms/proactive', {
-    method: 'POST',
-    body: JSON.stringify({
-      user_id: 'user_1',
-      trigger_type: 'morning',
-      trigger_prompt: 'Send a morning brief.',
-    }),
-  }));
-
-  assert.equal(response.status, 401);
-  assert.match(await response.text(), /Unauthorized/);
-});
-
-test('splitSmsSegments preserves safe multi-segment wire format', () => {
-  assert.deepEqual(splitSmsSegments('one\n---\ntwo'), ['one', 'two']);
-  assert.deepEqual(splitSmsSegments('single message'), ['single message']);
-  assert.deepEqual(splitSmsSegments(''), ["Sorry, I couldn't process that. Try again?"]);
-  assert.deepEqual(splitSmsSegments('a\n---\nb\n---\nc\n---\nd\n---\ne'), ['a\n---\nb\n---\nc\n---\nd\n---\ne']);
-});
-
 test('runtime tool export preserves OpenAI function-call contract', () => {
   const toolNames = tools.map((tool) => tool.function.name);
   assert.deepEqual(toolNames, [
@@ -165,11 +126,9 @@ test('runtime tool export preserves OpenAI function-call contract', () => {
     'getStreaks',
     'logHabit',
     'createHabit',
-    'getSmsPreferences',
-    'updateSmsPreferences',
   ]);
 
-  assert.equal(toolNames.length, 19);
+  assert.equal(toolNames.length, 17);
   assert.equal(new Set(toolNames).size, toolNames.length);
 
   for (const name of toolNames) {

@@ -57,22 +57,6 @@
       "callers": ["habit AI parsing surface"],
       "reason": "Server-side AI habit parsing endpoint that uses provider credentials and compatibility behavior."
     },
-    "apps/dashboard/app/api/chat/sms/proactive/route.ts": {
-      "methods": ["POST"],
-      "category": "ai-streaming",
-      "owner": "assistant-kernel-sms-adapter",
-      "contentClass": "json",
-      "callers": ["proactive SMS job"],
-      "reason": "Proactive SMS boundary that adapts Sendblue and shared chat-runtime behavior to the provider."
-    },
-    "apps/dashboard/app/api/chat/sms/route.ts": {
-      "methods": ["POST"],
-      "category": "ai-streaming",
-      "owner": "assistant-kernel-sms-adapter",
-      "contentClass": "json",
-      "callers": ["Sendblue inbound SMS workflow"],
-      "reason": "SMS chat delivery adapter boundary for the shared chat runtime and provider response contract."
-    },
     "apps/dashboard/app/api/chat/stream/route.ts": {
       "methods": ["POST"],
       "category": "ai-streaming",
@@ -144,14 +128,6 @@
       "contentClass": "multipart-json",
       "callers": ["components/ai-habit-chat/use-ai-habit-screenshot.ts"],
       "reason": "Fixed multipart adapter for the named FastAPI screenshot-preview operation and no other backend path."
-    },
-    "apps/dashboard/app/api/sendblue/webhook/route.ts": {
-      "methods": ["POST"],
-      "category": "webhook",
-      "owner": "sendblue-webhook-adapter",
-      "contentClass": "provider-webhook",
-      "callers": ["Sendblue webhook delivery"],
-      "reason": "External Sendblue webhook receiver with provider signature and delivery semantics."
     },
     "apps/dashboard/app/api/sentry-smoke/route.ts": {
       "methods": ["POST"],

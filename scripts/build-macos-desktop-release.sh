@@ -152,6 +152,7 @@ LATEST_JSON="${MACOS_BUNDLE_DIR}/latest-${UPDATER_PLATFORM}.json"
 DMG_PATH="${DMG_DIR}/${PRODUCT_NAME}_${VERSION}_${DMG_ARCH_SUFFIX}.dmg"
 HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-watcher"
 VISION_HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-vision-helper"
+AGENT_HELPER_PATH="${APP_PATH}/Contents/MacOS/ritual-agent"
 APP_INFO_PLIST="${APP_PATH}/Contents/Info.plist"
 ENTITLEMENTS_PATH="apps/desktop/src-tauri/entitlements.plist"
 KEYCHAIN_PATH="${APPLE_SIGNING_KEYCHAIN_PATH:-${HOME}/Library/Keychains/login.keychain-db}"
@@ -205,6 +206,7 @@ fi
 SIDECAR_DIR="apps/desktop/src-tauri/binaries"
 WATCHER_SIDECAR_PATH="${SIDECAR_DIR}/ritual-watcher-${TAURI_TARGET_TRIPLE}"
 VISION_SIDECAR_PATH="${SIDECAR_DIR}/ritual-vision-helper-${TAURI_TARGET_TRIPLE}"
+AGENT_SIDECAR_PATH="${SIDECAR_DIR}/ritual-agent-${TAURI_TARGET_TRIPLE}"
 LEGACY_VISION_SIDECAR_PATH="${SIDECAR_DIR}/ritual-vision-helper-${UPDATER_PLATFORM}"
 
 if [[ "${RITUAL_REBUILD_SIDECARS:-0}" == "1" ]]; then
@@ -219,6 +221,9 @@ if [[ "${LEGACY_VISION_SIDECAR_PATH}" != "${VISION_SIDECAR_PATH}" && -f "${LEGAC
   rm -f "${LEGACY_VISION_SIDECAR_PATH}"
 fi
 
+echo "Compiling ritual-agent sidecar for local chat..."
+node scripts/pin-desktop-agent-sidecar.mjs --target "${TAURI_TARGET_TRIPLE}"
+
 echo "Verifying sidecar hashes..."
 RITUAL_REQUIRE_SIDECAR_TRIPLE="${TAURI_TARGET_TRIPLE}" node scripts/verify-desktop-sidecars.mjs
 
@@ -232,6 +237,7 @@ restore_release_sidecars() {
   if [[ "${SIDECARS_RESTORED}" == "false" && -d "${SIDECAR_BACKUP_DIR}" ]]; then
     cp -p "${SIDECAR_BACKUP_DIR}/$(basename "${WATCHER_SIDECAR_PATH}")" "${WATCHER_SIDECAR_PATH}"
     cp -p "${SIDECAR_BACKUP_DIR}/$(basename "${VISION_SIDECAR_PATH}")" "${VISION_SIDECAR_PATH}"
+    cp -p "${SIDECAR_BACKUP_DIR}/$(basename "${AGENT_SIDECAR_PATH}")" "${AGENT_SIDECAR_PATH}"
     SIDECARS_RESTORED=true
   fi
 }
@@ -249,8 +255,9 @@ cleanup_release_staging() {
 trap cleanup_release_staging EXIT
 cp -p "${WATCHER_SIDECAR_PATH}" "${SIDECAR_BACKUP_DIR}/"
 cp -p "${VISION_SIDECAR_PATH}" "${SIDECAR_BACKUP_DIR}/"
+cp -p "${AGENT_SIDECAR_PATH}" "${SIDECAR_BACKUP_DIR}/"
 
-for bin in "${WATCHER_SIDECAR_PATH}" "${VISION_SIDECAR_PATH}"; do
+for bin in "${WATCHER_SIDECAR_PATH}" "${VISION_SIDECAR_PATH}" "${AGENT_SIDECAR_PATH}"; do
   if [[ ! -f "${bin}" ]]; then
     echo "Expected sidecar missing before bundle build: ${bin}" >&2
     exit 1
@@ -265,6 +272,7 @@ done
 echo "Sidecar signing complete."
 SIGNED_WATCHER_SHA="$(shasum -a 256 "${WATCHER_SIDECAR_PATH}" | awk '{print $1}')"
 SIGNED_VISION_SHA="$(shasum -a 256 "${VISION_SIDECAR_PATH}" | awk '{print $1}')"
+SIGNED_AGENT_SHA="$(shasum -a 256 "${AGENT_SIDECAR_PATH}" | awk '{print $1}')"
 
 export RITUAL_RUNTIME_SIDECAR_LOCK_JSON
 RITUAL_RUNTIME_SIDECAR_LOCK_JSON="$(
@@ -295,6 +303,11 @@ if [[ ! -f "${VISION_HELPER_PATH}" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${AGENT_HELPER_PATH}" ]]; then
+  echo "Bundled ritual-agent not found at ${AGENT_HELPER_PATH}" >&2
+  exit 1
+fi
+
 echo "Verifying bundled sidecars are the exact signed, hash-pinned inputs..."
 cmp -s "${WATCHER_SIDECAR_PATH}" "${HELPER_PATH}" || {
   echo "Bundled watcher bytes differ from the signed runtime hash input." >&2
@@ -304,8 +317,13 @@ cmp -s "${VISION_SIDECAR_PATH}" "${VISION_HELPER_PATH}" || {
   echo "Bundled vision-helper bytes differ from the signed runtime hash input." >&2
   exit 1
 }
+cmp -s "${AGENT_SIDECAR_PATH}" "${AGENT_HELPER_PATH}" || {
+  echo "Bundled ritual-agent bytes differ from the signed runtime hash input." >&2
+  exit 1
+}
 codesign --verify --strict --verbose=2 "${HELPER_PATH}"
 codesign --verify --strict --verbose=2 "${VISION_HELPER_PATH}"
+codesign --verify --strict --verbose=2 "${AGENT_HELPER_PATH}"
 
 restore_release_sidecars
 unset RITUAL_RUNTIME_SIDECAR_LOCK_JSON
@@ -326,6 +344,7 @@ codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
 cmp -s "${SIDECAR_BACKUP_DIR}/$(basename "${WATCHER_SIDECAR_PATH}")" "${WATCHER_SIDECAR_PATH}"
 test "$(shasum -a 256 "${HELPER_PATH}" | awk '{print $1}')" = "${SIGNED_WATCHER_SHA}"
 test "$(shasum -a 256 "${VISION_HELPER_PATH}" | awk '{print $1}')" = "${SIGNED_VISION_SHA}"
+test "$(shasum -a 256 "${AGENT_HELPER_PATH}" | awk '{print $1}')" = "${SIGNED_AGENT_SHA}"
 
 echo "Packaging app zip for notarization..."
 ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${APP_NOTARY_ZIP}"

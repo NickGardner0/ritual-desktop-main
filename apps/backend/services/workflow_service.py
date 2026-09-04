@@ -783,7 +783,7 @@ class WorkflowService:
             return False
 
     async def dispatch_ambient_candidates(self) -> Dict[str, int]:
-        from services.sms_copilot_signal_service import sms_copilot_signal_service
+        from services.ambient_signal_service import ambient_signal_service
 
         triggered = 0
         suppressed = 0
@@ -829,7 +829,7 @@ class WorkflowService:
                     suppressed += 1
                     continue
 
-                candidates = await sms_copilot_signal_service.evaluate_user(
+                candidates = await ambient_signal_service.evaluate_user(
                     user_id=definition.user_id,
                     now_utc=now.replace(tzinfo=timezone.utc),
                     kinds=[definition.signal_kind],

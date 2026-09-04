@@ -23,8 +23,6 @@ const isPublicRoute = createRouteMatcher([
   '/api/integrations/whoop/callback(.*)',
   '/api/integrations/tesla/callback(.*)',
   '/api/integrations/oauth/store-code(.*)',
-  '/api/sendblue/webhook(.*)',
-  '/api/chat/sms(.*)',
   '/api/internal/workflows/execute(.*)',
   '/api/reports/send(.*)',
   '/integrations/success(.*)',

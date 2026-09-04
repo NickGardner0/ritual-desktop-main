@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { DateRange } from 'react-day-picker';
 import { useQuery } from '@tanstack/react-query';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@/lib/desktop-session';
 import { apiOperationWithAuth } from '@/lib/api/client';
 import type { Habit } from '@/contexts/HabitsContext';
 import {

@@ -121,7 +121,7 @@ pub(crate) fn hydrate_auth_memory<R: Runtime>(
     });
 }
 
-fn read_native_session_from_disk() -> Option<DesktopNativeAuthSession> {
+pub(crate) fn read_native_session_from_disk() -> Option<DesktopNativeAuthSession> {
     let persisted = read_desktop_auth_session()?;
     if persisted.session_id.trim().is_empty() || persisted.user_id.trim().is_empty() {
         return None;
@@ -132,6 +132,38 @@ fn read_native_session_from_disk() -> Option<DesktopNativeAuthSession> {
         session_id: persisted.session_id,
         profile: persisted.profile,
     })
+}
+
+fn should_refresh_auth_session(refresh: Option<bool>, token: &str) -> bool {
+    match refresh {
+        Some(false) => false,
+        Some(true) => true,
+        None => token.is_empty() || jwt_needs_refresh(token),
+    }
+}
+
+/// Inject the on-disk session before React boots so Index can paint the vault
+/// list without waiting on `desktop_get_auth_token` IPC.
+pub(crate) fn disk_session_init_script() -> String {
+    let payload = match read_native_session_from_disk() {
+        Some(session)
+            if !session.user_id.trim().is_empty() && !session.session_id.trim().is_empty() =>
+        {
+            serde_json::to_string(&session)
+                .unwrap_or_else(|_| "null".to_string())
+                .replace('<', "\\u003c")
+        }
+        _ => "null".to_string(),
+    };
+    format!(
+        r#"(function () {{
+  try {{
+    window.__RITUAL_DISK_SESSION__ = {payload};
+  }} catch (_error) {{
+    window.__RITUAL_DISK_SESSION__ = null;
+  }}
+}})();"#
+    )
 }
 
 fn hosted_refresh_session<R: Runtime>(
@@ -243,8 +275,7 @@ pub fn desktop_get_auth_token<R: Runtime>(
             profile: serde_json::Value::Null,
         });
     };
-    let force_refresh = refresh.unwrap_or(false);
-    if force_refresh || session.token.is_empty() || jwt_needs_refresh(&session.token) {
+    if should_refresh_auth_session(refresh, &session.token) {
         match hosted_refresh_session(&app, &session.session_id) {
             Ok(refreshed) => {
                 persist_native_auth_session(&refreshed)?;
@@ -276,6 +307,19 @@ mod tests {
         assert!(!jwt_needs_refresh(&jwt_with_exp(
             Utc::now().timestamp() + 120
         )));
+    }
+
+    #[test]
+    fn refresh_false_never_hits_the_network() {
+        let expired = jwt_with_exp(Utc::now().timestamp() - 30);
+        assert!(!should_refresh_auth_session(Some(false), &expired));
+        assert!(!should_refresh_auth_session(Some(false), ""));
+        assert!(should_refresh_auth_session(Some(true), &expired));
+        assert!(should_refresh_auth_session(None, &expired));
+        assert!(!should_refresh_auth_session(
+            None,
+            &jwt_with_exp(Utc::now().timestamp() + 120)
+        ));
     }
 
     #[test]

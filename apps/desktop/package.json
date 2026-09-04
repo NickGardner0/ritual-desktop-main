@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "watcher:build": "cd src-tauri/bin/ritual-watcher && ./build.sh",
-    "shell:dev": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && npm --prefix ../desktop-ui run dev",
-    "shell:build": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && mkdir -p src-tauri/resources/chat-runtime && cp -R ../../packages/chat-runtime/dist/. src-tauri/resources/chat-runtime/ && npm --prefix ../desktop-ui run build && node ../../scripts/verify-desktop-ui-bundle.mjs",
+    "shell:dev": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && npm --prefix ../.. run --workspace @ritual/agent build && npm --prefix ../desktop-ui run dev",
+    "shell:build": "npm --prefix ../.. run --workspace @ritual/chat-runtime build && npm --prefix ../.. run --workspace @ritual/agent build && mkdir -p src-tauri/resources/agent && cp ../../packages/agent/dist/sidecar.bundle.js src-tauri/resources/agent/sidecar.mjs && npm --prefix ../desktop-ui run build && node ../../scripts/verify-desktop-ui-bundle.mjs",
     "tauri": "tauri",
     "dev": "tauri dev",
     "build": "npm run watcher:build && tauri build"

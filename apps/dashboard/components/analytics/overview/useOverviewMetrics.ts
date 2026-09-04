@@ -5,11 +5,11 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/app-navigation';
 import type { DateRange } from 'react-day-picker';
 import * as Sentry from '@sentry/nextjs';
 import { useHabits } from '@/contexts/HabitsContext';
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@/lib/desktop-session';
 import type { Habit } from '@/contexts/HabitsContext';
 import { useAnalyticsFiltersOptional } from '../analytics-filter-context';
 import { getHabitLogLocalDate as resolveHabitLogLocalDate } from '@/lib/habit-log-time';
@@ -440,13 +440,7 @@ export function useOverviewMetrics({
 
   const hasRenderableCachedHabits = habits.length > 0;
 
-  const shouldShowLoadingSpinner =
-    !hasRenderableCachedHabits
-    && (
-      isLoading
-      || (!isLoaded)
-      || (isLoaded && !user)
-    );
+  const shouldShowLoadingSpinner = !hasRenderableCachedHabits && isLoading;
 
   return {
     router,
