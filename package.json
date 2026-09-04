@@ -13,10 +13,11 @@
   "scripts": {
     "typecheck:ui": "npm run --workspace @ritual/ui typecheck",
     "build:chat-runtime": "npm run --workspace @ritual/chat-runtime build",
+    "build:agent": "npm run --workspace @ritual/agent build",
     "dev:desktop-ui": "npm run --workspace @ritual/desktop-ui dev",
     "dev": "npm run build:chat-runtime && cd apps/dashboard && next dev -p 3000 --turbo",
     "dev:backend": "cd apps/backend && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000",
-    "typecheck": "npm run contracts:build && npm run build:chat-runtime && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' tsc --noEmit --pretty false",
+    "typecheck": "npm run contracts:build && npm run build:chat-runtime && npm run build:agent && cd apps/dashboard && NODE_OPTIONS='--max-old-space-size=8192' tsc --noEmit --pretty false",
     "test:dashboard:snapshots": "node --test apps/dashboard/tests/weekly-overview-utils.test.mjs",
     "test:dashboard:orchestrator": "node --test apps/dashboard/tests/chat-stream-orchestrator.test.mjs",
     "test:dashboard": "node --test apps/dashboard/tests/*.test.mjs apps/desktop-ui/tests/*.test.mjs",
