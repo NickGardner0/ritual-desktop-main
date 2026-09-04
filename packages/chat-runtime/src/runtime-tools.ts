@@ -19,8 +19,6 @@ import {
   executeSearchCalendar,
   executeFindCalendarAvailability,
   executeProposeCalendarChanges,
-  executeGetSmsPreferences,
-  executeUpdateSmsPreferences,
 } from './executors/index.js';
 import {
   inferRecapAnchorDate,

@@ -33,7 +33,6 @@ const baseTask: Task = {
   status: 'open',
   priority: 'none',
   due_at: null,
-  scheduled_for: null,
   completed_at: null,
   source: 'manual',
   project: null,
@@ -53,7 +52,6 @@ describe('task completion views', () => {
     const dueToday: Task = {
       ...baseTask,
       due_at: new Date().toISOString(),
-      scheduled_for: new Date().toISOString(),
     };
     const patched = applyTaskOptimisticPatch([dueToday], 'task-1', { status: 'completed' }, NOW);
     expect(filterTasksForView([dueToday], 'today', 'All')).toHaveLength(1);
@@ -67,7 +65,6 @@ describe('task completion views', () => {
       ...baseTask,
       status: 'open',
       due_at: new Date().toISOString(),
-      scheduled_for: new Date().toISOString(),
     };
     const completed: Task = { ...open, status: 'completed', completed_at: NOW };
     expect(mergeVisibleTasksForView({
@@ -91,7 +88,6 @@ describe('task completion views', () => {
       ...baseTask,
       status: 'open',
       due_at: new Date().toISOString(),
-      scheduled_for: new Date().toISOString(),
     };
     const completed: Task = { ...open, status: 'completed', completed_at: NOW };
     expect(mergeVisibleTasksForView({
@@ -108,7 +104,6 @@ describe('task completion views', () => {
     const recent: Task = {
       ...baseTask,
       due_at: new Date().toISOString(),
-      scheduled_for: new Date().toISOString(),
     };
     expect(mergeVisibleTasksForView({
       stored: [],
@@ -125,7 +120,6 @@ describe('task completion views', () => {
       id: 'seed-task-cpa',
       status: 'open',
       due_at: NOW,
-      scheduled_for: NOW,
     };
     const storedCompleted: Task = {
       ...baseTask,
@@ -219,7 +213,6 @@ describe('todo list grouping', () => {
     const task: Task = {
       ...baseTask,
       due_at: localMorningIso(2026, 9, 1),
-      scheduled_for: localMorningIso(2026, 9, 1),
     };
     const groups = groupTasksForTodoView([task], now);
     expect(groups).toHaveLength(1);

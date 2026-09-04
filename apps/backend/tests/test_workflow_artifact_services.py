@@ -192,6 +192,7 @@ class WorkflowArtifactServiceTests(unittest.IsolatedAsyncioTestCase):
             ranking_json="{}",
             quiet_hours_json="{}",
             cooldown_minutes=240,
+            expected_duration_minutes=30,
             config_json="{}",
             updated_at=None,
             next_run_at=None,

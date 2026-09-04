@@ -23,10 +23,11 @@
       { "path": "apps/backend/api/wearables_routes/sync_runs.py", "claimFunction": "run_oura_garmin_scheduler_job" },
       { "path": "apps/backend/api/financial.py", "claimFunction": "run_financial_scheduler_job" }
     ],
-    "jobCount": 11,
+    "jobCount": 12,
     "jobs": [
       "whoop_auto_sync", "oura_garmin_auto_sync", "tesla_odometer_sync",
-      "financial_sync", "location_ping_retention", "habit_reports", "workflow_runs",
+      "financial_sync", "location_ping_retention", "google_calendar_reconciliation",
+      "habit_reports", "workflow_runs",
       "ambient_signals", "wearable_ingest", "wearable_maintenance",
       "wearable_event_outbox"
     ]

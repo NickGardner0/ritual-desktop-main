@@ -41,7 +41,12 @@ for (const removedPath of config.removedPaths || []) {
 const searchableRoots = ["apps", "packages", "scripts"]
   .map((item) => join(root, item))
   .filter((item) => existsSync(item));
-const files = searchableRoots.flatMap((dir) => walk(dir));
+// Compiled desktop sidecars contain their compiler runtime and templates, so
+// treating arbitrary Mach-O strings as source imports produces false positives.
+const desktopBinariesDir = join(root, "apps/desktop/src-tauri/binaries");
+const files = searchableRoots
+  .flatMap((dir) => walk(dir))
+  .filter((file) => !file.startsWith(`${desktopBinariesDir}/`));
 const ownScript = join(root, "scripts/check-dead-code.mjs");
 const recorderGuardScript = join(root, "scripts/check-removed-recorder.sh");
 

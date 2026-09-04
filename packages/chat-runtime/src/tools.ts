@@ -326,7 +326,7 @@ export const tools: ModelEngineTool[] = [
       },
     },
   },
-  // ── SMS-specific tools ──────────────────────────────────────────────
+  // ── Mutating habit tools ────────────────────────────────────────────
   {
     type: 'function',
     function: {

@@ -3,40 +3,40 @@
   "methodVersion": 1,
   "tokeiVersion": "14.0.0",
   "repository": {
-    "branchAtMeasurement": "codex/release-0.1.1-prep",
-    "headAtMeasurement": "142724dc4e22b1fc3495e7a3ed02424263477a0f"
+    "branchAtMeasurement": "codex/recover-calendar-v2",
+    "headAtMeasurement": "62caccf488771ec2b4eb6b0926395e0cd76a6d81"
   },
-  "sourceDigest": "710870c9172ce48b229c76c93e9ab24c4f3f3cca8dff5641ad8d1161de1c5b8d",
+  "sourceDigest": "40f15fbcfbf185675823b670ce1bc577dd56918e38b9f2e41fc1f98e0f885f66",
   "buckets": [
     {
       "id": "dashboard",
       "label": "Dashboard production",
-      "files": 541,
-      "code": 88293,
+      "files": 556,
+      "code": 87897,
       "languages": {
         "CSS": {
-          "files": 4,
-          "code": 1964
+          "files": 6,
+          "code": 2125
         },
         "JavaScript": {
           "files": 14,
-          "code": 960
+          "code": 964
         },
         "TSX": {
-          "files": 280,
-          "code": 49523
+          "files": 290,
+          "code": 48867
         },
         "TypeScript": {
-          "files": 243,
-          "code": 35846
+          "files": 246,
+          "code": 35941
         }
       }
     },
     {
       "id": "shared_packages",
       "label": "Shared packages",
-      "files": 69,
-      "code": 10327,
+      "files": 94,
+      "code": 11022,
       "languages": {
         "CSS": {
           "files": 1,
@@ -47,32 +47,32 @@
           "code": 956
         },
         "TypeScript": {
-          "files": 55,
-          "code": 9190
+          "files": 80,
+          "code": 9885
         }
       }
     },
     {
       "id": "fastapi",
       "label": "FastAPI application",
-      "files": 240,
-      "code": 58666,
+      "files": 230,
+      "code": 58459,
       "languages": {
         "Python": {
-          "files": 240,
-          "code": 58666
+          "files": 230,
+          "code": 58459
         }
       }
     },
     {
       "id": "desktop_rust",
       "label": "Rust desktop, watcher, and ritual-db",
-      "files": 91,
-      "code": 40057,
+      "files": 92,
+      "code": 40444,
       "languages": {
         "Rust": {
-          "files": 91,
-          "code": 40057
+          "files": 92,
+          "code": 40444
         }
       }
     },
@@ -99,16 +99,16 @@
     {
       "id": "desktop_ui",
       "label": "Desktop local Vite SPA",
-      "files": 22,
-      "code": 881,
+      "files": 26,
+      "code": 1300,
       "languages": {
         "TSX": {
-          "files": 9,
-          "code": 637
+          "files": 12,
+          "code": 1053
         },
         "TypeScript": {
-          "files": 13,
-          "code": 244
+          "files": 14,
+          "code": 247
         }
       }
     },
@@ -141,5 +141,5 @@
       }
     }
   ],
-  "total": 201573
+  "total": 202471
 }

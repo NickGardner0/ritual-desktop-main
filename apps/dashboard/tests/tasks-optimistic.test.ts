@@ -29,7 +29,6 @@ const baseTask: Task = {
   status: "open",
   priority: "none",
   due_at: null,
-  scheduled_for: null,
   completed_at: null,
   source: "manual",
   project: null,

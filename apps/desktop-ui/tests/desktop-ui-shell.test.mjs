@@ -13,6 +13,7 @@ test('desktop-ui ships a local Vite SPA instead of a hosted redirect', () => {
   const clerk = readFileSync(join(root, 'src/adapters/clerk.tsx'), 'utf8');
   assert.match(html, /desktop/);
   assert.match(html, /#fefefe/);
+  assert.match(html, /style data-fullcalendar/);
   assert.doesNotMatch(main, /location\.replace/);
   assert.match(app, /\/activity/);
   assert.match(app, /\/chat/);

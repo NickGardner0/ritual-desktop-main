@@ -1,8 +1,12 @@
 {
   "version": 2,
   "minimumMacOSVersion": "14.0",
-  "releaseTargets": ["aarch64-apple-darwin"],
-  "shippedTargets": ["aarch64-apple-darwin"],
+  "releaseTargets": [
+    "aarch64-apple-darwin"
+  ],
+  "shippedTargets": [
+    "aarch64-apple-darwin"
+  ],
   "externalPendingTargets": {},
   "unsupportedTargets": {
     "x86_64-apple-darwin": "Intel Macs are outside the current desktop release scope; Ritual supports Apple Silicon only."
@@ -26,18 +30,21 @@
         }
       }
     },
-    "ritual-node": {
+    "ritual-agent": {
       "optionalInRepo": true,
-      "runtime": {
-        "name": "node",
-        "version": "22.23.2",
-        "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-darwin-arm64.tar.xz",
-        "archiveSha256": "5eff7a9011895aae3f29d06f167b84a62b028a591370c7cafb59103559fd26e1"
+      "compiler": {
+        "name": "bun",
+        "version": "1.2.19",
+        "target": "bun-darwin-arm64",
+        "url": "https://github.com/oven-sh/bun/releases/download/bun-v1.2.19/bun-darwin-aarch64.zip",
+        "archiveSha256": "674a48378342efaadc3c291596b573010f3c2388958f7c44678d87f6fb759991",
+        "source": "packages/agent/dist/sidecar.bundle.js",
+        "sourceSha256": "d13221b6c12542519355c42d08937b1c8380b4c94ad6c397dabbeb2c04a237e4"
       },
       "targets": {
         "aarch64-apple-darwin": {
-          "file": "ritual-node-aarch64-apple-darwin",
-          "sha256": "18e387c90ab8a8400183e8bdd396376e1e875b91b4c874b894dcade7b35bf572"
+          "file": "ritual-agent-aarch64-apple-darwin",
+          "sha256": "043bc9f040c54d71e8c30834c128069ee000c53497201dc4577c0613cbc29328"
         }
       }
     }

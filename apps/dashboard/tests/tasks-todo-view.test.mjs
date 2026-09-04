@@ -30,8 +30,8 @@ test('tasks page offers table, todo, and board layouts', () => {
   assert.match(client, /TaskTodoList/);
   assert.match(client, /writeStoredTaskDisplayMode/);
   assert.match(table, /export function TaskTableHeader/);
-  assert.match(todo, /Schedule for today/);
-  assert.match(todo, /Schedule\.\.\./);
+  assert.match(todo, /Set deadline today/);
+  assert.match(todo, /Deadline\.\.\./);
   assert.match(todo, /Complete task/);
   assert.match(todo, /Delete task/);
   assert.match(todo, /status: 'canceled'/);

@@ -2,7 +2,7 @@
  * HTTP handlers for the desktop sidecar. The Vite SPA talks here;
  * Next.js is not the host.
  */
-import { defaultModelEngine } from '@ritual/chat-runtime';
+import { defaultModelEngine } from '@ritual/chat-runtime/model-engine';
 import { admit, run, resumeAfterApproval, type AgentLoopConfig } from './loop.js';
 import type { SSEEvent } from './types.js';
 import { MemorySessionStore } from './store-memory.js';

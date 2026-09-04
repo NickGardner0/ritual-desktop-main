@@ -65,9 +65,3 @@ export {
   executeFindCalendarAvailability,
   executeProposeCalendarChanges,
 } from './calendar.js';
-
-// SMS preferences executors
-export {
-  executeGetSmsPreferences,
-  executeUpdateSmsPreferences,
-} from './sms-preferences.js';

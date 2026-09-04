@@ -33,6 +33,14 @@
     "./sidecar": {
       "types": "./dist/sidecar.d.ts",
       "import": "./dist/sidecar.js"
+    },
+    "./handle-chat-stream": {
+      "types": "./dist/handle-chat-stream.d.ts",
+      "import": "./dist/handle-chat-stream.js"
+    },
+    "./model-engine": {
+      "types": "./dist/model-engine/index.d.ts",
+      "import": "./dist/model-engine/index.js"
     }
   },
   "scripts": {

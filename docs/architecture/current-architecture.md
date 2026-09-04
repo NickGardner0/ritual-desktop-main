@@ -591,7 +591,7 @@ IntegrationPlugin {
 
 ### FastAPI scheduler
 
-Trigger.dev **code** is deleted. `scheduler_service.py` statically registers 11 owners; `lifespan.py` starts seven loops independently of startup maintenance. Nine clock jobs use durable `(job_key, scope_key, scheduled_for)` occurrence claims and the two queue workers use atomic domain row claims. The retained provider bulk-sync adapters call the same claimed functions, so stale cloud delivery cannot create a second mutation path.
+Trigger.dev **code** is deleted. `scheduler_service.py` statically registers 12 owners; `lifespan.py` starts seven loops independently of startup maintenance. Ten clock jobs use durable `(job_key, scope_key, scheduled_for)` occurrence claims and the two queue workers use atomic domain row claims. The retained provider bulk-sync adapters call the same claimed functions, so stale cloud delivery cannot create a second mutation path.
 
 Pattern: internal auth (`INTERNAL_API_KEY`) plus privacy consent checks at compatibility adapters; scheduler health uses `INTERNAL_BACKEND_TOKEN`. Workflow execution still POSTs to Next `/api/internal/workflows/execute` so the TypeScript executor can run.
 

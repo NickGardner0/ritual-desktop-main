@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ritual</title>
+    <!-- FullCalendar injects rules through this sheet. A parser-created style
+         guarantees WebKit exposes CSSStyleSheet before its lazy module runs. -->
+    <style data-fullcalendar></style>
     <style>
       html, body, #root {
         height: 100%;

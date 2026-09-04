@@ -148,7 +148,7 @@ const PRIORITY_ORDER: Record<Task['priority'], number> = {
 };
 
 function taskDateValue(task: Task): number {
-  const value = task.due_at || task.scheduled_for;
+  const value = task.due_at;
   if (!value) return Number.POSITIVE_INFINITY;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : Number.POSITIVE_INFINITY;

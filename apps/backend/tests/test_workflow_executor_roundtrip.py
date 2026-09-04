@@ -68,22 +68,35 @@ class _FakeBackendHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path, query = self._record_request()
 
-        if path == "/api/calendar/scheduled-blocks":
+        if path == "/api/calendar/range":
             return self._write_json(
-                [
-                    {
-                        "title": "Deep Work",
-                        "day": query.get("start_date", ["2026-04-29"])[0],
-                        "start_minutes": 540,
-                        "end_minutes": 660,
-                    },
-                    {
-                        "title": "Workout",
-                        "day": query.get("start_date", ["2026-04-29"])[0],
-                        "start_minutes": 720,
-                        "end_minutes": 780,
-                    },
-                ]
+                {
+                    "timezone": query.get("timezone", ["America/New_York"])[0],
+                    "mode": query.get("mode", ["plan"])[0],
+                    "occurrences": [
+                        {
+                            "id": "occurrence-1",
+                            "event_id": "event-1",
+                            "title": "Deep Work",
+                            "start_at": "2026-04-29T13:00:00Z",
+                            "end_at": "2026-04-29T15:00:00Z",
+                            "all_day": False,
+                            "kind": "event",
+                        },
+                        {
+                            "id": "occurrence-2",
+                            "event_id": "event-2",
+                            "title": "Workout",
+                            "start_at": "2026-04-29T16:00:00Z",
+                            "end_at": "2026-04-29T17:00:00Z",
+                            "all_day": False,
+                            "kind": "event",
+                        },
+                    ],
+                    "tasks": [],
+                    "workflows": [],
+                    "proposals": [],
+                }
             )
 
         if path == "/api/analytics/streaks":
@@ -351,7 +364,7 @@ class WorkflowExecutorRoundTripTests(unittest.IsolatedAsyncioTestCase):
         paths = {entry["path"] for entry in _FakeBackendHandler.requests}
         self.assertTrue(
             {
-                "/api/calendar/scheduled-blocks",
+                "/api/calendar/range",
                 "/api/analytics/streaks",
                 "/api/v1/biometrics/heart-rate/day-summary",
                 "/api/analytics/stats",

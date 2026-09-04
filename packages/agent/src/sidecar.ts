@@ -4,7 +4,7 @@
  * ritual-agent binary, or `node dist/sidecar.bundle.js` during `tauri dev`.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { handleChatStreamRequest } from '@ritual/chat-runtime';
+import { handleChatStreamRequest } from '@ritual/chat-runtime/handle-chat-stream';
 import { handleAgentRequest, isAgentPath } from './http.js';
 
 const DEFAULT_PORT = Number(process.env.RITUAL_CHAT_RUNTIME_PORT || 8787);

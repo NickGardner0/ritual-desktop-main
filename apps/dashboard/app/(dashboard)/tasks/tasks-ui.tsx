@@ -125,7 +125,7 @@ function ProjectGroupHeader({
 
 function groupOverdueLabel(tasks: Task[]): string | null {
   for (const task of tasks) {
-    const label = relativeDayLabel(task.scheduled_for || task.due_at);
+    const label = relativeDayLabel(task.due_at);
     if (label.endsWith('ago')) return label;
   }
   return null;

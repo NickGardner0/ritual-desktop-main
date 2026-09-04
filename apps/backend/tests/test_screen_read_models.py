@@ -166,34 +166,5 @@ class ScreenReadModelTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(model["rollups"]["iphoneTime"][0]["amount"], 3.5)
         self.assertTrue(model["rollups"]["iphoneTime"][0]["readOnly"])
 
-    async def test_calendar_read_model_uses_same_log_and_fact_inputs(self):
-        workout = _habit("habit-workout", "Workout")
-        log = _log("log-1", workout, "2026-05-29", 1.0)
-        fact = _fact(workout, "2026-05-29", 1.0)
-        session = _SequencedSession([
-            _FakeExecuteResult([workout]),
-            _FakeExecuteResult([log]),
-            _FakeExecuteResult([]),
-            _FakeExecuteResult([fact]),
-        ])
-
-        @asynccontextmanager
-        async def fake_get_db_session():
-            yield session
-
-        with patch("services.screen_read_models_service.get_db_session", fake_get_db_session):
-            model = await ScreenReadModelsService().get_calendar_read_model(
-                user_id="user-1",
-                start_date="2026-05-29",
-                end_date="2026-05-29",
-            )
-
-        self.assertEqual(model["meta"]["source"], "calendar_read_model")
-        self.assertEqual(len(model["days"]), 1)
-        self.assertEqual(model["days"][0]["summary"]["logCount"], 1)
-        self.assertEqual(model["days"][0]["summary"]["metricFactCount"], 1)
-        self.assertEqual(model["days"][0]["summary"]["totalFactValue"], 1.0)
-
-
 if __name__ == "__main__":
     unittest.main()

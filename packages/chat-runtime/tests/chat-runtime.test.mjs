@@ -123,12 +123,16 @@ test('runtime tool export preserves OpenAI function-call contract', () => {
     'getDailyBiometrics',
     'getScreenTimeSummary',
     'getCalendarEvents',
+    'searchCalendar',
+    'findCalendarAvailability',
+    'proposeCalendarChanges',
+    'planMyDay',
     'getStreaks',
     'logHabit',
     'createHabit',
   ]);
 
-  assert.equal(toolNames.length, 17);
+  assert.equal(toolNames.length, 21);
   assert.equal(new Set(toolNames).size, toolNames.length);
 
   for (const name of toolNames) {

@@ -43,7 +43,6 @@ const baseTask: Task = {
   status: 'open',
   priority: 'high',
   due_at: '2020-01-15T14:00:00.000Z',
-  scheduled_for: null,
   completed_at: null,
   source: 'manual',
   project: 'Health',

@@ -26,8 +26,8 @@ class SchedulerLifespanTests(unittest.IsolatedAsyncioTestCase):
             patch.object(lifespan, "ENABLE_STARTUP_MAINTENANCE_TASK", False),
         ):
             lifespan.start_internal_scheduler_tasks(app, SimpleNamespace())
-        self.assertEqual(len(app.state.scheduler_tasks), 8)
-        self.assertEqual(sum(state.registered for state in scheduler_runtime.states.values()), 13)
+        self.assertEqual(len(app.state.scheduler_tasks), 7)
+        self.assertEqual(sum(state.registered for state in scheduler_runtime.states.values()), 12)
         self.assertEqual(
             scheduler_runtime.readiness_snapshot(app.state.scheduler_tasks)["status"],
             "ready",
