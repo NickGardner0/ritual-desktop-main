@@ -10,7 +10,7 @@ from uuid import uuid4
 from sqlalchemy import and_, asc, desc, or_, select
 
 from database.connection import get_db_session
-from database.models import EntityReferenceDB, HabitDB, RoutineDB, RoutineRunDB, ScheduledBlockDB, TaskDB, TaskEventDB, WorkflowDefinitionDB, WorkflowRunDB
+from database.models import EntityReferenceDB, HabitDB, RoutineDB, RoutineRunDB, TaskDB, TaskEventDB, WorkflowDefinitionDB, WorkflowRunDB
 from database.models.base import _utcnow_naive
 from schemas.tasks import (
     RoutineCreate,
@@ -27,14 +27,12 @@ from schemas.tasks import (
 )
 from schemas.entities import EntityRef, parse_entity_mention_tokens
 from services.action_receipt_service import action_receipt_service
-from services.scheduled_block_tasks import sync_linked_blocks_from_task
 from services.recurrence import (
     ensure_utc_naive,
     humanize_recurrence,
     next_run_at,
     next_run_preview,
     normalize_timezone,
-    to_local,
     utc_now_naive,
 )
 
@@ -79,24 +77,6 @@ def _normalize_tags(tags: Optional[Iterable[str]]) -> List[str]:
     return normalized
 
 
-def _bounded_int(value: Any, *, fallback: int, minimum: int, maximum: int) -> int:
-    try:
-        parsed = int(value)
-    except Exception:
-        parsed = fallback
-    return max(minimum, min(maximum, parsed))
-
-
-def _scheduled_block_window(scheduled_for: datetime, timezone_name: str, config: Dict[str, Any]) -> tuple[str, int, int]:
-    local = to_local(scheduled_for, timezone_name)
-    duration = _bounded_int(config.get("duration_minutes"), fallback=60, minimum=5, maximum=720)
-    start_minutes = local.hour * 60 + local.minute
-    end_minutes = min(1440, start_minutes + duration)
-    if end_minutes <= start_minutes:
-        end_minutes = min(1440, start_minutes + 30)
-    return local.date().isoformat(), start_minutes, end_minutes
-
-
 def _task_to_schema(
     task: TaskDB,
     *,
@@ -111,7 +91,6 @@ def _task_to_schema(
         status=task.status,  # type: ignore[arg-type]
         priority=task.priority,  # type: ignore[arg-type]
         due_at=task.due_at,
-        scheduled_for=task.scheduled_for,
         completed_at=task.completed_at,
         source=task.source,  # type: ignore[arg-type]
         project=task.project,
@@ -226,7 +205,6 @@ def _routine_run_to_schema(run: RoutineRunDB) -> RoutineRunRead:
         scheduled_for=run.scheduled_for,
         status=run.status,  # type: ignore[arg-type]
         generated_task_id=run.generated_task_id,
-        generated_scheduled_block_id=run.generated_scheduled_block_id,
         workflow_run_id=run.workflow_run_id,
         completed_at=run.completed_at,
         skipped_at=run.skipped_at,
@@ -293,21 +271,16 @@ class TasksService:
                 filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
                 filters.append(
                     or_(
-                        and_(TaskDB.scheduled_for.is_not(None), TaskDB.scheduled_for < tomorrow_start),
                         and_(TaskDB.due_at.is_not(None), TaskDB.due_at < tomorrow_start),
                     )
                 )
             elif view == "upcoming":
                 filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
                 filters.append(
-                    or_(
-                        TaskDB.scheduled_for >= tomorrow_start,
-                        TaskDB.due_at >= tomorrow_start,
-                    )
+                    TaskDB.due_at >= tomorrow_start
                 )
             elif view == "anytime":
                 filters.append(TaskDB.status.in_(("open", "in_progress", "in_review")))
-                filters.append(TaskDB.scheduled_for.is_(None))
                 filters.append(TaskDB.due_at.is_(None))
             elif view == "completed":
                 filters.append(TaskDB.status == "completed")
@@ -328,8 +301,6 @@ class TasksService:
                 .where(*filters)
                 .order_by(
                     asc(TaskDB.status),
-                    asc(TaskDB.scheduled_for.is_(None)),
-                    asc(TaskDB.scheduled_for),
                     asc(TaskDB.due_at.is_(None)),
                     asc(TaskDB.due_at),
                     desc(TaskDB.created_at),
@@ -394,7 +365,6 @@ class TasksService:
                 status=payload.status,
                 priority=payload.priority,
                 due_at=ensure_utc_naive(payload.due_at),
-                scheduled_for=ensure_utc_naive(payload.scheduled_for),
                 completed_at=completed_at,
                 source=payload.source,
                 project=payload.project.strip() if payload.project else None,
@@ -476,8 +446,6 @@ class TasksService:
                 task.priority = payload.priority
             if "due_at" in fields:
                 task.due_at = ensure_utc_naive(payload.due_at)
-            if "scheduled_for" in fields:
-                task.scheduled_for = ensure_utc_naive(payload.scheduled_for)
             if "completed_at" in fields:
                 task.completed_at = ensure_utc_naive(payload.completed_at)
             if "project" in fields:
@@ -511,7 +479,10 @@ class TasksService:
                     routine.next_run_at = _compute_routine_next(routine, reference_utc=routine.last_run_at)
                     routine.updated_at = now
 
-            await sync_linked_blocks_from_task(session, task, fields=set(fields))
+            if task.status == "completed" and before_status != "completed":
+                from services.calendar_service import calendar_service
+
+                await calendar_service.cancel_future_task_allocations(session, user_id, task.id)
 
             await session.commit()
             await session.refresh(task)
@@ -723,7 +694,6 @@ class TasksService:
         horizon = reference + timedelta(days=max(0, min(horizon_days, 90)))
         created_runs: List[RoutineRunDB] = []
         generated_tasks = 0
-        generated_scheduled_blocks = 0
         generated_workflows = 0
         skipped = 0
 
@@ -822,7 +792,6 @@ class TasksService:
                         status="open",
                         priority=routine.priority,
                         due_at=scheduled_for,
-                        scheduled_for=scheduled_for,
                         source=task_source,
                         project=template.project,
                         category=template.category,
@@ -846,28 +815,6 @@ class TasksService:
                     )
                     run.generated_task_id = task.id
                     generated_tasks += 1
-
-                if routine.kind in {"calendar_block", "mixed"}:
-                    day, start_minutes, end_minutes = _scheduled_block_window(
-                        scheduled_for,
-                        routine.timezone,
-                        config,
-                    )
-                    block = ScheduledBlockDB(
-                        id=str(uuid4()),
-                        user_id=user_id,
-                        title=(template.title or routine.title).strip(),
-                        notes=template.notes or routine.description,
-                        day=day,
-                        start_minutes=start_minutes,
-                        end_minutes=end_minutes,
-                        task_id=task.id if task is not None else None,
-                        created_at=_utcnow_naive(),
-                        updated_at=_utcnow_naive(),
-                    )
-                    session.add(block)
-                    run.generated_scheduled_block_id = block.id
-                    generated_scheduled_blocks += 1
 
                 if routine.kind in {"ai_workflow", "mixed"} and routine.ai_workflow_definition_id:
                     workflow_run = WorkflowRunDB(
@@ -903,7 +850,6 @@ class TasksService:
         return RoutineGenerateResponse(
             queued=len(created_runs),
             generated_tasks=generated_tasks,
-            generated_scheduled_blocks=generated_scheduled_blocks,
             generated_workflow_runs=generated_workflows,
             skipped=skipped,
             runs=[_routine_run_to_schema(run) for run in created_runs],

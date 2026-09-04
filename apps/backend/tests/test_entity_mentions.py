@@ -83,7 +83,7 @@ class EntityMentionContractTests(unittest.TestCase):
         refs = parse_entity_mention_tokens("See [[report:a1]] and [[artifact:a1]] plus [[calendar:b1]]")
         self.assertEqual(
             [(item.type, item.id) for item in refs],
-            [("artifact", "a1"), ("calendar_block", "b1")],
+            [("artifact", "a1"), ("calendar_event", "b1")],
         )
 
     def test_relative_dates_use_sunday_week_and_canonical_ids(self):
@@ -131,12 +131,12 @@ class EntityMentionServiceTests(unittest.IsolatedAsyncioTestCase):
         summary = await service.get_summary("user-1", "day", "not-a-date")
         self.assertEqual(summary.availability, "unknown")
 
-    async def test_day_related_includes_logs_and_blocks(self):
+    async def test_day_related_includes_logs_and_calendar_events(self):
         service = EntityService()
         service._derived_edges = AsyncMock(
             return_value=[
                 RelatedEntity(ref=EntityRef(type="habit_log", id="log-1"), relationship="logged_on", source="fk"),
-                RelatedEntity(ref=EntityRef(type="calendar_block", id="block-1"), relationship="scheduled_on", source="fk"),
+                RelatedEntity(ref=EntityRef(type="calendar_event", id="event-1"), relationship="scheduled_on", source="fk"),
             ]
         )
         service._authored_edges = AsyncMock(return_value=[])
@@ -153,13 +153,13 @@ class EntityMentionServiceTests(unittest.IsolatedAsyncioTestCase):
                     ),
                     SimpleNamespace(name="Walk"),
                 )
-            if entity_type == "calendar_block" and entity_id == "block-1":
+            if entity_type == "calendar_event" and entity_id == "event-1":
                 return SimpleNamespace(
-                    id="block-1",
+                    id="event-1",
                     title="Deep work",
-                    day="2026-08-17",
-                    start_minutes=540,
-                    end_minutes=600,
+                    start_date="2026-08-17",
+                    start_at=None,
+                    status="confirmed",
                     updated_at=None,
                 )
             return None
@@ -177,7 +177,7 @@ class EntityMentionServiceTests(unittest.IsolatedAsyncioTestCase):
             items = await service.related("user-1", "day", "2026-08-17")
         self.assertEqual(len(items), 2)
         self.assertEqual(items[0].edge.relationship, "logged_on")
-        self.assertEqual(items[1].summary.ref.type, "calendar_block")
+        self.assertEqual(items[1].summary.ref.type, "calendar_event")
 
     async def test_sync_mentions_creates_dedupes_and_preserves_picker_refs(self):
         picker = EntityReferenceDB(

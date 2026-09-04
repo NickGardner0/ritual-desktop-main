@@ -8,7 +8,8 @@ export const ENTITY_TYPE_LABELS: Record<EntityType, string> = {
   artifact: "Report",
   conversation: "Chat",
   experiment: "Experiment",
-  calendar_block: "Calendar",
+  calendar_event: "Calendar event",
+  calendar_occurrence: "Calendar occurrence",
   day: "Day",
   time_window: "Date range",
 };

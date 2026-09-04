@@ -62,7 +62,7 @@ def create_entities_router(*, get_current_user: Callable[..., Any]) -> APIRouter
         sql_types = [
             item
             for item in wanted
-            if item in {"task", "routine", "experiment", "calendar_block", "day", "time_window"}
+            if item in {"task", "routine", "experiment", "calendar_event", "calendar_occurrence", "day", "time_window"}
         ]
         indexed_types = [item for item in wanted if item not in sql_types]
         blocked = any(_privacy_blocks_search(request, item) for item in indexed_types)

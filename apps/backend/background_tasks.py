@@ -229,6 +229,22 @@ async def _run_location_retention() -> int:
     return deleted + scheduler_claims_deleted
 
 
+async def _run_google_calendar_reconciliation() -> dict[str, int]:
+    from services.google_calendar_service import google_calendar_service
+
+    result = await google_calendar_service.sync_all_active_accounts(trigger="reconciliation")
+    if result["accounts"]:
+        logger.info(
+            "📅 Google Calendar reconciliation: accounts=%d synced=%d failed=%d imported=%d deleted=%d",
+            result["accounts"],
+            result["synced"],
+            result["failed"],
+            result["imported"],
+            result["deleted"],
+        )
+    return result
+
+
 async def internal_scheduler_loop(tesla_service) -> None:
     """Run the six hourly domain owners behind independent occurrence claims."""
     from services.scheduler_service import run_clock_job
@@ -285,6 +301,14 @@ async def internal_scheduler_loop(tesla_service) -> None:
                 lambda: run_clock_job(
                     "location_ping_retention",
                     _run_location_retention,
+                    now=tick_now,
+                ),
+            ),
+            (
+                "google_calendar_reconciliation",
+                lambda: run_clock_job(
+                    "google_calendar_reconciliation",
+                    _run_google_calendar_reconciliation,
                     now=tick_now,
                 ),
             ),

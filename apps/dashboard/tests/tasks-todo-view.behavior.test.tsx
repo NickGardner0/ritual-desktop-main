@@ -113,8 +113,8 @@ describe('todo task view', () => {
     await user.click(screen.getByRole('button', { name: 'More options for Brush teeth' }));
     expect(await screen.findByText('Open')).toBeInTheDocument();
     expect(screen.getByText('Complete task')).toBeInTheDocument();
-    expect(screen.getByText('Schedule for today')).toBeInTheDocument();
-    expect(screen.getByText('Schedule...')).toBeInTheDocument();
+    expect(screen.getByText('Set deadline today')).toBeInTheDocument();
+    expect(screen.getByText('Deadline...')).toBeInTheDocument();
     expect(screen.getByText('Delete task')).toBeInTheDocument();
 
     await user.click(screen.getByText('Complete task'));
@@ -133,11 +133,9 @@ describe('todo task view', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'More options for Brush teeth' }));
-    await user.click(await screen.findByText('Schedule for today'));
+    await user.click(await screen.findByText('Set deadline today'));
     await waitFor(() => expect(onUpdate).toHaveBeenCalled());
     expect(onUpdate.mock.calls[0][0]).toBe('task-1');
-    expect(onUpdate.mock.calls[0][1]).toEqual({
-      scheduled_for: expect.any(String),
-    });
+    expect(onUpdate.mock.calls[0][1]).toEqual({ due_at: expect.any(String) });
   });
 });

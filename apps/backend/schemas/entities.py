@@ -19,7 +19,8 @@ ENTITY_TYPES = (
     "artifact",
     "conversation",
     "experiment",
-    "calendar_block",
+    "calendar_event",
+    "calendar_occurrence",
     "day",
     "time_window",
 )
@@ -31,14 +32,15 @@ LAYER_0_ENTITY_TYPES = (
     "routine",
     "artifact",
     "conversation",
-    "calendar_block",
+    "calendar_event",
+    "calendar_occurrence",
     "day",
     "time_window",
 )
 
 ENTITY_TYPE_ALIASES = {
     "report": "artifact",
-    "calendar": "calendar_block",
+    "calendar": "calendar_event",
 }
 
 ENTITY_MENTION_TOKEN_RE = re.compile(r"\[\[([a-z_]+):([^\]]+)\]\]")
@@ -53,7 +55,8 @@ EntityType = Literal[
     "artifact",
     "conversation",
     "experiment",
-    "calendar_block",
+    "calendar_event",
+    "calendar_occurrence",
     "day",
     "time_window",
 ]
@@ -90,8 +93,10 @@ def entity_route(entity_type: str, entity_id: str) -> str:
         return f"/chat?conversation={encoded}"
     if canonical == "experiment":
         return f"/experiments/{encoded}"
-    if canonical == "calendar_block":
-        return f"/calendar?block={encoded}"
+    if canonical == "calendar_event":
+        return f"/calendar?event={encoded}"
+    if canonical == "calendar_occurrence":
+        return f"/calendar?occurrence={encoded}"
     if canonical == "day":
         return f"/calendar?date={encoded}"
     if canonical == "time_window":

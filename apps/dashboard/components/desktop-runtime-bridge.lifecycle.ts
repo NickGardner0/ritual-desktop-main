@@ -577,6 +577,13 @@ export function useDesktopRealtimeSync(input: {
               return;
             }
             const payload = JSON.parse(event.data);
+            if (payload?.type === 'calendar.changed') {
+              markReadConsistencyRequired(userId);
+              window.dispatchEvent(new CustomEvent('ritual:calendar-changed', {
+                detail: payload,
+              }));
+              return;
+            }
             if (payload?.type !== 'habit_logged') return;
 
             markReadConsistencyRequired(userId);

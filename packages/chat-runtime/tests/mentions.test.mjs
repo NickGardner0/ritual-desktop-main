@@ -21,7 +21,7 @@ test("collects user tokens and attached refs for backlinks", () => {
   ]);
   assert.deepEqual(targets, [
     { type: "habit", id: "h1" },
-    { type: "calendar_block", id: "b1" },
+    { type: "calendar_event", id: "b1" },
   ]);
 });
 

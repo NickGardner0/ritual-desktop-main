@@ -144,7 +144,6 @@ export function buildOptimisticTask(
     status: input.status || 'open',
     priority: input.priority || 'none',
     due_at: input.due_at ?? null,
-    scheduled_for: input.scheduled_for ?? null,
     completed_at: input.status === 'completed' ? nowIso : null,
     source: input.source || 'manual',
     project: input.project ?? null,

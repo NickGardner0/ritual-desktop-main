@@ -58,6 +58,7 @@ PRIVACY_CATEGORY_SPECS: dict[str, PrivacyCategorySpec] = {
     "daily_note": _sensitive("daily_note"),
     "task": _sensitive("task"),
     "routine": _sensitive("routine"),
+    "calendar_event": _sensitive("calendar_event"),
     "computer_activity": _sensitive(
         "computer_activity",
         retention_days=365,
@@ -228,14 +229,15 @@ ENTITY_TYPE_PRIVACY_CLASS = {
     "artifact": "ai_content",
     "conversation": "ai_content",
     "experiment": "task",
-    "calendar_block": "task",
+    "calendar_event": "calendar_event",
+    "calendar_occurrence": "calendar_event",
     "day": "habit_log",
     "time_window": "habit_log",
 }
 
 
 def data_class_for_entity_type(entity_type: str) -> str:
-    aliases = {"report": "artifact", "calendar": "calendar_block"}
+    aliases = {"report": "artifact", "calendar": "calendar_event"}
     canonical = aliases.get(entity_type, entity_type)
     return ENTITY_TYPE_PRIVACY_CLASS.get(canonical, "account_metadata")
 

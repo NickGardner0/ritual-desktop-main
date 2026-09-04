@@ -85,8 +85,8 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
         await self.engine.dispose()
         self._tmpdir.cleanup()
 
-    async def test_registry_contains_all_thirteen_named_owners(self):
-        self.assertEqual(len(SCHEDULER_JOB_DEFINITIONS), 13)
+    async def test_registry_contains_all_fourteen_named_owners(self):
+        self.assertEqual(len(SCHEDULER_JOB_DEFINITIONS), 14)
         self.assertEqual(
             {item.job_key for item in SCHEDULER_JOB_DEFINITIONS},
             {
@@ -96,6 +96,7 @@ class SchedulerServiceTests(unittest.IsolatedAsyncioTestCase):
                 "tesla_odometer_sync",
                 "financial_sync",
                 "location_ping_retention",
+                "google_calendar_reconciliation",
                 "habit_reports",
                 "workflow_runs",
                 "ambient_signals",

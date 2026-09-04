@@ -19,6 +19,10 @@ from database.models import (
     ArtifactDB,
     AssistantTurnDB,
     Base,
+    CalendarEventDB,
+    CalendarOccurrenceDB,
+    CalendarSourceDB,
+    CalendarSyncRunDB,
     ExperimentDB,
     ExperimentEntryDB,
     FinancialAccountDB,
@@ -30,7 +34,6 @@ from database.models import (
     ReportRunDB,
     RoutineDB,
     RoutineRunDB,
-    ScheduledBlockDB,
     SmsCopilotEventDB,
     TaskDB,
     TaskEventDB,
@@ -101,13 +104,43 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
             session.add(
-                ScheduledBlockDB(
-                    id="block-private",
+                CalendarSourceDB(
+                    id="source-private",
                     user_id="user-privacy-inventory",
+                    name="Ritual",
+                    timezone="America/New_York",
+                    access_role="owner",
+                )
+            )
+            session.add(
+                CalendarEventDB(
+                    id="event-private",
+                    user_id="user-privacy-inventory",
+                    source_id="source-private",
                     title="Therapy",
-                    day="2026-06-23",
-                    start_minutes=540,
-                    end_minutes=600,
+                    start_at=datetime(2026, 6, 23, 13, 0),
+                    end_at=datetime(2026, 6, 23, 14, 0),
+                    timezone="America/New_York",
+                )
+            )
+            session.add(
+                CalendarOccurrenceDB(
+                    id="occurrence-private",
+                    event_id="event-private",
+                    user_id="user-privacy-inventory",
+                    source_id="source-private",
+                    start_at=datetime(2026, 6, 23, 13, 0),
+                    end_at=datetime(2026, 6, 23, 14, 0),
+                    timezone="America/New_York",
+                )
+            )
+            session.add(
+                CalendarSyncRunDB(
+                    id="sync-private",
+                    user_id="user-privacy-inventory",
+                    source_id="source-private",
+                    trigger="manual",
+                    status="completed",
                 )
             )
             session.add(
@@ -360,7 +393,8 @@ class PrivacyMigrationInventoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(inventory["deletes_cloud_data"], False)
         self.assertEqual(counts["habit_definitions"], 1)
         self.assertEqual(counts["habit_logs"], 1)
-        self.assertEqual(counts["scheduled_blocks"], 1)
+        self.assertEqual(counts["calendar_events"], 1)
+        self.assertEqual(counts["calendar_sources"], 1)
         self.assertGreaterEqual(inventory["total_records"], 3)
 
     async def test_dry_run_samples_habits_and_logs_without_source_mutation(self):

@@ -7,10 +7,10 @@ export type TaskStatus =
   | 'skipped'
   | 'archived';
 export type TaskPriority = 'none' | 'low' | 'medium' | 'high' | 'urgent';
-export type TaskSource = 'manual' | 'routine' | 'ai' | 'calendar' | 'habit' | 'experiment';
+export type TaskSource = 'manual' | 'routine' | 'ai' | 'habit' | 'experiment';
 
 export type RoutineStatus = 'draft' | 'scheduled' | 'paused' | 'archived';
-export type RoutineKind = 'task' | 'ai_workflow' | 'habit_prompt' | 'calendar_block' | 'mixed';
+export type RoutineKind = 'task' | 'ai_workflow' | 'habit_prompt' | 'mixed';
 export type RoutineTriggerType = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'on_completion';
 export type RoutineRunStatus = 'scheduled' | 'generated' | 'completed' | 'skipped' | 'failed';
 
@@ -22,7 +22,6 @@ export type Task = {
   status: TaskStatus;
   priority: TaskPriority;
   due_at: string | null;
-  scheduled_for: string | null;
   completed_at: string | null;
   source: TaskSource;
   project: string | null;
@@ -47,7 +46,6 @@ export type TaskCreateInput = {
   status?: TaskStatus;
   priority?: TaskPriority;
   due_at?: string | null;
-  scheduled_for?: string | null;
   source?: TaskSource;
   project?: string | null;
   category?: string | null;
@@ -61,7 +59,6 @@ export type TaskUpdateInput = Partial<{
   status: TaskStatus;
   priority: TaskPriority;
   due_at: string | null;
-  scheduled_for: string | null;
   completed_at: string | null;
   project: string | null;
   category: string | null;
@@ -134,7 +131,6 @@ export type RoutineRun = {
   scheduled_for: string;
   status: RoutineRunStatus;
   generated_task_id: string | null;
-  generated_scheduled_block_id: string | null;
   workflow_run_id: string | null;
   completed_at: string | null;
   skipped_at: string | null;

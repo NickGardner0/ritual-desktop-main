@@ -255,14 +255,14 @@ export function TasksClient() {
 
   const invalidateTaskSurfaces = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['tasks', user?.id] });
-    void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar-v2', user?.id] });
     void queryClient.invalidateQueries({
       queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
     });
   }, [queryClient, user?.id]);
 
   const invalidateTaskDerivedSurfaces = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks', user?.id] });
+    void queryClient.invalidateQueries({ queryKey: ['calendar-v2', user?.id] });
     void queryClient.invalidateQueries({
       queryKey: dashboardQueryKeys.calendarReadModel.byUser(user?.id ?? 'anonymous'),
     });

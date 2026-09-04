@@ -1,6 +1,6 @@
 const ENTITY_TYPE_ALIASES = {
   report: "artifact",
-  calendar: "calendar_block",
+  calendar: "calendar_event",
 };
 
 function entityRefKey(ref) {

@@ -14,7 +14,7 @@ from alembic.config import Config
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
-HEAD_REVISION = "20260822_0004"
+HEAD_REVISION = "20260904_0001"
 
 
 LEGACY_SUBSET_SQL = """
@@ -62,14 +62,14 @@ class MigrationUpgradeTests(unittest.TestCase):
     def _database_path(self, name: str) -> Path:
         return Path(self.temp_dir.name) / name
 
-    def _upgrade(self, database_path: Path) -> None:
+    def _upgrade(self, database_path: Path, revision: str = "head") -> None:
         config = Config(str(BACKEND_ROOT / "alembic.ini"))
         with patch.dict(
             os.environ,
             {"ALEMBIC_DATABASE_URL": f"sqlite:///{database_path}"},
             clear=False,
         ):
-            command.upgrade(config, "head")
+            command.upgrade(config, revision)
 
     @staticmethod
     def _columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
@@ -109,7 +109,7 @@ class MigrationUpgradeTests(unittest.TestCase):
                     f"missing model indexes on {table_name}",
                 )
 
-    def test_known_legacy_script_subset_upgrades_without_data_loss(self) -> None:
+    def test_known_legacy_script_subset_destructively_replaces_calendar_only(self) -> None:
         database_path = self._database_path("legacy.db")
         with sqlite3.connect(database_path) as connection:
             connection.executescript(LEGACY_SUBSET_SQL)
@@ -152,20 +152,87 @@ class MigrationUpgradeTests(unittest.TestCase):
                 "overview_view_mode",
                 self._columns(connection, "user_ui_preferences"),
             )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT title FROM scheduled_blocks WHERE id='sb1'"
-                ).fetchone()[0],
-                "Legacy block",
-            )
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertNotIn("scheduled_blocks", tables)
             self.assertTrue(
-                any(
-                    row[2] == "tasks" and row[3] == "task_id" and row[4] == "id"
-                    for row in connection.execute(
-                        "PRAGMA foreign_key_list(scheduled_blocks)"
-                    ).fetchall()
-                )
+                {"calendar_accounts", "calendar_sources", "calendar_events", "calendar_occurrences", "calendar_sync_runs"}
+                <= tables
             )
+            self.assertNotIn("scheduled_for", self._columns(connection, "tasks"))
+            self.assertNotIn("generated_scheduled_block_id", self._columns(connection, "routine_runs"))
+            self.assertIn("calendar_preferences_json", self._columns(connection, "user_ui_preferences"))
+
+    def test_calendar_cutover_deletes_calendar_generated_data_and_preserves_manual_work(self) -> None:
+        database_path = self._database_path("calendar-cutover.db")
+        self._upgrade(database_path, "20260822_0004")
+        with sqlite3.connect(database_path) as connection:
+            connection.execute("PRAGMA foreign_keys=OFF")
+            connection.execute("INSERT INTO users(id,email) VALUES ('calendar-user','calendar@example.com')")
+            connection.execute(
+                """INSERT INTO tasks(id,user_id,title,status,priority,source,tags_json,scheduled_for)
+                   VALUES ('calendar-task','calendar-user','Generated block task','open','none','calendar','[]','2026-09-04 09:00:00')"""
+            )
+            connection.execute(
+                """INSERT INTO tasks(id,user_id,title,status,priority,source,tags_json,scheduled_for)
+                   VALUES ('manual-task','calendar-user','Manual linked task','open','none','manual','[]','2026-09-04 10:00:00')"""
+            )
+            routine_values = (
+                "calendar-user", "scheduled", "daily", "{}", "America/New_York", "none", "[]", "{}"
+            )
+            connection.execute(
+                """INSERT INTO routines(id,user_id,title,status,kind,trigger_type,trigger_config_json,timezone,priority,tags_json,task_template_json)
+                   VALUES ('pure-calendar',?,?,?,?,?,?,?,?,?,?)""",
+                (routine_values[0], "Calendar only", routine_values[1], "calendar_block", *routine_values[2:]),
+            )
+            connection.execute(
+                """INSERT INTO routines(id,user_id,title,status,kind,trigger_type,trigger_config_json,timezone,priority,tags_json,task_template_json)
+                   VALUES ('mixed-routine',?,?,?,?,?,?,?,?,?,?)""",
+                (routine_values[0], "Mixed routine", routine_values[1], "mixed", *routine_values[2:]),
+            )
+            connection.execute(
+                """INSERT INTO routine_runs(id,routine_id,user_id,scheduled_for,status,generated_task_id,generated_scheduled_block_id)
+                   VALUES ('pure-run','pure-calendar','calendar-user','2026-09-04 09:00:00','generated','calendar-task','block-generated')"""
+            )
+            connection.execute(
+                """INSERT INTO routine_runs(id,routine_id,user_id,scheduled_for,status,generated_task_id,generated_scheduled_block_id)
+                   VALUES ('mixed-run','mixed-routine','calendar-user','2026-09-04 10:00:00','generated','manual-task','block-manual')"""
+            )
+            connection.execute(
+                """INSERT INTO scheduled_blocks(id,user_id,title,day,start_minutes,end_minutes,task_id)
+                   VALUES ('block-generated','calendar-user','Generated','2026-09-04',540,600,'calendar-task')"""
+            )
+            connection.execute(
+                """INSERT INTO scheduled_blocks(id,user_id,title,day,start_minutes,end_minutes,task_id)
+                   VALUES ('block-manual','calendar-user','Linked','2026-09-04',600,660,'manual-task')"""
+            )
+            connection.execute(
+                """INSERT INTO entity_references(id,user_id,source_type,source_id,target_type,target_id,relationship,provenance)
+                   VALUES ('legacy-ref','calendar-user','task','manual-task','calendar_block','block-manual','references','user')"""
+            )
+            connection.execute(
+                """INSERT INTO approval_requests(id,user_id,action_kind,status,payload_json,proposed_action_json,policy_decision_json)
+                   VALUES ('legacy-approval','calendar-user','calendar.create','pending','{}','{\"type\":\"calendar_block\"}','{}')"""
+            )
+            connection.execute(
+                """INSERT INTO action_receipts(id,user_id,action_kind,capability,target_ref,status,metadata_json)
+                   VALUES ('legacy-receipt','calendar-user','calendar.create','tasks','calendar_block:block-manual','applied','{}')"""
+            )
+            connection.commit()
+
+        self._upgrade(database_path)
+
+        with sqlite3.connect(database_path) as connection:
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertNotIn("scheduled_blocks", tables)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM tasks WHERE id='calendar-task'").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM tasks WHERE id='manual-task'").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM routines WHERE id='pure-calendar'").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT kind FROM routines WHERE id='mixed-routine'").fetchone()[0], "task")
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM routine_runs WHERE id='pure-run'").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM routine_runs WHERE id='mixed-run'").fetchone()[0], 1)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM entity_references WHERE id='legacy-ref'").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM approval_requests WHERE id='legacy-approval'").fetchone()[0], 0)
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM action_receipts WHERE id='legacy-receipt'").fetchone()[0], 0)
 
 
 if __name__ == "__main__":

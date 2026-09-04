@@ -8,7 +8,8 @@ export const ENTITY_TYPES = [
   "artifact",
   "conversation",
   "experiment",
-  "calendar_block",
+  "calendar_event",
+  "calendar_occurrence",
   "day",
   "time_window",
 ] as const;
@@ -22,7 +23,8 @@ export const LAYER_0_ENTITY_TYPES = [
   "routine",
   "artifact",
   "conversation",
-  "calendar_block",
+  "calendar_event",
+  "calendar_occurrence",
   "day",
   "time_window",
 ] as const;
@@ -32,7 +34,7 @@ export type Layer0EntityType = (typeof LAYER_0_ENTITY_TYPES)[number];
 /** Incoming aliases. Stored and returned refs always use the canonical type. */
 export const ENTITY_TYPE_ALIASES = {
   report: "artifact",
-  calendar: "calendar_block",
+  calendar: "calendar_event",
 } as const;
 
 export type EntityTypeAlias = keyof typeof ENTITY_TYPE_ALIASES;
@@ -87,7 +89,8 @@ const ENTITY_PRIVACY_CLASS: Record<EntityType, PrivacyDataClass> = {
   artifact: "ai_content",
   conversation: "ai_content",
   experiment: "task",
-  calendar_block: "task",
+  calendar_event: "calendar_event",
+  calendar_occurrence: "calendar_event",
   day: "habit_log",
   time_window: "habit_log",
 };
@@ -133,8 +136,10 @@ export function entityRoute(type: EntityType, id: string): string {
       return `/chat?conversation=${encoded}`;
     case "experiment":
       return `/experiments/${encoded}`;
-    case "calendar_block":
-      return `/calendar?block=${encoded}`;
+    case "calendar_event":
+      return `/calendar?event=${encoded}`;
+    case "calendar_occurrence":
+      return `/calendar?occurrence=${encoded}`;
     case "day":
       return `/calendar?date=${encoded}`;
     case "time_window": {

@@ -326,6 +326,16 @@ Use `cn()` for conditional classes. Do not concatenate dynamic Tailwind classes 
 
 ## Composition patterns
 
+### Calendar workspace
+
+- Calendar is an instrument workspace: a flexible human time grid flanked by task and workflow context, never a marketing dashboard.
+- Day is the first-use default. Day, Week, and Month share one compact floating dock; Plan and Review remain visibly distinct modes.
+- Use only the semantic calendar roles `--calendar-grid`, `--calendar-now`, `--calendar-external-event`, `--calendar-task-allocation`, `--calendar-workflow-plan`, `--calendar-actual-execution`, `--calendar-conflict`, `--calendar-proposal`, `--calendar-muted`, and `--calendar-off-hours` for reusable calendar styling.
+- Provider source color may be displayed as data, but event type and state always require an icon, label, border treatment, or pattern as a non-color cue.
+- Task allocations represent time commitments and remain independent of task deadlines. Workflow executions are observational in the calendar.
+- Below 1100px, task and workflow panes become overlay sheets so the time grid keeps a useful minimum width.
+- AI proposals use proposal styling and explicit approval; a proposed change must never be visually indistinguishable from a persisted event.
+
 ### Application shell
 
 - Native/translucent titlebar at 36px.

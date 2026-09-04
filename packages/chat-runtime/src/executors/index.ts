@@ -61,6 +61,9 @@ export {
 // Calendar executor
 export {
   executeGetCalendarEvents,
+  executeSearchCalendar,
+  executeFindCalendarAvailability,
+  executeProposeCalendarChanges,
 } from './calendar.js';
 
 // SMS preferences executors

@@ -78,7 +78,7 @@ test("ignores mutations without receipt ids", () => {
   assert.equal(buildToolPayload(toolResults), null);
 });
 
-test("calendar events collect calendar_block refs", () => {
+test("calendar events collect calendar_event refs", () => {
   const toolResults = { entityRefs: [] };
   const parsed = {
     success: true,
@@ -89,7 +89,7 @@ test("calendar events collect calendar_block refs", () => {
   };
   for (const event of parsed.events) {
     if (!event.id) continue;
-    toolResults.entityRefs.push({ type: "calendar_block", id: event.id, title: event.title });
+    toolResults.entityRefs.push({ type: "calendar_event", id: event.id, title: event.title });
   }
-  assert.deepEqual(toolResults.entityRefs, [{ type: "calendar_block", id: "b1", title: "Deep work" }]);
+  assert.deepEqual(toolResults.entityRefs, [{ type: "calendar_event", id: "b1", title: "Deep work" }]);
 });

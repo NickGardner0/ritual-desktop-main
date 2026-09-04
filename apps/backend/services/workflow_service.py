@@ -202,6 +202,7 @@ class WorkflowService:
             trigger_type=definition.trigger_type,  # type: ignore[arg-type]
             signal_kind=definition.signal_kind,
             cooldown_minutes=int(definition.cooldown_minutes or 0),
+            expected_duration_minutes=int(definition.expected_duration_minutes or 30),
             quiet_hours=self._parse_json(definition.quiet_hours_json, {}),
             status=definition.status,  # type: ignore[arg-type]
             schedule=WorkflowSchedule(
@@ -363,6 +364,7 @@ class WorkflowService:
                 trigger_type=defaults["trigger_type"],
                 signal_kind=defaults.get("signal_kind"),
                 cooldown_minutes=int(defaults.get("cooldown_minutes") or 240),
+                expected_duration_minutes=int(defaults.get("expected_duration_minutes") or 30),
                 quiet_hours_json=json.dumps(defaults.get("quiet_hours") or {}),
                 status=defaults["status"],
                 timezone=normalized_timezone,
@@ -492,6 +494,7 @@ class WorkflowService:
                 trigger_type=payload.trigger_type,
                 signal_kind=payload.signal_kind,
                 cooldown_minutes=max(0, int(payload.cooldown_minutes or 0)),
+                expected_duration_minutes=int(payload.expected_duration_minutes),
                 quiet_hours_json=json.dumps(payload.quiet_hours),
                 status=payload.status,
                 timezone=normalize_timezone(payload.schedule.timezone or timezone_name),
@@ -577,6 +580,8 @@ class WorkflowService:
                 definition.delivery_json = json.dumps(payload.delivery.model_dump(mode="json"))
             if payload.cooldown_minutes is not None:
                 definition.cooldown_minutes = max(0, int(payload.cooldown_minutes))
+            if payload.expected_duration_minutes is not None:
+                definition.expected_duration_minutes = int(payload.expected_duration_minutes)
             if payload.action_profile_id:
                 definition.action_profile_id = target_profile.id
             if payload.status is not None:

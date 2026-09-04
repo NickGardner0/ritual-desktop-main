@@ -92,6 +92,11 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime, nullable=True),
             sa.Column("updated_at", sa.DateTime, nullable=True),
         )
+    elif not _column_exists(bind, "tasks", "scheduled_for"):
+        # A clean install may have created the current model shape in the
+        # metadata bootstrap migration. Reconstruct this historical column so
+        # the remaining lineage can run before Calendar V2 removes it.
+        op.add_column("tasks", sa.Column("scheduled_for", sa.DateTime, nullable=True))
 
     if not _table_exists(bind, "routine_runs"):
         op.create_table(

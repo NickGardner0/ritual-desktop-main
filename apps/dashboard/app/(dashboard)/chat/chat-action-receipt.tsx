@@ -94,7 +94,7 @@ function ChatActionReceiptCard({
         forgetEntitySummary({ type: 'task', id: receipt.task_id });
       }
       void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-      void queryClient.invalidateQueries({ queryKey: ['calendar-scheduled-blocks'] });
+      void queryClient.invalidateQueries({ queryKey: ['calendar-v2'] });
       onUndone?.(receipt.receipt_id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Undo failed');

@@ -34,6 +34,7 @@ from api.financial import create_financial_router
 from api.imports import create_imports_router
 from api.integrations import create_tesla_router, create_whoop_router
 from api.location import create_location_router
+from api.calendar import create_calendar_router
 from api.metric_facts import create_metric_facts_router
 from api.observability import create_observability_router
 from api.privacy import create_privacy_router
@@ -244,6 +245,7 @@ def create_app() -> FastAPI:
     app.include_router(create_reports_router(get_current_user=get_persisted_account))
     app.include_router(create_artifacts_router(get_current_user=get_persisted_account))
     app.include_router(create_tasks_router(get_current_user=get_persisted_account))
+    app.include_router(create_calendar_router(get_current_user=get_persisted_account))
     app.include_router(create_workflows_router(get_current_user=get_persisted_account))
     app.include_router(create_action_profiles_router(get_current_user=get_persisted_account))
     app.include_router(create_action_receipts_router(get_current_user=get_persisted_account))

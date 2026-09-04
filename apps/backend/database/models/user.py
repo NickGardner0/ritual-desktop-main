@@ -112,6 +112,7 @@ class UserUIPreferencesDB(Base):
     user_id = Column(String, ForeignKey("users.id"), primary_key=True)
     habit_text_color = Column(String, nullable=True)
     overview_view_mode = Column(String, nullable=True)
+    calendar_preferences_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, default=_utcnow_naive)
     updated_at = Column(DateTime, default=_utcnow_naive, onupdate=_utcnow_naive)
 

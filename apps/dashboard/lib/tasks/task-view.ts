@@ -13,17 +13,16 @@ export function isTaskInView(task: Task, view: TaskViewId): boolean {
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const tomorrowStart = todayStart + 24 * 60 * 60 * 1000;
-  const scheduled = task.scheduled_for ? new Date(task.scheduled_for).getTime() : null;
   const due = task.due_at ? new Date(task.due_at).getTime() : null;
   if (view === 'completed') return task.status === 'completed';
   if (view === 'skipped') return task.status === 'canceled' || task.status === 'skipped';
   if (view === 'archived') return task.status === 'archived';
   if (!['open', 'in_progress', 'in_review'].includes(task.status)) return false;
-  if (view === 'anytime') return !scheduled && !due;
+  if (view === 'anytime') return !due;
   if (view === 'upcoming') {
-    return Boolean((scheduled && scheduled >= tomorrowStart) || (due && due >= tomorrowStart));
+    return Boolean(due && due >= tomorrowStart);
   }
-  return Boolean((scheduled && scheduled < tomorrowStart) || (due && due < tomorrowStart));
+  return Boolean(due && due < tomorrowStart);
 }
 
 export function filterTasksForView(tasks: Task[], view: TaskViewId, category: string): Task[] {
@@ -73,7 +72,6 @@ export function createInputFromTask(task: Task, patch: TaskUpdateInput = {}): Ta
     status: patch.status ?? task.status,
     priority: patch.priority ?? task.priority,
     due_at: patch.due_at !== undefined ? patch.due_at : task.due_at,
-    scheduled_for: patch.scheduled_for !== undefined ? patch.scheduled_for : task.scheduled_for,
     source: task.source,
     project: patch.project !== undefined ? patch.project : task.project,
     category: patch.category !== undefined ? patch.category : task.category,
@@ -132,8 +130,8 @@ function startOfLocalDayMs(date: Date): number {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
 }
 
-export function taskTodoDateAnchorMs(task: Pick<Task, 'due_at' | 'scheduled_for'>): number | null {
-  const value = task.scheduled_for || task.due_at;
+export function taskTodoDateAnchorMs(task: Pick<Task, 'due_at'>): number | null {
+  const value = task.due_at;
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;

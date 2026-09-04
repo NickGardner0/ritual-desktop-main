@@ -201,10 +201,10 @@ describe('todo list grouping', () => {
     const today: Task = {
       ...baseTask,
       id: 'today',
-      scheduled_for: localMorningIso(2026, 9, 1),
+      due_at: localMorningIso(2026, 9, 1),
     };
     const upcoming: Task = { ...baseTask, id: 'upcoming', due_at: localMorningIso(2026, 9, 10) };
-    const undated: Task = { ...baseTask, id: 'undated', due_at: null, scheduled_for: null };
+    const undated: Task = { ...baseTask, id: 'undated', due_at: null };
     const groups = groupTasksForTodoView([undated, upcoming, overdue, today], now);
 
     expect(groups.map((group) => group.id)).toEqual(['overdue', 'today', 'upcoming', 'undated']);
@@ -214,11 +214,11 @@ describe('todo list grouping', () => {
     expect(groups.find((group) => group.id === 'undated')?.tasks.map((task) => task.id)).toEqual(['undated']);
   });
 
-  it('prefers scheduled_for over due_at when grouping', () => {
+  it('uses the independent deadline when grouping', () => {
     const now = localNoon(2026, 9, 1);
     const task: Task = {
       ...baseTask,
-      due_at: localMorningIso(2026, 8, 20),
+      due_at: localMorningIso(2026, 9, 1),
       scheduled_for: localMorningIso(2026, 9, 1),
     };
     const groups = groupTasksForTodoView([task], now);
@@ -227,9 +227,9 @@ describe('todo list grouping', () => {
   });
 
   it('omits empty groups', () => {
-    const groups = groupTasksForTodoView([{ ...baseTask, due_at: null, scheduled_for: null }]);
+    const groups = groupTasksForTodoView([{ ...baseTask, due_at: null }]);
     expect(groups).toEqual([
-      { id: 'undated', label: 'No date', tasks: [{ ...baseTask, due_at: null, scheduled_for: null }] },
+      { id: 'undated', label: 'No date', tasks: [{ ...baseTask, due_at: null }] },
     ]);
   });
 });
@@ -253,4 +253,3 @@ describe('task display mode preference', () => {
     expect(readStoredTaskDisplayMode()).toBe('list');
   });
 });
-

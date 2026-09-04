@@ -71,11 +71,11 @@ class EntitiesApiTests(unittest.TestCase):
 
     def test_calendar_alias_canonicalizes(self):
         with patch("api.entities.entity_service") as service:
-            service.get_summary = AsyncMock(return_value=_summary("calendar_block", "block-1", "Deep work"))
+            service.get_summary = AsyncMock(return_value=_summary("calendar_event", "event-1", "Deep work"))
             response = self.client.get("/api/entities/calendar/block-1")
 
         self.assertEqual(response.status_code, 200)
-        service.get_summary.assert_awaited_with("user-1", "calendar_block", "block-1")
+        service.get_summary.assert_awaited_with("user-1", "calendar_event", "block-1")
 
     def test_report_alias_canonicalizes(self):
         with patch("api.entities.entity_service") as service:
@@ -94,13 +94,13 @@ class EntitiesApiTests(unittest.TestCase):
         service.search.assert_awaited_with(
             "user-1",
             "walk",
-            types=["artifact", "calendar_block"],
+            types=["artifact", "calendar_event"],
             limit=20,
         )
 
     def test_entity_ref_aliases_are_canonical(self):
         self.assertEqual(EntityRef(type="report", id="a1").type, "artifact")
-        self.assertEqual(EntityRef(type="calendar", id="b1").type, "calendar_block")
+        self.assertEqual(EntityRef(type="calendar", id="b1").type, "calendar_event")
 
     def test_day_summary_route(self):
         with patch("api.entities.entity_service") as service:

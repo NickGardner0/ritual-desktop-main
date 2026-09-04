@@ -20,7 +20,6 @@ class TaskDB(Base):
     status = Column(String, nullable=False, default="open")
     priority = Column(String, nullable=False, default="none")  # none | low | medium | high | urgent
     due_at = Column(DateTime, nullable=True)
-    scheduled_for = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     source = Column(String, nullable=False, default="manual")  # manual | routine | ai | calendar | habit | experiment
     project = Column(String, nullable=True)
@@ -39,7 +38,6 @@ class TaskDB(Base):
     routine_run = orm_relationship("RoutineRunDB", foreign_keys=[routine_run_id])
 
     __table_args__ = (
-        Index("idx_tasks_user_status_scheduled", "user_id", "status", "scheduled_for"),
         Index("idx_tasks_user_status_due", "user_id", "status", "due_at"),
         Index("idx_tasks_user_source", "user_id", "source"),
         Index("idx_tasks_user_client_event", "user_id", "client_event_id", unique=True),
@@ -56,7 +54,7 @@ class RoutineDB(Base):
     title = Column(String, nullable=False)
     description = Column(Text, nullable=True)
     status = Column(String, nullable=False, default="scheduled")  # draft | scheduled | paused | archived
-    kind = Column(String, nullable=False, default="task")  # task | ai_workflow | habit_prompt | calendar_block | mixed
+    kind = Column(String, nullable=False, default="task")  # task | ai_workflow | habit_prompt | mixed
     trigger_type = Column(String, nullable=False, default="daily")
     trigger_config_json = Column(Text, nullable=False, default="{}")
     timezone = Column(String, nullable=False, default="America/New_York")
@@ -94,7 +92,6 @@ class RoutineRunDB(Base):
     scheduled_for = Column(DateTime, nullable=False)
     status = Column(String, nullable=False, default="scheduled")  # scheduled | generated | completed | skipped | failed
     generated_task_id = Column(String, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
-    generated_scheduled_block_id = Column(String, ForeignKey("scheduled_blocks.id", ondelete="SET NULL"), nullable=True)
     workflow_run_id = Column(String, ForeignKey("workflow_runs.id", ondelete="SET NULL"), nullable=True)
     completed_at = Column(DateTime, nullable=True)
     skipped_at = Column(DateTime, nullable=True)
@@ -106,7 +103,6 @@ class RoutineRunDB(Base):
     user = orm_relationship("UserDB")
     routine = orm_relationship("RoutineDB", back_populates="runs")
     generated_task = orm_relationship("TaskDB", foreign_keys=[generated_task_id])
-    generated_scheduled_block = orm_relationship("ScheduledBlockDB")
     workflow_run = orm_relationship("WorkflowRunDB")
 
     __table_args__ = (

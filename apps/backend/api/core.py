@@ -4,23 +4,12 @@ import asyncio
 import logging
 import os
 import time
-import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
-from sqlalchemy import and_, delete, select
-
-from database.connection import force_local_replica_sync, get_db_session
-from database.models import ScheduledBlockDB
-from services.scheduled_block_tasks import (
-    find_block_for_task,
-    get_or_create_calendar_task,
-    load_task_status_map,
-    scheduled_block_payload,
-    sync_task_from_block,
-)
+from database.connection import force_local_replica_sync
 from database.helpers import user_db_to_profile
 from models.habit_models import Habit, HabitCreate, HabitLog, HabitLogCreate, HabitLogUpdate, HabitUpdate
 from models.user_models import (
@@ -56,40 +45,6 @@ def _env_flag(name: str) -> bool:
     return os.getenv(name, "").lower() in {"1", "true", "yes", "on"}
 
 
-class ScheduledBlockBase(BaseModel):
-    title: str
-    notes: Optional[str] = None
-    day: str  # YYYY-MM-DD
-    start_minutes: int  # 0..1439
-    end_minutes: int  # 1..1440
-
-
-class ScheduledBlockCreate(ScheduledBlockBase):
-    task_id: Optional[str] = None
-    client_event_id: Optional[str] = None
-
-
-class ScheduledBlockUpdate(BaseModel):
-    title: Optional[str] = None
-    notes: Optional[str] = None
-    day: Optional[str] = None
-    start_minutes: Optional[int] = None
-    end_minutes: Optional[int] = None
-    task_id: Optional[str] = None
-
-
-class ScheduledBlock(ScheduledBlockBase):
-    id: str
-    user_id: str
-    task_id: Optional[str] = None
-    task_status: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
 class BatchLogItem(BaseModel):
     habit_id: str
     date: str  # YYYY-MM-DD
@@ -112,22 +67,6 @@ class TursoSyncConfigResponse(BaseModel):
     expires_at: str
     database_name: str
     activity_schema_version: int = 2
-
-
-def _validate_scheduled_block_values(day: str, start_minutes: int, end_minutes: int):
-    try:
-        datetime.strptime(day, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
-
-    if start_minutes < 0 or start_minutes > 1439:
-        raise HTTPException(status_code=400, detail="start_minutes must be between 0 and 1439")
-
-    if end_minutes < 1 or end_minutes > 1440:
-        raise HTTPException(status_code=400, detail="end_minutes must be between 1 and 1440")
-
-    if end_minutes <= start_minutes:
-        raise HTTPException(status_code=400, detail="end_minutes must be greater than start_minutes")
 
 
 async def _maybe_force_fresh_read(request: Request):
@@ -624,34 +563,6 @@ def create_core_router(
             logger.exception("logs read model failed for user %s", current_user.get("id"))
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 
-    @router.get("/api/calendar/read-model")
-    async def get_calendar_read_model(
-        request: Request,
-        start_date: Optional[str] = Query(None),
-        end_date: Optional[str] = Query(None),
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            if start_date:
-                datetime.strptime(start_date, "%Y-%m-%d")
-            if end_date:
-                datetime.strptime(end_date, "%Y-%m-%d")
-            await _maybe_force_fresh_read(request)
-            from services.screen_read_models_service import screen_read_models_service
-
-            return await screen_read_models_service.get_calendar_read_model(
-                user_id=current_user["id"],
-                start_date=start_date,
-                end_date=end_date,
-            )
-        except ValueError:
-            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
-        except HTTPException:
-            raise
-        except Exception:
-            logger.exception("calendar read model failed for user %s", current_user.get("id"))
-            raise HTTPException(status_code=400, detail="Request could not be processed.")
-
     @router.get("/api/habits/aliases")
     async def get_all_habit_aliases(current_user=Depends(get_current_user)):
         try:
@@ -810,211 +721,6 @@ def create_core_router(
             )
         except ValueError:
             raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
-        except Exception:
-            raise HTTPException(status_code=400, detail="Request could not be processed.")
-
-    @router.get("/api/calendar/scheduled-blocks", response_model=List[ScheduledBlock])
-    async def get_scheduled_blocks(
-        start_date: Optional[str] = Query(None),
-        end_date: Optional[str] = Query(None),
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            if start_date:
-                datetime.strptime(start_date, "%Y-%m-%d")
-            if end_date:
-                datetime.strptime(end_date, "%Y-%m-%d")
-
-            async with get_db_session() as session:
-                query = select(ScheduledBlockDB).where(ScheduledBlockDB.user_id == current_user["id"])
-                if start_date:
-                    query = query.where(ScheduledBlockDB.day >= start_date)
-                if end_date:
-                    query = query.where(ScheduledBlockDB.day <= end_date)
-                query = query.order_by(ScheduledBlockDB.day.asc(), ScheduledBlockDB.start_minutes.asc())
-                result = await session.execute(query)
-                blocks = result.scalars().all()
-                status_by_id = await load_task_status_map(
-                    session,
-                    [getattr(block, "task_id", None) for block in blocks],
-                )
-                return [
-                    ScheduledBlock.model_validate(
-                        scheduled_block_payload(block, status_by_id.get(getattr(block, "task_id", None)))
-                    )
-                    for block in blocks
-                ]
-        except ValueError:
-            raise HTTPException(status_code=400, detail="start_date/end_date must be YYYY-MM-DD")
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=400, detail="Request could not be processed.")
-
-    @router.post("/api/calendar/scheduled-blocks", response_model=ScheduledBlock)
-    async def create_scheduled_block(
-        block_data: ScheduledBlockCreate,
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            title = block_data.title.strip()
-            if not title:
-                raise HTTPException(status_code=400, detail="title is required")
-
-            _validate_scheduled_block_values(
-                day=block_data.day,
-                start_minutes=block_data.start_minutes,
-                end_minutes=block_data.end_minutes,
-            )
-
-            notes = block_data.notes.strip() if block_data.notes else None
-            user_id = current_user["id"]
-
-            async with get_db_session() as session:
-                try:
-                    task = await get_or_create_calendar_task(
-                        session,
-                        user_id=user_id,
-                        title=title,
-                        notes=notes,
-                        day=block_data.day,
-                        start_minutes=block_data.start_minutes,
-                        client_event_id=block_data.client_event_id,
-                        existing_task_id=block_data.task_id,
-                    )
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-                existing_block = await find_block_for_task(session, user_id, task.id)
-                if existing_block:
-                    status_by_id = await load_task_status_map(session, [task.id])
-                    return ScheduledBlock.model_validate(
-                        scheduled_block_payload(existing_block, status_by_id.get(task.id))
-                    )
-
-                now = datetime.utcnow()
-                block = ScheduledBlockDB(
-                    id=str(uuid.uuid4()),
-                    user_id=user_id,
-                    title=title,
-                    notes=notes,
-                    day=block_data.day,
-                    start_minutes=block_data.start_minutes,
-                    end_minutes=block_data.end_minutes,
-                    task_id=task.id,
-                    created_at=now,
-                    updated_at=now,
-                )
-                session.add(block)
-                await session.commit()
-                await session.refresh(block)
-                return ScheduledBlock.model_validate(scheduled_block_payload(block, task.status))
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=400, detail="Request could not be processed.")
-
-    @router.put("/api/calendar/scheduled-blocks/{block_id}", response_model=ScheduledBlock)
-    async def update_scheduled_block(
-        block_id: str,
-        block_data: ScheduledBlockUpdate,
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            async with get_db_session() as session:
-                result = await session.execute(
-                    select(ScheduledBlockDB).where(
-                        and_(
-                            ScheduledBlockDB.id == block_id,
-                            ScheduledBlockDB.user_id == current_user["id"],
-                        )
-                    )
-                )
-                block = result.scalar_one_or_none()
-                if not block:
-                    raise HTTPException(status_code=404, detail="Scheduled block not found")
-
-                next_day = block_data.day if block_data.day is not None else block.day
-                next_start = block_data.start_minutes if block_data.start_minutes is not None else block.start_minutes
-                next_end = block_data.end_minutes if block_data.end_minutes is not None else block.end_minutes
-
-                _validate_scheduled_block_values(day=next_day, start_minutes=next_start, end_minutes=next_end)
-
-                if block_data.title is not None:
-                    title = block_data.title.strip()
-                    if not title:
-                        raise HTTPException(status_code=400, detail="title cannot be empty")
-                    block.title = title
-
-                if block_data.notes is not None:
-                    block.notes = block_data.notes.strip() or None
-
-                block.day = next_day
-                block.start_minutes = next_start
-                block.end_minutes = next_end
-                block.updated_at = datetime.utcnow()
-
-                if block_data.task_id and not getattr(block, "task_id", None):
-                    try:
-                        task = await get_or_create_calendar_task(
-                            session,
-                            user_id=current_user["id"],
-                            title=block.title,
-                            notes=block.notes,
-                            day=block.day,
-                            start_minutes=block.start_minutes,
-                            existing_task_id=block_data.task_id,
-                        )
-                    except ValueError as exc:
-                        raise HTTPException(status_code=400, detail=str(exc)) from exc
-                    block.task_id = task.id
-                elif not getattr(block, "task_id", None):
-                    task = await get_or_create_calendar_task(
-                        session,
-                        user_id=current_user["id"],
-                        title=block.title,
-                        notes=block.notes,
-                        day=block.day,
-                        start_minutes=block.start_minutes,
-                    )
-                    block.task_id = task.id
-                else:
-                    await sync_task_from_block(session, block)
-
-                await session.commit()
-                await session.refresh(block)
-                status_by_id = await load_task_status_map(session, [getattr(block, "task_id", None)])
-                return ScheduledBlock.model_validate(
-                    scheduled_block_payload(block, status_by_id.get(getattr(block, "task_id", None)))
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            raise HTTPException(status_code=400, detail="Request could not be processed.")
-
-    @router.delete("/api/calendar/scheduled-blocks/{block_id}")
-    async def delete_scheduled_block(
-        block_id: str,
-        current_user=Depends(get_current_user),
-    ):
-        try:
-            async with get_db_session() as session:
-                result = await session.execute(
-                    select(ScheduledBlockDB).where(
-                        and_(
-                            ScheduledBlockDB.id == block_id,
-                            ScheduledBlockDB.user_id == current_user["id"],
-                        )
-                    )
-                )
-                block = result.scalar_one_or_none()
-                if not block:
-                    raise HTTPException(status_code=404, detail="Scheduled block not found")
-                await session.delete(block)
-                await session.commit()
-                return {"deleted": True, "id": block_id}
-        except HTTPException:
-            raise
         except Exception:
             raise HTTPException(status_code=400, detail="Request could not be processed.")
 

@@ -15,7 +15,8 @@ const TYPE_ICON: Record<EntityType, typeof CheckSquare> = {
   artifact: FileText,
   conversation: MessageSquare,
   experiment: FlaskConical,
-  calendar_block: CalendarDays,
+  calendar_event: CalendarDays,
+  calendar_occurrence: CalendarDays,
   day: Calendar,
   time_window: CalendarRange,
 };

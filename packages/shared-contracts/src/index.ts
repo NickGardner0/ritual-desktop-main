@@ -114,6 +114,25 @@ export {
   redactAnalyticsProperties,
   shouldRedactAnalyticsProperty,
 } from "./privacy";
+
+export type {
+  CalendarEvent,
+  CalendarEventKind,
+  CalendarEventOrigin,
+  CalendarEventStatus,
+  CalendarMode,
+  CalendarMutationProposal,
+  CalendarOccurrence,
+  CalendarPreferences,
+  CalendarRangeReadModel,
+  CalendarReviewData,
+  CalendarSource,
+  CalendarSyncState,
+  CalendarTaskSummary,
+  CalendarView,
+  RecurrenceScope,
+  WorkflowTimelineItem,
+} from "./calendar";
 export type {
   CloudConsent,
   CloudDestination,

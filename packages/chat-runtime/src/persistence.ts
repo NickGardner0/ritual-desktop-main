@@ -72,7 +72,7 @@ export async function createFactSuggestions(
 const ENTITY_MENTION_TOKEN_RE = /\[\[([a-z_]+):([^\]]+)\]\]/g;
 const ENTITY_TYPE_ALIASES: Record<string, string> = {
   report: 'artifact',
-  calendar: 'calendar_block',
+  calendar: 'calendar_event',
 };
 const ENTITY_TYPES = new Set([
   'habit',
@@ -82,7 +82,8 @@ const ENTITY_TYPES = new Set([
   'artifact',
   'conversation',
   'experiment',
-  'calendar_block',
+  'calendar_event',
+  'calendar_occurrence',
   'day',
   'time_window',
 ]);

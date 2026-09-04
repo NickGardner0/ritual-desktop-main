@@ -425,6 +425,7 @@ export function buildSeedRoutineRuns(userId: string, routines: Routine[] = build
     routine_id: routineId,
     user_id: stableUserId(userId),
     scheduled_for: atLocalDay(offset, 9),
+    scheduled_for: atLocalDay(offset, 9),
     status,
     generated_task_id: output === "task" ? `${id}-task` : null,
     generated_scheduled_block_id: null,
@@ -506,6 +507,7 @@ export function appendDemoRoutineGeneration(userId: string, routine?: Routine | 
     routine_id: sourceRoutine.id,
     user_id: stableUserId(userId),
     scheduled_for: generatedAt,
+    scheduled_for: generatedAt,
     status: "generated",
     generated_task_id: task.id,
     generated_scheduled_block_id: null,
@@ -586,8 +588,8 @@ export function buildVisibleSeedTasks(
 
 export function sortTasksForDisplay(tasks: Task[]) {
   return tasks.slice().sort((a, b) => {
-    const aTime = new Date(a.scheduled_for || a.due_at || a.created_at || 0).getTime();
-    const bTime = new Date(b.scheduled_for || b.due_at || b.created_at || 0).getTime();
+    const aTime = new Date(a.due_at || a.created_at || 0).getTime();
+    const bTime = new Date(b.due_at || b.created_at || 0).getTime();
     if (a.status !== b.status) return ACTIVE_TASK_STATUSES.has(a.status) ? -1 : 1;
     return aTime - bTime;
   });

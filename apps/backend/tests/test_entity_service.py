@@ -43,27 +43,27 @@ class EntityServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary.privacyClass, "task")
         self.assertEqual(summary.route, "/tasks?task=task-1")
 
-    async def test_maps_calendar_block_and_report_aliases(self):
+    async def test_maps_calendar_event_and_calendar_alias(self):
         service = EntityService()
         service._load = AsyncMock(
             return_value=SimpleNamespace(
-                id="block-1",
+                id="event-1",
                 title="Deep work",
-                day="2026-08-17",
-                start_minutes=540,
-                end_minutes=600,
+                start_date="2026-08-17",
+                start_at=None,
+                status="confirmed",
                 updated_at=None,
             )
         )
 
-        summary = await service.get_summary("user-1", "calendar", "block-1")
+        summary = await service.get_summary("user-1", "calendar", "event-1")
 
         self.assertEqual(summary.availability, "ok")
-        self.assertEqual(summary.ref.type, "calendar_block")
-        self.assertEqual(summary.subtitle, "2026-08-17 · 09:00–10:00")
-        self.assertEqual(summary.privacyClass, "task")
-        self.assertEqual(summary.route, "/calendar?block=block-1")
-        service._load.assert_awaited_with("user-1", "calendar_block", "block-1")
+        self.assertEqual(summary.ref.type, "calendar_event")
+        self.assertEqual(summary.subtitle, "2026-08-17")
+        self.assertEqual(summary.privacyClass, "calendar_event")
+        self.assertEqual(summary.route, "/calendar?event=event-1")
+        service._load.assert_awaited_with("user-1", "calendar_event", "event-1")
 
     async def test_missing_id_is_unknown(self):
         service = EntityService()

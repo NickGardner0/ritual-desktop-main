@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Any, List, Optional, Sequence, Tuple
 from uuid import uuid4
 
@@ -12,13 +13,14 @@ from database.models import (
     AIConversationDB,
     ArtifactDB,
     ArtifactLinkDB,
+    CalendarEventDB,
+    CalendarOccurrenceDB,
     EntityReferenceDB,
     ExperimentDB,
     HabitDB,
     HabitLogDB,
     RoutineDB,
     RoutineRunDB,
-    ScheduledBlockDB,
     TaskDB,
 )
 from database.models.base import _utcnow_naive
@@ -51,15 +53,6 @@ def _iso(value: Any) -> Optional[str]:
         except Exception:
             return str(value)
     return str(value)
-
-
-def _minutes_label(minutes: Any) -> str:
-    try:
-        total = max(0, int(minutes or 0))
-    except (TypeError, ValueError):
-        total = 0
-    hours, mins = divmod(total, 60)
-    return f"{hours:02d}:{mins:02d}"
 
 
 def _ok_summary(
@@ -436,6 +429,17 @@ class EntityService:
                 result[entity_id] = FORBIDDEN_ENTITY
         return result
 
+    async def _load_calendar_occurrences_many(self, session, user_id: str, ids: Sequence[str]) -> dict[str, Any]:
+        unique_ids = list(dict.fromkeys(ids))
+        if not unique_ids:
+            return {}
+        rows = await session.execute(
+            select(CalendarOccurrenceDB, CalendarEventDB)
+            .join(CalendarEventDB, CalendarEventDB.id == CalendarOccurrenceDB.event_id)
+            .where(CalendarOccurrenceDB.id.in_(unique_ids), CalendarOccurrenceDB.user_id == user_id)
+        )
+        return {row[0].id: row for row in rows.all()}
+
     async def _load_many(self, session, user_id: str, entity_type: str, ids: Sequence[str]) -> dict[Tuple[str, str], Any]:
         loaded: dict[str, Any]
         if entity_type == "habit_log":
@@ -452,8 +456,10 @@ class EntityService:
             loaded = await self._load_owned_many(session, AIConversationDB, ids, user_id)
         elif entity_type == "experiment":
             loaded = await self._load_owned_many(session, ExperimentDB, ids, user_id)
-        elif entity_type == "calendar_block":
-            loaded = await self._load_owned_many(session, ScheduledBlockDB, ids, user_id)
+        elif entity_type == "calendar_event":
+            loaded = await self._load_owned_many(session, CalendarEventDB, ids, user_id)
+        elif entity_type == "calendar_occurrence":
+            loaded = await self._load_calendar_occurrences_many(session, user_id, ids)
         else:
             return {}
         return {(entity_type, entity_id): row for entity_id, row in loaded.items()}
@@ -529,16 +535,26 @@ class EntityService:
                 status=row.status,
                 updated_at=row.updated_at,
             )
-        if entity_type == "calendar_block":
-            time_range = f"{_minutes_label(row.start_minutes)}–{_minutes_label(row.end_minutes)}"
-            subtitle = f"{row.day} · {time_range}"
+        if entity_type == "calendar_event":
+            subtitle = row.start_date or _iso(row.start_at)
             return _ok_summary(
-                entity_type="calendar_block",
+                entity_type="calendar_event",
                 entity_id=row.id,
                 title=row.title,
                 subtitle=subtitle,
-                status=time_range,
+                status=row.status,
                 updated_at=row.updated_at,
+            )
+        if entity_type == "calendar_occurrence":
+            occurrence, event = row
+            subtitle = occurrence.start_date or _iso(occurrence.start_at)
+            return _ok_summary(
+                entity_type="calendar_occurrence",
+                entity_id=occurrence.id,
+                title=event.title,
+                subtitle=subtitle,
+                status=occurrence.status,
+                updated_at=occurrence.updated_at,
             )
         return unavailable_summary(EntityRef(type=entity_type, id=getattr(row, "id", "")), "unknown")
 
@@ -615,16 +631,19 @@ class EntityService:
             query = query.order_by(desc(ExperimentDB.updated_at)).limit(limit)
             return [self._to_summary("experiment", row) for row in (await session.execute(query)).scalars().all()]
 
-        if entity_type == "calendar_block":
-            query = select(ScheduledBlockDB).where(ScheduledBlockDB.user_id == user_id)
+        if entity_type == "calendar_event":
+            query = select(CalendarEventDB).where(
+                CalendarEventDB.user_id == user_id,
+                CalendarEventDB.deleted_at.is_(None),
+            )
             if like:
                 query = query.where(
-                    ScheduledBlockDB.title.ilike(like)
-                    | ScheduledBlockDB.notes.ilike(like)
-                    | ScheduledBlockDB.day.ilike(like)
+                    CalendarEventDB.title.ilike(like)
+                    | CalendarEventDB.description.ilike(like)
+                    | CalendarEventDB.attendees_json.ilike(like)
                 )
-            query = query.order_by(desc(ScheduledBlockDB.day), desc(ScheduledBlockDB.start_minutes)).limit(limit)
-            return [self._to_summary("calendar_block", row) for row in (await session.execute(query)).scalars().all()]
+            query = query.order_by(desc(CalendarEventDB.updated_at)).limit(limit)
+            return [self._to_summary("calendar_event", row) for row in (await session.execute(query)).scalars().all()]
 
         return []
 
@@ -644,14 +663,15 @@ class EntityService:
                     edges.append(RelatedEntity(ref=EntityRef(type="habit", id=task.linked_habit_id), relationship="linked_habit", source="fk"))
                 if task.linked_artifact_id:
                     edges.append(RelatedEntity(ref=EntityRef(type="artifact", id=task.linked_artifact_id), relationship="linked", source="fk"))
-                blocks = await session.execute(
-                    select(ScheduledBlockDB).where(
-                        ScheduledBlockDB.user_id == user_id,
-                        ScheduledBlockDB.task_id == entity_id,
+                events = await session.execute(
+                    select(CalendarEventDB).where(
+                        CalendarEventDB.user_id == user_id,
+                        CalendarEventDB.task_id == entity_id,
+                        CalendarEventDB.deleted_at.is_(None),
                     )
                 )
-                for block in blocks.scalars().all():
-                    edges.append(RelatedEntity(ref=EntityRef(type="calendar_block", id=block.id), relationship="scheduled_as", source="fk"))
+                for event in events.scalars().all():
+                    edges.append(RelatedEntity(ref=EntityRef(type="calendar_event", id=event.id), relationship="scheduled_as", source="fk"))
             elif entity_type == "habit_log":
                 result = await session.execute(
                     select(HabitLogDB, HabitDB)
@@ -675,8 +695,6 @@ class EntityService:
                 for run in result.scalars().all():
                     if run.generated_task_id:
                         edges.append(RelatedEntity(ref=EntityRef(type="task", id=run.generated_task_id), relationship="generated_by", source="fk"))
-                    if run.generated_scheduled_block_id:
-                        edges.append(RelatedEntity(ref=EntityRef(type="calendar_block", id=run.generated_scheduled_block_id), relationship="generated_by", source="fk"))
             elif entity_type == "artifact":
                 result = await session.execute(
                     select(ArtifactDB).where(ArtifactDB.id == entity_id, ArtifactDB.user_id == user_id)
@@ -706,30 +724,27 @@ class EntityService:
                 )
                 for artifact in result.scalars().all():
                     edges.append(RelatedEntity(ref=EntityRef(type="artifact", id=artifact.id), relationship="source_conversation", source="fk"))
-            elif entity_type == "calendar_block":
+            elif entity_type == "calendar_event":
                 result = await session.execute(
-                    select(ScheduledBlockDB).where(
-                        ScheduledBlockDB.id == entity_id,
-                        ScheduledBlockDB.user_id == user_id,
+                    select(CalendarEventDB).where(
+                        CalendarEventDB.id == entity_id,
+                        CalendarEventDB.user_id == user_id,
+                        CalendarEventDB.deleted_at.is_(None),
                     )
                 )
-                block = result.scalar_one_or_none()
-                if block is None:
+                event = result.scalar_one_or_none()
+                if event is None:
                     return []
-                if getattr(block, "task_id", None):
-                    edges.append(RelatedEntity(ref=EntityRef(type="task", id=block.task_id), relationship="scheduled_as", source="fk"))
-                runs = await session.execute(
-                    select(RoutineRunDB)
-                    .where(
-                        RoutineRunDB.user_id == user_id,
-                        RoutineRunDB.generated_scheduled_block_id == entity_id,
-                    )
-                    .order_by(desc(RoutineRunDB.scheduled_for))
-                    .limit(4)
-                )
-                for run in runs.scalars().all():
-                    if run.routine_id:
+                if event.task_id:
+                    edges.append(RelatedEntity(ref=EntityRef(type="task", id=event.task_id), relationship="scheduled_as", source="fk"))
+                if event.routine_run_id:
+                    run = await session.get(RoutineRunDB, event.routine_run_id)
+                    if run and run.user_id == user_id:
                         edges.append(RelatedEntity(ref=EntityRef(type="routine", id=run.routine_id), relationship="generated_by", source="fk"))
+            elif entity_type == "calendar_occurrence":
+                occurrence = await session.get(CalendarOccurrenceDB, entity_id)
+                if occurrence and occurrence.user_id == user_id:
+                    edges.append(RelatedEntity(ref=EntityRef(type="calendar_event", id=occurrence.event_id), relationship="occurrence_of", source="fk"))
             elif entity_type == "experiment":
                 result = await session.execute(
                     select(ExperimentDB).where(ExperimentDB.id == entity_id, ExperimentDB.user_id == user_id)
@@ -754,16 +769,23 @@ class EntityService:
                             source="fk",
                         )
                     )
-                blocks = await session.execute(
-                    select(ScheduledBlockDB)
-                    .where(ScheduledBlockDB.user_id == user_id, ScheduledBlockDB.day == entity_id)
-                    .order_by(ScheduledBlockDB.start_minutes)
+                start_at = datetime.fromisoformat(entity_id)
+                end_at = start_at + timedelta(days=1)
+                events = await session.execute(
+                    select(CalendarEventDB).where(
+                        CalendarEventDB.user_id == user_id,
+                        CalendarEventDB.deleted_at.is_(None),
+                        or_(
+                            CalendarEventDB.start_date == entity_id,
+                            and_(CalendarEventDB.start_at >= start_at, CalendarEventDB.start_at < end_at),
+                        ),
+                    )
                     .limit(12)
                 )
-                for block in blocks.scalars().all():
+                for event in events.scalars().all():
                     edges.append(
                         RelatedEntity(
-                            ref=EntityRef(type="calendar_block", id=block.id),
+                            ref=EntityRef(type="calendar_event", id=event.id),
                             relationship="scheduled_on",
                             source="fk",
                         )
@@ -810,20 +832,25 @@ class EntityService:
                             source="fk",
                         )
                     )
-                blocks = await session.execute(
-                    select(ScheduledBlockDB)
+                start_at = datetime.fromisoformat(start)
+                end_at = datetime.fromisoformat(end) + timedelta(days=1)
+                events = await session.execute(
+                    select(CalendarEventDB)
                     .where(
-                        ScheduledBlockDB.user_id == user_id,
-                        ScheduledBlockDB.day >= start,
-                        ScheduledBlockDB.day <= end,
+                        CalendarEventDB.user_id == user_id,
+                        CalendarEventDB.deleted_at.is_(None),
+                        or_(
+                            and_(CalendarEventDB.start_date >= start, CalendarEventDB.start_date <= end),
+                            and_(CalendarEventDB.start_at >= start_at, CalendarEventDB.start_at < end_at),
+                        ),
                     )
-                    .order_by(ScheduledBlockDB.day, ScheduledBlockDB.start_minutes)
+                    .order_by(CalendarEventDB.start_at, CalendarEventDB.start_date)
                     .limit(12)
                 )
-                for block in blocks.scalars().all():
+                for event in events.scalars().all():
                     edges.append(
                         RelatedEntity(
-                            ref=EntityRef(type="calendar_block", id=block.id),
+                            ref=EntityRef(type="calendar_event", id=event.id),
                             relationship="scheduled_on",
                             source="fk",
                         )

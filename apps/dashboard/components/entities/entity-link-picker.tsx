@@ -15,7 +15,8 @@ const AUTOCOMPLETE_TYPES: EntityType[] = [
   "habit",
   "task",
   "routine",
-  "calendar_block",
+  "calendar_event",
+  "calendar_occurrence",
   "day",
   "time_window",
 ];

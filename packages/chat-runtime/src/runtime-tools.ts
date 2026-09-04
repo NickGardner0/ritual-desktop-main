@@ -16,6 +16,9 @@ import {
   executeGetDailyBiometrics,
   executeGetScreenTimeSummary,
   executeGetCalendarEvents,
+  executeSearchCalendar,
+  executeFindCalendarAvailability,
+  executeProposeCalendarChanges,
   executeGetSmsPreferences,
   executeUpdateSmsPreferences,
 } from './executors/index.js';
@@ -184,6 +187,13 @@ export async function dispatchToolCall(
       return executeGetScreenTimeSummary(token, a, ctx.timezone);
     case 'getCalendarEvents':
       return executeGetCalendarEvents(token, a, ctx.timezone);
+    case 'searchCalendar':
+      return executeSearchCalendar(token, a);
+    case 'findCalendarAvailability':
+      return executeFindCalendarAvailability(token, { ...a, timezone: a.timezone || ctx.timezone });
+    case 'proposeCalendarChanges':
+    case 'planMyDay':
+      return executeProposeCalendarChanges(token, a, ctx.conversationId);
     case 'logHabit':
       return executeLogHabit(token, a, ctx.timezone, {
         conversationId: ctx.conversationId,

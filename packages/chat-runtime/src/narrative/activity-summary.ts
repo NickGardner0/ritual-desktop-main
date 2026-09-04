@@ -103,8 +103,12 @@ function buildRecapEnrichmentContext(payload: any): string {
       .slice(0, 6)
       .map((event: any) => {
         const title = clipContextText(event?.title || 'Untitled', 64);
-        const startTime = String(event?.start_time || '').trim();
-        const endTime = String(event?.end_time || '').trim();
+        const formatTime = (value: unknown) => {
+          const parsed = new Date(String(value || ''));
+          return Number.isNaN(parsed.getTime()) ? '' : parsed.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        };
+        const startTime = event?.all_day ? 'All day' : formatTime(event?.start);
+        const endTime = event?.all_day ? '' : formatTime(event?.end);
         const timeRange = [startTime, endTime].filter(Boolean).join(' - ');
         return timeRange ? `${timeRange}: ${title}` : title;
       })

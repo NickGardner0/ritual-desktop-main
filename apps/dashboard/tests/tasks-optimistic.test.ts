@@ -67,13 +67,13 @@ test("task local-first builders create deterministic pending records", () => {
     random: () => 0.5,
   });
   const task = buildOptimisticTask(
-    { title: "Review notes", category: "Work", scheduled_for: NOW },
+    { title: "Review notes", category: "Work", due_at: NOW },
     "user-1",
     { clientEventId, now: NOW },
   );
   const outboxItem = buildTaskCreateOutboxItem(
     "user-1",
-    { title: "Review notes", category: "Work", scheduled_for: NOW },
+    { title: "Review notes", category: "Work", due_at: NOW },
     task,
     NOW,
   );
@@ -175,4 +175,3 @@ test("task local-first status updates keep completion timestamps consistent", ()
   assert.equal(completed.completed_at, NOW);
   assert.equal(reviewed.completed_at, null);
 });
-

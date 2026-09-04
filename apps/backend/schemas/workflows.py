@@ -85,6 +85,7 @@ class WorkflowDefinitionRead(BaseModel):
     trigger_type: WorkflowTriggerType = "schedule"
     signal_kind: Optional[str] = None
     cooldown_minutes: int = 240
+    expected_duration_minutes: int = 30
     quiet_hours: Dict[str, Any] = Field(default_factory=dict)
     status: WorkflowStatus
     schedule: WorkflowSchedule
@@ -116,6 +117,7 @@ class WorkflowDefinitionCreate(BaseModel):
     quiet_hours: Dict[str, Any] = Field(default_factory=dict)
     delivery: WorkflowDelivery = Field(default_factory=WorkflowDelivery)
     cooldown_minutes: int = 240
+    expected_duration_minutes: int = Field(default=30, ge=5, le=720)
     action_profile_id: Optional[str] = None
 
 
@@ -131,6 +133,7 @@ class WorkflowDefinitionUpdate(BaseModel):
     quiet_hours: Optional[Dict[str, Any]] = None
     delivery: Optional[WorkflowDelivery] = None
     cooldown_minutes: Optional[int] = None
+    expected_duration_minutes: Optional[int] = Field(default=None, ge=5, le=720)
     action_profile_id: Optional[str] = None
 
 

@@ -11,6 +11,13 @@ from database.models.conversations import (
     AssistantTurnDB,
     ConversationQueueItemDB,
 )
+from database.models.calendar import (
+    CalendarAccountDB,
+    CalendarEventDB,
+    CalendarOccurrenceDB,
+    CalendarSourceDB,
+    CalendarSyncRunDB,
+)
 from database.models.experiments import ExperimentDB, ExperimentEntryDB
 from database.models.entities import EntityReferenceDB
 from database.models.facts import (
@@ -27,7 +34,6 @@ from database.models.financial import (
 from database.models.habits import (
     HabitDB,
     HabitLogDB,
-    ScheduledBlockDB,
     HabitAliasDB,
     HabitProjectionPolicyDB,
 )
@@ -134,6 +140,11 @@ __all__ = [
     "ArtifactRevisionDB",
     "AssistantTurnDB",
     "BehaviorBaselineSnapshotDB",
+    "CalendarAccountDB",
+    "CalendarEventDB",
+    "CalendarOccurrenceDB",
+    "CalendarSourceDB",
+    "CalendarSyncRunDB",
     "ConversationQueueItemDB",
     "EntityReferenceDB",
     "ExperimentDB",
@@ -168,7 +179,6 @@ __all__ = [
     "ReportScheduleDB",
     "RoutineDB",
     "RoutineRunDB",
-    "ScheduledBlockDB",
     "SchedulerOccurrenceClaimDB",
     "ScreenTimeRollupDB",
     "SmsCopilotEventDB",

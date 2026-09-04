@@ -181,11 +181,15 @@ export interface CalendarEventsResult {
   end_date?: string;
   events?: Array<{
     id?: string;
+    occurrence_id?: string;
     title: string;
-    day: string;
-    start_time: string;
-    end_time: string;
-    duration_minutes: number;
+    start?: string;
+    end?: string;
+    all_day?: boolean;
+    kind?: string;
+    source?: string;
+    conflict?: boolean;
+    sync_state?: string;
   }>;
   event_count?: number;
   error?: string;

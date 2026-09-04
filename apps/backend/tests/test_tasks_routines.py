@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from api.tasks import create_tasks_router
 from api.workflows import create_workflows_router
-from database.models import Base, EntityReferenceDB, HabitDB, RoutineDB, ScheduledBlockDB, TaskDB, UserDB
+from database.models import Base, EntityReferenceDB, HabitDB, RoutineDB, TaskDB, UserDB
 from schemas.tasks import RoutineCreate, TaskCreate, TaskUpdate
 from services.recurrence import humanize_recurrence, next_run_at, next_run_preview
 from services.tasks_service import TaskRoutineValidationError, tasks_service
@@ -114,7 +114,7 @@ class TasksRoutinesServiceTests(unittest.IsolatedAsyncioTestCase):
                 TaskCreate(
                     title="Review experiment notes",
                     category="Experiments",
-                    scheduled_for=datetime(2026, 6, 29, 13, 0, 0),
+                    due_at=datetime(2026, 6, 29, 13, 0, 0),
                 ),
             )
             completed = await tasks_service.update_task(
@@ -374,7 +374,7 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
         transport = httpx.ASGITransport(app=self.build_app())
         return httpx.AsyncClient(transport=transport, base_url="http://testserver")
 
-    async def test_task_api_crud_reschedule_macro_statuses_archive_reload(self):
+    async def test_task_api_crud_deadline_statuses_archive_reload(self):
         with patch("services.tasks_service.get_db_session", self.db_session):
             async with await self.api_client() as client:
                 created_response = await client.post(
@@ -382,7 +382,7 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                     json={
                         "title": "API task",
                         "category": "Work",
-                        "scheduled_for": "2026-06-29T13:00:00",
+                        "due_at": "2026-06-29T13:00:00",
                     },
                 )
                 self.assertEqual(created_response.status_code, 200)
@@ -392,16 +392,15 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(completed_response.status_code, 200)
                 self.assertEqual(completed_response.json()["status"], "completed")
 
-                rescheduled_response = await client.patch(
+                reopened_response = await client.patch(
                     f"/api/tasks/{task_id}",
                     json={
                         "status": "open",
-                        "scheduled_for": "2026-07-01T14:00:00",
                         "due_at": "2026-07-01T14:00:00",
                     },
                 )
-                self.assertEqual(rescheduled_response.status_code, 200)
-                self.assertEqual(rescheduled_response.json()["status"], "open")
+                self.assertEqual(reopened_response.status_code, 200)
+                self.assertEqual(reopened_response.json()["status"], "open")
 
                 in_progress_response = await client.patch(
                     f"/api/tasks/{task_id}", json={"status": "in_progress", "priority": "urgent"}
@@ -514,25 +513,17 @@ class TasksRoutinesApiTests(unittest.IsolatedAsyncioTestCase):
                 generated = await client.post("/api/routines/generate-due?reference_utc=2026-06-29T13:30:00")
                 self.assertEqual(generated.status_code, 200)
                 self.assertEqual(generated.json()["generated_tasks"], 1)
-                self.assertEqual(generated.json()["generated_scheduled_blocks"], 1)
                 self.assertEqual(generated.json()["generated_workflow_runs"], 1)
                 generated_run = generated.json()["runs"][0]
                 self.assertIsNotNone(generated_run["generated_task_id"])
-                self.assertIsNotNone(generated_run["generated_scheduled_block_id"])
 
                 second = await client.post("/api/routines/generate-due?reference_utc=2026-06-29T13:30:00")
                 self.assertEqual(second.status_code, 200)
                 self.assertEqual(second.json()["generated_tasks"], 0)
-                self.assertEqual(second.json()["generated_scheduled_blocks"], 0)
 
                 async with self.Session() as session:
                     task = await session.get(TaskDB, generated_run["generated_task_id"])
-                    block = await session.get(ScheduledBlockDB, generated_run["generated_scheduled_block_id"])
                     self.assertEqual(task.linked_habit_id, "habit-api")
-                    self.assertEqual(block.task_id, task.id)
-                    self.assertEqual(block.day, "2026-06-29")
-                    self.assertEqual(block.start_minutes, 540)
-                    self.assertEqual(block.end_minutes, 600)
 
                 paused_response = await client.post(
                     "/api/routines",

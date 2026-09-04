@@ -215,14 +215,100 @@ export const tools: ModelEngineTool[] = [
     type: 'function',
     function: {
       name: 'getCalendarEvents',
-      description: 'Get scheduled blocks/events from the user calendar for a date range. Use for "what do I have scheduled", "calendar today", "upcoming events", "what\'s on my calendar".',
+      description: 'Read Ritual Calendar V2 for a date range, including events, task allocations, workflow plans/executions, conflicts, and optional Review evidence. This tool never mutates the calendar.',
       parameters: {
         type: 'object',
         properties: {
           startDate: { type: 'string', description: 'Start date YYYY-MM-DD (default: today)' },
           endDate: { type: 'string', description: 'End date YYYY-MM-DD (default: today)' },
+          mode: { type: 'string', enum: ['plan', 'review'], description: 'Plan shows commitments; Review also includes actual behavior evidence.' },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'searchCalendar',
+      description: 'Search calendar events, task allocations, tasks, projects, attendees, and workflows. Use this to resolve exact event IDs before proposing a change.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'Search text.' } },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'findCalendarAvailability',
+      description: 'Find free time without changing the calendar. Confirmed busy events and task allocations block availability; free events and workflows do not.',
+      parameters: {
+        type: 'object',
+        properties: {
+          start: { type: 'string', description: 'Inclusive ISO date-time.' },
+          end: { type: 'string', description: 'Exclusive ISO date-time.' },
+          timezone: { type: 'string', description: 'IANA time zone.' },
+          minimumMinutes: { type: 'number', description: 'Minimum free window length.' },
+          workdayStartMinutes: { type: 'number', description: 'Local minutes after midnight, default 480.' },
+          workdayEndMinutes: { type: 'number', description: 'Local minutes after midnight, default 1080.' },
+        },
+        required: ['start', 'end'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'proposeCalendarChanges',
+      description: 'Prepare editable ghost previews for event creation, movement, resizing, deletion, recurrence changes, RSVP, task allocation, or Google publication. This only creates approval requests; it never applies calendar mutations. Resolve exact IDs first and include recurrence scope explicitly.',
+      parameters: {
+        type: 'object',
+        properties: {
+          changes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                action: { type: 'string', enum: ['create_event', 'update_event', 'move_event', 'resize_event', 'delete_event', 'rsvp', 'publish', 'create_task_allocation'] },
+                event_id: { type: 'string' },
+                occurrence_id: { type: 'string' },
+                recurrence_scope: { type: 'string', enum: ['occurrence', 'following', 'series'] },
+                after: { type: 'object', additionalProperties: true },
+              },
+              required: ['action', 'after'],
+            },
+          },
+        },
+        required: ['changes'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'planMyDay',
+      description: 'Prepare a selectable Plan My Day preview from open tasks, deadlines, priorities, existing busy events, working hours, buffers, and locked allocations. Never move external meetings or publish task allocations unless each action is explicitly included. This creates approval requests only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          changes: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                action: { type: 'string', enum: ['create_task_allocation', 'move_event', 'resize_event'] },
+                event_id: { type: 'string' },
+                occurrence_id: { type: 'string' },
+                recurrence_scope: { type: 'string', enum: ['occurrence', 'following', 'series'] },
+                after: { type: 'object', additionalProperties: true },
+              },
+              required: ['action', 'after'],
+            },
+          },
+        },
+        required: ['changes'],
       },
     },
   },

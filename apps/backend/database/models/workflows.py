@@ -44,6 +44,7 @@ class WorkflowDefinitionDB(Base):
     cadence = Column(String, nullable=False, default="daily")
     send_hour_local = Column(Integer, nullable=False, default=8)
     send_minute_local = Column(Integer, nullable=False, default=0)
+    expected_duration_minutes = Column(Integer, nullable=False, default=30)
     send_weekdays_json = Column(Text, nullable=False, default="[]")
     delivery_channel = Column(String, nullable=False, default="in_app")
     delivery_json = Column(Text, nullable=False, default="{}")
@@ -184,6 +185,5 @@ class AmbientSignalEventDB(Base):
     user = orm_relationship("UserDB")
     workflow_definition = orm_relationship("WorkflowDefinitionDB")
     workflow_run = orm_relationship("WorkflowRunDB")
-
 
 

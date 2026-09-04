@@ -34,7 +34,6 @@ export async function executeCreateTask(token: string, params: {
   title: string;
   notes?: string;
   dueAt?: string;
-  scheduledFor?: string;
   priority?: string;
   category?: string;
 }, conversationCtx?: {
@@ -51,7 +50,6 @@ export async function executeCreateTask(token: string, params: {
       conversation_id: conversationId,
     };
     if (params.dueAt) body.due_at = params.dueAt;
-    if (params.scheduledFor) body.scheduled_for = params.scheduledFor;
     if (params.priority) body.priority = params.priority;
     if (params.category) body.category = params.category;
 

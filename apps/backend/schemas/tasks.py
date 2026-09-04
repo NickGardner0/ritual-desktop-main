@@ -18,10 +18,10 @@ TaskStatus = Literal[
     "archived",
 ]
 TaskPriority = Literal["none", "low", "medium", "high", "urgent"]
-TaskSource = Literal["manual", "routine", "ai", "calendar", "habit", "experiment"]
+TaskSource = Literal["manual", "routine", "ai", "habit", "experiment"]
 
 RoutineStatus = Literal["draft", "scheduled", "paused", "archived"]
-RoutineKind = Literal["task", "ai_workflow", "habit_prompt", "calendar_block", "mixed"]
+RoutineKind = Literal["task", "ai_workflow", "habit_prompt", "mixed"]
 RoutineTriggerType = Literal["daily", "weekly", "monthly", "yearly", "on_completion"]
 RoutineRunStatus = Literal["scheduled", "generated", "completed", "skipped", "failed"]
 
@@ -32,7 +32,6 @@ class TaskCreate(BaseModel):
     status: TaskStatus = "open"
     priority: TaskPriority = "none"
     due_at: Optional[datetime] = None
-    scheduled_for: Optional[datetime] = None
     source: TaskSource = "manual"
     project: Optional[str] = None
     category: Optional[str] = None
@@ -51,7 +50,6 @@ class TaskUpdate(BaseModel):
     status: Optional[TaskStatus] = None
     priority: Optional[TaskPriority] = None
     due_at: Optional[datetime] = None
-    scheduled_for: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     project: Optional[str] = None
     category: Optional[str] = None
@@ -68,7 +66,6 @@ class TaskRead(BaseModel):
     status: TaskStatus
     priority: TaskPriority
     due_at: Optional[datetime] = None
-    scheduled_for: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     source: TaskSource
     project: Optional[str] = None
@@ -167,7 +164,6 @@ class RoutineRunRead(BaseModel):
     scheduled_for: datetime
     status: RoutineRunStatus
     generated_task_id: Optional[str] = None
-    generated_scheduled_block_id: Optional[str] = None
     workflow_run_id: Optional[str] = None
     completed_at: Optional[datetime] = None
     skipped_at: Optional[datetime] = None
@@ -180,7 +176,6 @@ class RoutineRunRead(BaseModel):
 class RoutineGenerateResponse(BaseModel):
     queued: int = 0
     generated_tasks: int = 0
-    generated_scheduled_blocks: int = 0
     generated_workflow_runs: int = 0
     skipped: int = 0
     runs: List[RoutineRunRead] = Field(default_factory=list)

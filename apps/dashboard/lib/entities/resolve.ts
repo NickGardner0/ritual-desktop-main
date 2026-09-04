@@ -37,27 +37,7 @@ const VAULT_COLLECTIONS: Partial<Record<EntityType, string>> = {
   habit_log: HABIT_LOGS_COLLECTION,
   task: TASKS_COLLECTION,
   routine: ROUTINES_COLLECTION,
-  calendar_block: "scheduled_blocks",
 };
-
-type ScheduledBlockVault = {
-  id: string;
-  title: string;
-  notes?: string | null;
-  day: string;
-  start_minutes?: number;
-  end_minutes?: number;
-  startMinutes?: number;
-  endMinutes?: number;
-  updated_at?: string;
-};
-
-function minutesLabel(minutes: number | undefined): string {
-  const total = Math.max(0, Number(minutes || 0));
-  const hours = Math.floor(total / 60);
-  const mins = total % 60;
-  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
-}
 
 function canonicalizeRef(ref: EntityRef): EntityRef {
   return {
@@ -146,22 +126,6 @@ function summaryFromRoutine(routine: Routine): EntitySummary {
   };
 }
 
-function summaryFromCalendarBlock(block: ScheduledBlockVault): EntitySummary | null {
-  if (!block.id) return null;
-  const start = block.start_minutes ?? block.startMinutes ?? 0;
-  const end = block.end_minutes ?? block.endMinutes ?? start;
-  return {
-    ref: { type: "calendar_block", id: block.id },
-    title: block.title || "Calendar block",
-    subtitle: `${block.day} · ${minutesLabel(start)}–${minutesLabel(end)}`,
-    status: `${minutesLabel(start)}–${minutesLabel(end)}`,
-    route: entityRoute("calendar_block", block.id),
-    updatedAt: block.updated_at,
-    privacyClass: entityTypeToPrivacyClass("calendar_block"),
-    availability: "ok",
-  };
-}
-
 async function resolveFromVault(ref: EntityRef, userId: string): Promise<EntitySummary | null> {
   const collection = VAULT_COLLECTIONS[ref.type];
   if (!collection || !canUseDesktopVault()) return null;
@@ -172,7 +136,6 @@ async function resolveFromVault(ref: EntityRef, userId: string): Promise<EntityS
   if (ref.type === "habit_log") return summaryFromLog(record.payload as HabitLog);
   if (ref.type === "task") return summaryFromTask(record.payload as Task);
   if (ref.type === "routine") return summaryFromRoutine(record.payload as Routine);
-  if (ref.type === "calendar_block") return summaryFromCalendarBlock(record.payload as ScheduledBlockVault);
   return null;
 }
 
@@ -287,7 +250,8 @@ const DEFAULT_LOCAL_SEARCH_TYPES: EntityType[] = [
   "habit",
   "task",
   "routine",
-  "calendar_block",
+  "calendar_event",
+  "calendar_occurrence",
   "day",
   "time_window",
 ];
@@ -365,16 +329,6 @@ export async function searchLocalEntities(
       if (record.tombstone) continue;
       if (!matches(record.payload.title) && !matches(record.payload.description || "")) continue;
       items.push(summaryFromRoutine(record.payload));
-    }
-  }
-  if (wanted.has("calendar_block")) {
-    const records = await listSlice<ScheduledBlockVault>("scheduled_blocks");
-    for (const record of records || []) {
-      if (record.tombstone) continue;
-      const payload = record.payload;
-      if (!matches(payload.title) && !matches(payload.notes || "") && !matches(payload.day)) continue;
-      const summary = summaryFromCalendarBlock(payload);
-      if (summary) items.push(summary);
     }
   }
   return items.slice(0, cap);

@@ -185,16 +185,6 @@ function TaskDetailEditor({
               onChange={(category) => onUpdate(task.id, { category })}
             />
           </DetailFieldRow>
-          <DetailFieldRow label="Schedule" inCard>
-            <InlineFieldInput
-              type="date"
-              value={dateInputValue(task.scheduled_for)}
-              onChange={(event) => onUpdate(task.id, {
-                scheduled_for: inputDateToIso(event.target.value),
-              })}
-              className="w-[150px]"
-            />
-          </DetailFieldRow>
           <DetailFieldRow label="Deadline" inCard>
             <InlineFieldInput
               type="date"

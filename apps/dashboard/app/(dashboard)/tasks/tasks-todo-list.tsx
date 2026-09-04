@@ -33,14 +33,14 @@ import type { Task, TaskUpdateInput } from '@/lib/tasks/types';
 import { cn } from '@/lib/utils';
 
 function taskTodoMetadata(task: Task): string | null {
-  const dateLabel = relativeDayLabel(task.scheduled_for || task.due_at);
+  const dateLabel = relativeDayLabel(task.due_at);
   const context = task.project || task.category;
   if (dateLabel && context) return `${dateLabel} → ${context}`;
   return dateLabel || context || null;
 }
 
 function selectedScheduleDate(task: Task): Date | undefined {
-  const value = task.scheduled_for || task.due_at;
+  const value = task.due_at;
   if (!value) return undefined;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? undefined : parsed;
@@ -143,7 +143,7 @@ function TaskTodoRow({
 }) {
   const metadata = taskTodoMetadata(task);
   const completed = completing || task.status === 'completed';
-  const hasDate = Boolean(task.scheduled_for || task.due_at);
+  const hasDate = Boolean(task.due_at);
 
   return (
     <DropdownMenu open={menuOpen} onOpenChange={onMenuOpenChange}>
@@ -227,15 +227,15 @@ function TaskTodoRow({
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
-          onSelect={() => onUpdate({ scheduled_for: scheduleIsoForDate(new Date()) })}
+          onSelect={() => onUpdate({ due_at: scheduleIsoForDate(new Date()) })}
         >
           <CalendarDays className="h-3.5 w-3.5" />
-          Schedule for today
+          Set deadline today
         </DropdownMenuItem>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>
             <CalendarIcon className="h-3.5 w-3.5" />
-            Schedule...
+            Deadline...
           </DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="p-0">
             <div
@@ -248,7 +248,7 @@ function TaskTodoRow({
                 selected={selectedScheduleDate(task)}
                 onSelect={(date) => {
                   if (!date) return;
-                  onUpdate({ scheduled_for: scheduleIsoForDate(date) });
+                  onUpdate({ due_at: scheduleIsoForDate(date) });
                   onMenuOpenChange(false);
                 }}
               />
@@ -257,7 +257,7 @@ function TaskTodoRow({
         </DropdownMenuSub>
         {hasDate ? (
           <DropdownMenuItem
-            onSelect={() => onUpdate({ due_at: null, scheduled_for: null })}
+            onSelect={() => onUpdate({ due_at: null })}
           >
             <X className="h-3.5 w-3.5" />
             Clear date

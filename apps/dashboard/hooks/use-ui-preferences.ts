@@ -4,6 +4,7 @@ import { useCallback } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiOperationWithAuth } from '@/lib/api/client';
+import type { CalendarPreferences } from '@ritual/shared-contracts';
 const LOCAL_STORAGE_KEY = 'ritual:ui-preferences:v1';
 const QUERY_KEY = ['ui-preferences'];
 
@@ -19,6 +20,7 @@ function isOverviewViewMode(value: unknown): value is OverviewViewMode {
 export interface UIPreferences {
   habit_text_color: string | null;
   overview_view_mode: OverviewViewMode | null;
+  calendar_preferences: CalendarPreferences | null;
 }
 
 function readCachedPreferences(): UIPreferences | undefined {
@@ -34,6 +36,10 @@ function readCachedPreferences(): UIPreferences | undefined {
       overview_view_mode: isOverviewViewMode(parsed.overview_view_mode)
         ? parsed.overview_view_mode
         : null,
+      calendar_preferences:
+        parsed.calendar_preferences && typeof parsed.calendar_preferences === 'object'
+          ? parsed.calendar_preferences as CalendarPreferences
+          : null,
     };
   } catch {
     return undefined;
@@ -62,13 +68,14 @@ export function useUIPreferences() {
         getToken,
         {},
         user?.id,
-      ) as { habit_text_color?: string | null; overview_view_mode?: unknown };
+      ) as { habit_text_color?: string | null; overview_view_mode?: unknown; calendar_preferences?: CalendarPreferences | null };
       const prefs: UIPreferences = {
         habit_text_color:
           typeof data?.habit_text_color === 'string' ? data.habit_text_color : null,
         overview_view_mode: isOverviewViewMode(data?.overview_view_mode)
           ? data.overview_view_mode
           : null,
+        calendar_preferences: data?.calendar_preferences ?? null,
       };
       writeCachedPreferences(prefs);
       return prefs;
@@ -81,10 +88,11 @@ export function useUIPreferences() {
   const habitTextColor = query.data?.habit_text_color ?? DEFAULT_HABIT_TEXT_COLOR;
   const overviewViewMode: OverviewViewMode =
     query.data?.overview_view_mode ?? DEFAULT_OVERVIEW_VIEW_MODE;
+  const calendarPreferences = query.data?.calendar_preferences ?? null;
 
   const setHabitTextColor = useCallback(
     async (color: string | null) => {
-      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
       const next: UIPreferences = {
         ...previous,
         habit_text_color: color,
@@ -109,7 +117,7 @@ export function useUIPreferences() {
 
   const setOverviewViewMode = useCallback(
     async (mode: OverviewViewMode) => {
-      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null };
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
       const next: UIPreferences = {
         ...previous,
         overview_view_mode: mode,
@@ -132,11 +140,35 @@ export function useUIPreferences() {
     [getToken, queryClient, query.data, user?.id],
   );
 
+  const setCalendarPreferences = useCallback(
+    async (preferences: CalendarPreferences) => {
+      const previous = query.data ?? { habit_text_color: null, overview_view_mode: null, calendar_preferences: null };
+      const next: UIPreferences = { ...previous, calendar_preferences: preferences };
+      queryClient.setQueryData<UIPreferences>([...QUERY_KEY, user?.id], next);
+      writeCachedPreferences(next);
+
+      try {
+        await apiOperationWithAuth(
+          'update_ui_preferences_api_ui_preferences_patch',
+          getToken,
+          { body: { calendar_preferences: preferences } },
+          user?.id,
+        );
+      } catch {
+        queryClient.invalidateQueries({ queryKey: [...QUERY_KEY, user?.id] });
+        throw new Error('Failed to save calendar preferences');
+      }
+    },
+    [getToken, queryClient, query.data, user?.id],
+  );
+
   return {
     habitTextColor,
     setHabitTextColor,
     overviewViewMode,
     setOverviewViewMode,
+    calendarPreferences,
+    setCalendarPreferences,
     isLoading: query.isLoading,
   };
 }

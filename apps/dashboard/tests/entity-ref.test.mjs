@@ -10,7 +10,8 @@ const ENTITY_ROUTES = {
   artifact: (id) => `/reports?artifactId=${encodeURIComponent(id)}`,
   conversation: (id) => `/chat?conversation=${encodeURIComponent(id)}`,
   experiment: (id) => `/experiments/${encodeURIComponent(id)}`,
-  calendar_block: (id) => `/calendar?block=${encodeURIComponent(id)}`,
+  calendar_event: (id) => `/calendar?event=${encodeURIComponent(id)}`,
+  calendar_occurrence: (id) => `/calendar?occurrence=${encodeURIComponent(id)}`,
   day: (id) => `/calendar?date=${encodeURIComponent(id)}`,
   time_window: (id) => {
     const [from, to] = id.split("/");
@@ -20,7 +21,7 @@ const ENTITY_ROUTES = {
 
 const ENTITY_TYPE_ALIASES = {
   report: "artifact",
-  calendar: "calendar_block",
+  calendar: "calendar_event",
 };
 
 function canonicalEntityType(value) {
@@ -84,16 +85,17 @@ test("canonical entity routes cover layer 0 types and experiments", () => {
   assert.equal(ENTITY_ROUTES.artifact("a1"), "/reports?artifactId=a1");
   assert.equal(ENTITY_ROUTES.conversation("c1"), "/chat?conversation=c1");
   assert.equal(ENTITY_ROUTES.experiment("e1"), "/experiments/e1");
-  assert.equal(ENTITY_ROUTES.calendar_block("b1"), "/calendar?block=b1");
+  assert.equal(ENTITY_ROUTES.calendar_event("e1"), "/calendar?event=e1");
+  assert.equal(ENTITY_ROUTES.calendar_occurrence("o1"), "/calendar?occurrence=o1");
   assert.equal(ENTITY_ROUTES.day("2026-08-17"), "/calendar?date=2026-08-17");
   assert.equal(ENTITY_ROUTES.time_window("2026-08-11/2026-08-17"), "/activity?from=2026-08-11&to=2026-08-17");
 });
 
 test("report and calendar aliases canonicalize to existing types", () => {
   assert.equal(canonicalEntityType("report"), "artifact");
-  assert.equal(canonicalEntityType("calendar"), "calendar_block");
+  assert.equal(canonicalEntityType("calendar"), "calendar_event");
   assert.equal(ENTITY_ROUTES[canonicalEntityType("report")]("a1"), "/reports?artifactId=a1");
-  assert.equal(ENTITY_ROUTES[canonicalEntityType("calendar")]("b1"), "/calendar?block=b1");
+  assert.equal(ENTITY_ROUTES[canonicalEntityType("calendar")]("e1"), "/calendar?event=e1");
 });
 
 test("entity protocol flag is on unless explicitly disabled", () => {
@@ -125,13 +127,6 @@ test("search buckets normalize artifacts and conversations", () => {
   assert.equal(merged.length, 2);
   assert.equal(merged[0].title, "Morning brief");
   assert.equal(merged[1].ref.type, "conversation");
-});
-
-test("calendar block subtitle encodes day and time range", () => {
-  const match = "2026-08-17 · 09:00–10:00".match(/^(\d{4}-\d{2}-\d{2})\s·\s(\d{2}):(\d{2})[–-](\d{2}):(\d{2})$/);
-  assert.equal(match[1], "2026-08-17");
-  assert.equal(Number(match[2]) * 60 + Number(match[3]), 540);
-  assert.equal(Number(match[4]) * 60 + Number(match[5]), 600);
 });
 
 const ENTITY_MENTION_TOKEN_PATTERN = /\[\[([a-z_]+):([^\]]+)\]\]/g;
@@ -240,7 +235,7 @@ test("mention tokens round-trip and canonicalize report aliases", () => {
   const parsed = parseEntityMentionTokens("Notes [[report:a1]] and [[artifact:a1]] [[calendar:b1]]");
   assert.deepEqual(parsed, [
     { type: "artifact", id: "a1" },
-    { type: "calendar_block", id: "b1" },
+    { type: "calendar_event", id: "b1" },
   ]);
 });
 
@@ -264,7 +259,7 @@ test("compact pills prefer status or a short subtitle", () => {
   assert.equal(entityPillMeta({ ref: { type: "task", id: "t1" }, status: "open", subtitle: "Personal" }), "Not Started");
   assert.equal(entityPillMeta({ ref: { type: "task", id: "t2" }, status: "completed" }), "Completed");
   assert.equal(entityPillMeta({ ref: { type: "habit_log", id: "l1" }, status: "completed", subtitle: "2026-08-17" }), "2026-08-17");
-  assert.equal(entityPillMeta({ ref: { type: "calendar_block", id: "b1" }, status: "09:00–10:00", subtitle: "2026-08-17 · 09:00–10:00" }), "09:00–10:00");
+  assert.equal(entityPillMeta({ ref: { type: "calendar_event", id: "e1" }, status: "confirmed", subtitle: "2026-08-17T09:00:00" }), "confirmed");
   assert.equal(entityPillMeta({ ref: { type: "artifact", id: "a1" }, subtitle: "notebook", status: "published" }), "notebook");
 });
 

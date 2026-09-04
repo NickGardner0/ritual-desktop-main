@@ -38,6 +38,7 @@ SCHEDULER_JOB_DEFINITIONS = (
     SchedulerJobDefinition("tesla_odometer_sync", "hourly_domain", 3600, "clock_occurrence", 3300, "Tesla odometer sync"),
     SchedulerJobDefinition("financial_sync", "hourly_domain", 3600, "clock_occurrence", 3300, "Financial connection sync"),
     SchedulerJobDefinition("location_ping_retention", "hourly_domain", 3600, "clock_occurrence", 3300, "Location ping retention"),
+    SchedulerJobDefinition("google_calendar_reconciliation", "hourly_domain", 3600, "clock_occurrence", 3300, "Google Calendar reconciliation"),
     SchedulerJobDefinition("habit_reports", "habit_reports", 900, "clock_occurrence", 720, "Habit report dispatch and processing"),
     SchedulerJobDefinition("workflow_runs", "workflow_runs", 300, "clock_occurrence", 240, "Scheduled workflow dispatch and processing"),
     SchedulerJobDefinition("ambient_signals", "ambient_signals", 900, "clock_occurrence", 720, "Ambient signal evaluation"),

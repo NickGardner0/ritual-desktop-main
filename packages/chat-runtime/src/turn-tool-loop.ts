@@ -158,12 +158,20 @@ export function collectToolResult(toolResults: ChatToolResults, name: string, ra
           for (const event of parsed.events || []) {
             if (event?.id) {
               appendEntityRef(toolResults, {
-                type: 'calendar_block',
+                type: 'calendar_event',
                 id: String(event.id),
                 title: typeof event.title === 'string' ? event.title : undefined,
               });
             }
           }
+        }
+        break;
+      case 'searchCalendar':
+      case 'findCalendarAvailability':
+      case 'proposeCalendarChanges':
+      case 'planMyDay':
+        if (parsed.success) {
+          toolResults.calendarEvents = parsed;
         }
         break;
       case 'logHabit':
