@@ -101,7 +101,7 @@ jobs:
         run: npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: Build pinned agent sidecar
-        run: npm run desktop:pin:agent
+        run: npm run build:chat-runtime && npm run desktop:pin:agent
 
       - name: Rust watcher check
         working-directory: apps/desktop/src-tauri/bin/ritual-watcher
