@@ -91,6 +91,18 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@87eb139fed4b08a67bd1fa429a21d1f5d523e03e # 1.92.0
 
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: Build pinned agent sidecar
+        run: npm run desktop:pin:agent
+
       - name: Rust watcher check
         working-directory: apps/desktop/src-tauri/bin/ritual-watcher
         run: cargo check
