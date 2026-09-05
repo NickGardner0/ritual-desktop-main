@@ -87,7 +87,15 @@ export function searchCalendar(getToken: GetToken, userId: string | undefined, q
 export function findCalendarAvailability(
   getToken: GetToken,
   userId: string | undefined,
-  input: { start: string; end: string; timezone: string; minimum_minutes?: number; source_ids?: string[] },
+  input: {
+    start: string;
+    end: string;
+    timezone: string;
+    minimum_minutes?: number;
+    source_ids?: string[];
+    workday_start_minutes?: number;
+    workday_end_minutes?: number;
+  },
 ) {
   return requestJson<{ formatted_text: string; windows: Array<{ start_at: string; end_at: string }> }>(
     '/api/calendar/availability',

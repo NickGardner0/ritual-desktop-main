@@ -5,7 +5,7 @@ import type { CalendarPreferences } from '@ritual/shared-contracts';
 
 import { useUIPreferences } from '@/hooks/use-ui-preferences';
 
-const localKey = 'ritual:calendar-preferences:v2';
+const localKey = 'ritual:calendar-preferences:v3';
 
 function systemTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -26,27 +26,47 @@ function localeWeekStart(): 0 | 1 {
 
 export function defaultCalendarPreferences(): CalendarPreferences {
   return {
-    version: 2,
-    view: 'day',
+    version: 3,
+    view: 'week',
     mode: 'plan',
-    tasks_open: true,
-    agents_open: true,
-    pane_widths: { tasks: 288, agents: 336 },
+    tasks_open: false,
+    side_panel_open: true,
+    show_weekends: true,
+    time_format: '12h',
     visible_source_ids: [],
     default_write_source_id: null,
     timezone: systemTimezone(),
     week_starts_on: localeWeekStart(),
     workday_start_minutes: 8 * 60,
     workday_end_minutes: 18 * 60,
-    snap_minutes: 15,
+    snap_minutes: 30,
     default_duration_minutes: 30,
+  };
+}
+
+function normalizePreferences(value: Partial<CalendarPreferences> & { version?: number } | null): CalendarPreferences {
+  const defaults = defaultCalendarPreferences();
+  if (!value) return defaults;
+  const legacy = value.version !== 3;
+  return {
+    ...defaults,
+    ...value,
+    version: 3,
+    view: legacy && value.view === 'day' ? 'week' : value.view ?? defaults.view,
+    tasks_open: legacy ? false : value.tasks_open ?? false,
+    side_panel_open: value.side_panel_open ?? true,
+    show_weekends: value.show_weekends ?? true,
+    time_format: value.time_format === '24h' ? '24h' : '12h',
+    snap_minutes: legacy ? 30 : value.snap_minutes ?? defaults.snap_minutes,
   };
 }
 
 function readLocal(): CalendarPreferences | null {
   try {
-    const value = JSON.parse(window.localStorage.getItem(localKey) || 'null') as CalendarPreferences | null;
-    return value?.version === 2 ? value : null;
+    const current = JSON.parse(window.localStorage.getItem(localKey) || 'null') as CalendarPreferences | null;
+    if (current) return normalizePreferences(current);
+    const legacy = JSON.parse(window.localStorage.getItem('ritual:calendar-preferences:v2') || 'null') as Partial<CalendarPreferences> | null;
+    return legacy ? normalizePreferences(legacy) : null;
   } catch {
     return null;
   }
@@ -63,7 +83,7 @@ export function useCalendarPreferences() {
   useEffect(() => {
     if (hydrated.current || !remote) return;
     hydrated.current = true;
-    setPreferences({ ...defaultCalendarPreferences(), ...remote, pane_widths: { ...defaultCalendarPreferences().pane_widths, ...remote.pane_widths } });
+    setPreferences(normalizePreferences(remote));
   }, [remote]);
 
   useEffect(() => {

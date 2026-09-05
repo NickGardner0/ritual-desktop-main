@@ -214,6 +214,36 @@ class CalendarV2Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(applied["applied"], [proposals[0]["id"]])
         self.assertEqual(after_count, 1)
 
+    async def test_availability_uses_saved_workday_bounds_and_subtracts_busy_events(self):
+        day_start = datetime(2026, 9, 7, 12, 0, tzinfo=UTC)
+        with patch("services.calendar_service.get_db_session", self.db_session):
+            await calendar_service.create_event(
+                "calendar-user",
+                CalendarEventCreate(
+                    title="Busy block",
+                    start_at=day_start + timedelta(hours=1),
+                    end_at=day_start + timedelta(hours=2),
+                    timezone="America/New_York",
+                    availability="busy",
+                    client_event_id="availability-busy",
+                ),
+            )
+            result = await calendar_service.availability(
+                "calendar-user",
+                start=day_start,
+                end=day_start + timedelta(hours=8),
+                timezone_name="America/New_York",
+                workday_start_minutes=8 * 60,
+                workday_end_minutes=16 * 60,
+                minimum_minutes=30,
+            )
+
+        self.assertEqual(len(result["windows"]), 2)
+        self.assertEqual(result["windows"][0]["start_at"].hour, 8)
+        self.assertEqual(result["windows"][0]["end_at"].hour, 9)
+        self.assertEqual(result["windows"][1]["start_at"].hour, 10)
+        self.assertEqual(result["windows"][1]["end_at"].hour, 16)
+
 
 if __name__ == "__main__":
     unittest.main()

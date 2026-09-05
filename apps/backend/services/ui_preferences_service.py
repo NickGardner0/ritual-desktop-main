@@ -38,7 +38,12 @@ def _normalize_overview_view_mode(value: Optional[str]) -> Optional[str]:
 
 def _normalize_calendar_preferences(value: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     source = dict(value or {})
-    view = source.get("view", "day")
+    source_version = int(source.get("version", 2))
+    view = source.get("view", "week")
+    if source_version < 3 and view == "day":
+        # Calendar V2 opened on Day even when the user had never chosen it.
+        # Move legacy defaults to the new calendar-first Week experience.
+        view = "week"
     mode = source.get("mode", "plan")
     if view not in VALID_CALENDAR_VIEWS:
         raise ValueError("Invalid calendar view")
@@ -47,24 +52,24 @@ def _normalize_calendar_preferences(value: Optional[Dict[str, Any]]) -> Dict[str
     snap_minutes = int(source.get("snap_minutes", 15))
     if snap_minutes not in {5, 10, 15, 30, 60}:
         raise ValueError("Invalid calendar snap interval")
-    pane_widths = source.get("pane_widths") if isinstance(source.get("pane_widths"), dict) else {}
+    time_format = source.get("time_format", "12h")
+    if time_format not in {"12h", "24h"}:
+        raise ValueError("Invalid calendar time format")
     return {
-        "version": 2,
+        "version": 3,
         "view": view,
         "mode": mode,
-        "tasks_open": bool(source.get("tasks_open", True)),
-        "agents_open": bool(source.get("agents_open", True)),
-        "pane_widths": {
-            "tasks": max(248, min(360, int(pane_widths.get("tasks", 288)))),
-            "agents": max(280, min(420, int(pane_widths.get("agents", 336)))),
-        },
+        "tasks_open": bool(source.get("tasks_open", False)) if source_version >= 3 else False,
+        "side_panel_open": bool(source.get("side_panel_open", True)),
+        "show_weekends": bool(source.get("show_weekends", True)),
+        "time_format": time_format,
         "visible_source_ids": [str(item) for item in source.get("visible_source_ids", []) if item],
         "default_write_source_id": source.get("default_write_source_id"),
         "timezone": str(source.get("timezone") or "UTC"),
         "week_starts_on": 1 if int(source.get("week_starts_on", 0)) == 1 else 0,
         "workday_start_minutes": max(0, min(1439, int(source.get("workday_start_minutes", 480)))),
         "workday_end_minutes": max(1, min(1440, int(source.get("workday_end_minutes", 1080)))),
-        "snap_minutes": snap_minutes,
+        "snap_minutes": snap_minutes if source_version >= 3 else 30,
         "default_duration_minutes": max(5, min(720, int(source.get("default_duration_minutes", 30)))),
     }
 

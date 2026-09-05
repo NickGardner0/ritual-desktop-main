@@ -66,6 +66,7 @@ export type CalendarOccurrence = {
   source_id: string | null;
   title: string;
   description: string | null;
+  location: Record<string, unknown>;
   kind: CalendarEventKind;
   origin: CalendarEventOrigin;
   task_id: string | null;
@@ -76,6 +77,7 @@ export type CalendarOccurrence = {
   timezone: string;
   all_day: boolean;
   status: CalendarEventStatus;
+  self_response_status: "accepted" | "declined" | "tentative" | "needsAction" | null;
   availability: "busy" | "free";
   visibility: "default" | "public" | "private" | "confidential";
   source_name: string | null;
@@ -154,12 +156,13 @@ export type CalendarMutationProposal = {
 };
 
 export type CalendarPreferences = {
-  version: 2;
+  version: 3;
   view: CalendarView;
   mode: CalendarMode;
   tasks_open: boolean;
-  agents_open: boolean;
-  pane_widths: { tasks: number; agents: number };
+  side_panel_open: boolean;
+  show_weekends: boolean;
+  time_format: "12h" | "24h";
   visible_source_ids: string[];
   default_write_source_id: string | null;
   timezone: string;

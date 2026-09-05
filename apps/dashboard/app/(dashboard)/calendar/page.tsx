@@ -19,10 +19,12 @@ export const metadata: Metadata = {
 // Loading skeleton for calendar - Midday style
 function CalendarLoading() {
   return (
-    <div className="flex min-h-full bg-[var(--surface-content)]">
-      <div className="w-72 border-r border-[var(--border-subtle)] bg-[var(--surface-raised)]" />
-      <div className="flex-1 animate-pulse bg-[linear-gradient(var(--border-subtle)_1px,transparent_1px)] bg-[length:100%_30px]" />
-      <div className="hidden w-80 border-l border-[var(--border-subtle)] bg-[var(--surface-raised)] xl:block" />
+    <div className="flex min-h-full flex-col bg-[var(--surface-content)]">
+      <div className="h-[52px] border-b border-[var(--border-subtle)]" />
+      <div className="flex min-h-0 flex-1 gap-2 p-2">
+        <div className="flex-1 animate-pulse rounded-lg border border-[var(--border-subtle)] bg-[linear-gradient(var(--border-subtle)_1px,transparent_1px)] bg-[length:100%_64px]" />
+        <div className="hidden w-80 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-raised)] xl:block" />
+      </div>
     </div>
   );
 }

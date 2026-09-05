@@ -142,12 +142,12 @@ export function CalendarEventEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto p-0">
-        <DialogHeader className="border-b border-[var(--border-subtle)] px-6 py-5">
+      <DialogContent className="max-h-[88vh] max-w-xl overflow-y-auto p-0">
+        <DialogHeader className="border-b border-[var(--border-subtle)] px-5 py-4">
           <DialogTitle>{event ? 'Edit calendar event' : seed?.kind === 'task_allocation' ? 'Schedule task' : 'New calendar event'}</DialogTitle>
           <DialogDescription>Calendar changes are synced to the selected source. Conflicts warn but do not block saving.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-5 px-6 py-5">
+        <div className="grid gap-4 px-5 py-4">
           <div className="grid gap-2"><Label htmlFor="calendar-title">Title</Label><Input id="calendar-title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} /></div>
           <div className="grid gap-2"><Label htmlFor="calendar-description">Description</Label><textarea id="calendar-description" className="ritual-calendar-textarea" rows={3} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
           <div className="ritual-calendar-editor-grid">
@@ -172,7 +172,7 @@ export function CalendarEventEditor({
             <label className="ritual-calendar-scope"><CalendarClock /><span>Edit</span><select value={scope} onChange={(e) => setScope(e.target.value as RecurrenceScope)}><option value="occurrence">This occurrence</option><option value="following">This and following</option><option value="series">Entire series</option></select></label>
           ) : null}
         </div>
-        <DialogFooter className="border-t border-[var(--border-subtle)] px-6 py-4">
+        <DialogFooter className="border-t border-[var(--border-subtle)] px-5 py-3">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button variant="brand" disabled={saving || !title.trim()} onClick={() => void submit()}>{saving ? 'Saving…' : seed?.kind === 'task_allocation' ? 'Schedule task' : 'Save event'}</Button>
         </DialogFooter>

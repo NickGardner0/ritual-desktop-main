@@ -772,6 +772,11 @@ class CalendarService:
                 event = override_event or series_event
                 if mode == "plan" and occurrence.status == "canceled":
                     continue
+                attendees = _json_load(event.attendees_json, [])
+                self_attendee = next(
+                    (item for item in attendees if isinstance(item, dict) and item.get("self") is True),
+                    None,
+                )
                 occurrences.append(
                     {
                         "id": occurrence.id,
@@ -779,6 +784,7 @@ class CalendarService:
                         "source_id": event.source_id,
                         "title": event.title,
                         "description": event.description,
+                        "location": _json_load(event.location_json, {}),
                         "kind": event.kind,
                         "origin": event.origin,
                         "task_id": event.task_id,
@@ -789,6 +795,7 @@ class CalendarService:
                         "timezone": occurrence.timezone,
                         "all_day": bool(occurrence.all_day),
                         "status": occurrence.status,
+                        "self_response_status": self_attendee.get("responseStatus") if self_attendee else None,
                         "availability": event.availability,
                         "visibility": event.visibility,
                         "source_name": source.name if source else None,
