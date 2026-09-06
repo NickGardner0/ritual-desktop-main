@@ -381,6 +381,10 @@ export async function desktopCompleteAuthHandoff(handoffId: string): Promise<voi
   await invokeDesktopCommand('desktop_complete_auth_handoff', { handoffId });
 }
 
+export async function desktopPollAuthHandoff(): Promise<DesktopNativeAuthSession> {
+  return invokeDesktopCommand<DesktopNativeAuthSession>('desktop_poll_auth_handoff');
+}
+
 export async function getDesktopRuntimeState(): Promise<DesktopRuntimeState | null> {
   if (!isDesktopTauriRuntime()) return null;
 

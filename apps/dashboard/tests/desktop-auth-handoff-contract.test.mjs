@@ -28,6 +28,22 @@ test('native verifier is represented in the browser only by its SHA-256 challeng
   assert.match(native, /append_pair\("nonce", &pending\.nonce\)/);
 });
 
+test('unbundled Ritual Dev can consume its pending handoff without a registered URL scheme', async () => {
+  const page = await readFile('apps/desktop-ui/src/pages/desktop-auth-page.tsx', 'utf8');
+  const origin = await readFile('apps/dashboard/lib/desktop-auth-origin.ts', 'utf8');
+  const native = await readFile(
+    'apps/desktop/src-tauri/src/desktop_runtime/auth_handoff.rs',
+    'utf8',
+  );
+  assert.match(native, /fn desktop_poll_auth_handoff/);
+  assert.match(native, /pending\.nonce/);
+  assert.doesNotMatch(native, /pub nonce: String/);
+  assert.match(page, /handoff\.channel === 'development'/);
+  assert.match(page, /desktopPollAuthHandoff/);
+  assert.doesNotMatch(page, /handoff\.nonce/);
+  assert.doesNotMatch(origin, /searchParams\.set\('nonce'/);
+});
+
 test('Clerk session JWT is minted only after the durable one-time consume succeeds', async () => {
   const route = await readFile(
     'apps/dashboard/app/api/auth/desktop-sign-in-token/route.ts',

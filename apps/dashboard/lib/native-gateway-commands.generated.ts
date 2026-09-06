@@ -18,6 +18,7 @@ export const NATIVE_COMMANDS = [
   "desktop_get_resident_runtime_state",
   "desktop_install_update",
   "desktop_manual_update_check",
+  "desktop_poll_auth_handoff",
   "desktop_quit_completely",
   "desktop_record_shell_event",
   "desktop_set_auth_token",
@@ -105,6 +106,7 @@ export const NATIVE_COMMAND_CAPABILITIES = {
   "desktop_get_resident_runtime_state": "desktop-runtime",
   "desktop_install_update": "desktop-runtime",
   "desktop_manual_update_check": "desktop-runtime",
+  "desktop_poll_auth_handoff": "desktop-runtime",
   "desktop_quit_completely": "desktop-runtime",
   "desktop_record_shell_event": "desktop-shell-bootstrap",
   "desktop_set_auth_token": "desktop-runtime",
@@ -192,6 +194,7 @@ export type NativeCommandInputs = {
   desktop_get_resident_runtime_state: Record<string, never>;
   desktop_install_update: Record<string, never>;
   desktop_manual_update_check: Record<string, never>;
+  desktop_poll_auth_handoff: Record<string, never>;
   desktop_quit_completely: Record<string, never>;
   desktop_record_shell_event: { name: string; level?: string | null; data?: unknown | null };
   desktop_set_auth_token: { token: string; userId?: string | null; backendBase?: string | null; sessionId?: string | null; profile?: unknown | null };
@@ -277,6 +280,7 @@ export type NativeCommandOutputs = {
   desktop_get_resident_runtime_state: unknown;
   desktop_install_update: void;
   desktop_manual_update_check: unknown;
+  desktop_poll_auth_handoff: unknown;
   desktop_quit_completely: unknown;
   desktop_record_shell_event: void;
   desktop_set_auth_token: unknown;

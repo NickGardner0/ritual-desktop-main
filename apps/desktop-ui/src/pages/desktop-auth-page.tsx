@@ -10,9 +10,23 @@ import {
 } from '@/lib/desktop-auth-origin';
 import {
   desktopBeginAuthHandoff,
+  desktopCompleteAuthHandoff,
+  desktopGetAuthToken,
+  desktopPollAuthHandoff,
   openInBrowserFromDesktopAuth,
   recordDesktopShellEvent,
 } from '@/lib/native-gateway';
+import { useAuth } from '@/lib/desktop-session';
+import { useRouter } from '@/lib/app-navigation';
+import { storePendingDesktopAuthAcknowledgement } from '@/lib/desktop-auth-handoff';
+import {
+  clearFromWelcomeFlow,
+  clearSignUpIntent,
+  markDeviceAuthenticated,
+} from '@/lib/onboarding-flow';
+import { initializeDesktopVault } from '@/lib/privacy/vault-client';
+
+const DEVELOPMENT_HANDOFF_POLL_MS = 1_000;
 
 const HOME_WELCOME_LOGO_PX = 36;
 const welcomeHeadingStyle: CSSProperties = {
@@ -36,9 +50,46 @@ async function startDesktopOAuth(mode: DesktopOAuthMode, strategy: DesktopOAuthS
     protocol: handoff.protocol,
   });
   await openInBrowserFromDesktopAuth(oauthStartUrl);
+  return handoff;
+}
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+function isPendingDevelopmentHandoff(error: unknown): boolean {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return message.includes('handoff not found')
+    || message.includes('request failed')
+    || message.includes('network')
+    || message.includes('fetch');
+}
+
+async function consumeDevelopmentHandoff(
+  handoff: Awaited<ReturnType<typeof startDesktopOAuth>>,
+): Promise<void> {
+  let lastError: unknown = null;
+  while (Date.now() < handoff.expiresAtMs) {
+    try {
+      await desktopPollAuthHandoff();
+      await desktopCompleteAuthHandoff(handoff.handoffId);
+      storePendingDesktopAuthAcknowledgement(handoff.handoffId);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!isPendingDevelopmentHandoff(error)) throw error;
+      await wait(DEVELOPMENT_HANDOFF_POLL_MS);
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Ritual Dev sign-in expired. Please try again.');
 }
 
 export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
+  const { getToken } = useAuth();
+  const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isLogoSpinning, setIsLogoSpinning] = useState(false);
@@ -61,7 +112,23 @@ export function DesktopAuthPage({ mode }: { mode: DesktopOAuthMode }) {
     setError(null);
     setBusy(true);
     try {
-      await startDesktopOAuth(mode, strategy);
+      const handoff = await startDesktopOAuth(mode, strategy);
+      if (handoff.channel === 'development') {
+        await consumeDevelopmentHandoff(handoff);
+        await getToken();
+        markDeviceAuthenticated();
+        clearFromWelcomeFlow();
+        clearSignUpIntent();
+        const session = await desktopGetAuthToken({ refresh: false });
+        if (session?.userId) {
+          await initializeDesktopVault(session.userId);
+        }
+        void recordDesktopShellEvent('desktop.auth_handoff.development_poll_succeeded', 'info', {
+          mode,
+          protocol: handoff.protocol,
+        });
+        router.replace('/dashboard');
+      }
     } catch (launchError) {
       const message = launchError instanceof Error ? launchError.message : String(launchError);
       void recordDesktopShellEvent('desktop.auth_oauth.launch_failed', 'error', {

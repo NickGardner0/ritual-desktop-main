@@ -332,6 +332,39 @@ pub fn desktop_consume_auth_handoff<R: Runtime>(
     Ok(returned)
 }
 
+#[tauri::command]
+#[instrument(skip(app))]
+pub fn desktop_poll_auth_handoff<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<super::auth_session::DesktopNativeAuthSession, String> {
+    let pending_path = pending_handoff_path();
+    let pending: PendingDesktopAuthHandoff = serde_json::from_slice(
+        &fs::read(&pending_path)
+            .map_err(|_| "No pending desktop authentication request exists".to_string())?,
+    )
+    .map_err(|error| format!("Pending desktop authentication request is invalid: {error}"))?;
+    if pending.expires_at_ms <= Utc::now().timestamp_millis() {
+        let _ = fs::remove_file(&pending_path);
+        return Err("Pending desktop authentication request expired".to_string());
+    }
+
+    let runtime = super::build_runtime_info(&app);
+    let native_metadata = serde_json::json!({
+        "appVersion": runtime.version,
+        "buildSha": runtime.build_sha,
+        "bundleId": runtime.bundle_id,
+        "target": runtime.target,
+    });
+    desktop_consume_auth_handoff(
+        app,
+        pending.handoff_id,
+        pending.nonce,
+        pending.channel,
+        pending.protocol,
+        Some(native_metadata),
+    )
+}
+
 fn reconcile_native_user_configs(user_id: &str) -> Result<(), String> {
     let trimmed_user_id = user_id.trim();
     if trimmed_user_id.is_empty() {

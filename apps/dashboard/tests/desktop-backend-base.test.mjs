@@ -8,9 +8,11 @@ test('hosted desktop hands native FastAPI the production backend, not loopback',
   const source = await readFile(sourceUrl, 'utf8')
 
   assert.match(source, /NEXT_PUBLIC_RITUAL_BACKEND_BASE_URL/)
+  assert.match(source, /VITE_PYTHON_API_URL/)
+  assert.match(source, /NEXT_PUBLIC_PYTHON_API_URL/)
   assert.match(source, /backend-api-production-a37e\.up\.railway\.app/)
-  assert.match(source, /isLocalDashboardHost/)
-  assert.match(source, /hostname === 'localhost'/)
+  assert.doesNotMatch(source, /isLocalDashboardHost/)
+  assert.doesNotMatch(source, /LOCAL_DESKTOP_BACKEND_BASE/)
   assert.doesNotMatch(
     source,
     /NEXT_PUBLIC_RITUAL_BACKEND_BASE_URL \|\| LOCAL_DESKTOP_BACKEND_BASE/,

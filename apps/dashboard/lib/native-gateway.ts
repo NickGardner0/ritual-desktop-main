@@ -50,6 +50,7 @@ export {
   desktopHasCapability,
   desktopBeginAuthHandoff,
   desktopCompleteAuthHandoff,
+  desktopPollAuthHandoff,
   desktopGetAuthToken,
   desktopSetAuthToken,
   desktopSetPrivacyState,
